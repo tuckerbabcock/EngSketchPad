@@ -360,7 +360,7 @@ aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValue *a
     /// initialize PUMI EGADS model
     struct gmi_model *pumiModel = gmi_egads_init(body);
 
-    int nnode = pumiModel->n[0];
+    // int nnode = pumiModel->n[0];
     int nedge = pumiModel->n[1];
     int nface = pumiModel->n[2];
 
@@ -378,16 +378,30 @@ aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValue *a
         return EGADS_WRITERR;
     }
 
-    /// TODO: set model ent if n > npts
+    int nMeshVert = mesh->numNode;
+    apf::MeshEntity *verts[nMeshVert];
+
     /// create all mesh vertices without model entities or parameters
-    double scaleFactor = 1.0; // for now
     for (int i = 0; i < mesh->numNode; i++) {
 
         apf::Vector3 vtxCoords(mesh->node[i].xyz);
         apf::Vector3 vtxParam(0.0, 0.0, 0.0);
+        // if (i >= npts)
+        // {
+        //     int nodeIndex;
+        //     if (mesh->meshQuickRef.startIndexNode >= 0) {
+        //         nodeIndex = mesh->meshQuickRef.startIndexNode + i;
+        //     } else {
+        //         nodeIndex = mesh->meshQuickRef.listIndexNode[i];
+        //     }
+        //     meshElementStruct node = mesh->element[nodeIndex];
+        //     if (node.topoIndex != NODE)
+        //         return CAPS_BADINDEX;
 
-        apf::MeshEntity* vtx = pumiMesh->createVertex(0, vtxCoords, vtxParam);
-        PCU_ALWAYS_ASSERT(vtx);
+        //     gent = pumiMesh->findModelEntity(3, node.markerID);
+        // }
+        verts[i] = pumiMesh->createVertex(0, vtxCoords, vtxParam);
+        PCU_ALWAYS_ASSERT(verts[i]);
     }
 
     apf::reorderMdsMesh(pumiMesh);
@@ -408,7 +422,8 @@ aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValue *a
         for (int j = 0; j < len; ++j) {
             EG_localToGlobal(tess, -edgeID, j, &globalID);
             // get the PUMI mesh vertex corresponding to the globalID
-            ment = apf::getMdsEntity(pumiMesh, 0, globalID);
+            // ment = apf::getMdsEntity(pumiMesh, 0, globalID);
+            ment = verts[globalID];
             
             // set the model entity and parametric values
             gent = pumiMesh->findModelEntity(1, edgeID);
@@ -418,10 +433,10 @@ aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValue *a
 
             // construct mesh edge on same model edge as vertices
             if (j > 0) {    
-                apf::MeshEntity *verts[2] = {oldMent, ment};
+                apf::MeshEntity *edge_verts[2] = {oldMent, ment};
                 apf::MeshEntity *edge = apf::buildElement(pumiMesh, gent, 
                                                           1, // apf::Mesh::EDGE,
-                                                          verts);
+                                                          edge_verts);
                 PCU_ALWAYS_ASSERT(edge);
             }
             oldMent = ment;
@@ -440,7 +455,8 @@ aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValue *a
 
             EG_localToGlobal(tess, faceID, j, &globalID);
             // get the PUMI mesh vertex corresponding to the globalID
-            apf::MeshEntity *ment = apf::getMdsEntity(pumiMesh, 0, globalID);
+            // apf::MeshEntity *ment = apf::getMdsEntity(pumiMesh, 0, globalID);
+            apf::MeshEntity *ment = verts[globalID];
 
             // set the model entity and parametric values
             if (ptype[j] == 0) { // entity should be classified on a vertex
@@ -463,19 +479,22 @@ aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValue *a
             EG_localToGlobal(tess, faceID, ptris[j], &aGlobalID);
             EG_localToGlobal(tess, faceID, ptris[j+1], &bGlobalID);
             EG_localToGlobal(tess, faceID, ptris[j+2], &cGlobalID);
-            a = apf::getMdsEntity(pumiMesh, 0, aGlobalID);
-            b = apf::getMdsEntity(pumiMesh, 0, bGlobalID);
-            c = apf::getMdsEntity(pumiMesh, 0, cGlobalID);
-            apf::MeshEntity *verts[3] = {a, b, c};
+            // a = apf::getMdsEntity(pumiMesh, 0, aGlobalID);
+            // b = apf::getMdsEntity(pumiMesh, 0, bGlobalID);
+            // c = apf::getMdsEntity(pumiMesh, 0, cGlobalID);
+
+            a = verts[aGlobalID];
+            b = verts[bGlobalID];
+            c = verts[cGlobalID];
+
+            apf::MeshEntity *tri_verts[3] = {a, b, c};
             apf::MeshEntity *tri = apf::buildElement(pumiMesh, gent,
                                                      apf::Mesh::TRIANGLE,
-                                                     verts);
+                                                     tri_verts);
             PCU_ALWAYS_ASSERT(tri);
         }
 
     }
-
-    // /Users/tuckerbabcock/Developer/playground/EngSketchPad/src/CAPS/aim/pumi/pumiAIM.cpp
 
     /// TODO: figure out how to build adjacency based on mesh and update the gmi_model
     
@@ -496,14 +515,30 @@ aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValue *a
 
             gent = pumiMesh->findModelEntity(3, ment.markerID);
 
-            a = apf::getMdsEntity(pumiMesh, 0, ment.connectivity[0]);
-            b = apf::getMdsEntity(pumiMesh, 0, ment.connectivity[1]);
-            c = apf::getMdsEntity(pumiMesh, 0, ment.connectivity[2]);
-            d = apf::getMdsEntity(pumiMesh, 0, ment.connectivity[3]);                        
-            apf::MeshEntity *verts[4] = {a, b, c, d};
+            // a = apf::getMdsEntity(pumiMesh, 0, ment.connectivity[0]);
+            // b = apf::getMdsEntity(pumiMesh, 0, ment.connectivity[1]);
+            // c = apf::getMdsEntity(pumiMesh, 0, ment.connectivity[2]);
+            // d = apf::getMdsEntity(pumiMesh, 0, ment.connectivity[3]);     
+
+            a = verts[ment.connectivity[0]];
+            b = verts[ment.connectivity[1]];
+            c = verts[ment.connectivity[2]];
+            d = verts[ment.connectivity[3]];
+            apf::MeshEntity *tet_verts[4] = {a, b, c, d};
+
+            for (int i = 0; i < 3; ++i) {
+                apf::ModelEntity *g = pumiMesh->toModel(tet_verts[i]);
+                if (g) { // if vtx model ent was already set (boundary vtx), skip
+                    continue;
+                }
+                else { // if not already set, set it to be the same as the element
+                    pumiMesh->setModelEntity(tet_verts[i], gent);
+                }
+            }             
+
             apf::MeshEntity *tet = apf::buildElement(pumiMesh, gent,
                                                      apf::Mesh::TET,
-                                                     verts);
+                                                     tet_verts);
             PCU_ALWAYS_ASSERT(tet);
             
         }
