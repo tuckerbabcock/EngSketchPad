@@ -30,3 +30,27 @@
 *.exe
 *.out
 *.app
+
+# Configuration files
+ESPenv.*
+
+# ESP files
+bin/
+include/
+CAPSexamples/cCAPS/aeroelasticSimple_Iterative_SU2_and_MystranTest
+CAPSexamples/cCAPS/aeroelasticTest
+CAPSexamples/cCAPS/avlTest
+CAPSexamples/cCAPS/frictionTest
+CAPSexamples/cCAPS/fun3dAFLR2Test
+CAPSexamples/cCAPS/fun3dAFLR4Test
+CAPSexamples/cCAPS/fun3dTest
+CAPSexamples/cCAPS/fun3dTetgenTest
+CAPSexamples/cCAPS/hsmCantileverPlateTest
+CAPSexamples/cCAPS/hsmJoinedPlateTest
+CAPSexamples/cCAPS/hsmSimplePlateTest
+CAPSexamples/cCAPS/hsmTest
+CAPSexamples/cCAPS/mystranTest
+CAPSexamples/cCAPS/pointwiseTest
+CAPSexamples/cCAPS/su2Test
+src/EGADS/src/Surreal*
+src/wvServer/server

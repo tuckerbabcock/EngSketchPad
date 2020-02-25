@@ -209,6 +209,13 @@ else
 fi
 
 #
+# do we have pumi?
+#
+if [ ! -n "$PUMI" ]; then
+	PUMI=UNKNOWN
+fi
+
+#
 # do we have tetgen?
 #
 if [ -n "$TETGEN" ]; then
@@ -491,6 +498,11 @@ else
 	fi
 	echo "export CAPS_GLYPH="$BASE/src/CAPS/aim/pointwise/glyph >> ../ESPenv.sh
 fi
+if [ "$PUMI" != UNKNOWN ]; then
+	echo "export PUMI=$PUMI" >> ../ESPenv.sh
+else
+	echo "#export PUMI=$HOME/Projects/core/" >> ../ESPenv.sh
+fi
 if [ "$TETGEN" != UNKNOWN ]; then
 	echo "export TETGEN=$TETGEN" >> ../ESPenv.sh
 else
@@ -567,6 +579,11 @@ else
 		echo "setenv UDUNITS2_XML_PATH "$BASE/src/CAPS/udunits/udunits2.xml >> ../ESPenv.csh
 	fi
 	echo "setenv CAPS_GLYPH "$BASE/src/CAPS/aim/pointwise/glyph >> ../ESPenv.csh
+fi
+if [ "$PUMI" != UNKNOWN ]; then
+	echo "setenv PUMI $PUMI" >> ../ESPenv.csh
+else
+	echo "#setenv PUMI $HOME/Projects/core" >> ../ESPenv.csh
 fi
 if [ "$TETGEN" != UNKNOWN ]; then
 	echo "setenv TETGEN $TETGEN" >> ../ESPenv.csh

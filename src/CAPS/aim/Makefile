@@ -29,6 +29,9 @@ endif
 ifdef AWAVE
 	(cd awave; make)
 endif
+ifdef PUMI
+	(cd pumi; make)
+endif
 ifdef TETGEN
 	(cd tetgen; make)
 endif
@@ -60,6 +63,9 @@ ifdef AFLR
 endif
 ifdef AWAVE
 	(cd awave; make clean)
+endif
+ifdef PUMI
+	(cd pumi; make clean)
 endif
 ifdef TETGEN
 	(cd tetgen; make clean)
@@ -93,6 +99,9 @@ endif
 ifdef AWAVE
 	(cd awave; make cleanall)
 endif
+ifdef PUMI
+	(cd pumi; make cleanall)
+endif
 ifdef TETGEN
 	(cd tetgen; make cleanall)
 endif
@@ -118,6 +127,7 @@ dox:
 	(cd aflr2; make dox)
 	(cd aflr3; make dox)
 	(cd aflr4; make dox)
+	(cd pumi; make dox)
 	(cd tetgen; make dox)
 	(cd tsfoil; make dox)
 	(cd xfoil; make dox)
@@ -140,6 +150,7 @@ doxclean:
 	(cd aflr2; make doxclean)
 	(cd aflr3; make doxclean)
 	(cd aflr4; make doxclean)
+	(cd pumi; make doxclean)
 	(cd tetgen; make doxclean)
 	(cd tsfoil; make doxclean)
 	(cd xfoil; make doxclean)
