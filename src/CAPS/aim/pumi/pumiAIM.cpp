@@ -42,6 +42,7 @@
 
 #include <string.h>
 #include <math.h>
+#include <iostream>
 
 #include <mpi.h>
 
@@ -61,8 +62,6 @@
 #include "miscTypes.h"
 #include "meshUtils.h"  // Collection of helper functions for meshing
 #include "miscUtils.h"  // Collection of helper functions for miscellaneous use
-
-#include <iostream>
 
 #define NUMINPUT   3  // number of mesh inputs
 #define NUMOUT     1  // number of outputs // placeholder for now
@@ -519,20 +518,7 @@ aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValue *a
 
         apf::Vector3 vtxCoords(mesh->node[i].xyz);
         apf::Vector3 vtxParam(0.0, 0.0, 0.0);
-        // if (i >= npts)
-        // {
-        //     int nodeIndex;
-        //     if (mesh->meshQuickRef.startIndexNode >= 0) {
-        //         nodeIndex = mesh->meshQuickRef.startIndexNode + i;
-        //     } else {
-        //         nodeIndex = mesh->meshQuickRef.listIndexNode[i];
-        //     }
-        //     meshElementStruct node = mesh->element[nodeIndex];
-        //     if (node.topoIndex != NODE)
-        //         return CAPS_BADINDEX;
 
-        //     gent = pumiMesh->findModelEntity(3, node.markerID);
-        // }
         verts[i] = pumiMesh->createVertex(0, vtxCoords, vtxParam);
         PCU_ALWAYS_ASSERT(verts[i]);
     }

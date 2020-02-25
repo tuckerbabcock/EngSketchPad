@@ -36,8 +36,8 @@
 ESPenv.*
 
 # ESP files
-bin/
-include/
+bin/*
+include/*
 CAPSexamples/cCAPS/aeroelasticSimple_Iterative_SU2_and_MystranTest
 CAPSexamples/cCAPS/aeroelasticTest
 CAPSexamples/cCAPS/avlTest
@@ -58,3 +58,34 @@ src/wvServer/server
 src/CAPS/aim/aflr2/aflr2_version
 src/CAPS/aim/aflr3/aflr3_version
 src/CAPS/aim/aflr4/aflr4_version
+
+# white list files
+!config/bash.exe
+!config/cygwin1.dll
+!config/ls.exe
+!congig/rm.exe
+!config/sed.exe
+!config/win32gnu.dll
+!src/CAPS/aim/unitTest/cCAPS
+!src/CAPS/aim/unitTest/datafiles
+!src/CAPS/Cart3D/OSX64_CLANG/libc3dio.a
+!src/CAPS/Cart3D/OSX64_CLANG/libCart3D.a
+!src/CAPS/Cart3D/X86_64_GCC/libc3dio.a
+!src/CAPS/Cart3D/X86_64_GCC/libCart3D.a
+!src/CAPS/Executables/DARWNIN64/mastros.exe
+!src/CAPS/Executables/LINUX64/mastros.exe
+!src/CAPS/Executables/WIN32/avl.exe
+!src/CAPS/Executables/WIN32/mastros.exe
+!src/CAPS/Executables/WIN32/pplot.exe
+!src/CAPS/Executables/WIN32/pxplot.exe
+!src/CAPS/Executables/WIN32/xfoil.exe
+!src/CAPS/Libraries/DARWIN64/libgcc_s.1.dylib
+!src/CAPS/Libraries/DARWIN64/libquadmath.0.dylib
+!src/CAPS/Libraries/WIN64/libgcc_s_sjlj-1.dll
+!src/CAPS/Libraries/WIN64/libquadmath-0.dll
+!src/CAPS/Libraries/WIN64/libwinpthread-1.dll
+!src/CAPS/udunits/DARWIN64/libudunits2.0.dylib
+!src/CAPS/udunits/LINUX64/libudunits2.so
+!src/CAPS/udunits/WIN64/udunits2.lib
+!src/CAPS/udunits/WIN64/expat.dll
+!src/CAPS/udunits/WIN64/udunits2.dll
