@@ -1,0 +1,9 @@
+LIBRARY pumiAIM
+EXPORTS
+aimInitialize
+aimCleanup
+aimData
+aimInputs
+aimPreAnalysis
+aimOutputs
+aimCalcOutput
