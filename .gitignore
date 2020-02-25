@@ -15,6 +15,7 @@
 *.so
 *.dylib
 *.dll
+*.dSYM
 
 # Fortran module files
 *.mod
@@ -54,3 +55,6 @@ CAPSexamples/cCAPS/pointwiseTest
 CAPSexamples/cCAPS/su2Test
 src/EGADS/src/Surreal*
 src/wvServer/server
+src/CAPS/aim/aflr2/aflr2_version
+src/CAPS/aim/aflr3/aflr3_version
+src/CAPS/aim/aflr4/aflr4_version

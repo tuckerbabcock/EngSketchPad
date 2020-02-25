@@ -13,6 +13,8 @@ if [[ -n "$EGADS_DIR" ]]; then
 
     cmake .. \
       -DCMAKE_INSTALL_PREFIX="$PWD/install" \
+      -DSCOREC_EXTRA_C_FLAGS="-O0" \
+      -DSCOREC_EXTRA_CXX_FLAGS="-O0" \
       -DCMAKE_C_COMPILER="mpicc" \
       -DCMAKE_CXX_COMPILER="mpicxx" \
       -DSCOREC_ENABLE_CXX11=YES \
