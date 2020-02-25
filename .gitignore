@@ -36,8 +36,7 @@
 ESPenv.*
 
 # ESP files
-bin/*
-include/*
+include/
 CAPSexamples/cCAPS/aeroelasticSimple_Iterative_SU2_and_MystranTest
 CAPSexamples/cCAPS/aeroelasticTest
 CAPSexamples/cCAPS/avlTest
@@ -59,7 +58,13 @@ src/CAPS/aim/aflr2/aflr2_version
 src/CAPS/aim/aflr3/aflr3_version
 src/CAPS/aim/aflr4/aflr4_version
 
-# white list files
+# whitelist files
+!include/c3dio/*
+!include/libCart3D/*
+!include/winhelpers/*
+!include/xddm/*
+!include/nmb.h
+
 !config/bash.exe
 !config/cygwin1.dll
 !config/ls.exe
