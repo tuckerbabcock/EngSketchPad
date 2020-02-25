@@ -1,0 +1,25 @@
+# sphereScribe
+# written by John Dannenhoffer
+
+# unit sphere
+sphere   0  0  0  1
+
+# split into octants
+skbeg     -2 -2 -2
+   linseg  2 -2  2
+   linseg  2  2  2
+   linseg -2  2 -2
+   linseg -2 -2 -2
+skend
+subtract
+
+skbeg     -2 -2  2
+   linseg  2 -2 -2
+   linseg  2  2 -2
+   linseg -2  2  2
+   linseg -2 -2  2
+skend
+subtract
+   attribute  .tParams  0.10;0.02;5.0
+
+end

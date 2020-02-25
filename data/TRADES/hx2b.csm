@@ -1,0 +1,104 @@
+# hx2b
+# written by John Dannenhoffer
+
+despmtr   nutile   1
+despmtr   nvtile   1
+despmtr   nwtile   2
+
+despmtr   Xduct    1
+despmtr   Yduct    1
+despmtr   Zduct    1
+despmtr   nFinHot  3
+despmtr   nFinCold 3
+despmtr   mdotHot  1
+despmtr   mdotCold 1
+despmtr   TinHot   100
+despmtr   ToutHot  80
+despmtr   TinCold  50
+despmtr   KHot     1
+despmtr   KCold    1
+despmtr   KMetal   1
+despmtr   rough    1
+
+# duct definition
+mark
+   skbeg     0.0  0.3  1.2
+      linseg 0.0  0.3  -.2
+      linseg 0.0  0.7  -.2
+      linseg 0.0  0.7  1.2
+      linseg 0.0  0.3  1.2
+   skend
+
+   skbeg     2.0  -.5  1.0
+      linseg 2.0  -.5  0.0
+      linseg 2.0  1.5  0.0
+      linseg 2.0  1.5  1.0
+      linseg 2.0  -.5  1.0
+   skend
+rule
+store duct
+
+# tile the configuration
+restore duct
+udparg tile filename  $$/hx_tile_b.csm
+udparg tile tablename <<
+    3    2    5    4
+0.00   0.50   1.00
+0.00   1.00
+0.00   0.25   0.50   0.75   1.00
+
+thick
+v
+dumu
+.
+dumv
+.
+dumw
+.
+
+0.03   0.00   0.00   0.00
+0.01   0.50   0.00   0.00
+0.03   1.00   0.00   0.00
+0.03   0.00   1.00   0.00
+0.01   0.50   1.00   0.00
+0.03   1.00   1.00   0.00
+
+0.06   0.00   0.00   0.25
+0.03   0.50   0.00   0.25
+0.06   1.00   0.00   0.25
+0.06   0.00   1.00   0.25
+0.03   0.50   1.00   0.25
+0.06   1.00   1.00   0.25
+
+0.10   0.00   0.00   0.50
+0.05   0.50   0.00   0.50
+0.10   1.00   0.00   0.50
+0.10   0.00   1.00   0.50
+0.05   0.50   1.00   0.50
+0.10   1.00   1.00   0.50
+
+0.14   0.00   0.00   0.75
+0.07   0.50   0.00   0.75
+0.14   1.00   0.00   0.75
+0.14   0.00   1.00   0.75
+0.07   0.50   1.00   0.75
+0.14   1.00   1.00   0.75
+
+0.03   0.00   0.00   1.00
+0.01   0.50   0.00   1.00
+0.03   1.00   0.00   1.00
+0.03   0.00   1.00   1.00
+0.01   0.50   1.00   1.00
+0.03   1.00   1.00   1.00
+>>
+udparg tile nutile    nutile
+udparg tile nvtile    nvtile
+udparg tile nwtile    nwtile
+udprim tile
+
+assert @@numbodys 1
+
+restore duct
+attribute _name $duct
+
+end
