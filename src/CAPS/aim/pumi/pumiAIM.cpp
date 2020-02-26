@@ -87,6 +87,53 @@ typedef struct {
 
 } aimStorage;
 
+/// \brief constructs a mesh triangle from three vertices and a model entity
+void createFace(apf::Mesh2* m, apf::MeshEntity* a, apf::MeshEntity* b,
+                apf::MeshEntity* c, apf::ModelEntity* gent) {
+    PCU_ALWAYS_ASSERT(gent);
+    apf::MeshEntity* faceVerts[3] = {a,b,c};
+    apf::buildElement(m, gent, apf::Mesh::TRIANGLE, faceVerts);
+ }
+
+/// \brief constructs a mesh edge from two mesh verticies. Uses the vertex
+///        classifications to determine which model entity the mesh edge should
+///        be classified on
+void createEdge(apf::Mesh2* m, apf::MeshEntity* a, apf::MeshEntity* b,
+                apf::ModelEntity* f_gent) {
+    apf::ModelEntity* a_gent = m->toModel(a);
+    apf::ModelEntity* b_gent = m->toModel(b);
+    PCU_ALWAYS_ASSERT(a_gent);
+    PCU_ALWAYS_ASSERT(b_gent);
+
+    int a_gent_dim = m->getModelType(a_gent);
+    int b_gent_dim = m->getModelType(b_gent);
+    int a_gent_tag = m->getModelTag(a_gent);
+    int b_gent_tag = m->getModelTag(b_gent);
+
+    apf::ModelEntity* gent;
+    /// \note this classification will fail if a mesh edge's adjacent verticies
+    ///       are both on model vertices (this would only occur for a tiny edge)
+    ///       *consider a better approach*
+    if (a_gent_dim == b_gent_dim) {
+        /// if two mesh verts belong to a mesh edge, and they're classified on
+        /// model entities with the same dimension, that entity must be the
+        /// same.
+        std::cout << "gent dim: " << a_gent_dim << "\n";
+        std::cout << a_gent_tag << ", " << b_gent_tag << "\n";
+        if (a_gent_tag != b_gent_tag)
+            gent = f_gent;
+        else
+            gent = a_gent;
+    } else if (a_gent_dim > b_gent_dim) {
+        gent = a_gent;
+    } else {
+        gent = b_gent;
+    }
+    apf::MeshEntity* edgeVerts[2] = {a,b};
+    apf::buildElement(m, gent, 1, // apf::Mesh::EDGE
+                      edgeVerts);
+}
+
 static aimStorage *pumiInstance = NULL;
 static int         numInstance  = 0;
 
@@ -529,7 +576,7 @@ aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValue *a
     const int *ptype=NULL, *pindex=NULL, *ptris=NULL, *ptric=NULL;
     const double *pxyz = NULL, *puv = NULL, *pt = NULL;
 
-    apf::MeshEntity *ment, *oldMent;
+    apf::MeshEntity *ment;//, *oldMent;
     apf::ModelEntity *gent;
     apf::Vector3 param;
 
@@ -551,16 +598,6 @@ aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValue *a
             pumiMesh->setModelEntity(ment, gent);
             param = apf::Vector3(pt[j], 0.0, 0.0);
             pumiMesh->setParam(ment, param);
-
-            // construct mesh edge on same model edge as vertices
-            if (j > 0) {    
-                apf::MeshEntity *edge_verts[2] = {oldMent, ment};
-                apf::MeshEntity *edge = apf::buildElement(pumiMesh, gent, 
-                                                          1, // apf::Mesh::EDGE,
-                                                          edge_verts);
-                PCU_ALWAYS_ASSERT(edge);
-            }
-            oldMent = ment;
         }
     }
 
@@ -597,13 +634,13 @@ aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValue *a
         int aGlobalID, bGlobalID, cGlobalID;
         gent = pumiMesh->findModelEntity(2, faceID);
         // construct triangles
-        for (int j = 0; j < len; j += 3) {
+        for (int j = 0; j < ntri; ++j) {
             std::cout << "j: " << j << "\n";
-            EG_localToGlobal(tess, faceID, ptris[j], &aGlobalID);
-            EG_localToGlobal(tess, faceID, ptris[j+1], &bGlobalID);
-            EG_localToGlobal(tess, faceID, ptris[j+2], &cGlobalID);
+            EG_localToGlobal(tess, faceID, ptris[3*j], &aGlobalID);
+            EG_localToGlobal(tess, faceID, ptris[3*j+1], &bGlobalID);
+            EG_localToGlobal(tess, faceID, ptris[3*j+2], &cGlobalID);
 
-            std::cout << "tris: " << ptris[j] << ", " << ptris[j+1] << ", " << ptris[j+2] << "\n";
+            std::cout << "tris: " << ptris[3*j] << ", " << ptris[3*j+1] << ", " << ptris[3*j+2] << "\n";
             // a = apf::getMdsEntity(pumiMesh, 0, aGlobalID);
             // b = apf::getMdsEntity(pumiMesh, 0, bGlobalID);
             // c = apf::getMdsEntity(pumiMesh, 0, cGlobalID);
@@ -612,11 +649,12 @@ aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValue *a
             b = verts[bGlobalID-1];
             c = verts[cGlobalID-1];
 
-            apf::MeshEntity *tri_verts[3] = {a, b, c};
-            apf::MeshEntity *tri = apf::buildElement(pumiMesh, gent,
-                                                     apf::Mesh::TRIANGLE,
-                                                     tri_verts);
-            PCU_ALWAYS_ASSERT(tri);
+            createEdge(pumiMesh, a, b, gent);
+            createEdge(pumiMesh, b, c, gent);
+            createEdge(pumiMesh, c, a, gent);
+
+            /// construct mesh triangle face
+            createFace(pumiMesh, a, b, c, gent);
         }
 
     }
@@ -670,6 +708,7 @@ aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValue *a
     }
 
     pumiMesh->acceptChanges();
+    apf::writeVtkFiles("filename", pumiMesh);
     // apf::reorderMdsMesh(pumiMesh);
     pumiMesh->verify();
 
