@@ -20,7 +20,7 @@ if [[ -n "$EGADS_DIR" ]]; then
       -DSCOREC_ENABLE_CXX11=YES \
       -DENABLE_EGADS=ON \
       -DEGADS_DIR="$EGADS_DIR" \
-      -DBUILD_SHARED_LIBS=FALSE
+      -DBUILD_SHARED_LIBS=TRUE
 
     cmake --build . -j 4 --target install
   
