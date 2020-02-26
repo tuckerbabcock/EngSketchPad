@@ -18,18 +18,18 @@ endif
 LIBS    += -pthread -lm
 WARNINGS = -Wall -Wno-dangling-else -Wno-parentheses -Wno-unused-result -Wno-format-truncation
 DEFINE   = -DREVISION=$(CASREV)
-CXX      = g++ -m64 -g $(ESPFLAGS)
-CPPOPT   = -O -fPIC -DLIN -DLININTEL -DCSFDB -DOCC_CONVERT_SIGNALS -D_GNU_SOURCE=1 -D_OCC64 -DNDEBUG -DNo_Exception -DHAVE_CONFIG_H $(WARNINGS) $(CPDS)
-CC       = gcc -m64 -g $(ESPFLAGS)
-COPTS    = -O -fno-unit-at-a-time -fPIC $(WARNINGS)
-OCOPT    = -O -fno-unit-at-a-time -fPIC $(WARNINGS)
+CXX      = mpicxx -m64 -g $(ESPFLAGS)
+CPPOPT   = -fPIC -DLIN -DLININTEL -DCSFDB -DOCC_CONVERT_SIGNALS -D_GNU_SOURCE=1 -D_OCC64 -DNDEBUG -DNo_Exception -DHAVE_CONFIG_H $(WARNINGS) $(CPDS)
+CC       = mpicc -m64 -g $(ESPFLAGS)
+COPTS    = -fno-unit-at-a-time -fPIC $(WARNINGS)
+OCOPT    = -fno-unit-at-a-time -fPIC $(WARNINGS)
 ifeq ($(EFCOMP),gfortran)
 FCOMP    = gfortran -m64 -g $(ESPFFLAGS)
-FOPTS    = -O -fPIC -frecursive -fcray-pointer
+FOPTS    = -fPIC -frecursive -fcray-pointer
 endif
 ifeq ($(EFCOMP),ifort)
 FCOMP    = ifort -m64 -g -traceback
-FOPTS    = -O -fPIC -recursive
+FOPTS    = -fPIC -recursive
 endif
 LOPTS  = rs
 RANLB  =
