@@ -708,7 +708,7 @@ aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValue *a
     }
 
     pumiMesh->acceptChanges();
-    apf::writeVtkFiles("filename", pumiMesh);
+    // apf::writeVtkFiles("filename", pumiMesh);
     // apf::reorderMdsMesh(pumiMesh);
     pumiMesh->verify();
 
