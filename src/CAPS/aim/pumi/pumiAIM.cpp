@@ -516,7 +516,16 @@ aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValue *a
     apf::Mesh2 *pumiMesh = pumiInstance[iIndex].pumiMesh;
     printf("got pumi mesh ptr\n");
     
-    ego tess = pumiInstance[iIndex].mesh[0].bodyTessMap.egadsTess;
+    ego tess;
+    if (mesh->meshType == SurfaceMesh)
+        tess = pumiInstance[iIndex].mesh[0].bodyTessMap.egadsTess;
+    else if (mesh->meshType == VolumeMesh)
+        tess = pumiInstance[iIndex].mesh[0].referenceMesh[0].bodyTessMap.egadsTess;
+    else {
+        printf(" Unknown mesh dimension, error!\n");
+        return EGADS_WRITERR;
+    }
+
     printf("got tess ptr\n");
     ego body;
     int state, npts;
@@ -576,13 +585,14 @@ aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValue *a
     const int *ptype=NULL, *pindex=NULL, *ptris=NULL, *ptric=NULL;
     const double *pxyz = NULL, *puv = NULL, *pt = NULL;
 
-    apf::MeshEntity *ment;//, *oldMent;
+    // apf::MeshEntity *ment;//, *oldMent;
     apf::ModelEntity *gent;
     apf::Vector3 param;
 
     printf("classify edge verts\n");
     /// classify vertices onto model edges and build mesh edges
     for (int i = 0; i < nedge; ++i) {
+        apf::MeshEntity *ment;
         int edgeID = i + 1;
         status = EG_getTessEdge(tess, edgeID, &len, &pxyz, &pt);
         if (status != EGADS_SUCCESS) return status;
@@ -665,7 +675,7 @@ aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValue *a
     if (mesh->meshType == VolumeMesh) {
         int elementIndex;
         apf::MeshEntity *a, *b, *c, *d;
-        apf::ModelEntity *gent;
+        // apf::ModelEntity *gent;
         meshElementStruct ment;
         const int ntets = mesh->meshQuickRef.numTetrahedral;
         for (int i = 0; i < ntets; ++i) {
@@ -689,13 +699,14 @@ aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValue *a
             d = verts[ment.connectivity[3]];
             apf::MeshEntity *tet_verts[4] = {a, b, c, d};
 
-            for (int i = 0; i < 3; ++i) {
-                apf::ModelEntity *g = pumiMesh->toModel(tet_verts[i]);
+            apf::ModelEntity *g = NULL;
+            for (int j = 0; j < 3; ++j) {
+                g = pumiMesh->toModel(tet_verts[j]);
                 if (g) { // if vtx model ent was already set (boundary vtx), skip
                     continue;
                 }
                 else { // if not already set, set it to be the same as the element
-                    pumiMesh->setModelEntity(tet_verts[i], gent);
+                    pumiMesh->setModelEntity(tet_verts[j], gent);
                 }
             }             
 
@@ -738,12 +749,12 @@ aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValue *a
         } else if (strcasecmp(pumiInstance[iIndex].meshInput.outputFormat, "VTK") == 0) {
             if (elementOrder > 1) {
                 if (mesh->meshType == VolumeMesh)
-                    crv::writeCurvedVtuFiles(pumiMesh, apf::Mesh::TET, 10, "filename");
+                    crv::writeCurvedVtuFiles(pumiMesh, apf::Mesh::TET, 10, filename);
                 else
-                    crv::writeCurvedVtuFiles(pumiMesh, apf::Mesh::TRIANGLE, 10, "filename");
-                crv::writeCurvedWireFrame(pumiMesh, 10, "curvedvtk");
+                    crv::writeCurvedVtuFiles(pumiMesh, apf::Mesh::TRIANGLE, 10, filename);
+                crv::writeCurvedWireFrame(pumiMesh, 10, filename);
             } else {
-                apf::writeVtkFiles("filename", pumiMesh);
+                apf::writeVtkFiles(filename, pumiMesh);
             }
         }
         if (filename != NULL) EG_free(filename);
