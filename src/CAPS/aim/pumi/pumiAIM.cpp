@@ -87,6 +87,28 @@ typedef struct {
 
 } aimStorage;
 
+/// \brief count the number of unique 3D regions
+/// \note this is O(n^2), could be implemented faster
+int countRegions(meshElementStruct *elems, int nTets) 
+{ 
+    int count = 1; 
+  
+    // Go through each element one by one 
+    for (int i = 1; i < nTets; i++) { 
+        int j = 0;
+        for (j = 0; j < i; j++) {
+            if (elems[i].markerID == elems[j].markerID) {
+                break; 
+            }
+        }
+  
+        // If not found before, account for it now 
+        if (i == j) 
+            count++; 
+    } 
+    return count; 
+}
+
 /// \brief constructs a mesh triangle from three vertices and a model entity
 void createFace(apf::Mesh2* m, apf::MeshEntity* a, apf::MeshEntity* b,
                 apf::MeshEntity* c, apf::ModelEntity* gent) {
@@ -540,10 +562,25 @@ aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValue *a
         return EGADS_TESSTATE;
     }
 
+    int numRegions = 1;
+    if (mesh->meshType == VolumeMesh) {
+        
+        int tetStartIndex;
+        if (mesh->meshQuickRef.startIndexTetrahedral >= 0) {
+            tetStartIndex = mesh->meshQuickRef.startIndexTetrahedral;
+        } else {
+            tetStartIndex = mesh->meshQuickRef.listIndexTetrahedral[0];
+        }
+        int numTets = mesh->meshQuickRef.numTetrahedral;
+
+        /// find the number of regions
+        numRegions = countRegions(&(mesh->element[tetStartIndex]), numTets);
+    }
+
     /// initialize PUMI EGADS model
     printf("loading gmi model... ");
     gmi_register_egads();
-    struct gmi_model *pumiModel = gmi_egads_init(body);
+    struct gmi_model *pumiModel = gmi_egads_init(body, numRegions);
     printf("loaded gmi_model\n");
 
     // int nnode = pumiModel->n[0];
@@ -693,14 +730,14 @@ aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValue *a
             // c = apf::getMdsEntity(pumiMesh, 0, ment.connectivity[2]);
             // d = apf::getMdsEntity(pumiMesh, 0, ment.connectivity[3]);     
 
-            a = verts[ment.connectivity[0]];
-            b = verts[ment.connectivity[1]];
-            c = verts[ment.connectivity[2]];
-            d = verts[ment.connectivity[3]];
+            a = verts[ment.connectivity[0]-1];
+            b = verts[ment.connectivity[1]-1];
+            c = verts[ment.connectivity[2]-1];
+            d = verts[ment.connectivity[3]-1];
             apf::MeshEntity *tet_verts[4] = {a, b, c, d};
 
             apf::ModelEntity *g = NULL;
-            for (int j = 0; j < 3; ++j) {
+            for (int j = 0; j < 4; ++j) {
                 g = pumiMesh->toModel(tet_verts[j]);
                 if (g) { // if vtx model ent was already set (boundary vtx), skip
                     continue;
@@ -719,7 +756,7 @@ aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValue *a
     }
 
     pumiMesh->acceptChanges();
-    // apf::writeVtkFiles("filename", pumiMesh);
+    apf::writeVtkFiles("filename", pumiMesh);
     // apf::reorderMdsMesh(pumiMesh);
     pumiMesh->verify();
 
