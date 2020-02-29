@@ -36,7 +36,7 @@ $(ODIR)/pumiAIM.o: pumi pumiAIM.cpp $(IDIR)/capsTypes.h ../utils/meshUtils.h \
 			 $(PUMI_IDIR)/apf.h $(PUMI_IDIR)/apfMesh.h $(PUMI_IDIR)/apfMesh2.h \
 			 $(PUMI_IDIR)/apfMDS.h $(PUMI_IDIR)/crv.h $(PUMI_IDIR)/gmi.h \
 			 $(PUMI_IDIR)/gmi_egads.h $(PUMI_IDIR)/pcu_util.h
-	$(CXX) -c $(COPTS) $(DEFINE) -I$(IDIR) -I$(PUMI_IDIR) -I../utils pumiAIM.cpp \
+	$(CXX) -c $(CPPOPT) $(DEFINE) -I$(IDIR) -I$(PUMI_IDIR) -I../utils pumiAIM.cpp \
 		-o $(ODIR)/pumiAIM.o
 
 # CAPS compiles PUMI library to use the latest egads.h file

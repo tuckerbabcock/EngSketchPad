@@ -562,7 +562,7 @@ aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValue *a
         return EGADS_TESSTATE;
     }
 
-    int numRegions = 1;
+    int nregions = 1;
     if (mesh->meshType == VolumeMesh) {
         
         int tetStartIndex;
@@ -574,16 +574,16 @@ aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValue *a
         int numTets = mesh->meshQuickRef.numTetrahedral;
 
         /// find the number of regions
-        numRegions = countRegions(&(mesh->element[tetStartIndex]), numTets);
+        nregions = countRegions(&(mesh->element[tetStartIndex]), numTets);
     }
 
     /// initialize PUMI EGADS model
     printf("loading gmi model... ");
     gmi_register_egads();
-    struct gmi_model *pumiModel = gmi_egads_init(body, numRegions);
+    struct gmi_model *pumiModel = gmi_egads_init(body, nregions);
     printf("loaded gmi_model\n");
 
-    // int nnode = pumiModel->n[0];
+    int nnode = pumiModel->n[0];
     int nedge = pumiModel->n[1];
     int nface = pumiModel->n[2];
 
@@ -757,6 +757,88 @@ aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValue *a
 
     pumiMesh->acceptChanges();
     apf::writeVtkFiles("filename", pumiMesh);
+
+    /// calculate adjacency information and update PUMI gmi_edads model
+    std::vector<std::set<int>> adjacency_graph[6];
+    int sizes[] = {nregions, nregions, nregions, nnode, nedge, nface};
+
+    for (int i = 0; i < 6; ++i) {
+        std::set<int> empty;
+        for (int j = 0; j < sizes[i]; ++j) {
+            adjacency_graph[i].push_back(empty);
+        }
+    }
+
+    /// iterate over mesh verts
+    {
+        apf::MeshIterator *it = pumiMesh->begin(0);
+        apf::MeshEntity *vtx;
+        while ((vtx = pumiMesh->iterate(it)))
+        {
+            apf::ModelEntity *vtx_me = pumiMesh->toModel(vtx);
+            int vtx_me_dim = pumiMesh->getModelType(vtx_me);
+            int vtx_me_tag = pumiMesh->getModelTag(vtx_me);
+            if (vtx_me_dim == 0) { // vtx_me_dim == 0?
+                apf::Adjacent tets;
+                pumiMesh->getAdjacent(vtx, 3, tets);
+                for (int i = 0; i < tets.getSize(); ++i)
+                {
+                    apf::ModelEntity *tet_me = pumiMesh->toModel(tets[i]);
+                    int tet_me_tag = pumiMesh->getModelTag(tet_me);
+                    std::cout << tet_me_tag << std::endl;
+                    adjacency_graph[0][tet_me_tag-1].insert(vtx_me_tag); // 0-3
+                    adjacency_graph[3][vtx_me_tag-1].insert(tet_me_tag); // 3-0
+                }
+            }
+        }
+    }
+
+    {
+        apf::MeshIterator *it = pumiMesh->begin(1);
+        apf::MeshEntity *edge;
+        while ((edge = pumiMesh->iterate(it)))
+        {
+            apf::ModelEntity *edge_me = pumiMesh->toModel(edge);
+            int edge_me_dim = pumiMesh->getModelType(edge_me);
+            int edge_me_tag = pumiMesh->getModelTag(edge_me);
+            if (edge_me_dim == 1) { // edge_me_dim == 1?
+                apf::Adjacent tets;
+                pumiMesh->getAdjacent(edge, 3, tets);
+                for (int i = 0; i < tets.getSize(); ++i)
+                {
+                    apf::ModelEntity *tet_me = pumiMesh->toModel(tets[i]);
+                    int tet_me_tag = pumiMesh->getModelTag(tet_me);
+                    adjacency_graph[1][tet_me_tag-1].insert(edge_me_tag); // 1-3
+                    adjacency_graph[4][edge_me_tag-1].insert(tet_me_tag); // 3-1
+                }
+            }
+        }
+    }
+
+    {
+        apf::MeshIterator *it = pumiMesh->begin(2);
+        apf::MeshEntity *tri;
+        while ((tri = pumiMesh->iterate(it)))
+        {
+            apf::ModelEntity *tri_me = pumiMesh->toModel(tri);
+            int tri_me_dim = pumiMesh->getModelType(tri_me);
+            int tri_me_tag = pumiMesh->getModelTag(tri_me);
+            if (tri_me_dim < 3) { // edge_me_dim == 1?
+                apf::Up tets;
+                pumiMesh->getUp(tri, tets);
+                for (int i = 0; i < tets.n; ++i)
+                {
+                    apf::ModelEntity *tet_me = pumiMesh->toModel(tets.e[i]);
+                    int tet_me_tag = pumiMesh->getModelTag(tet_me);
+                    adjacency_graph[2][tet_me_tag-1].insert(tri_me_tag); // 2-3
+                    adjacency_graph[5][tri_me_tag-1].insert(tet_me_tag); // 3-2
+                }
+            }
+        }
+    }
+
+
+
     // apf::reorderMdsMesh(pumiMesh);
     pumiMesh->verify();
 
