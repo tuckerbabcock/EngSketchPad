@@ -56,6 +56,7 @@
 #include "pcu_util.h"
 #include "PCU.h"
 
+#include "egads.h"
 #include "capsTypes.h"
 #include "aimUtil.h"
 #include "meshTypes.h"
@@ -836,6 +837,32 @@ aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValue *a
             }
         }
     }
+
+    /// create C array adjacency graph
+    int **c_graph[6];
+
+    for (int i = 0; i < 6; ++i) {
+        c_graph[i] = (int**)EG_alloc(sizeof(*c_graph[i]) * sizes[i]);
+        if (c_graph[i] == NULL) {
+            printf("failed to alloc memory for c_graph");
+            /// return bad here
+        }
+        for (int j = 0; j < sizes[i]; ++j) {
+            c_graph[i][j] = (int*)EG_alloc(sizeof(*c_graph[i][j])
+                                           * (adjacency_graph[i][j].size()+1));
+            if (c_graph[i][j] == NULL) {
+                printf("failed to alloc memory for c_graph");
+                /// return bad here
+            }
+            c_graph[i][j][0] = adjacency_graph[i][j].size();
+            std::copy(adjacency_graph[i][j].begin(),
+                      adjacency_graph[i][j].end(),
+                      c_graph[i][j]+1);
+        }
+    }
+
+
+    gmi_egads_init_adjacency(c_graph);
 
 
 
