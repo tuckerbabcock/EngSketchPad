@@ -43,6 +43,7 @@
 #include <string.h>
 #include <math.h>
 #include <iostream>
+#include <fstream>
 
 #include <mpi.h>
 
@@ -760,13 +761,13 @@ aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValue *a
     apf::writeVtkFiles("filename", pumiMesh);
 
     /// calculate adjacency information and update PUMI gmi_edads model
-    std::vector<std::set<int>> adjacency_graph[6];
+    std::vector<std::set<int>> adj_graph[6];
     int sizes[] = {nregions, nregions, nregions, nnode, nedge, nface};
 
     for (int i = 0; i < 6; ++i) {
         std::set<int> empty;
         for (int j = 0; j < sizes[i]; ++j) {
-            adjacency_graph[i].push_back(empty);
+            adj_graph[i].push_back(empty);
         }
     }
 
@@ -787,8 +788,8 @@ aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValue *a
                     apf::ModelEntity *tet_me = pumiMesh->toModel(tets[i]);
                     int tet_me_tag = pumiMesh->getModelTag(tet_me);
                     std::cout << tet_me_tag << std::endl;
-                    adjacency_graph[0][tet_me_tag-1].insert(vtx_me_tag); // 0-3
-                    adjacency_graph[3][vtx_me_tag-1].insert(tet_me_tag); // 3-0
+                    adj_graph[0][tet_me_tag-1].insert(vtx_me_tag); // 0-3
+                    adj_graph[3][vtx_me_tag-1].insert(tet_me_tag); // 3-0
                 }
             }
         }
@@ -809,8 +810,8 @@ aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValue *a
                 {
                     apf::ModelEntity *tet_me = pumiMesh->toModel(tets[i]);
                     int tet_me_tag = pumiMesh->getModelTag(tet_me);
-                    adjacency_graph[1][tet_me_tag-1].insert(edge_me_tag); // 1-3
-                    adjacency_graph[4][edge_me_tag-1].insert(tet_me_tag); // 3-1
+                    adj_graph[1][tet_me_tag-1].insert(edge_me_tag); // 1-3
+                    adj_graph[4][edge_me_tag-1].insert(tet_me_tag); // 3-1
                 }
             }
         }
@@ -831,8 +832,8 @@ aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValue *a
                 {
                     apf::ModelEntity *tet_me = pumiMesh->toModel(tets.e[i]);
                     int tet_me_tag = pumiMesh->getModelTag(tet_me);
-                    adjacency_graph[2][tet_me_tag-1].insert(tri_me_tag); // 2-3
-                    adjacency_graph[5][tri_me_tag-1].insert(tet_me_tag); // 3-2
+                    adj_graph[2][tet_me_tag-1].insert(tri_me_tag); // 2-3
+                    adj_graph[5][tri_me_tag-1].insert(tet_me_tag); // 3-2
                 }
             }
         }
@@ -849,14 +850,14 @@ aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValue *a
         }
         for (int j = 0; j < sizes[i]; ++j) {
             c_graph[i][j] = (int*)EG_alloc(sizeof(*c_graph[i][j])
-                                           * (adjacency_graph[i][j].size()+1));
+                                           * (adj_graph[i][j].size()+1));
             if (c_graph[i][j] == NULL) {
                 printf("failed to alloc memory for c_graph");
                 /// return bad here
             }
-            c_graph[i][j][0] = adjacency_graph[i][j].size();
-            std::copy(adjacency_graph[i][j].begin(),
-                      adjacency_graph[i][j].end(),
+            c_graph[i][j][0] = adj_graph[i][j].size();
+            std::copy(adj_graph[i][j].begin(),
+                      adj_graph[i][j].end(),
                       c_graph[i][j]+1);
         }
     }
@@ -891,7 +892,37 @@ aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValue *a
         strcat(filename, pumiInstance[iIndex].meshInput.outputFileName);
 
         if (strcasecmp(pumiInstance[iIndex].meshInput.outputFormat, "PUMI") == 0) {
-            pumiMesh->writeNative(filename);
+            /// write .smb mesh file
+            std::string smb_filename(filename);
+            smb_filename += ".smb";
+            pumiMesh->writeNative(smb_filename.c_str());
+
+            /// write adjacency table
+            std::string adj_filename(filename);
+            adj_filename += ".egads.sup";
+            std::ofstream adj_file(adj_filename.c_str()); //,
+                                //    std::ios::out | std::ios::binary);
+            PCU_ALWAYS_ASSERT(adj_file.is_open());
+            for (int i = 0; i < 6; ++i) {
+                for (int j = 0; j < sizes[i]; ++j) {
+                    /// Binary file
+                    // auto n = adj_graph[i][j].size();
+                    // adj_file.write(reinterpret_cast<char*>(&n),
+                    //                sizeof(n));
+                    // adj_file.write(reinterpret_cast<char*>(&adj_graph[i][j]),
+                    //                sizeof(int)*n);
+
+                    /// ASCII file
+                    adj_file << adj_graph[i][j].size();
+                    for (auto elem : adj_graph[i][j]) {
+                        adj_file << "," << elem;
+                    }
+                    adj_file << std::endl;
+                }
+            }
+            adj_file.close();
+
+
         } else if (strcasecmp(pumiInstance[iIndex].meshInput.outputFormat, "VTK") == 0) {
             if (elementOrder > 1) {
                 if (mesh->meshType == VolumeMesh)
