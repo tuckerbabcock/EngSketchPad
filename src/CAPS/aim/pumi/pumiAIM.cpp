@@ -900,24 +900,42 @@ aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValue *a
             /// write adjacency table
             std::string adj_filename(filename);
             adj_filename += ".egads.sup";
-            std::ofstream adj_file(adj_filename.c_str()); //,
-                                //    std::ios::out | std::ios::binary);
+
+            /// Binary
+            std::ofstream adj_file(adj_filename.c_str(),
+                                   std::ios::out | std::ios::binary);
+
+            /// ASCII
+            // std::ofstream adj_file(adj_filename.c_str());
             PCU_ALWAYS_ASSERT(adj_file.is_open());
+
+            /// write header
+            /// Binary
+            adj_file.write(reinterpret_cast<const char *>(sizes),
+                           sizeof(sizes[0])*6);
+
+            /// ASCII
+            // adj_file << nregions << "," << nregions "," << nregions << ",";
+            // adj_file << nnode << "," << nedge << "," << nface  << std::endl;
+
+            /// write adjacency table
             for (int i = 0; i < 6; ++i) {
                 for (int j = 0; j < sizes[i]; ++j) {
                     /// Binary file
-                    // auto n = adj_graph[i][j].size();
-                    // adj_file.write(reinterpret_cast<char*>(&n),
-                    //                sizeof(n));
-                    // adj_file.write(reinterpret_cast<char*>(&adj_graph[i][j]),
-                    //                sizeof(int)*n);
+                    auto n = (int)adj_graph[i][j].size();
+                    adj_file.write(reinterpret_cast<char*>(&n),
+                                   sizeof(n));
+                    for (auto elem : adj_graph[i][j]) {
+                        adj_file.write(reinterpret_cast<char*>(&elem),
+                                       sizeof(elem));
+                    }
 
                     /// ASCII file
-                    adj_file << adj_graph[i][j].size();
-                    for (auto elem : adj_graph[i][j]) {
-                        adj_file << "," << elem;
-                    }
-                    adj_file << std::endl;
+                    // adj_file << adj_graph[i][j].size();
+                    // for (auto elem : adj_graph[i][j]) {
+                    //     adj_file << "," << elem;
+                    // }
+                    // adj_file << std::endl;
                 }
             }
             adj_file.close();
