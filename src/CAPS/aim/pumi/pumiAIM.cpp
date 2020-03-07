@@ -65,6 +65,9 @@
 #include "meshUtils.h"  // Collection of helper functions for meshing
 #include "miscUtils.h"  // Collection of helper functions for miscellaneous use
 
+extern "C" int
+EG_saveTess(ego tess, const char *name); // super secret experimental EGADS tessellation format
+
 #define NUMINPUT   3  // number of mesh inputs
 #define NUMOUT     1  // number of outputs // placeholder for now
 
@@ -749,6 +752,7 @@ aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValue *a
                 }
             }             
 
+            // std::cout << "i: " << i << std::endl;
             apf::MeshEntity *tet = apf::buildElement(pumiMesh, gent,
                                                      apf::Mesh::TET,
                                                      tet_verts);
@@ -896,6 +900,11 @@ aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValue *a
             std::string smb_filename(filename);
             smb_filename += ".smb";
             pumiMesh->writeNative(smb_filename.c_str());
+
+            /// write native tesselation
+            std::string tess_filename(filename);
+            tess_filename += ".eto";
+            EG_saveTess(tess, tess_filename.c_str());
 
             /// write adjacency table
             std::string adj_filename(filename);
