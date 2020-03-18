@@ -762,7 +762,7 @@ aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValue *a
     }
 
     pumiMesh->acceptChanges();
-    apf::writeVtkFiles("filename", pumiMesh);
+    // apf::writeVtkFiles("filename", pumiMesh);
 
     /// calculate adjacency information and update PUMI gmi_edads model
     std::vector<std::set<int>> adj_graph[6];
