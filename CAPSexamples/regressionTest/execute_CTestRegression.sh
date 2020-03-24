@@ -15,6 +15,7 @@ expectCSuccess ()
     echo "=================================================" | tee -a $LOGFILE
     local status
     set -x
+    echo "$1 test;" | tee -a $LOGFILE
     time $VALGRIND_COMMAND $1 $2 $3 | tee -a $LOGFILE; status=${PIPESTATUS[0]}
     set +x
     if [[ $status == 0 ]]; then
@@ -44,6 +45,7 @@ expectCFailure ()
     echo | tee -a $LOGFILE
     echo "=================================================" | tee -a $LOGFILE
     local status
+    echo "$1 test;" | tee -a $LOGFILE
     set -x
     time $VALGRIND_COMMAND $1 $2 $3 | tee -a $LOGFILE; status=${PIPESTATUS[0]}
     set +x
@@ -196,7 +198,7 @@ if [[ "$TYPE" == "STRUCTURE" || "$TYPE" == "ALL" ]]; then
     echo "Running.... STRUCTURE c-Tests"
     
     ######  Mystran ###### 
-    if [ "`which mystran.exe`" != "" ]; then
+    if [ "`which mystran.exe`" != "" ] && [ "$OS" != "Windows_NT" ]; then
         expectCSuccess "./mystranTest" $cRegDir "1" 
     else
         notRun="$notRun\nMystran"
@@ -273,6 +275,16 @@ else
     echo "All tests pass!"
     echo ""
 fi
+
+TESSFAIL=`grep EG_fillTris $LOGFILE | wc -l`
+
+if [[ $TESSFAIL != 0 ]]; then
+    echo ""
+    echo "================================================="    
+    awk '/test;$/ { test = $0 }; /EG_fillTris/ { printf("%-35s EGADS Tess Failure\n", test, $0) }' $LOGFILE
+    echo "================================================="
+fi
+
 
 # exit with the status
 exit $stat

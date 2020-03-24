@@ -272,8 +272,35 @@ static int checkAndCreateMesh(int iIndex, void* aimInfo)
   tessParam[1] = Tess_Params->vals.reals[1]; // Gets multiplied by bounding box size
   tessParam[2] = Tess_Params->vals.reals[2];
 
-  edgePointMin = Edge_Point_Min->vals.integer;
-  edgePointMax = Edge_Point_Max->vals.integer;
+  // Max and min number of points
+  if (Edge_Point_Min->nullVal != IsNull) {
+      edgePointMin = Edge_Point_Min->vals.integer;
+      if (edgePointMin < 2) {
+        printf("**********************************************************\n");
+        printf("Edge_Point_Min = %d must be greater or equal to 2\n", edgePointMin);
+        printf("**********************************************************\n");
+        return CAPS_BADVALUE;
+      }
+  }
+
+  if (Edge_Point_Max->nullVal != IsNull) {
+      edgePointMax = Edge_Point_Max->vals.integer;
+      if (edgePointMax < 2) {
+        printf("**********************************************************\n");
+        printf("Edge_Point_Max = %d must be greater or equal to 2\n", edgePointMax);
+        printf("**********************************************************\n");
+        return CAPS_BADVALUE;
+      }
+  }
+
+  if (edgePointMin >= 2 && edgePointMax >= 2 && edgePointMin > edgePointMax) {
+    printf("**********************************************************\n");
+    printf("Edge_Point_Max must be greater or equal Edge_Point_Min\n");
+    printf("Edge_Point_Max = %d, Edge_Point_Min = %d\n",edgePointMax,edgePointMin);
+    printf("**********************************************************\n");
+    return CAPS_BADVALUE;
+  }
+
   quadMesh     = Quad_Mesh->vals.integer;
 
   status = initiate_mapAttrToIndexStruct(&transferMap);
@@ -445,28 +472,30 @@ int aimInputs(int iIndex, void *aimInfo, int index, char **ainame,
     } else if (index == 3) {
         *ainame               = EG_strdup("Edge_Point_Min");
         defval->type          = Integer;
-        defval->vals.integer  = 4;
+        defval->vals.integer  = 2;
         defval->lfixed        = Fixed;
         defval->nrow          = 1;
         defval->ncol          = 1;
+        defval->nullVal       = NotNull;
 
         /*! \page aimInputsMYSTRAN
-         * - <B> Edge_Point_Min = 4</B> <br>
-         * Minimum number of points along an edge to use when creating a boundary element model.
+         * - <B> Edge_Point_Min = 2</B> <br>
+         * Minimum number of points on an edge including end points to use when creating a surface mesh (min 2).
          */
 
     } else if (index == 4) {
         *ainame               = EG_strdup("Edge_Point_Max");
         defval->type          = Integer;
-        defval->vals.integer  = 10;
+        defval->vals.integer  = 50;
         defval->length        = 1;
         defval->lfixed        = Fixed;
         defval->nrow          = 1;
         defval->ncol          = 1;
+        defval->nullVal       = NotNull;
 
         /*! \page aimInputsMYSTRAN
-         * - <B> Edge_Point_Max = 10</B> <br>
-         * Maximum number of points along an edge to use when creating a boundary element model.
+         * - <B> Edge_Point_Max = 50</B> <br>
+         * Maximum number of points on an edge including end points to use when creating a surface mesh (min 2).
          */
 
     } else if (index == 5) {

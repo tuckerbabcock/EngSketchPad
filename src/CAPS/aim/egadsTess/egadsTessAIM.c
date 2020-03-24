@@ -264,11 +264,11 @@ int aimInputs(/*@unused@*/ int iIndex, void *aimInfo, int index, char **ainame,
         defval->lfixed        = Fixed;
         defval->nrow          = 1;
         defval->ncol          = 1;
-        defval->nullVal      = NotNull;
+        defval->nullVal       = IsNull;
 
         /*! \page aimInputsEgadsTess
-         * - <B> Edge_Point_Min = 0</B> <br>
-         * Minimum number of points along an edge to use when creating a surface mesh.
+         * - <B> Edge_Point_Min = NULL</B> <br>
+         * Minimum number of points on an edge including end points to use when creating a surface mesh (min 2).
          */
 
     } else if (index == 7) {
@@ -279,11 +279,11 @@ int aimInputs(/*@unused@*/ int iIndex, void *aimInfo, int index, char **ainame,
         defval->lfixed        = Fixed;
         defval->nrow          = 1;
         defval->ncol          = 1;
-        defval->nullVal      = IsNull;
+        defval->nullVal       = IsNull;
 
         /*! \page aimInputsEgadsTess
-         * - <B> Edge_Point_Max = 0</B> <br>
-         * Maximum number of points along an edge to use when creating a surface mesh.
+         * - <B> Edge_Point_Max = NULL</B> <br>
+         * Maximum number of points on an edge including end points to use when creating a surface mesh (min 2).
          */
 
     } else if (index == 8) {
@@ -406,7 +406,7 @@ int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValu
     ego *bodies = NULL; // EGADS body objects
 
     // Global settings
-    int minEdgePoint = 0, maxEdgePoint = 0, quadMesh = 0;
+    int minEdgePoint = -1, maxEdgePoint = -1, quadMesh = 0;
     double refLen = 0, meshLenFac = 0, capsMeshLength = 0;
 
     // Mesh attribute parameters
@@ -548,10 +548,33 @@ int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValu
     // Max and min number of points
     if (aimInputs[aim_getIndex(aimInfo, "Edge_Point_Min", ANALYSISIN)-1].nullVal != IsNull) {
         minEdgePoint = aimInputs[aim_getIndex(aimInfo, "Edge_Point_Min", ANALYSISIN)-1].vals.integer;
+        if (minEdgePoint < 2) {
+          printf("**********************************************************\n");
+          printf("Edge_Point_Min = %d must be greater or equal to 2\n", minEdgePoint);
+          printf("**********************************************************\n");
+          status = CAPS_BADVALUE;
+          goto cleanup;
+        }
     }
 
     if (aimInputs[aim_getIndex(aimInfo, "Edge_Point_Max", ANALYSISIN)-1].nullVal != IsNull) {
         maxEdgePoint = aimInputs[aim_getIndex(aimInfo, "Edge_Point_Max", ANALYSISIN)-1].vals.integer;
+        if (maxEdgePoint < 2) {
+          printf("**********************************************************\n");
+          printf("Edge_Point_Max = %d must be greater or equal to 2\n", maxEdgePoint);
+          printf("**********************************************************\n");
+          status = CAPS_BADVALUE;
+          goto cleanup;
+        }
+    }
+
+    if (maxEdgePoint >= 2 && minEdgePoint >= 2 && minEdgePoint > maxEdgePoint) {
+      printf("**********************************************************\n");
+      printf("Edge_Point_Max must be greater or equal Edge_Point_Min\n");
+      printf("Edge_Point_Max = %d, Edge_Point_Min = %d\n",maxEdgePoint,minEdgePoint);
+      printf("**********************************************************\n");
+      status = CAPS_BADVALUE;
+      goto cleanup;
     }
 
     // Get mesh sizing parameters

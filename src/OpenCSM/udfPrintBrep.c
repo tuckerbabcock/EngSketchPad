@@ -136,7 +136,7 @@ udpExecute(ego  emodel,                 /* (in)  Model containing Body */
 //$$$    }
 
     /* print the Brep info */
-    status = ocsmPrintBrep(MODL, MODL->nbody-1, stdout);
+    status = ocsmPrintBrep(MODL, MODL->nbody, stdout);
     if (status < EGADS_SUCCESS) goto cleanup;
 
     /* set the output value */

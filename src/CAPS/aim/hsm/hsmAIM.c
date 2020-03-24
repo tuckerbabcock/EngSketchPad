@@ -767,32 +767,34 @@ int aimInputs(int iIndex, void *aimInfo, int index, char **ainame,
     } else if (index == 3) {
         *ainame               = EG_strdup("Edge_Point_Min");
         defval->type          = Integer;
-        defval->vals.integer  = 4;
+        defval->vals.integer  = 2;
         defval->lfixed        = Fixed;
         defval->nrow          = 1;
         defval->ncol          = 1;
+        defval->nullVal       = NotNull;
 
         hsmInstance[iIndex].edgePointMin = defval;
 
         /*! \page aimInputsHSM
-         * - <B> Edge_Point_Min = 4</B> <br>
-         * Minimum number of points along an edge to use when creating a boundary element model.
+         * - <B> Edge_Point_Min = 2</B> <br>
+         * Minimum number of points on an edge including end points to use when creating a surface mesh (min 2).
          */
 
     } else if (index == 4) {
         *ainame               = EG_strdup("Edge_Point_Max");
         defval->type          = Integer;
-        defval->vals.integer  = 10;
+        defval->vals.integer  = 50;
         defval->length        = 1;
         defval->lfixed        = Fixed;
         defval->nrow          = 1;
         defval->ncol          = 1;
+        defval->nullVal       = NotNull;
 
         hsmInstance[iIndex].edgePointMax = defval;
 
         /*! \page aimInputsHSM
-         * - <B> Edge_Point_Max = 10</B> <br>
-         * Maximum number of points along an edge to use when creating a boundary element model.
+         * - <B> Edge_Point_Max = 50</B> <br>
+         * Maximum number of points on an edge including end points to use when creating a surface mesh (min 2).
          */
 
     } else if (index == 5) {

@@ -44,16 +44,22 @@ myProblem.loadCAPS("../csmData/feaWingBEM.csm", verbosity=args.verbosity)
 myProblem.loadAIM( aim = "egadsTessAIM",
                    altName = "tess" )
 
-# All triangles in the grid
+# No Tess vertexes on edges (minimial mesh)
+myProblem.analysis["tess"].setAnalysisVal("Edge_Point_Min", 2)
+myProblem.analysis["tess"].setAnalysisVal("Edge_Point_Max", 2)
+
+# All quad grid
 myProblem.analysis["tess"].setAnalysisVal("Mesh_Elements", "Quad")
 
 # Set global tessellation parameters
-myProblem.analysis["tess"].setAnalysisVal("Tess_Params", [.05,.5,15])
+myProblem.analysis["tess"].setAnalysisVal("Tess_Params", [1.,1.,30])
 
 # Generate the surface mesh
 myProblem.analysis["tess"].preAnalysis()
 myProblem.analysis["tess"].postAnalysis()
 
+# View the tessellation
+#myProblem.analysis["tess"].viewGeometry()
 
 # Load mystran aim
 ## [loadMYSTRAN]
@@ -66,12 +72,6 @@ mystranAIM = myProblem.loadAIM(aim = "mystranAIM",
 ##[setInputs]
 # Set project name so a mesh file is generated
 mystranAIM.setAnalysisVal("Proj_Name", projectName)
-
-# Set meshing inputs
-myProblem.analysis["mystran"].setAnalysisVal("Edge_Point_Min", 2)
-myProblem.analysis["mystran"].setAnalysisVal("Edge_Point_Max", 3)
-
-myProblem.analysis["mystran"].setAnalysisVal("Quad_Mesh", True)
 ##[setInputs]
 
 ##[setTuple]

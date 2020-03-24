@@ -9,17 +9,21 @@ SUBTRACT
 BOX      -4 -4 -2  8  4  4
 ROTATEZ   -60  0  0
 SUBTRACT
-   CSYSTEM  A  " 2;       0; 0;       0; -1; 0; 1;       0; 0"
-   CSYSTEM  B  "-1; sqrt(3); 0; sqrt(3);  1; 0; 1; sqrt(3); 0"
+   CSYSTEM  exit  " 2;  0; 0;\
+                    0; -1; 0;\
+                    1;  0; 0"
+   CSYSTEM  enter  "-1;       sqrt(3); 0;\
+                    sqrt(3);  1;       0;\
+                     1;       sqrt(3); 0"
 STORE     part
 
-# put little cylinders at A and B
+# put little cylinders at CSYS:exit and CSYS:enter
 RESTORE   part
 
 CYLINDER  0  0  0 .2  0  0  .1
-APPLYCSYS A
+APPLYCSYS exit
 
 CYLINDER  0  0  0 .1  0  0  .2
-APPLYCSYS B
+APPLYCSYS enter
 
 END

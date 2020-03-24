@@ -24,7 +24,6 @@ parser = argparse.ArgumentParser(description = 'Aeroelastic SU2 and Mystran Exam
 #Setup the available commandline options
 parser.add_argument('-workDir', default = "." + os.sep, nargs=1, type=str, help = 'Set working/run directory')
 parser.add_argument('-numberProc', default = 1, nargs=1, type=float, help = 'Number of processors')
-parser.add_argument('-noPlotData', action='store_true', default = False, help = "Don't plot data")
 parser.add_argument("-verbosity", default = 1, type=int, choices=[0, 1, 2], help="Set output verbosity")
 args = parser.parse_args()
 

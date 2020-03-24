@@ -161,7 +161,7 @@ EG_revision(int *major, int *minor, char **OCCrev)
 {
   *major  = EGADSMAJOR;
   *minor  = EGADSMINOR;
-  *OCCrev = NULL;
+  *OCCrev = "(lite version)";
 }
 
 

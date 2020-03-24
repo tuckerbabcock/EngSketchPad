@@ -36,10 +36,4 @@ subtract
 union
 fillet    filRad2
 
-
-# set tessellation parameters
-store     BODY
-restore   BODY
-   attribute .tParams "0.5; 0.1; 20.0"
-
 end

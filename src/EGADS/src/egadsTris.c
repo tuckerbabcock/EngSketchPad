@@ -2075,8 +2075,8 @@ EG_addFacetDist(triStruct *ts)
 static int
 EG_splitInter(int sideMid, triStruct *ts)
 {
-  int    j, split, i1, i2, t1, side, t2, total;
-  double d, dist;
+  int    status, j, split, i0, i1, i2, i3, t1, side, t2, total;
+  double d, dist, uv[2], point[18];
 
   total = ts->ntris;
   for (t1 = 0; t1 < total; t1++) ts->tris[t1].hit = 0;
@@ -2105,17 +2105,20 @@ EG_splitInter(int sideMid, triStruct *ts)
     if (side == -1) continue;
 
     t2 = ts->tris[t1].neighbors[side]-1;
-    /* reject if we are small and flat enough
     i0 = ts->tris[t1].indices[side];
     i1 = ts->tris[t1].indices[sides[side][0]];
     i2 = ts->tris[t1].indices[sides[side][1]];
     i3 = ts->tris[t2].indices[0] + ts->tris[t2].indices[1] +
          ts->tris[t2].indices[2] - i1 - i2;
     if ((i3 < 1) || (i3 > ts->nverts)) continue;
-    d  = EG_dotNorm(ts->verts[i0-1].xyz, ts->verts[i1-1].xyz,
-                    ts->verts[i2-1].xyz, ts->verts[i3-1].xyz);
-    if ((DIST2(ts->verts[i1-1].xyz, ts->verts[i2-1].xyz) <
-        ts->maxlen*ts->maxlen) && (d > ts->dotnrm)) continue;  */
+    uv[0]  = 0.5*(ts->verts[i1-1].uv[0] + ts->verts[i2-1].uv[0]);
+    uv[1]  = 0.5*(ts->verts[i1-1].uv[1] + ts->verts[i2-1].uv[1]);
+    status = EG_evaluate(ts->face, uv, point);
+    if (status != EGADS_SUCCESS) continue;
+    if (EG_dotNorm(ts->verts[i0-1].xyz, point,
+                   ts->verts[i2-1].xyz, ts->verts[i3-1].xyz) <= 0.1) continue;
+    if (EG_dotNorm(ts->verts[i0-1].xyz, ts->verts[i1-1].xyz,
+                   point,               ts->verts[i3-1].xyz) <= 0.1) continue;
 
     if (EG_splitSide(t1, side, t2, sideMid, ts) == EGADS_SUCCESS) {
       EG_floodTriGraph(t1, FLOODEPTH, ts);

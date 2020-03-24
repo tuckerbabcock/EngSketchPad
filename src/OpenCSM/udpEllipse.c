@@ -28,7 +28,7 @@
  *     MA  02110-1301  USA
  */
 
-#define NUMUDPARGS 3
+#define NUMUDPARGS 5
 #include "udpUtilities.h"
 
 /* shorthands for accessing argument values and velocities */
@@ -38,12 +38,14 @@
 #define RY_DOT(IUDP)  ((double *) (udps[IUDP].arg[1].dot))[0]
 #define RZ(    IUDP)  ((double *) (udps[IUDP].arg[2].val))[0]
 #define RZ_DOT(IUDP)  ((double *) (udps[IUDP].arg[2].dot))[0]
+#define NEDGE( IUDP)  ((int    *) (udps[IUDP].arg[3].val))[0]
+#define THBEG( IUDP)  ((double *) (udps[IUDP].arg[4].val))[0]
 
 /* data about possible arguments */
-static char  *argNames[NUMUDPARGS] = {"rx",        "ry",        "rz",        };
-static int    argTypes[NUMUDPARGS] = {ATTRREALSEN, ATTRREALSEN, ATTRREALSEN, };
-static int    argIdefs[NUMUDPARGS] = {0,           0,           0,           };
-static double argDdefs[NUMUDPARGS] = {0.,          0.,          0.,          };
+static char  *argNames[NUMUDPARGS] = {"rx",        "ry",        "rz",        "nedge",  "thbeg",  };
+static int    argTypes[NUMUDPARGS] = {ATTRREALSEN, ATTRREALSEN, ATTRREALSEN, ATTRINT,  ATTRREAL, };
+static int    argIdefs[NUMUDPARGS] = {0,           0,           0,           2,        0,        };
+static double argDdefs[NUMUDPARGS] = {0.,          0.,          0.,          0.,       0.,       };
 
 /* get utility routines: udpErrorStr, udpInitialize, udpReset, udpSet,
                          udpGet, udpVel, udpClean, udpMesh */
@@ -68,9 +70,9 @@ udpExecute(ego  context,                /* (in)  EGADS context */
 {
     int     status = EGADS_SUCCESS;
 
-    int     senses[2], add=1;
-    double  params[11], node[3], data[18], trange[4];
-    ego     enodes[3], ecurve, eedges[2], eloop, eface;
+    int     senses[8], periodic, iedge, add=1;
+    double  params[11], node[3], data[18], trange[4], tbeg;
+    ego     enodes[9], ecurve, eedges[8], eloop, eface;
 
 #ifdef DEBUG
     printf("udpExecute(context=%llx)\n", (long long)context);
@@ -80,6 +82,8 @@ udpExecute(ego  context,                /* (in)  EGADS context */
     printf("ry_dot(0) = %f\n", RY_DOT(0));
     printf("rz(0)     = %f\n", RZ(    0));
     printf("rz_dot(0) = %f\n", RZ_DOT(0));
+    printf("nedge(0)  = %d\n", NEDGE( 0));
+    printf("thbeg(0)  = %f\n", THBEG( 0));
 #endif
 
     /* default return values */
@@ -117,6 +121,16 @@ udpExecute(ego  context,                /* (in)  EGADS context */
         printf(" udpExecute: rz = %f < 0\n", RZ(0));
         status  = EGADS_RANGERR;
         goto cleanup;
+
+    } else if (NEDGE(0) < 2) {
+        printf(" udpExecute: nedge = %d < 2\n", NEDGE(0));
+        status  = EGADS_RANGERR;
+        goto cleanup;
+
+    } else if (NEDGE(0) > 8) {
+        printf(" udpExecute: nedge = %d > 8\n", NEDGE(0));
+        status  = EGADS_RANGERR;
+        goto cleanup;
     }
 
     /* cache copy of arguments for future use */
@@ -127,9 +141,11 @@ udpExecute(ego  context,                /* (in)  EGADS context */
     }
 
 #ifdef DEBUG
-    printf("rx(%d) = %f\n", numUdp, RX(numUdp));
-    printf("ry(%d) = %f\n", numUdp, RY(numUdp));
-    printf("rz(%d) = %f\n", numUdp, RZ(numUdp));
+    printf("rx(   %d) = %f\n", numUdp, RX(   numUdp));
+    printf("ry(   %d) = %f\n", numUdp, RY(   numUdp));
+    printf("rz(   %d) = %f\n", numUdp, RZ(   numUdp));
+    printf("nedge(%d) = %d\n", numUdp, NEDGE(numUdp));
+    printf("thbeg(%d) = %f\n", numUdp, THBEG(numUdp));
 #endif
 
     /* ellipses are centered at origin */
@@ -237,43 +253,50 @@ udpExecute(ego  context,                /* (in)  EGADS context */
     status = EG_makeGeometry(context, CURVE, ELLIPSE, NULL, NULL, params, &ecurve);
     if (status != EGADS_SUCCESS) goto cleanup;
 
-    /* make the two Nodes and find the associated parameter values */
-    status = EG_makeTopology(context, NULL, NODE, 0, node, 0, NULL, NULL, &(enodes[0]));
+    status = EG_invEvaluate(ecurve, node, trange, data);
     if (status != EGADS_SUCCESS) goto cleanup;
 
-    status = EG_invEvaluate(ecurve, node, &(trange[0]), data);
+    tbeg = trange[0] + THBEG(0);
+
+    /* make sure we get the trange between 0 and TWOPI */
+    status = EG_getRange(ecurve, trange, &periodic);
     if (status != EGADS_SUCCESS) goto cleanup;
 
-    node[0] *= -1;
-    node[1] *= -1;
-    node[2] *= -1;
-
-    status = EG_makeTopology(context, NULL, NODE, 0, node, 0, NULL, NULL, &(enodes[1]));
-    if (status != EGADS_SUCCESS) goto cleanup;
-
-    status = EG_invEvaluate(ecurve, node, &(trange[1]), data);
-    if (status != EGADS_SUCCESS) goto cleanup;
-
-    if (trange[1] < trange[0]) {
-        trange[1] += TWOPI;
+    if (fabs(trange[0]) > EPS06 || fabs(trange[1]-TWOPI) > EPS06) {
+        printf("STOPPING because of trange problem in udpEllipse\n");
+        printf("trange[0]=%f\n", trange[0]);
+        printf("trange[1]=%f\n", trange[1]);
+        status = -999;
+        goto cleanup;
     }
 
-    trange[2] = trange[0] + TWOPI;
+    /* make the Nodes */
+    enodes[0] = NULL;
 
-    enodes[2] = enodes[0];
+    for (iedge = 0; iedge < NEDGE(0); iedge++) {
+        trange[0] = tbeg + (double)(iedge) / (double)(NEDGE(0)) * TWOPI;
+        status = EG_evaluate(ecurve, trange, data);
+        if (status != EGADS_SUCCESS) goto cleanup;
+
+        status = EG_makeTopology(context, NULL, NODE, 0, data, 0, NULL, NULL, &(enodes[iedge]));
+        if (status != EGADS_SUCCESS) goto cleanup;
+    }
+
+    enodes[NEDGE(0)] = enodes[0];
 
     /* make the Edges */
-    status = EG_makeTopology(context, ecurve, EDGE, TWONODE, &(trange[0]), 2, &(enodes[0]), NULL, &(eedges[0]));
-    if (status != EGADS_SUCCESS) goto cleanup;
+    for (iedge = 0; iedge < NEDGE(0); iedge++) {
 
-    status = EG_makeTopology(context, ecurve, EDGE, TWONODE, &(trange[1]), 2, &(enodes[1]), NULL, &(eedges[1]));
-    if (status != EGADS_SUCCESS) goto cleanup;
+        trange[0] = tbeg + (double)(iedge  ) / (double)(NEDGE(0)) * TWOPI;
+        trange[1] = tbeg + (double)(iedge+1) / (double)(NEDGE(0)) * TWOPI;
+        status = EG_makeTopology(context, ecurve, EDGE, TWONODE, trange, 2, &(enodes[iedge]), NULL, &(eedges[iedge]));
+        if (status != EGADS_SUCCESS) goto cleanup;
 
-    /* make Loop from this Edge */
-    senses[0] = SFORWARD;
-    senses[1] = SFORWARD;
+        /* make Loop from this Edge */
+        senses[iedge] = SFORWARD;
+    }
 
-    status = EG_makeTopology(context, NULL, LOOP, CLOSED, NULL, 2, eedges, senses, &eloop);
+    status = EG_makeTopology(context, NULL, LOOP, CLOSED, NULL, NEDGE(0), eedges, senses, &eloop);
     if (status != EGADS_SUCCESS) goto cleanup;
 
     /* make Face from the loop */

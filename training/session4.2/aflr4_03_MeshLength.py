@@ -45,7 +45,7 @@ aflr4.setAnalysisVal("min_scale", 0.01)
 aflr4.setAnalysisVal("abs_min_scale", 0.01)
 
 # Use mesh length factor to make a series of meshes (not a family)
-for Mesh_Length_Factor in [1, 4, 20]:
+for Mesh_Length_Factor in [1, 3, 9]:
     aflr4.setAnalysisVal("Mesh_Length_Factor", Mesh_Length_Factor)
 
     # Run AIM pre-/post-analysis

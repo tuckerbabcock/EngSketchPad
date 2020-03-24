@@ -35,7 +35,7 @@
 
 
 #define DEBUG
-#define NUMINPUT  23                 /* number of Cart3D inputs */
+#define NUMINPUT  26                 /* number of Cart3D inputs */
 #define NUMOUT    12                 /* number of outputs */
 
 
@@ -423,6 +423,39 @@ aimInputs(int iIndex, /*@unused@*/ void *aimInfo, int index, char **name,
     * Z slice locations created in output.
     */
   }
+  else if (index == 24) {
+    *name = EG_strdup("Model_X_axis");
+    defval->type = String;
+    defval->units = NULL;
+    defval->vals.string = EG_strdup("-Xb");
+    
+    /*! \page aimInputsCART3D
+     * - <B> Model_X_axis = string </B> <br>
+     * Model_X_axis defines x-axis orientation.
+     */
+  }
+  else if (index == 25) {
+    *name = EG_strdup("Model_Y_axis");
+    defval->type = String;
+    defval->units = NULL;
+    defval->vals.string = EG_strdup("Yb");
+    
+    /*! \page aimInputsCART3D
+     * - <B> Model_Y_axis = string </B> <br>
+     * Model_Y_axis defines y-axis orientation.
+     */
+  }
+  else if (index == 26) {
+    *name = EG_strdup("Model_Z_axis");
+    defval->type = String;
+    defval->units = NULL;
+    defval->vals.string = EG_strdup("-Zb");
+    
+    /*! \page aimInputsCART3D
+     * - <B> Model_Z_axis = string </B> <br>
+     * Model_Z_axis defines z-axis orientation.
+     */
+  }
   return status;
 }
 
@@ -639,14 +672,14 @@ aimPreAnalysis(int iIndex, void *aimInfo, const char *apath, capsValue *inputs,
   fprintf(fp, "RK        0.5060     0\n");
   fprintf(fp, "RK        1.0        0\n\n");
   fprintf(fp, "CFL           %lf\n", inputs[14].vals.real);
-  fprintf(fp, "Limiter       %d\n", inputs[15].vals.integer);
-  fprintf(fp, "FluxFun       %d\n", inputs[16].vals.integer);
-  fprintf(fp, "maxCycles     %d\n", inputs[8].vals.integer);
+  fprintf(fp, "Limiter       %d\n",  inputs[15].vals.integer);
+  fprintf(fp, "FluxFun       %d\n",  inputs[16].vals.integer);
+  fprintf(fp, "maxCycles     %d\n",  inputs[8].vals.integer);
   fprintf(fp, "Precon        0\n");
   fprintf(fp, "wallBCtype    0\n");
-  fprintf(fp, "nMGlev        %d\n", inputs[10].vals.integer);
-  fprintf(fp, "MG_cycleType  %d\n", inputs[11].vals.integer);
-  fprintf(fp, "MG_nPre       %d\n", inputs[12].vals.integer);
+  fprintf(fp, "nMGlev        %d\n",   inputs[10].vals.integer);
+  fprintf(fp, "MG_cycleType  %d\n",   inputs[11].vals.integer);
+  fprintf(fp, "MG_nPre       %d\n",   inputs[12].vals.integer);
   fprintf(fp, "MG_nPost      %d\n\n", inputs[13].vals.integer);
 
   fprintf(fp, "$__Boundary_Conditions:\n\n");
@@ -712,9 +745,9 @@ aimPreAnalysis(int iIndex, void *aimInfo, const char *apath, capsValue *inputs,
   fprintf(fp, "\n$__Force_Moment_Processing:\n\n");
 /* ... Axis definitions (with respect to body axis directions (Xb,Yb,Zb)
                          w/ usual stability and control orientation)  */
-  fprintf(fp, "Model_X_axis  -Xb\n");
-  fprintf(fp, "Model_Y_axis   Yb\n");
-  fprintf(fp, "Model_Z_axis  -Zb\n");
+  fprintf(fp, "Model_X_axis  %s\n", inputs[23].vals.string);
+  fprintf(fp, "Model_Y_axis  %s\n", inputs[24].vals.string);
+  fprintf(fp, "Model_Z_axis  %s\n", inputs[25].vals.string);
   fprintf(fp, "Reference_Area   %lf all\n", Sref);
   fprintf(fp, "Reference_Length %lf all\n", Cref);
   fprintf(fp, "Force entire\n\n");

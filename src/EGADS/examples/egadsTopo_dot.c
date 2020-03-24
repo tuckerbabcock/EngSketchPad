@@ -96,8 +96,8 @@ pingBodies(ego tess1, ego tess2, double dtime, int iparam, const char *shape, do
 
       for (d = 0; d < 3; d++) {
         if (fabs(p1_dot[d] - fd_dot[d]) > ftol) {
-          printf("%s Face %d iparam=%d, diff fabs(%+le - %+le) = %+le > %e\n",
-                 shape, iface+1, iparam, p1_dot[d], fd_dot[d], fabs(p1_dot[d] - fd_dot[d]), ftol);
+          printf("%s Face %d iparam=%d, p1[%d]=%+le fabs(%+le - %+le) = %+le > %e\n",
+                 shape, iface+1, iparam, d, p1[d], p1_dot[d], fd_dot[d], fabs(p1_dot[d] - fd_dot[d]), ftol);
           nerr++;
         }
       }
@@ -139,8 +139,8 @@ pingBodies(ego tess1, ego tess2, double dtime, int iparam, const char *shape, do
 
       for (d = 0; d < 3; d++) {
         if (fabs(p1_dot[d] - fd_dot[d]) > etol) {
-          printf("%s Edge %d iparam=%d, diff fabs(%+le - %+le) = %+le > %e\n",
-                 shape, iedge+1, iparam, p1_dot[d], fd_dot[d], fabs(p1_dot[d] - fd_dot[d]), etol);
+          printf("%s Edge %d iparam=%d, p1[%d]=%+le fabs(%+le - %+le) = %+le > %e\n",
+                 shape, iedge+1, iparam, d, p1[d], p1_dot[d], fd_dot[d], fabs(p1_dot[d] - fd_dot[d]), etol);
           nerr++;
         }
       }
@@ -168,8 +168,8 @@ pingBodies(ego tess1, ego tess2, double dtime, int iparam, const char *shape, do
 
     for (d = 0; d < 3; d++) {
       if (fabs(p1_dot[d] - fd_dot[d]) > etol) {
-        printf("%s Node %d iparam=%d, diff fabs(%+le - %+le) = %+le > %e\n",
-               shape, inode+1, iparam, p1_dot[d], fd_dot[d], fabs(p1_dot[d] - fd_dot[d]), etol);
+        printf("%s Node %d iparam=%d, p1[%d]=%+le fabs(%+le - %+le) = %+le > %e\n",
+               shape, inode+1, iparam, d, p1[d], p1_dot[d], fd_dot[d], fabs(p1_dot[d] - fd_dot[d]), etol);
         nerr++;
       }
     }

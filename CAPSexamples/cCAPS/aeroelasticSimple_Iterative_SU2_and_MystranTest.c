@@ -487,6 +487,10 @@ int main(int argc, char *argv[])
     status = setValueByName_String(mystranObj, ANALYSISIN, "Proj_Name", 1, 1, projectName);
     if (status != CAPS_SUCCESS) goto cleanup;
 
+    intVal = 3;
+    status = setValueByName_Integer(mystranObj, ANALYSISIN, "Edge_Point_Min", 1, 1, &intVal);
+    if (status != CAPS_SUCCESS) goto cleanup;
+
     intVal = 10;
     status = setValueByName_Integer(mystranObj, ANALYSISIN, "Edge_Point_Max", 1, 1, &intVal);
     if (status != CAPS_SUCCESS) goto cleanup;

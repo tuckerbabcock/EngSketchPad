@@ -215,8 +215,8 @@ EG_tecplotSpline(int *header, double *data, const char *filename)
   int jcp   = header[5];
   int jknot = header[6]-2*jdeg;
 
-  int imax = iknot + ideg*(iknot-1);
-  int jmax = jknot + jdeg*(jknot-1);
+  int imax  = iknot + ideg*(iknot-1);
+  int jmax  = jknot + jdeg*(jknot-1);
 
   double *knotu =  data+ideg;
   double *knotv = &data[header[3]+ideg];
@@ -450,7 +450,7 @@ EG_mergeSeq(int stripe, egSequ<T> *seq, int n, T *nomulti)
     for (i = 0; i < n; i++) {
       seq[stripe].knots[i] *= seq[stripe].nave;
       seq[stripe].knots[i] += (nomulti[i  ] - nomulti[0])/
-          (nomulti[n-1] - nomulti[0]);
+                              (nomulti[n-1] - nomulti[0]);
     }
     dt = seq[stripe].knots[n-1];
     for (i = 0; i < n; i++) seq[stripe].knots[i] /= dt;
@@ -1412,9 +1412,9 @@ EG_secSplinePointsVels(int outLevel, int lsec, int nsec, const ego *secs, int j,
                           &senses);
     if (stat != EGADS_SUCCESS) continue;
     if (oclass == NODE) {
-      //stat = EG_evaluate(secs[i], NULL, point);
-      stat = (*(vels->velocityOfNode))(vels->usrData, secs, lsec+i, secs[i], NULL, xyz,
-                                       xyz_dot);
+//    stat = EG_evaluate(secs[i], NULL, point);
+      stat = (*(vels->velocityOfNode))(vels->usrData, secs, lsec+i, secs[i],
+                                       NULL, xyz, xyz_dot);
       if (stat != EGADS_SUCCESS) {
         if (outLevel > 0)
           printf(" EGADS Error: Section %d Node %d eval = %d (EG_secSplinePointsVels)!\n",
@@ -1843,8 +1843,7 @@ EG_secKnotPointsVels(int outLevel, int nsec, const ego *secs,
                           &senses);
     if (stat != EGADS_SUCCESS) continue;
     if (oclass == NODE) {
-      //stat = EG_evaluate(secs[i], NULL, point);
-
+//    stat = EG_evaluate(secs[i], NULL, point);
       stat = (*(vels->velocityOfNode))(vels->usrData, secs, i, secs[i], NULL, xyz,
                                        xyz_dot);
       if (stat != EGADS_SUCCESS) {

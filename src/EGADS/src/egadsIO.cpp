@@ -23,7 +23,7 @@
 #endif
 
 
-/* #define INTERIM */
+#define INTERIM
 
 
   extern "C" void EG_revision( int *major, int *minor, char **OCCrev );
@@ -492,9 +492,7 @@ EG_initOCC()
   if (env != NULL) np = atoi(env);
   if (np > 1) BOPAlgo_Options::SetParallelMode(Standard_True);
 #endif
-  if (((OCC_VERSION_MAJOR       != 6) || (OCC_VERSION_MINOR != 8) ||
-       (OCC_VERSION_MAINTENANCE == 0)) &&
-      ((OCC_VERSION_MAJOR       != 7) || (OCC_VERSION_MINOR != 3) ||
+  if (((OCC_VERSION_MAJOR       != 7) || (OCC_VERSION_MINOR != 3) ||
        (OCC_VERSION_MAINTENANCE == 0)) &&
       ((OCC_VERSION_MAJOR       != 7) || (OCC_VERSION_MINOR != 4) ||
        (OCC_VERSION_MAINTENANCE == 0)))
@@ -504,8 +502,7 @@ EG_initOCC()
 
 
 int
-EG_loadModel(egObject *context, int bflg, const char *name, 
-             egObject **model)
+EG_loadModel(egObject *context, int bflg, const char *name, egObject **model)
 {
   int          i, j, stat, outLevel, len, nattr, nerr, hite, hitf, egads = 0;
   double       scale = 1.0;
@@ -567,7 +564,8 @@ EG_loadModel(egObject *context, int bflg, const char *name,
     if (outLevel > 2)
       aReader.PrintCheckLoad(Standard_False, IFSelect_ItemsByEntity);
 
-    if ((bflg&4) == 0) {
+    if ((bflg&16) != 0) egads = -1;
+    if ((bflg&4)  == 0) {
       TColStd_SequenceOfAsciiString unitLength, unitAngle, solidAngle;
       aReader.FileUnits(unitLength, unitAngle, solidAngle);
       if (unitLength.Length() >= 1) {
@@ -778,62 +776,133 @@ EG_loadModel(egObject *context, int bflg, const char *name,
            
   int nBody = nWire+nFace+nSheet+nSolid;
   /* can we promote Edges to Wires? */
-  if (nBody == 0) {
+  if ((nBody == 0) || (egads == -1)) {
+    double tol = 1.e-7;
+/*
+    for (Exp.Init(source, TopAbs_VERTEX); Exp.More(); Exp.Next()) {
+      TopoDS_Vertex Vert = TopoDS::Vertex(Exp.Current());
+      double tolv = BRep_Tool::Tolerance(Vert);
+      if (tolv > tol) tol = tolv;
+    }
+ */
+    int nEdge, add = 0;
     j = 0;
-    for (Exp.Init(source, TopAbs_EDGE, TopAbs_WIRE);
-         Exp.More(); Exp.Next()) j++;
+    for (Exp.Init(source, TopAbs_EDGE, TopAbs_WIRE); Exp.More(); Exp.Next()) j++;
     if (j != 0) {
-      TopoDS_Compound compound;
-      BRep_Builder    builder3D;
-      builder3D.MakeCompound(compound);
-      for (Exp.Init(source, TopAbs_EDGE, TopAbs_WIRE);
-           Exp.More(); Exp.Next()) {
+      nEdge = j;
+      TopoDS_Edge *Edges = new TopoDS_Edge[nEdge];
+      /* remove small Edges */
+      j = 0;
+      for (Exp.Init(source, TopAbs_EDGE, TopAbs_WIRE); Exp.More(); Exp.Next()) {
         TopoDS_Shape shape = Exp.Current();
         TopoDS_Edge  Edge  = TopoDS::Edge(shape);
         Standard_Real t1, t2;
         Handle(Geom_Curve) hCurve = BRep_Tool::Curve(Edge, t1, t2);
         GeomAdaptor_Curve AC(hCurve);
-        if (GCPnts_AbscissaPoint::Length(AC, t1, t2) < 1.e-7) continue;
-/*      TopoDS_Vertex V1, V2;
-        TopExp::Vertices(Edge, V2, V1, Standard_True);
-        gp_Pnt pv1 = BRep_Tool::Pnt(V1);
-        gp_Pnt pv2 = BRep_Tool::Pnt(V2);
-        printf("  endpts = %lf %lf %lf  %lf %lf %lf\n",
-               pv1.X(), pv1.Y(), pv1.Z(), pv2.X(), pv2.Y(), pv2.Z());  */
-        BRepBuilderAPI_MakeWire MW;
-        try {
-          MW.Add(Edge);
-        }
-        catch (const Standard_Failure& e) {
-          printf(" EGADS Warning: Cannot Add Edge in Wire!\n");
-          printf("                %s\n", e.GetMessageString());
-          continue;
-        }
-        catch (...) {
-          printf(" EGADS Warning: Cannot Add Edge in Wire!\n");
-          continue;
-        }
-        if (MW.Error()) {
-          if (outLevel > 0)
-            printf(" EGADS Error: Problem with Edge!\n");
-          continue;
-        }
-        if (!MW.IsDone()) {
-          if (outLevel > 0)
-            printf(" EGADS Error: Problem with Loop!\n");
-          continue;
-        }
-        TopoDS_Wire wire = MW.Wire();
-        builder3D.Add(compound, wire);
-        nWire++;
-        nBody = nWire;
+        if (GCPnts_AbscissaPoint::Length(AC, t1, t2) < tol) continue;
+        Edges[j] = Edge;
+        j++;
+      }
+      nEdge = j;
+      TopoDS_Compound compound;
+      BRep_Builder    builder3D;
+      builder3D.MakeCompound(compound);
+      if (nBody != 0) builder3D.Add(compound, source);
+      while (j != 0) {
+        for (i = 0; i < nEdge; i++)
+          if (!Edges[i].IsNull()) {
+            BRepBuilderAPI_MakeWire MW;
+            try {
+              MW.Add(Edges[i]);
+              TopoDS_Vertex V1, V2;
+              TopExp::Vertices(Edges[i], V2, V1, Standard_True);
+              if (outLevel > 1) printf(" start Edge %d:", i+1);
+              Edges[i].Nullify();
+              if (V2.IsSame(V1)) {
+                if (outLevel > 1) printf("\n");
+                break;
+              }
+              gp_Pnt pv1 = BRep_Tool::Pnt(V1);
+              gp_Pnt pv2 = BRep_Tool::Pnt(V2);
+              int hit;
+              do {
+                hit = 0;
+                for (int k = 0; k < nEdge; k++)
+                  if (!Edges[k].IsNull()) {
+                    TopExp::Vertices(Edges[k], V2, V1, Standard_True);
+                    gp_Pnt pv = BRep_Tool::Pnt(V1);
+                    if (pv.Distance(pv1) < tol) {
+                      if (outLevel > 1) printf(" --%d", k+1);
+                      MW.Add(Edges[k]);
+                      Edges[k].Nullify();
+                      pv1 = pv;
+                      hit++;
+                      break;
+                    }
+                    if (pv.Distance(pv2) < tol) {
+                      if (outLevel > 1) printf(" -+%d", k+1);
+                      MW.Add(Edges[k]);
+                      Edges[k].Nullify();
+                      pv2 = pv;
+                      hit++;
+                      break;
+                    }
+                    pv = BRep_Tool::Pnt(V2);
+                    if (pv.Distance(pv1) < tol) {
+                      if (outLevel > 1) printf(" +-%d", k+1);
+                      MW.Add(Edges[k]);
+                      Edges[k].Nullify();
+                      pv1 = pv;
+                      hit++;
+                      break;
+                    }
+                    if (pv.Distance(pv2) < tol) {
+                      if (outLevel > 1) printf(" ++%d", k+1);
+                      MW.Add(Edges[k]);
+                      Edges[k].Nullify();
+                      pv2 = pv;
+                      hit++;
+                      break;
+                    }
+                  }
+              } while (hit != 0);
+              if (outLevel > 1) printf("\n");
+            }
+            catch (const Standard_Failure& e) {
+              printf(" EGADS Warning: Cannot Add Edge in Wire!\n");
+              printf("                %s\n", e.GetMessageString());
+              continue;
+            }
+            catch (...) {
+              printf(" EGADS Warning: Cannot Add Edge in Wire!\n");
+              continue;
+            }
+            if (MW.Error()) {
+              if (outLevel > 0)
+                printf(" EGADS Error: Problem with Imported Edge!\n");
+              continue;
+            }
+            if (!MW.IsDone()) {
+              if (outLevel > 0)
+                printf(" EGADS Error: Problem with Loop Conversion!\n");
+              continue;
+            }
+            TopoDS_Wire wire = MW.Wire();
+            builder3D.Add(compound, wire);
+            nWire++;
+            nBody++;
+            add++;
+          }
+        j = 0;
+        for (i = 0; i < nEdge; i++) if (!Edges[i].IsNull()) j++;
       }
       source = compound;
+      delete [] Edges;
     }
-    if (nBody != 0)
+    if (add != 0)
       if (outLevel > 0)
-        printf(" EGADS Info: %d Edges converted to WireBodies (EG_loadModel)!\n",
-               nBody);
+        printf(" EGADS Info: %d Edges converted to %d WireBodies (EG_loadModel)!\n",
+               nEdge, add);
   }
   if (nBody == 0) {
     source.Nullify();
@@ -873,7 +942,7 @@ EG_loadModel(egObject *context, int bflg, const char *name,
   }
   
   i = 0;
-  for (Exp.Init(mshape->shape, TopAbs_WIRE,  TopAbs_FACE); 
+  for (Exp.Init(mshape->shape, TopAbs_WIRE,  TopAbs_FACE);
        Exp.More(); Exp.Next()) {
     egObject  *obj   = mshape->bodies[i++];
     egadsBody *pbody = (egadsBody *) obj->blind;
@@ -1010,14 +1079,12 @@ EG_loadModel(egObject *context, int bflg, const char *name,
     if (stat != EGADS_SUCCESS) {
       mshape->nbody = i;
       EG_destroyTopology(omodel);
-      delete [] mshape->bodies;
-      delete mshape;
       return stat;
     }
   }
 
   *model = omodel;
-  if (egads == 0) return EGADS_SUCCESS;
+  if (egads != 1) return EGADS_SUCCESS;
 
   /* get the attributes from the EGADS files */
   
@@ -1241,13 +1308,15 @@ EG_writeAttrs(const egObject *obj, FILE *fp)
 int
 EG_saveModel(const egObject *model, const char *name)
 {
-  int         i, len, outLevel;
-  egadsModel *mshape;
-  FILE        *fp;
+  int            i, len, outLevel, nbody;
+  TopoDS_Shape   wshape;
+  const egObject **objs;
+  FILE           *fp;
   
-  if (model == NULL)               return EGADS_NULLOBJ;
-  if (model->magicnumber != MAGIC) return EGADS_NOTOBJ;
-  if (model->oclass != MODEL)      return EGADS_NOTMODEL;
+  if  (model == NULL)               return EGADS_NULLOBJ;
+  if  (model->magicnumber != MAGIC) return EGADS_NOTOBJ;
+  if ((model->oclass != MODEL) &&
+      (model->oclass != BODY))      return EGADS_NOTMODEL;
   outLevel = EG_outLevel(model);
 
   if (name == NULL) {
@@ -1277,7 +1346,17 @@ EG_saveModel(const egObject *model, const char *name)
     return EGADS_NODATA;
   }
   
-  mshape = (egadsModel *) model->blind;
+  if (model->oclass == MODEL) {
+    egadsModel *mshape = (egadsModel *) model->blind;
+    wshape             = mshape->shape;
+    nbody              = mshape->nbody;
+    objs               = (const egObject **) mshape->bodies;
+  } else {
+    egadsBody *mshape  = (egadsBody *) model->blind;
+    wshape             = mshape->shape;
+    nbody              = 1;
+    objs               = &model;
+  }
   
   if ((strcasecmp(&name[i],".step") == 0) || 
       (strcasecmp(&name[i],".stp") == 0)) {
@@ -1287,13 +1366,13 @@ EG_saveModel(const egObject *model, const char *name)
     STEPControl_Writer aWriter;
     TopExp_Explorer Exp;
     const STEPControl_StepModelType aVal = STEPControl_AsIs;
-    for (Exp.Init(mshape->shape, TopAbs_WIRE,  TopAbs_FACE);
+    for (Exp.Init(wshape, TopAbs_WIRE,  TopAbs_FACE);
          Exp.More(); Exp.Next()) aWriter.Transfer(Exp.Current(), aVal);
-    for (Exp.Init(mshape->shape, TopAbs_FACE,  TopAbs_SHELL);
+    for (Exp.Init(wshape, TopAbs_FACE,  TopAbs_SHELL);
          Exp.More(); Exp.Next()) aWriter.Transfer(Exp.Current(), aVal);
-    for (Exp.Init(mshape->shape, TopAbs_SHELL, TopAbs_SOLID);
+    for (Exp.Init(wshape, TopAbs_SHELL, TopAbs_SOLID);
          Exp.More(); Exp.Next()) aWriter.Transfer(Exp.Current(), aVal);
-    for (Exp.Init(mshape->shape, TopAbs_SOLID); 
+    for (Exp.Init(wshape, TopAbs_SOLID);
          Exp.More(); Exp.Next()) aWriter.Transfer(Exp.Current(), aVal);	
   
     if (!aWriter.Write(name)) {
@@ -1310,13 +1389,13 @@ EG_saveModel(const egObject *model, const char *name)
       IGESControl_Controller::Init();
       IGESControl_Writer iWrite;
       TopExp_Explorer Exp;
-      for (Exp.Init(mshape->shape, TopAbs_WIRE,  TopAbs_FACE);
+      for (Exp.Init(wshape, TopAbs_WIRE,  TopAbs_FACE);
            Exp.More(); Exp.Next()) iWrite.AddShape(Exp.Current());
-      for (Exp.Init(mshape->shape, TopAbs_FACE,  TopAbs_SHELL);
+      for (Exp.Init(wshape, TopAbs_FACE,  TopAbs_SHELL);
            Exp.More(); Exp.Next()) iWrite.AddShape(Exp.Current());
-      for (Exp.Init(mshape->shape, TopAbs_SHELL, TopAbs_SOLID);
+      for (Exp.Init(wshape, TopAbs_SHELL, TopAbs_SOLID);
            Exp.More(); Exp.Next()) iWrite.AddShape(Exp.Current());
-      for (Exp.Init(mshape->shape, TopAbs_SOLID); 
+      for (Exp.Init(wshape, TopAbs_SOLID);
            Exp.More(); Exp.Next()) iWrite.AddShape(Exp.Current());
 
       iWrite.ComputeModel();
@@ -1336,7 +1415,7 @@ EG_saveModel(const egObject *model, const char *name)
   
     /* Native OCC file or our filetype */
 
-    if (!BRepTools::Write(mshape->shape, name)) {
+    if (!BRepTools::Write(wshape, name)) {
       printf(" EGADS Warning: OCC Write Error (EG_saveModel)!\n");
       return EGADS_WRITERR;
     }
@@ -1351,49 +1430,50 @@ EG_saveModel(const egObject *model, const char *name)
     }
     fprintf(fp, "\n##EGADS HEADER FILE-REV 1 ##\n");
     /* write model attributes */
-    EG_writeAttrs(model, fp);
+    if (model->oclass == MODEL) {
+      EG_writeAttrs(model, fp);
+    } else {
+      fprintf(fp, "0\n");
+    }
     TopExp_Explorer Exp;
-    for (Exp.Init(mshape->shape, TopAbs_WIRE,  TopAbs_FACE); 
-         Exp.More(); Exp.Next()) {
+    for (Exp.Init(wshape, TopAbs_WIRE,  TopAbs_FACE); Exp.More(); Exp.Next()) {
       TopoDS_Shape shape = Exp.Current();
-      for (i = 0; i < mshape->nbody; i++) {
-        egObject  *obj   = mshape->bodies[i];
-        egadsBody *pbody = (egadsBody *) obj->blind;
+      for (i = 0; i < nbody; i++) {
+        const egObject *obj   = objs[i];
+        egadsBody      *pbody = (egadsBody *) obj->blind;
         if (shape.IsSame(pbody->shape)) {
           EG_writeAttrs(obj, fp);
           break;
         }
       }
     }
-    for (Exp.Init(mshape->shape, TopAbs_FACE,  TopAbs_SHELL);
-         Exp.More(); Exp.Next()) {
+    for (Exp.Init(wshape, TopAbs_FACE,  TopAbs_SHELL); Exp.More(); Exp.Next()) {
       TopoDS_Shape shape = Exp.Current();
-      for (i = 0; i < mshape->nbody; i++) {
-        egObject  *obj   = mshape->bodies[i];
-        egadsBody *pbody = (egadsBody *) obj->blind;
+      for (i = 0; i < nbody; i++) {
+        const egObject *obj   = objs[i];
+        egadsBody      *pbody = (egadsBody *) obj->blind;
         if (shape.IsSame(pbody->shape)) {
           EG_writeAttrs(obj, fp);
           break;
         }
       }
     }
-    for (Exp.Init(mshape->shape, TopAbs_SHELL, TopAbs_SOLID);
-         Exp.More(); Exp.Next()) {
+    for (Exp.Init(wshape, TopAbs_SHELL, TopAbs_SOLID); Exp.More(); Exp.Next()) {
       TopoDS_Shape shape = Exp.Current();
-      for (i = 0; i < mshape->nbody; i++) {
-        egObject  *obj   = mshape->bodies[i];
-        egadsBody *pbody = (egadsBody *) obj->blind;
+      for (i = 0; i < nbody; i++) {
+        const egObject *obj   = objs[i];
+        egadsBody      *pbody = (egadsBody *) obj->blind;
         if (shape.IsSame(pbody->shape)) {
           EG_writeAttrs(obj, fp);
           break;
         }
       }
     }
-    for (Exp.Init(mshape->shape, TopAbs_SOLID); Exp.More(); Exp.Next()) {
+    for (Exp.Init(wshape, TopAbs_SOLID); Exp.More(); Exp.Next()) {
       TopoDS_Shape shape = Exp.Current();
-      for (i = 0; i < mshape->nbody; i++) {
-        egObject  *obj   = mshape->bodies[i];
-        egadsBody *pbody = (egadsBody *) obj->blind;
+      for (i = 0; i < nbody; i++) {
+        const egObject *obj   = objs[i];
+        egadsBody      *pbody = (egadsBody *) obj->blind;
         if (shape.IsSame(pbody->shape)) {
           EG_writeAttrs(obj, fp);
           break;

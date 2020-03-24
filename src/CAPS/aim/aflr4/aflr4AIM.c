@@ -114,18 +114,29 @@
  * scaled on the face/surface by the value of the scale factor set with
  * AFLR4_Scale_Factor.<br>
  * <br>
- * - <b> AFLR4_Edge_Scale_Factor_Weight</b> [Optional FACE attribute: Default 0.0, Range 0 to 1]<br>
- * EGADS attribute AFLR4_Edge_Scale_Factor_Weight represents the edge mesh spacing
+ * - <b> AFLR4_Edge_Refinement_Weight</b> [Optional FACE attribute: Default 0.0, Range 0 to 1]<br>
+ * EGADS attribute AFLR4_Edge_Refinement_Weight represents the edge mesh spacing
  * scale factor weight for a given face/surface. Edge mesh spacing can be scaled
  * on a given face/surface based on the discontinuity level between adjacent
  * faces/surfaces on both sides of the edge. The edge mesh spacing scale factor
- * weight set with AFLR4_Edge_Scale_Factor_Weight is used as an interpolation
+ * weight set with AFLR4_Edge_Refinement_Weight is used as an interpolation
  * weight between the unmodified spacing and the modified spacing. A value of one
  * applies the maximum modification and a value of zero applies no change in edge
  * spacing. Note that no modification is done to edges that belong to farfield or
  * BL intersecting face/surface.
  *
  */
+
+#ifdef WIN32
+#define getcwd      _getcwd
+#define strcasecmp  stricmp
+#define strncasecmp _strnicmp
+#define PATH_MAX    _MAX_PATH
+typedef int         pid_t;        
+#else
+#include <unistd.h>
+#include <limits.h>
+#endif
 
 #include <string.h>
 #include <math.h>
@@ -138,16 +149,6 @@
 
 extern int
 EG_saveTess(ego tess, const char *name); // super secret experimental EGADS tessellation format
-
-#ifdef WIN32
-#define getcwd      _getcwd
-#define strcasecmp  stricmp
-#define strncasecmp _strnicmp
-#define PATH_MAX    _MAX_PATH
-#else
-#include <unistd.h>
-#include <limits.h>
-#endif
 
 #include <ug/UG_LIB.h>
 #include <aflr4/AFLR4_LIB.h> // Bring in AFLR4 API library
@@ -278,7 +279,7 @@ static int setAFLR4Attr(ego body,
                 if (meshProp[propIndex].edgeWeight >= 0) {
 
                     // add the edge scale factor weight attribute
-                    status = EG_attributeAdd(faces[faceIndex], "AFLR4_Edge_Scale_Factor_Weight", ATTRREAL, 1, NULL, &meshProp[propIndex].edgeWeight, NULL);
+                    status = EG_attributeAdd(faces[faceIndex], "AFLR4_Edge_Refinement_Weight", ATTRREAL, 1, NULL, &meshProp[propIndex].edgeWeight, NULL);
                     if (status != EGADS_SUCCESS) goto cleanup;
                 }
             }
@@ -376,10 +377,10 @@ int aimInputs(/*@unused@*/ int iIndex, void *aimInfo, int index, char **ainame,
     int status; // error code
     UG_Param_Struct *AFLR4_Param_Struct_Ptr = NULL; // AFRL4 input structure used to get default values
 
-    int ff_nseg, min_ncell, msfe_all, nprox;
+    int ff_nseg, min_ncell, mer_all, mprox;
 
     double abs_min_scale, BL_thickness, curv_factor,
-           max_scale, min_scale, sfe_all; //, ref_len;
+           max_scale, min_scale, erw_all; //, ref_len;
 
 
     status = ug_malloc_param (&AFLR4_Param_Struct_Ptr);
@@ -516,65 +517,61 @@ int aimInputs(/*@unused@*/ int iIndex, void *aimInfo, int index, char **ainame,
          * less than the minimum number of cells<br>
          * specified by min_ncell. Proximity checking is<br>
          * automatically disabled if min_ncell=1 or if<br>
-         * nprox=0 or if there is only<br>
+         * mprox=0 or if there is only<br>
          * one component/body defined.
          */
 
     } else if (index == 8) {
 
-        status = ug_get_int_param ((char*)"msfe_all", &msfe_all, AFLR4_Param_Struct_Ptr);
+        status = ug_get_int_param ((char*)"mer_all", &mer_all, AFLR4_Param_Struct_Ptr);
         if (status == 1) status = CAPS_SUCCESS;
         if (status != CAPS_SUCCESS) {
-            printf("Failed to retrieve default value for 'msfe_all'\n");
+            printf("Failed to retrieve default value for 'mer_all'\n");
             status = CAPS_NOTFOUND;
             goto cleanup;
         }
 
-        *ainame              = EG_strdup("msfe_all");
+        *ainame              = EG_strdup("mer_all");
         defval->type         = Integer;
         defval->dim          = Scalar;
-        defval->vals.integer  = msfe_all;
+        defval->vals.integer = mer_all;
 
         /*! \page aimInputsAFLR4
-         * - <B>msfe_all</B> <br>
+         * - <B>mer_all</B> <br>
          * Global edge mesh spacing scale factor flag.<br>
          * Edge mesh spacing can be scaled on all surfaces based on discontinuity level<br>
          * between adjacent surfaces on both sides of the edge. For each surface the level<br>
-         * of discontinuity (as defined by angsfe1 and angsfe2) determines the edge<br>
-         * spacing scale factor for potentially reducing the edge spacing. See sfe_ids and<br>
-         * sfe_list. This option is equivalent to setting sfe_ids equal to the list of all<br>
-         * surface IDS and the edge mesh spacing scale factor weight in sfe_list equal to<br>
+         * of discontinuity (as defined by angerw1 and angerw2) determines the edge<br>
+         * spacing scale factor for potentially reducing the edge spacing. See erw_ids and<br>
+         * erw_list. This option is equivalent to setting erw_ids equal to the list of all<br>
+         * surface IDS and the edge mesh spacing scale factor weight in erw_list equal to<br>
          * one. Note that no modification is done to edges that belong to surfaces with a<br>
          * grid BC of farfield (ff_ids) or BL intersecting (int_ids).
          */
 
     } else if (index == 9) {
 
-        status = ug_get_int_param ((char*)"nprox", &nprox, AFLR4_Param_Struct_Ptr);
+        status = ug_get_int_param ((char*)"mprox", &mprox, AFLR4_Param_Struct_Ptr);
         if (status == 1) status = CAPS_SUCCESS;
         if (status != CAPS_SUCCESS) {
-            printf("Failed to retrieve default value for 'nprox'\n");
+            printf("Failed to retrieve default value for 'mprox'\n");
             status = CAPS_NOTFOUND;
             goto cleanup;
         }
 
-        *ainame              = EG_strdup("nprox");
-        defval->type         = Integer;
+        *ainame              = EG_strdup("mprox");
+        defval->type         = Boolean;
         defval->dim          = Scalar;
-        defval->vals.integer = nprox;
+        defval->vals.integer = mprox;
 
         /*! \page aimInputsAFLR4
-         * - <B>nprox</B> <br>
-         * Number of proximity check iterations.<br>
-         * Proximity check iterations are used as a<br>
-         * means to smooth the distribution of spacing<br>
-         * reductions due to proximity. Proximity of<br>
-         * components/bodies to each other is estimated<br>
-         * and surface spacing is locally reduced if<br>
-         * needed. Proximity checking is automatically<br>
-         * disabled if min_ncell=1 or if<br>
-         * nprox=0 or there is only one<br>
-         * component/body defined.
+         * - <B>mprox</B> <br>
+         * Proximity check flag.<br>
+         * If mprox=1 then proximity of components/bodies to each other is estimated <br>
+         * and surface spacing is locally reduced if needed. <br>
+         * If mprox=0 or if there is only one component/body defined then proximity <br>
+         * checking is disabled. <br>
+         *
          */
 
     } else if (index == 10) {
@@ -600,7 +597,7 @@ int aimInputs(/*@unused@*/ int iIndex, void *aimInfo, int index, char **ainame,
          * (ref_len) controls the absolute minimum<br>
          * spacing that can be set on any component/body<br>
          * surface by proximity checking (see min_ncell<br>
-         * and nprox). Note that the<br>
+         * and mprox). Note that the<br>
          * value of abs_min_scale is limited to be less<br>
          * than or equal to min_scale.
          */
@@ -660,35 +657,35 @@ int aimInputs(/*@unused@*/ int iIndex, void *aimInfo, int index, char **ainame,
 
     } else if (index == 13) {
 
-        status = ug_get_double_param ((char*)"sfe_all", &sfe_all, AFLR4_Param_Struct_Ptr);
+        status = ug_get_double_param ((char*)"erw_all", &erw_all, AFLR4_Param_Struct_Ptr);
         if (status == 1) status = CAPS_SUCCESS;
         if (status != CAPS_SUCCESS) {
-            printf("Failed to retrieve default value for 'sfe_all'\n");
+            printf("Failed to retrieve default value for 'erw_all'\n");
             status = CAPS_NOTFOUND;
             goto cleanup;
         }
 
-        *ainame           = EG_strdup("sfe_all");
+        *ainame           = EG_strdup("erw_all");
         defval->type      = Double;
         defval->dim       = Scalar;
-        defval->vals.real = sfe_all;
+        defval->vals.real = erw_all;
 
         /*! \page aimInputsAFLR4
-         * - <B>sfe_all</B> <br>
-         * Global edge mesh spacing scale factor weight.<br>
-         * Edge mesh spacing can be scaled on all surfaces (if msfe_all=1) based on<br>
+         * - <B>erw_all</B> <br>
+         * Global edge mesh spacing refinement weight.<br>
+         * Edge mesh spacing can be scaled on all surfaces (if mer_all=1) based on<br>
          * discontinuity level between adjacent surfaces on both sides of the edge.<br>
-         * For each surface the level of discontinuity (as defined by angsfe1 and angsfe2)<br>
+         * For each surface the level of discontinuity (as defined by angerw1 and angerw2)<br>
          * determines the edge spacing scale factor for potentially reducing the edge<br>
          * spacing. The edge mesh spacing scale factor weight is then used as an<br>
          * interpolation weight between the unmodified spacing and the modified spacing.<br>
          * A value of one applies the maximum modification and a value of zero applies no<br>
          * change in edge spacing. If the global edge mesh spacing scale factor flag,<br>
-         * msfe_all, is set to 1 then that is equivalent to setting AFLR_Edge_Scale_Factor_Weight<br>
-         * on all FACEs to the value sfe_all. Note that no modification is<br>
+         * mer_all, is set to 1 then that is equivalent to setting AFLR_Edge_Scale_Factor_Weight<br>
+         * on all FACEs to the value erw_all. Note that no modification is<br>
          * done to edges that belong to surfaces with a grid BC of farfield (FARFIELD_UG3_GBC) or BL<br>
-         * intersecting. Also, note that the global weight, sfe_all, is not<br>
-         * applicable if msfe_all=0.
+         * intersecting. Also, note that the global weight, erw_all, is not<br>
+         * applicable if mer_all=0.
          */
 
     } else if (index == 14) {
@@ -1072,7 +1069,7 @@ int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValu
             } else if (strcasecmp(aflr4Instance[iIndex].meshInput.outputFormat, "ETO") == 0) {
 
                 // This format is not yet anything official. Do not document it!
-                filename = (char *) EG_reall(filename,(strlen(filename) + 4) *sizeof(char));
+                filename = (char *) EG_reall(filename,(strlen(filename) + 5) *sizeof(char));
                 if (filename == NULL) {
                     status = EGADS_MALLOC;
                     goto cleanup;

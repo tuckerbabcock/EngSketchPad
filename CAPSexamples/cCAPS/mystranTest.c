@@ -142,7 +142,7 @@ int main(int argc, char *argv[])
     status = caps_childByName(mystranObj, VALUE, ANALYSISIN, "Edge_Point_Max", &tempObj);
     if (status != CAPS_SUCCESS) goto cleanup;
 
-    intVal = 4;
+    intVal = 3;
     status = caps_setValue(tempObj, 1, 1, (void *) &intVal);
     if (status != CAPS_SUCCESS) goto cleanup;
 

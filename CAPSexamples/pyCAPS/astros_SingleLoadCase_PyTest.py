@@ -46,6 +46,7 @@ myProblem.loadAIM( aim = "astrosAIM",
 myProblem.analysis["astros"].setAnalysisVal("Proj_Name", projectName)
 
 # Set meshing parameters
+myProblem.analysis["astros"].setAnalysisVal("Edge_Point_Min", 3)
 myProblem.analysis["astros"].setAnalysisVal("Edge_Point_Max", 4)
 
 myProblem.analysis["astros"].setAnalysisVal("Quad_Mesh", True)

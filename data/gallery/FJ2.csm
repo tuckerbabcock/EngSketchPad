@@ -376,8 +376,6 @@ ifthen OMLToggle eq 1 or LINEARAEROToggle eq 1
 	    patend
 	blend
 
-	attribute .tParams "0.9; 0.002; 15;"
-
 	attribute _stlColor 1
 	attribute capsGroup $Fuselage
 
@@ -415,8 +413,6 @@ ifthen OMLToggle eq 1 or LINEARAEROToggle eq 1
 	    patend
 	blend
 
-	attribute .tParams "0.9; 0.002; 15;"
-
 	attribute _stlColor 1
 	attribute capsGroup $Fuselage
 
@@ -446,7 +442,6 @@ ifthen OMLToggle eq 1 or LINEARAEROToggle eq 1
 	attribute capsGroup $Fuselage
 	attribute _name $Fuselage
 	attribute _stlColor 1
-	attribute .tParams "0.9; 0.002; 15;"
 
 	store $FuselageBody 0 0
 
@@ -800,7 +795,6 @@ ifthen OMLToggle eq 1 or AVLToggle eq 1
 	rule
 
 	attribute _name $Wings
-	attribute .tParams "0.9; 0.002; 15;"
 	attribute capsGroup $Wing
 
 	store $WingBody 0 0

@@ -630,8 +630,6 @@ EG_copyTopology(/*@null@*/ egObject *context, const egObject *topo,
       if (stat != EGADS_SUCCESS) {
         mshape->nbody = i;
         EG_destroyTopology(obj);
-        delete [] mshape->bodies;
-        delete mshape;
         return stat;
       }
       egObject *sobj = pmodel->bodies[i];

@@ -107,8 +107,8 @@ pingBodies(ego tess1, ego tess2, double dtime, int iparam, const char *shape, do
 
       for (d = 0; d < 3; d++) {
         if (fabs(p1_dot[d] - fd_dot[d]) > ftol) {
-          printf("%s Face %d iparam=%d, diff fabs(%+le - %+le) = %+le > %e\n",
-                 shape, iface+1, iparam, p1_dot[d], fd_dot[d], fabs(p1_dot[d] - fd_dot[d]), ftol);
+          printf("%s Face %d iparam=%d, p1[%d]=%+le fabs(%+le - %+le) = %+le > %e\n",
+                 shape, iface+1, iparam, d, p1[d], p1_dot[d], fd_dot[d], fabs(p1_dot[d] - fd_dot[d]), ftol);
           nerr++;
         }
       }
@@ -150,8 +150,8 @@ pingBodies(ego tess1, ego tess2, double dtime, int iparam, const char *shape, do
 
       for (d = 0; d < 3; d++) {
         if (fabs(p1_dot[d] - fd_dot[d]) > etol) {
-          printf("%s Edge %d iparam=%d, diff fabs(%+le - %+le) = %+le > %e\n",
-                 shape, iedge+1, iparam, p1_dot[d], fd_dot[d], fabs(p1_dot[d] - fd_dot[d]), etol);
+          printf("%s Edge %d iparam=%d, p1[%d]=%+le fabs(%+le - %+le) = %+le > %e\n",
+                 shape, iedge+1, iparam, d, p1[d], p1_dot[d], fd_dot[d], fabs(p1_dot[d] - fd_dot[d]), etol);
           nerr++;
         }
       }
@@ -179,8 +179,8 @@ pingBodies(ego tess1, ego tess2, double dtime, int iparam, const char *shape, do
 
     for (d = 0; d < 3; d++) {
       if (fabs(p1_dot[d] - fd_dot[d]) > etol) {
-        printf("%s Node %d iparam=%d, diff fabs(%+le - %+le) = %+le > %e\n",
-               shape, inode+1, iparam, p1_dot[d], fd_dot[d], fabs(p1_dot[d] - fd_dot[d]), etol);
+        printf("%s Node %d iparam=%d, p1[%d]=%+le fabs(%+le - %+le) = %+le > %e\n",
+               shape, inode+1, iparam, d, p1[d], p1_dot[d], fd_dot[d], fabs(p1_dot[d] - fd_dot[d]), etol);
         nerr++;
       }
     }
@@ -2164,12 +2164,12 @@ cleanup:
 /*                                                                           */
 /*****************************************************************************/
 
-/* set KNOTS to 0 for arc-lenght knots, and -1 for equally spaced knots
+/* set KNOTS to 0 for arc-length knots, and -1 for equally spaced knots
  */
 #define           KNOTS           0
 
 /* tolerance for the spline fit */
-#define           DXYTOL          1.0e-6
+#define           DXYTOL          1.0e-8
 
 int
 makeBsplineCurveBody( ego context,        /* (in)  EGADS context                        */
@@ -2287,17 +2287,25 @@ int
 pingBsplineCurve(ego context)
 {
   int    status = EGADS_SUCCESS;
-  int    iparam, np1;
+  int    i, iparam, np1;
   double params[3], dtime = 1e-7;
   const double *t1, *x1;
   ego    ebody1, ebody2, tess1, tess2;
 
-  const int npts = 4;
-  double pts[12] = {0.00, 0.00, 0.00,
-                    1.00, 0.00, 0.10,
-                    1.50, 1.00, 0.70,
-                    0.25, 0.75, 0.60};
-  double pts_dot[12];
+  double p[] = {0, 0.1, 0.2, 0.5, 0.8, 0.9, 1.0};
+#define NP (sizeof(p)/sizeof(double))
+
+  const int npts = NP;
+  double pts[3*NP];
+  double pts_dot[3*NP];
+#undef NP
+
+  /* create half circle points for the fit */
+  for (i = 0; i < npts; i++) {
+    pts[3*i  ] = cos(PI*p[i]);
+    pts[3*i+1] = sin(PI*p[i]);
+    pts[3*i+2] = 0.0;
+  }
 
   /* make the B-spline body */
   status = makeBsplineCurveBody(context, npts, pts, &ebody1);
@@ -2340,7 +2348,7 @@ pingBsplineCurve(ego context)
     if (status != EGADS_SUCCESS) goto cleanup;
 
     /* ping the bodies */
-    status = pingBodies(tess1, tess2, dtime, iparam, "B-spline Curve", 1e-7, 1e-7, 1e-7);
+    status = pingBodies(tess1, tess2, dtime, iparam, "B-spline Curve", 1e-7, 5e-7, 1e-7);
     if (status != EGADS_SUCCESS) goto cleanup;
 
     EG_deleteObject(tess2);
@@ -6723,7 +6731,7 @@ makeBsplineSurfaceBody( ego context,        /* (in)  EGADS context         */
 
 
   /* vmin */
-  status = EG_isoCurve(header, rvec, 0, -1, lheader, &lpts);
+  status = EG_isoCurve(header, rvec, -1, 0, lheader, &lpts);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   status = EG_makeGeometry(context, CURVE, BSPLINE, NULL, lheader,
@@ -6741,7 +6749,7 @@ makeBsplineSurfaceBody( ego context,        /* (in)  EGADS context         */
   EG_free(lpts); lpts = NULL;
 
   /* vmax */
-  status = EG_isoCurve(header, rvec, header[5]-1, -1, lheader, &lpts);
+  status = EG_isoCurve(header, rvec, -1, header[5]-1, lheader, &lpts);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   status = EG_makeGeometry(context, CURVE, BSPLINE, NULL, lheader,
@@ -6950,7 +6958,7 @@ setBsplineSurfaceBody_dot( const int nCPu,        /* (in)  number of points in u
   EG_free(lpts_dot); lpts_dot = NULL;
 
   /* vmin */
-  status = EG_isoCurve_dot(header, rvec, rvec_dot, 0, -1, lheader, &lpts, &lpts_dot);
+  status = EG_isoCurve_dot(header, rvec, rvec_dot, -1, 0, lheader, &lpts, &lpts_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   status = EG_setGeometry_dot(ecurves[1], CURVE, BSPLINE, lheader, lpts, lpts_dot);
@@ -6968,7 +6976,7 @@ setBsplineSurfaceBody_dot( const int nCPu,        /* (in)  number of points in u
   EG_free(lpts_dot); lpts_dot = NULL;
 
   /* vmax */
-  status = EG_isoCurve_dot(header, rvec, rvec_dot, header[5]-1, -1, lheader, &lpts, &lpts_dot);
+  status = EG_isoCurve_dot(header, rvec, rvec_dot, -1, header[5]-1, lheader, &lpts, &lpts_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   status = EG_setGeometry_dot(ecurves[3], CURVE, BSPLINE, lheader, lpts, lpts_dot);

@@ -27,6 +27,7 @@ LIBLIST =	$(LDIR)/$(OSHLIB) \
 		$(LDIR)/fitcurve.so \
 		$(LDIR)/freeform.so \
 		$(LDIR)/flend.so \
+		$(LDIR)/ganged.so \
 		$(LDIR)/guide.so \
 		$(LDIR)/matchBodys.so \
 		$(LDIR)/hex.so \
@@ -251,6 +252,16 @@ $(LDIR)/flend.so:	$(ODIR)/udfFlend.o $(LDIR)/$(OSHLIB)
 $(ODIR)/udfFlend.o:	udfFlend.c udpUtilities.c udpUtilities.h
 	$(CC) -c $(COPTS) $(DEFINE) -I$(IDIR) -I. udfFlend.c \
 		-o $(ODIR)/udfFlend.o
+
+$(LDIR)/ganged.so:	$(ODIR)/udfGanged.o $(LDIR)/$(OSHLIB)
+	touch $(LDIR)/ganged.so
+	rm $(LDIR)/ganged.so
+	$(CC) $(SOFLGS) -o $(LDIR)/ganged.so $(ODIR)/udfGanged.o \
+		-L$(LDIR) -locsm -legads -lm
+
+$(ODIR)/udfGanged.o:	udfGanged.c udpUtilities.c udpUtilities.h
+	$(CC) -c $(COPTS) $(DEFINE) -I$(IDIR) -I. udfGanged.c \
+		-o $(ODIR)/udfGanged.o
 
 $(LDIR)/guide.so:	$(ODIR)/udfGuide.o $(LDIR)/$(OSHLIB)
 	touch $(LDIR)/guide.so
@@ -506,7 +517,7 @@ clean:
 		udpSupell.o udpStag.o udfStiffener.o udpKulfan.o udpBiconvex.o \
 		udfCatmull.o udfCompare.o udfCreateBEM.o udfCreatePoly.o udfDroop.o \
 		udpPod.o udpPoly.o udfEditAttr.o udfPrintBbox.o udfPrintBrep.o \
-		udfFlend.o udfGuide.o \
+		udfFlend.o udfGanged.o udfGuide.o \
 		udfMatchBodys.o eggPDT2.o sensCSM.o )
 
 cleanall:	clean

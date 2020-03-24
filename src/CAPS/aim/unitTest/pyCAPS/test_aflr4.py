@@ -72,14 +72,14 @@ class TestAFLR4(unittest.TestCase):
         myAnalysis.setAnalysisVal("Mesh_Gen_Input_String", "ff_nseg 10")
         myAnalysis.setAnalysisVal("ff_nseg", 10)
         myAnalysis.setAnalysisVal("min_ncell", 20)
-        myAnalysis.setAnalysisVal("nprox", 3)
+        myAnalysis.setAnalysisVal("mprox", False)
         myAnalysis.setAnalysisVal("abs_min_scale", 0.01)
         myAnalysis.setAnalysisVal("BL_thickness", 0.01)
         myAnalysis.setAnalysisVal("curv_factor", 0.4)
         myAnalysis.setAnalysisVal("max_scale", 0.1)
         myAnalysis.setAnalysisVal("min_scale", 0.01)
         myAnalysis.setAnalysisVal("Mesh_Length_Factor", 1.05)
-        myAnalysis.setAnalysisVal("sfe_all", 0.7)
+        myAnalysis.setAnalysisVal("erw_all", 0.7)
 
     def test_SingleBody(self):
 
@@ -229,7 +229,7 @@ class TestAFLR4(unittest.TestCase):
 
         #aflr4.viewGeometry()
 
-    def test_all(self):
+    def off_test_all(self):
 
         # Load aflr4 aim
         aflr4 = self.myProblem.loadAIM(aim = "aflr4AIM",

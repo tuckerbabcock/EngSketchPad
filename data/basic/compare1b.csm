@@ -3,7 +3,6 @@
 
 # base box
 box       0   0   0   3   2   1
-   attribute .tParams "0.025; 0.025; 15"
 dump      compare.tess
 
 # perturbed box

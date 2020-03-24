@@ -15,9 +15,10 @@
 #if _MSC_VER >= 1000
 #pragma once
 #endif // _MSC_VER >= 1000
-
 #pragma warning( disable : 4786 )
 #endif // WIN32
+
+#define CASVER  (OCC_VERSION_MAJOR*100 + OCC_VERSION_MINOR*10 + OCC_VERSION_MAINTENANCE)
 
 #include <Standard.hxx>
 #include <Standard_Type.hxx>
@@ -135,6 +136,9 @@
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Common.hxx>
 #include <BRepAlgoAPI_Section.hxx>
+#if CASVER >= 700
+#include <BRepAlgoAPI_Splitter.hxx>
+#endif
 #include <BRepAdaptor_Surface.hxx>
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Curve2d.hxx>
@@ -203,7 +207,5 @@
 #include <STEPControl_StepModelType.hxx>
 #include <STEPControl_Reader.hxx>
 #include <STEPControl_Writer.hxx>
-
-#define CASVER	(OCC_VERSION_MAJOR*100 + OCC_VERSION_MINOR*10 + OCC_VERSION_MAINTENANCE)
 
 #endif

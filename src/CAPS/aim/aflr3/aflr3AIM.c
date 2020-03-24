@@ -663,9 +663,9 @@ int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValu
         // Modify the EGADS bodyIndex tessellation based on given aimInputs if we aren't inheriting a mesh
         status =  mesh_modifyBodyTess(numMeshProp,
                                       meshProp,
-                                      0,          //minEdgePointGlobal
-                                      0,          //maxEdgePointGlobal
-                                      (int)false, //quadMesh
+                                      -1,          //minEdgePointGlobal
+                                      -1,          //maxEdgePointGlobal
+                                      (int)false,  //quadMesh
                                       &refLen,
                                       aflr3Instance[iIndex].meshInput.paramTess,
                                       aflr3Instance[iIndex].attrMap,

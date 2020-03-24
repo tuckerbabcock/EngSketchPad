@@ -15,6 +15,7 @@
 #define REGULARIZED_QUAD 1
 #define MIXED_QUAD       2
 
+#define MIN(A,B)  (((A) > (B)) ? (B) : (A))
 #define MAX(A,B)  (((A) < (B)) ? (B) : (A))
 #define NINT(A)   (((A) < 0)   ? (int)(A-0.5) : (int)(A+0.5))
 
@@ -1345,6 +1346,24 @@ int mesh_modifyBodyTess(int numMeshProp,
     // Mesh attribute parameters
     const char *groupName = NULL;
 
+    if (maxEdgePointGlobal >= 2 && minEdgePointGlobal >= 2 && minEdgePointGlobal > maxEdgePointGlobal) {
+      printf("**********************************************************\n");
+      printf("Edge_Point_Max must be greater or equal Edge_Point_Min\n");
+      printf("Edge_Point_Max = %d, Edge_Point_Min = %d\n",maxEdgePointGlobal,minEdgePointGlobal);
+      printf("**********************************************************\n");
+      status = CAPS_BADVALUE;
+      goto cleanup;
+    }
+
+    if (minEdgePointGlobal >= 2) minEdgePointGlobal = MAX(0,minEdgePointGlobal-2);
+    if (maxEdgePointGlobal >= 2) maxEdgePointGlobal = MAX(0,maxEdgePointGlobal-2);
+
+    // Adjust the specified points for quadding
+    if (quadMesh == REGULARIZED_QUAD) {
+      minEdgePointGlobal = minEdgePointGlobal/2 + minEdgePointGlobal % 2;
+      maxEdgePointGlobal = maxEdgePointGlobal/2 + maxEdgePointGlobal % 2;
+    }
+
     if (numBody == 0) {
         printf("Error: numBody == 0 in mesh_modifyBodyTess\n");
         return CAPS_SOURCEERR;
@@ -1494,6 +1513,11 @@ int mesh_modifyBodyTess(int numMeshProp,
           status = EG_getTessEdge(tess, edgeIndex+1, &numEdgePoint, &xyzs, &ts);
           if (status != EGADS_SUCCESS) goto cleanup;
 
+          numEdgePoint -= 2; //Remove node counts
+
+          if (minEdgePointGlobal >= 0) numEdgePoint = MAX(numEdgePoint,minEdgePointGlobal);
+          if (maxEdgePointGlobal >= 0) numEdgePoint = MIN(numEdgePoint,maxEdgePointGlobal);
+
           status = retrieve_CAPSGroupAttr(edges[edgeIndex], &groupName);
           if (status == EGADS_SUCCESS) {
               status = get_mapAttrToIndexIndex(&attrMap, groupName, &attrIndex);
@@ -1502,7 +1526,7 @@ int mesh_modifyBodyTess(int numMeshProp,
                   for (i = 0; i < numMeshProp; i++) {
 
                       if (meshProp[i].attrIndex == attrIndex) {
-                          if (meshProp[i].numEdgePoints > 0) {
+                          if (meshProp[i].numEdgePoints >= 2) {
                             numEdgePoint = meshProp[i].numEdgePoints;
                             userSet[edgeIndex+1] = 1;
 
@@ -1557,131 +1581,119 @@ int mesh_modifyBodyTess(int numMeshProp,
                 goto cleanup;
             }
 
-            if (edgeDistribution == UnknownDistribution) {
-                if (quadMesh >= REGULARIZED_QUAD) {
+            if (edgeDistribution == UnknownDistribution || edgeDistribution == EvenDistribution) {
+                if (quadMesh >= REGULARIZED_QUAD ||
+                    numEdgePoint == minEdgePointGlobal ||
+                    numEdgePoint == maxEdgePointGlobal ) {
                     // only set the point count for quading if no distribution is provided
                     // this is equivalent to the even distribution using .rPos
-                    numEdgePoint = MAX(0,numEdgePoint-2);
                     status = EG_attributeAdd(edges[edgeIndex], ".nPos", ATTRINT, 1, &numEdgePoint, NULL, NULL);
                     if (status != EGADS_SUCCESS) goto cleanup;
                 }
                 continue;
             }
 
-            if (numEdgePoint >= 2) {
 
-                if (numEdgePoint == 2) {
+            if (edgeDistribution == TanhDistribution) {
 
-                    i = 0;
-                    status = EG_attributeAdd(edges[edgeIndex],
-                                             ".rPos", ATTRINT, 1, &i, NULL, NULL);
-
+                // No points with Tanh is equal distribution
+                if (numEdgePoint == 0) {
+                    status = EG_attributeAdd(edges[edgeIndex], ".nPos", ATTRINT, 1, &numEdgePoint, NULL, NULL);
                     if (status != EGADS_SUCCESS) goto cleanup;
-
-                } else {
-
-                    rPos  = (double *) EG_alloc(numEdgePoint*sizeof(double));
-                    if (rPos == NULL) {
-                        status = EGADS_MALLOC;
-                        goto cleanup;
-                    }
-
-                    if (edgeDistribution == EvenDistribution) {
-
-                        // Even distribution
-                        for (i = 0; i < numEdgePoint; i++) {
-                            rPos[i] = (double) (i+1) / (double)(numEdgePoint-1);
-                        }
-
-                    } else if (edgeDistribution == TanhDistribution) {
-
-                        // Default to "even" in case something is wrong
-                        for (i = 0; i < numEdgePoint; i++) {
-                            rPos[i] = (double) (i+1) / (double)(numEdgePoint-1);
-                        }
-
-                        // Tanh distribution - both nodes specified
-                        if (initialNodeSpacing[0] > 0.0 &&
-                                initialNodeSpacing[1] > 0.0) { // Both ends are specified
-
-                            I  = (double) numEdgePoint;
-
-                            A = sqrt(initialNodeSpacing[1]) / sqrt(initialNodeSpacing[0]);
-
-                            B = 1/ (I*sqrt(initialNodeSpacing[0] * initialNodeSpacing[1]));
-
-                            inputVars[0] = B;
-
-                            stretchingFactor = root_BisectionMethod( &eqn_stretchingFactorDoubleSided, 0, 1000, inputVars);
-                            //printf("StretchingFactor = %f\n", stretchingFactor);
-
-                            for (i = 0; i < numEdgePoint; i++) {
-
-                                epi = (double) i+1;
-
-                                U = 0.5 * ( 1.0 + tanh(stretchingFactor*(epi/I-0.5))/tanh(stretchingFactor/2));
-
-                                rPos[i] = U/ (A + (1-A)*U);
-                            }
-
-                        } else if (initialNodeSpacing[0] > 0.0 &&
-                                initialNodeSpacing[1] <= 0.0) {
-
-                            I = (double)(numEdgePoint);
-
-                            inputVars[0] = 1.0; // epi = 1
-                            inputVars[1] = I;
-                            inputVars[2] = initialNodeSpacing[0];
-
-                            stretchingFactor = root_BisectionMethod( &eqn_stretchingFactorSingleSided, 0, 1000, inputVars);
-                            //printf("0 - stretchingFactor = %f\n", stretchingFactor);
-
-                            for (i = 0; i < numEdgePoint; i++) {
-
-                                epi = (double) i+1;
-
-                                rPos[i] = 1.0 + tanh(stretchingFactor*(epi/I-1)) /tanh(stretchingFactor);
-                            }
-
-                        } else if (initialNodeSpacing[0] <= 0.0 &&
-                                initialNodeSpacing[1] > 0.0) {
-
-                            I = (double)(numEdgePoint);
-
-                            inputVars[0] = 1.0; // epi = 1
-                            inputVars[1] = I;
-                            inputVars[2] = initialNodeSpacing[1];
-
-                            stretchingFactor = root_BisectionMethod( &eqn_stretchingFactorSingleSided, 0, 1000, inputVars);
-                            //printf("1 - stretchingFactor = %f\n", stretchingFactor);
-
-                            j = numEdgePoint-1;
-                            for (i = 0; i < numEdgePoint; i++) {
-
-                                epi = (double) i;
-
-                                rPos[j] = 1.0 - (1.0 + tanh(stretchingFactor*(epi/I-1)) /tanh(stretchingFactor));
-                                j -= 1;
-                            }
-                        }
-
-                        // Debug
-                        //for (i = 0; i < numEdgePoint-1; i++) printf("EdgeIndex = %d, Rpos(%d) delta= %f\n", edgeIndex, i, rPos[i+1]-rPos[i]);
-
-                    } else {
-
-                        printf("Unknown distribution function\n");
-                        goto cleanup;
-                    }
-
-                    //printf("Number of points added to edge %d (body = %d) = %d\n", edgeIndex, bodyIndex, numEdgePoint);
-                    status = EG_attributeAdd(edges[edgeIndex],
-                                             ".rPos", ATTRREAL, numEdgePoint-2, NULL, rPos, NULL);
-                    if (status != EGADS_SUCCESS) goto cleanup;
-
-                    EG_free(rPos); rPos = NULL;
+                    continue;
                 }
+
+                rPos  = (double *) EG_alloc(numEdgePoint*sizeof(double));
+                if (rPos == NULL) {
+                    status = EGADS_MALLOC;
+                    goto cleanup;
+                }
+
+                // Default to "even" in case something is wrong
+                for (i = 0; i < numEdgePoint; i++) {
+                    rPos[i] = (double) (i+1) / (double)(numEdgePoint);
+                }
+
+                // Tanh distribution - both nodes specified
+                if (initialNodeSpacing[0] > 0.0 &&
+                    initialNodeSpacing[1] > 0.0) { // Both ends are specified
+
+                    I  = (double) numEdgePoint;
+
+                    A = sqrt(initialNodeSpacing[1]) / sqrt(initialNodeSpacing[0]);
+
+                    B = 1/ (I*sqrt(initialNodeSpacing[0] * initialNodeSpacing[1]));
+
+                    inputVars[0] = B;
+
+                    stretchingFactor = root_BisectionMethod( &eqn_stretchingFactorDoubleSided, 0, 1000, inputVars);
+                    //printf("StretchingFactor = %f\n", stretchingFactor);
+
+                    for (i = 0; i < numEdgePoint; i++) {
+
+                        epi = (double) i+1;
+
+                        U = 0.5 * ( 1.0 + tanh(stretchingFactor*(epi/I-0.5))/tanh(stretchingFactor/2));
+
+                        rPos[i] = U/ (A + (1-A)*U);
+                    }
+
+                } else if (initialNodeSpacing[0] > 0.0 &&
+                           initialNodeSpacing[1] <= 0.0) {
+
+                    I = (double)(numEdgePoint);
+
+                    inputVars[0] = 1.0; // epi = 1
+                    inputVars[1] = I;
+                    inputVars[2] = initialNodeSpacing[0];
+
+                    stretchingFactor = root_BisectionMethod( &eqn_stretchingFactorSingleSided, 0, 1000, inputVars);
+                    //printf("0 - stretchingFactor = %f\n", stretchingFactor);
+
+                    for (i = 0; i < numEdgePoint; i++) {
+
+                        epi = (double) i+1;
+
+                        rPos[i] = 1.0 + tanh(stretchingFactor*(epi/I-1)) /tanh(stretchingFactor);
+                    }
+
+                } else if (initialNodeSpacing[0] <= 0.0 &&
+                           initialNodeSpacing[1] > 0.0) {
+
+                    I = (double)(numEdgePoint);
+
+                    inputVars[0] = 1.0; // epi = 1
+                    inputVars[1] = I;
+                    inputVars[2] = initialNodeSpacing[1];
+
+                    stretchingFactor = root_BisectionMethod( &eqn_stretchingFactorSingleSided, 0, 1000, inputVars);
+                    //printf("1 - stretchingFactor = %f\n", stretchingFactor);
+
+                    j = numEdgePoint-1;
+                    for (i = 0; i < numEdgePoint; i++) {
+
+                        epi = (double) i;
+
+                        rPos[j] = 1.0 - (1.0 + tanh(stretchingFactor*(epi/I-1)) /tanh(stretchingFactor));
+                        j -= 1;
+                    }
+                }
+
+                // Debug
+                //for (i = 0; i < numEdgePoint-1; i++) printf("EdgeIndex = %d, Rpos(%d) delta= %f\n", edgeIndex, i, rPos[i+1]-rPos[i]);
+
+            } else {
+
+                printf("Unknown distribution function\n");
+                goto cleanup;
             }
+
+            //printf("Number of points added to edge %d (body = %d) = %d\n", edgeIndex, bodyIndex, numEdgePoint);
+            status = EG_attributeAdd(edges[edgeIndex],
+                                     ".rPos", ATTRREAL, numEdgePoint, NULL, rPos, NULL);
+            if (status != EGADS_SUCCESS) goto cleanup;
+
+            EG_free(rPos); rPos = NULL;
         }
 
         EG_free(edges); edges = NULL;
@@ -2339,7 +2351,7 @@ int initiate_meshSizingStruct (meshSizingStruct *meshProp) {
     meshProp->name = NULL; // Attribute name
     meshProp->attrIndex = 0;  // Attribute index
 
-    meshProp->numEdgePoints = 0; // Number of points along and edge
+    meshProp->numEdgePoints = -1; // Number of points on an edge
 
     meshProp->edgeDistribution = UnknownDistribution; // Distribution function along an edge
 
@@ -2382,7 +2394,7 @@ int destroy_meshSizingStruct (meshSizingStruct *meshProp) {
     meshProp->name = NULL; // Attribute name
     meshProp->attrIndex = 0;  // Attribute index
 
-    meshProp->numEdgePoints = 0; // Number of points along and edge
+    meshProp->numEdgePoints = -1; // Number of points on an edge
 
     meshProp->edgeDistribution = UnknownDistribution; // Distribution function along an edge
 
@@ -2506,7 +2518,7 @@ int mesh_getSizingProp(int numTuple,
             // Edge properties
             /*! \page meshSizingProp
              *
-             * \if (AFLR2|| DELAUNDO || EGADSTESS ||  AFLR3 || TETGEN )
+             * \if (AFLR2|| DELAUNDO || EGADSTESS || AFLR3 || TETGEN )
              *
              * <ul>
              * <li> <B>edgeDistribution = "Even"</B> </li> <br>
@@ -2545,8 +2557,8 @@ int mesh_getSizingProp(int numTuple,
              * \if (AFLR2|| DELAUNDO || EGADSTESS || AFLR3 || TETGEN )
              *
              * <ul>
-             * <li>  <B>numEdgePoints = 0</B> </li> <br>
-             *  Number of points along an edge.
+             * <li>  <B>numEdgePoints = 2</B> </li> <br>
+             *  Number of points along an edge including end points. Must be at least 2.
              *  \if (POINTWISE)
              *  <br> This overrides the PW:ConnectorDimension attribute on EDGEs.
              *  \endif
@@ -2564,6 +2576,11 @@ int mesh_getSizingProp(int numTuple,
                     keyValue = NULL;
                 }
                 if (status != CAPS_SUCCESS) return status;
+
+                if ((*meshProps)[i].numEdgePoints < 2) {
+                  printf("\tnumEdgePoints (%d) must be greater or equal to 2\n",(*meshProps)[i].numEdgePoints);
+                  return CAPS_BADVALUE;
+                }
             }
 
             /*! \page meshSizingProp
@@ -3019,9 +3036,9 @@ int mesh_getSizingProp(int numTuple,
              *
              * <ul>
              * <li>  <B>edgeWeight = (no default) [Range 0 to 1]</B> </li> <br>
-             * edgeWeight sets the AFLR4_Edge_Scale_Factor_Weight attribute on faces.<br>
+             * edgeWeight sets the AFLR4_Edge_Refinement_Weight attribute on faces.<br>
              * <br>
-             * See AFLR4_Edge_Scale_Factor_Weight in \ref attributeAFLR4 for additional details.
+             * See AFLR4_Edge_Refinement_Weight in \ref attributeAFLR4 for additional details.
              * </ul>
              *
              * \endif
@@ -4508,7 +4525,7 @@ int mesh_writeAFLR3(char *fname,
 
     FILE *fp = NULL;
     int i, elementIndex; // Indexing variable
-    int marker;
+    int marker, writeVolumeMarkes = 0;
 
     int sint = sizeof(int); // Size of an integer
     int sdouble = sizeof(double); // Size of a double
@@ -4573,11 +4590,11 @@ int mesh_writeAFLR3(char *fname,
         //fwrite(&numBytes, sint,1,fp); // Un-comment if writing an unformatted file
 
         fwrite(&mesh->numNode, sint ,1,fp);
-        fwrite(&mesh->meshQuickRef.numTriangle, 	 sint ,1,fp);
+        fwrite(&mesh->meshQuickRef.numTriangle,      sint ,1,fp);
         fwrite(&mesh->meshQuickRef.numQuadrilateral, sint ,1,fp);
         fwrite(&mesh->meshQuickRef.numTetrahedral,   sint ,1,fp);
-        fwrite(&mesh->meshQuickRef.numPyramid,     	 sint ,1,fp);
-        fwrite(&mesh->meshQuickRef.numPrism,     	 sint ,1,fp);
+        fwrite(&mesh->meshQuickRef.numPyramid,       sint ,1,fp);
+        fwrite(&mesh->meshQuickRef.numPrism,         sint ,1,fp);
         fwrite(&mesh->meshQuickRef.numHexahedral,    sint ,1,fp);
 
         //fwrite(&numBytes, sint,1,fp); // Un-comment if writing an unformatted file
@@ -4684,6 +4701,8 @@ int mesh_writeAFLR3(char *fname,
             fwrite(&mesh->element[elementIndex].connectivity[1], sint, 1, fp);
             fwrite(&mesh->element[elementIndex].connectivity[2], sint, 1, fp);
             fwrite(&mesh->element[elementIndex].connectivity[3], sint, 1, fp);
+
+            if (mesh->element[elementIndex].markerID != 0) writeVolumeMarkes = 1;
         }
 
         // Write pyramid connectivity
@@ -4699,6 +4718,8 @@ int mesh_writeAFLR3(char *fname,
             fwrite(&mesh->element[elementIndex].connectivity[2], sint, 1, fp);
             fwrite(&mesh->element[elementIndex].connectivity[3], sint, 1, fp);
             fwrite(&mesh->element[elementIndex].connectivity[4], sint, 1, fp);
+
+            if (mesh->element[elementIndex].markerID != 0) writeVolumeMarkes = 1;
         }
 
         // Write prisms connectivity
@@ -4715,6 +4736,8 @@ int mesh_writeAFLR3(char *fname,
             fwrite(&mesh->element[elementIndex].connectivity[3], sint, 1, fp);
             fwrite(&mesh->element[elementIndex].connectivity[4], sint, 1, fp);
             fwrite(&mesh->element[elementIndex].connectivity[5], sint, 1, fp);
+
+            if (mesh->element[elementIndex].markerID != 0) writeVolumeMarkes = 1;
         }
 
         // Write hex connectivity
@@ -4733,9 +4756,57 @@ int mesh_writeAFLR3(char *fname,
             fwrite(&mesh->element[elementIndex].connectivity[5], sint, 1, fp);
             fwrite(&mesh->element[elementIndex].connectivity[6], sint, 1, fp);
             fwrite(&mesh->element[elementIndex].connectivity[7], sint, 1, fp);
+
+            if (mesh->element[elementIndex].markerID != 0) writeVolumeMarkes = 1;
         }
 
         //fwrite(&numBytes, sint,1,fp); // Un-comment if writing an unformatted file
+
+        if (writeVolumeMarkes == 1) {
+            // Write volume markers
+            marker = 0;
+            fwrite(&marker, sint, 1, fp); // Number_of_BL_Vol_Tets
+
+            // Write tetrahedrals markers
+            for (i = 0; i < mesh->meshQuickRef.numTetrahedral; i++) {
+                if (mesh->meshQuickRef.startIndexTetrahedral >= 0) {
+                    elementIndex = mesh->meshQuickRef.startIndexTetrahedral + i;
+                } else {
+                    elementIndex = mesh->meshQuickRef.listIndexTetrahedral[i];
+                }
+                fwrite(&mesh->element[elementIndex].markerID, sint, 1, fp);
+            }
+
+            // Write pyramid markers
+            for (i = 0; i < mesh->meshQuickRef.numPyramid; i++) {
+                if (mesh->meshQuickRef.startIndexPyramid >= 0) {
+                    elementIndex = mesh->meshQuickRef.startIndexPyramid + i;
+                } else {
+                    elementIndex = mesh->meshQuickRef.listIndexPyramid[i];
+                }
+                fwrite(&mesh->element[elementIndex].markerID, sint, 1, fp);
+            }
+
+            // Write prisms markers
+            for (i = 0; i < mesh->meshQuickRef.numPrism; i++) {
+                if (mesh->meshQuickRef.startIndexPrism >= 0) {
+                    elementIndex = mesh->meshQuickRef.startIndexPrism + i;
+                } else {
+                    elementIndex = mesh->meshQuickRef.listIndexPrism[i];
+                }
+                fwrite(&mesh->element[elementIndex].markerID, sint, 1, fp);
+           }
+
+            // Write hex markers
+            for (i = 0; i < mesh->meshQuickRef.numHexahedral; i++) {
+                if (mesh->meshQuickRef.startIndexHexahedral >= 0) {
+                    elementIndex = mesh->meshQuickRef.startIndexHexahedral + i;
+                } else {
+                    elementIndex = mesh->meshQuickRef.listIndexHexahedral[i];
+                }
+                fwrite(&mesh->element[elementIndex].markerID, sint, 1, fp);
+            }
+        }
 
         if (mesh->meshType == Surface2DMesh) {
 
@@ -4867,6 +4938,8 @@ int mesh_writeAFLR3(char *fname,
                                         mesh->element[elementIndex].connectivity[1],
                                         mesh->element[elementIndex].connectivity[2],
                                         mesh->element[elementIndex].connectivity[3]);
+
+            if (mesh->element[elementIndex].markerID != 0) writeVolumeMarkes = 1;
         }
 
         // Write pyramid connectivity
@@ -4881,6 +4954,8 @@ int mesh_writeAFLR3(char *fname,
                                            mesh->element[elementIndex].connectivity[2],
                                            mesh->element[elementIndex].connectivity[3],
                                            mesh->element[elementIndex].connectivity[4]);
+
+            if (mesh->element[elementIndex].markerID != 0) writeVolumeMarkes = 1;
         }
 
         // Write prisms connectivity
@@ -4896,6 +4971,8 @@ int mesh_writeAFLR3(char *fname,
                                               mesh->element[elementIndex].connectivity[3],
                                               mesh->element[elementIndex].connectivity[4],
                                               mesh->element[elementIndex].connectivity[5]);
+
+            if (mesh->element[elementIndex].markerID != 0) writeVolumeMarkes = 1;
         }
 
         // Write hex connectivity
@@ -4913,6 +4990,53 @@ int mesh_writeAFLR3(char *fname,
                                                     mesh->element[elementIndex].connectivity[5],
                                                     mesh->element[elementIndex].connectivity[6],
                                                     mesh->element[elementIndex].connectivity[7]);
+
+            if (mesh->element[elementIndex].markerID != 0) writeVolumeMarkes = 1;
+        }
+
+        if (writeVolumeMarkes == 1) {
+            // Write volume markers
+            fprintf(fp,"%d\n", 0); // Number_of_BL_Vol_Tets
+
+            // Write tetrahedrals markers
+            for (i = 0; i < mesh->meshQuickRef.numTetrahedral; i++) {
+                if (mesh->meshQuickRef.startIndexTetrahedral >= 0) {
+                    elementIndex = mesh->meshQuickRef.startIndexTetrahedral + i;
+                } else {
+                    elementIndex = mesh->meshQuickRef.listIndexTetrahedral[i];
+                }
+                fprintf(fp,"%d\n", mesh->element[elementIndex].markerID);
+            }
+
+            // Write pyramid markers
+            for (i = 0; i < mesh->meshQuickRef.numPyramid; i++) {
+                if (mesh->meshQuickRef.startIndexPyramid >= 0) {
+                    elementIndex = mesh->meshQuickRef.startIndexPyramid + i;
+                } else {
+                    elementIndex = mesh->meshQuickRef.listIndexPyramid[i];
+                }
+                fprintf(fp,"%d\n", mesh->element[elementIndex].markerID);
+            }
+
+            // Write prisms markers
+            for (i = 0; i < mesh->meshQuickRef.numPrism; i++) {
+                if (mesh->meshQuickRef.startIndexPrism >= 0) {
+                    elementIndex = mesh->meshQuickRef.startIndexPrism + i;
+                } else {
+                    elementIndex = mesh->meshQuickRef.listIndexPrism[i];
+                }
+                fprintf(fp,"%d\n", mesh->element[elementIndex].markerID);
+            }
+
+            // Write hex markers
+            for (i = 0; i < mesh->meshQuickRef.numHexahedral; i++) {
+                if (mesh->meshQuickRef.startIndexHexahedral >= 0) {
+                    elementIndex = mesh->meshQuickRef.startIndexHexahedral + i;
+                } else {
+                    elementIndex = mesh->meshQuickRef.listIndexHexahedral[i];
+                }
+                fprintf(fp,"%d\n", mesh->element[elementIndex].markerID);
+            }
         }
 
         if (mesh->meshType == Surface2DMesh) {

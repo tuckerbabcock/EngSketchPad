@@ -328,6 +328,6 @@ mark
    translate 350   -125.0   10
 blend
 union
-   attribute .tParams "5;5;15;"
+udprim    $$/applyTparams  factor  0.5
 
 end

@@ -31,7 +31,7 @@
 #define _OPENCSM_H_
 
 #define OCSM_MAJOR_VERSION  1
-#define OCSM_MINOR_VERSION 17
+#define OCSM_MINOR_VERSION 18
 
 #define MAX_NAME_LEN       32           /* maximum chars in name */
 #define MAX_EXPR_LEN      512           /* maximum chars in expression */
@@ -548,6 +548,7 @@ CONNECT   faceList1 faceList2 edgeList1=0 edgeList2=0
                       Body  is same type as Body1
                       Face in faceLists are removed
                       bridging Faces are made between edgeList pairs
+                      a zero in an edgelist creates a degenerate Face
                   else
                       Body1 and Body2 must both be SolidBodys
                       Faces within each faceList must be contiguous
@@ -836,7 +837,7 @@ EXTRACT   entList
           pushes: Body
           notes:  Sketch may not be open
                   Solver may not be open
-                  all member of entList must have the same sign
+                  all members of entList must have the same sign
                   Body1 must be a SolidBody or a SheetBody
                   if     entList entries are all positive
                      create SheetBody from entList Face(s) of Body1
@@ -1488,6 +1489,10 @@ SELECT    $type arg1 ...
                      sets @seltype to 2
                      uses @selbody
                      sets @sellist with Face in @selbody that matches ibody1/iford1
+                  elseif arguments are: "face xmin xmax ymin ymax zmin zmax"
+                     sets @seltype to 2
+                     uses @selbody
+                     sets @sellist to Faces whose bboxs are in given range
                   elseif arguments are: "face $attrName1   $attrValue1
                                               $attrName2=* $attrValue2=*
                                               $attrName3=* $attrValue3=*"
@@ -1515,6 +1520,10 @@ SELECT    $type arg1 ...
                      uses @selbody
                      sets @sellist to Edge in @selbody that adjoins Faces
                         ibody1/iford1 and ibody2/iford2
+                  elseif arguments are: "edge xmin xmax ymin ymax zmin zmax"
+                     sets @seltype to 1
+                     uses @selbody
+                     sets @sellist to Edges whose bboxs are in given range
                   elseif arguments are: "edge $attrName1   $attrValue1
                                               $attrName2=* $attrValue2=*
                                               $attrName3=* $attrValue3=*"
@@ -1537,6 +1546,10 @@ SELECT    $type arg1 ...
                      sets @seltype to 0
                      uses @selbodt
                      sets @sellist to Node closest to (x,y,z)
+                  elseif arguments are: "node xmin xmax ymin ymax zmin zmax"
+                     sets @seltype to 0
+                     uses @selbody
+                     sets @sellist to Nodes whose bboxs are in given range
                   elseif arguments are: "node $attrName1   $attrValue1
                                               $attrName2=* $attrValue2=*
                                               $attrName3=* $attrValue3=*"

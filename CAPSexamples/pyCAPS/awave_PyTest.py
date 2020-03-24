@@ -82,5 +82,5 @@ print("CdWave = ", CdWave)
 myProblem.closeCAPS()
 
 # Check assertation
-assert abs(CdWave[0]-0.484406) <= 1E-3
-assert abs(CdWave[1]-0.093553) <= 1E-4
+assert abs(CdWave[0]-1.133332) <= 1E-3
+assert abs(CdWave[1]-0.216380) <= 1E-4

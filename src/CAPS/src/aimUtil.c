@@ -1007,7 +1007,7 @@ aim_setSensitivity(void *aimStruc, const char *GIname, int irow, int icol)
     ipmtr = i+1;
     break;
   }
-  if (ipmtr == 0)  return CAPS_NOTFOUND;
+  if (ipmtr == 0)  return CAPS_NOSENSITVTY;
   if (irow > nrow) return CAPS_BADINDEX;
   if (icol > ncol) return CAPS_BADINDEX;
 
@@ -1187,7 +1187,7 @@ aim_sensitivity(void *aimStruc, const char *GIname, int irow, int icol,
     ipmtr = i+1;
     break;
   }
-  if (ipmtr == 0)  return CAPS_NOTFOUND;
+  if (ipmtr == 0)  return CAPS_NOSENSITVTY;
   if (irow > nrow) return CAPS_BADINDEX;
   if (icol > ncol) return CAPS_BADINDEX;
 

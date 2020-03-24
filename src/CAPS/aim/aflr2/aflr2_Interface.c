@@ -19,6 +19,7 @@
 //TODO: xplt_Case_Name is needed for OSX at the moment to resolve a link error. Remove it as soon as you can...
 char xplt_Case_Name[133];
 
+//#define AFLR2_BOUNDARY_LAYER
 
 static INT_ egads_eval_bedge (mapAttrToIndexStruct *attrMap,
                               INT_ idef, ego tess, int *ix, int *iy, INT_ *nbedge, INT_2D ** inibe,
@@ -293,18 +294,27 @@ static INT_ egads_eval_bedge (mapAttrToIndexStruct *attrMap,
 int aflr2_Surface_Mesh(int Message_Flag, ego bodyIn,
                        meshInputStruct meshInput,
                        mapAttrToIndexStruct attrMap,
+                       int numMeshProp,
+                       meshSizingStruct *meshProp,
                        meshStruct *surfaceMesh)
 {
 
     int status; // Function return status
 
     int i, elementIndex; // Indexing
-    int faceAttr = 0, attrIndex = 0;
+    int faceAttr = 0;
     int numFace;
 
     double box[6], size, params[3]; // Bounding box variables
 
     ego tess = NULL, *bodyFaces = NULL;
+
+#ifdef AFLR2_BOUNDARY_LAYER
+    // Boundary Layer meshing related variables
+    int propIndex, attrIndex = 0; // Indexing
+    double capsMeshLength = 0;
+    int createBL = (int) false; // Indicate if boundary layer meshes should be generated
+#endif
 
     // AFRL2 arrays
 
@@ -345,8 +355,6 @@ int aflr2_Surface_Mesh(int Message_Flag, ego bodyIn,
 
     int ix = 0, iy = 1;
 
-    const char *groupName = NULL;
-
      // Commandline inputs
     int  prog_argc   = 1;    // Number of arguments
     char **prog_argv = NULL; // String arrays
@@ -380,20 +388,6 @@ int aflr2_Surface_Mesh(int Message_Flag, ego bodyIn,
         goto cleanup;
     }
 
-    status = retrieve_CAPSGroupAttr(bodyFaces[0], &groupName);
-    if (status == EGADS_SUCCESS) {
-        status = get_mapAttrToIndexIndex(&attrMap, groupName, &attrIndex);
-        if (status == CAPS_SUCCESS) {
-            faceAttr = attrIndex;
-
-        } else {
-            printf("\tNo capsGroup \"%s\" not found in attribute map\n", groupName);
-            goto cleanup;
-        }
-    } else if (status != EGADS_NOTFOUND) {
-        printf("\tWarning: No capsGroup found on face %d, this may be a issue for some analyses\n", numFace);
-    } else goto cleanup;
-
     // extract the boundary tessellation from the egads body
     status = egads_eval_bedge (&attrMap, 1, tess, &ix, &iy, &Number_of_Bnd_Edges, &Bnd_Edge_Connectivity, &Bnd_Edge_ID_Flag, &Coordinates);
     if (status != CAPS_SUCCESS) goto cleanup; // Add error code
@@ -415,6 +409,81 @@ int aflr2_Surface_Mesh(int Message_Flag, ego bodyIn,
         fclose(fp); fp = NULL;
     }
 #endif
+
+
+#ifdef AFLR2_BOUNDARY_LAYER
+    // Loop through meshing properties and see if boundaryLayerThickness and boundaryLayerSpacing have been specified
+    for (propIndex = 0; propIndex < numMeshProp && createBL == (int) false; propIndex++) {
+
+      // If no boundary layer specified in meshProp continue
+      if (meshProp[propIndex].boundaryLayerSpacing == 0) continue;
+
+      // Loop through Elements and see if marker match
+      for (i = 1; i <= Number_of_Bnd_Edges && createBL == (int) false; i++) {
+
+        //If they don't match continue
+        if (Bnd_Edge_ID_Flag[i] != meshProp[propIndex].attrIndex) continue;
+
+        // Set face "bl" flag
+        createBL = (int) true;
+      }
+    }
+
+    // Get the capsMeshLenght if boundary layer meshing has been requested
+    if (createBL == (int) true) {
+        status = check_CAPSMeshLength(1, &bodyIn, &capsMeshLength);
+
+        if (capsMeshLength <= 0 || status != CAPS_SUCCESS) {
+            printf("**********************************************************\n");
+            if (status != CAPS_SUCCESS)
+              printf("capsMeshLength is not set on any body.\n");
+            else
+              printf("capsMeshLength: %f\n", capsMeshLength);
+            printf("\n");
+            printf("The capsMeshLength attribute must present on at least\n"
+                   "one body for boundary layer generation.\n"
+                   "\n"
+                   "capsMeshLength should be a a positive value representative\n"
+                   "of a characteristic length of the geometry,\n"
+                   "e.g. the MAC of a wing or diameter of a fuselage.\n");
+            printf("**********************************************************\n");
+            status = CAPS_BADVALUE;
+            goto cleanup;
+        }
+    }
+
+    // Loop through surface meshes to set boundary layer parameters
+
+    // Allocate Initial_Normal_Spacing
+    Initial_Normal_Spacing = (DOUBLE_1D *) ug_malloc (&status, (Number_of_Nodes+1) * sizeof (DOUBLE_1D));
+    if (Initial_Normal_Spacing == NULL) {
+        status = EGADS_MALLOC;
+        goto cleanup;
+    }
+
+    // Set default to none
+    for (i = 1; i <= Number_of_Nodes; i++) {
+        Initial_Normal_Spacing[i] = 0.0;
+    }
+
+    // Loop through meshing properties and see if boundaryLayerThickness and boundaryLayerSpacing have been specified
+    for (propIndex = 0; propIndex < numMeshProp; propIndex++) {
+
+        // If no boundary layer specified in meshProp continue
+        if (meshProp[propIndex].boundaryLayerSpacing == 0) continue;
+
+        // Loop through Elements and see if marker match
+        for (i = 1; i <= Number_of_Bnd_Edges; i++) {
+
+            //If they don't match continue
+            if (Bnd_Edge_ID_Flag[i] != meshProp[propIndex].attrIndex) continue;
+
+            // Set boundary layer spacing
+            Initial_Normal_Spacing[Bnd_Edge_Connectivity[i][0]] = meshProp[propIndex].boundaryLayerSpacing*capsMeshLength;
+            Initial_Normal_Spacing[Bnd_Edge_Connectivity[i][1]] = meshProp[propIndex].boundaryLayerSpacing*capsMeshLength;
+        }
+    }
+#endif //AFLR2_BOUNDARY_LAYER
 
 
     // Initialize and setup AFLR2 input parameter structure
@@ -447,6 +516,10 @@ int aflr2_Surface_Mesh(int Message_Flag, ego bodyIn,
          */
     } else {
         // Set other command options
+      //if (createBL == (int) true) {
+      //    status = ug_add_flag_arg ((char*)"bl", &prog_argc, &prog_argv);
+      //}
+      if (status != 0) goto cleanup;
     }
 
     // set the last argument to 1 to print what arguments have been set

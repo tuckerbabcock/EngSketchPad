@@ -10,7 +10,7 @@
 #endif
 
 // the minimum version of AFLR4 API that aflr4AIM is designed for
-const int AFLR4_MIN_VERSION[3] = { 9,14,8 };
+const int AFLR4_MIN_VERSION[3] = { 10,1,14 };
 
 int main  (int argc, char *argv[])
 {

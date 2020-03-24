@@ -204,7 +204,7 @@ EG_attrFixup(int outLevel, egObject *body, const egObject *src)
 
 #if CASVER >= 700
 static int
-EG_matchGeneral(BRepAlgoAPI_BooleanOperation& BSO, egObject *src,
+EG_matchGeneral(BRepAlgoAPI_BuilderAlgo& BSO, egObject *src,
                 egObject *tool, TopoDS_Shape result, egObject ***mapping)
 {
   int         i, j, index, nbody;
@@ -525,9 +525,8 @@ EG_generalBoolean(egObject *src, egObject *tool, int oper, double tol,
   outLevel = EG_outLevel(src);
   context  = EG_context(src);
   if (tol > 0.0) toler = tol;
-
   if ((oper != SUBTRACTION) && (oper != INTERSECTION) &&
-      (oper != FUSION)) {
+      (oper != FUSION)      && (oper != SPLITTER)) {
     if (outLevel > 0)
       printf(" EGADS Error: BAD Operator = %d (EG_generalBoolean)!\n",
              oper);
@@ -656,7 +655,7 @@ EG_generalBoolean(egObject *src, egObject *tool, int oper, double tol,
       return EGADS_GEOMERR;
     }
 
-  } else {
+  } else if (oper == FUSION) {
 
     try {
       BRepAlgoAPI_Fuse BSO;
@@ -687,6 +686,40 @@ EG_generalBoolean(egObject *src, egObject *tool, int oper, double tol,
     }
     catch (...) {
       printf(" EGADS Error: SBO Fusion Exception (EG_generalBoolean)!\n");
+      return EGADS_GEOMERR;
+    }
+
+  } else {
+    
+    try {
+      BRepAlgoAPI_Splitter BSO;
+      BSO.SetArguments(sList);
+      BSO.SetTools(tList);
+//    BSO.SetGlue(BOPAlgo_GlueFull);
+      BSO.SetFuzzyValue(toler);
+      BSO.SetNonDestructive(Standard_True);
+      BSO.SetUseOBB(Standard_True);
+      BSO.Build();
+#if !(defined(__APPLE__) && !defined(__clang__))
+      if (BSO.HasErrors()) {
+        BSO.DumpErrors(std::cout);
+        return EGADS_GEOMERR;
+      }
+#endif
+      if (!BSO.IsDone()) {
+        printf(" EGADS Error: Can't do SBO Split (EG_generalBoolean)!\n");
+        return EGADS_GEOMERR;
+      }
+      result = BSO.Shape();
+      stat   = EG_matchGeneral(BSO, src, tool, result, &fmap);
+    }
+    catch (const Standard_Failure& e) {
+      printf(" EGADS Error: SBO Split Exception (EG_generalBoolean)!\n");
+      printf("              %s\n", e.GetMessageString());
+      return EGADS_GEOMERR;
+    }
+    catch (...) {
+      printf(" EGADS Error: SBO Split Exception (EG_generalBoolean)!\n");
       return EGADS_GEOMERR;
     }
 
@@ -779,6 +812,26 @@ EG_generalBoolean(egObject *src, egObject *tool, int oper, double tol,
     egadsBody *pbody = (egadsBody *) obj->blind;
     pbody->shape     = Exp.Current();
   }
+  for (i = 0; i < nBody; i++) {
+    egObject  *pobj  = mshape->bodies[i];
+    egadsBody *pbody = (egadsBody *) pobj->blind;
+    BRepCheck_Analyzer sCheck(pbody->shape);
+    if (!sCheck.IsValid()) {
+      if (outLevel > 0)
+        printf(" EGADS Error: Result %d/%d is inValid (EG_solidBoolean)!\n",
+               i+1, nBody);
+      for (j = 0; j < nBody; j++) {
+        egObject  *obj   = mshape->bodies[j];
+        egadsBody *pbody = (egadsBody *) obj->blind;
+        delete pbody;
+        EG_deleteObject(mshape->bodies[j]);
+      }
+      delete [] mshape->bodies;
+      delete mshape;
+      if (fmap != NULL) EG_free(fmap);
+      return EGADS_GEOMERR;
+    }
+  }
 
   stat = EG_makeObject(context, &omodel);
   if (stat != EGADS_SUCCESS) {
@@ -796,7 +849,6 @@ EG_generalBoolean(egObject *src, egObject *tool, int oper, double tol,
   }
   omodel->oclass = MODEL;
   omodel->blind  = mshape;
-  EG_referenceObject(omodel, context);
   TopTools_IndexedMapOfShape rmap;
   TopExp::MapShapes(result, TopAbs_FACE, rmap);
 
@@ -805,36 +857,27 @@ EG_generalBoolean(egObject *src, egObject *tool, int oper, double tol,
     egObject  *pobj  = mshape->bodies[i];
     egadsBody *pbody = (egadsBody *) pobj->blind;
     pobj->topObj     = omodel;
-    BRepCheck_Analyzer sCheck(pbody->shape);
-    stat = EGADS_SUCCESS;
-    if (!sCheck.IsValid()) {
-      if (outLevel > 0)
-        printf(" EGADS Error: Result %d/%d is inValid (EG_generalBoolean)!\n",
-               i+1, nBody);
-      stat = EGADS_GEOMERR;
-    }
-    if (stat == EGADS_SUCCESS)
-      stat = EG_traverseBody(context, i, pobj, omodel, pbody, &nerr);
+    stat = EG_traverseBody(context, i, pobj, omodel, pbody, &nerr);
     if (stat != EGADS_SUCCESS) {
       mshape->nbody = i;
       EG_destroyTopology(omodel);
-      delete [] mshape->bodies;
-      delete mshape;
       if (fmap != NULL) EG_free(fmap);
       return stat;
     }
     // copy the attributes
     EG_attriBodyDup(src,  pobj);
     EG_attriBodyDup(tool, pobj);
-    for (j = 0; j < pbody->faces.map.Extent(); j++) {
-      TopoDS_Face dsface = TopoDS::Face(pbody->faces.map(j+1));
-      index = rmap.FindIndex(dsface);
-      if (index == 0) continue;
-      if (fmap[index-1] == NULL) continue;
-      EG_attributeDup(fmap[index-1], pbody->faces.objs[j]);
-    }
+    if (fmap != NULL)
+      for (j = 0; j < pbody->faces.map.Extent(); j++) {
+        TopoDS_Face dsface = TopoDS::Face(pbody->faces.map(j+1));
+        index = rmap.FindIndex(dsface);
+        if (index == 0) continue;
+        if (fmap[index-1] == NULL) continue;
+        EG_attributeDup(fmap[index-1], pbody->faces.objs[j]);
+      }
   }
   if (fmap != NULL) EG_free(fmap);
+  EG_referenceObject(omodel, context);
 
   *model = omodel;
   return EGADS_SUCCESS;
@@ -1315,6 +1358,26 @@ EG_modelBoolean(const egObject *src, const egObject *tool, int oper,
     egadsBody *pbody = (egadsBody *) obj->blind;
     pbody->shape     = Exp.Current();
   }
+  for (i = 0; i < nBody; i++) {
+    egObject  *pobj  = mshape->bodies[i];
+    egadsBody *pbody = (egadsBody *) pobj->blind;
+    BRepCheck_Analyzer sCheck(pbody->shape);
+    if (!sCheck.IsValid()) {
+      if (outLevel > 0)
+        printf(" EGADS Error: Result %d/%d is inValid (EG_solidBoolean)!\n",
+               i+1, nBody);
+      for (j = 0; j < nBody; j++) {
+        egObject  *obj   = mshape->bodies[j];
+        egadsBody *pbody = (egadsBody *) obj->blind;
+        delete pbody;
+        EG_deleteObject(mshape->bodies[j]);
+      }
+      delete [] mshape->bodies;
+      delete mshape;
+      if (fmap != NULL) EG_free(fmap);
+      return EGADS_GEOMERR;
+    }
+  }
 
   stat = EG_makeObject(context, &omodel);
   if (stat != EGADS_SUCCESS) {
@@ -1332,7 +1395,6 @@ EG_modelBoolean(const egObject *src, const egObject *tool, int oper,
   }
   omodel->oclass = MODEL;
   omodel->blind  = mshape;
-  EG_referenceObject(omodel, context);
   TopTools_IndexedMapOfShape smap, rmap;
   TopExp::MapShapes(ssrc,   TopAbs_FACE, smap);
   TopExp::MapShapes(result, TopAbs_FACE, rmap);
@@ -1341,21 +1403,10 @@ EG_modelBoolean(const egObject *src, const egObject *tool, int oper,
     egObject  *pobj  = mshape->bodies[i];
     egadsBody *pbody = (egadsBody *) pobj->blind;
     pobj->topObj     = omodel;
-    BRepCheck_Analyzer sCheck(pbody->shape);
-    stat = EGADS_SUCCESS;
-    if (!sCheck.IsValid()) {
-      if (outLevel > 0)
-        printf(" EGADS Error: Result %d/%d is inValid (EG_solidBoolean)!\n",
-               i+1, nBody);
-      stat = EGADS_GEOMERR;
-    }
-    if (stat == EGADS_SUCCESS)
-      stat = EG_traverseBody(context, i, pobj, omodel, pbody, &nerr);
+    stat = EG_traverseBody(context, i, pobj, omodel, pbody, &nerr);
     if (stat != EGADS_SUCCESS) {
       mshape->nbody = i;
       EG_destroyTopology(omodel);
-      delete [] mshape->bodies;
-      delete mshape;
       if (fmap != NULL) EG_free(fmap);
       return stat;
     }
@@ -1396,6 +1447,7 @@ EG_modelBoolean(const egObject *src, const egObject *tool, int oper,
     }
   }
   if (fmap != NULL) EG_free(fmap);
+  EG_referenceObject(omodel, context);
 
   *model = omodel;
   return EGADS_SUCCESS;

@@ -1,21 +1,20 @@
                         ESP: The Engineering Sketch Pad
-                            Rev 1.17 -- January 2020
+                         Rev 1.18 Beta -- March 2020
 
 
 0. Warnings!
 
-    This is the last ESP release that will support Windows 7 & 8. From this
-    point onward only Windows 10 will be tested. This also means that older
-    versions of MS Visual Studio will no longer be tested either. Only MSVS
-    versions 2015 and above will be fully supported.
+    Windows 7 & 8 are no longer supported, only Windows 10 will be tested. 
+    This also means that older versions of MS Visual Studio are no longer 
+    being tested either. Only MSVS versions 2015 and up are supported.
 
     This may be the last ESP release that supports Python 2.7.
 
-    This is also the last ESP release that will fully support OpenCASCADE
-    6.8.1. From Rev 1.18 and on only 7.3.1 and possibly 7.4.1 will be the
-    OpenCASCADE releases that we test against. And again, these are the 
-    versions that should be taken from the ESP website (and not from 
-    elsewhere).
+    From Rev 1.18 (and on) only 7.3.1 and 7.4.1 will be the OpenCASCADE 
+    releases that we test against. And again, these are the versions that 
+    should be taken from the ESP website (and not from elsewhere). Until 
+    this release if final you can find OpenCASCADE 7.4.1 in the subdirectory 
+    "otherOCCs".
 
     Apple's OSX Catalina (10.15) is a REAL problem. You cannot download the
     distributions using a browser. For instructions on how to get ESP see 
@@ -26,13 +25,13 @@
 
     The most significant prerequisite for this software is OpenCASCADE.
     This ESP release only supports the prebuilt versions marked 7.3.1 
-    (and optionally 6.8.1), which are available at http://acdl.mit.edu/ESP. 
-    Please DO NOT report any problems with any other versions of OpenCASCADE,
-    much effort has been spent in "hardening" the OpenCASCADE code. It is 
-    advised that all ESP users update to 7.3.1 because of better robustness, 
-    performance and this is the last ESP release to support 6.8.1. If you are
-    still on a LINUX box with a version of gcc less than 4.8, you may want to
-    consider an upgrade, so that 7.3.1 can be used.
+    and 7.4.1, which are available at http://acdl.mit.edu/ESP. Please DO 
+    NOT report any problems with any other versions of OpenCASCADE, much 
+    effort has been spent in "hardening" the OpenCASCADE code. It is advised 
+    that all ESP users update to 7.3.1/7.4.1 because of better robustness, 
+    performance. If you are still on a LINUX box with a version of gcc less 
+    than 4.8, you may want to consider an upgrade, so that at least 7.3.1 
+    can be used.
 
     Another prerequisite is a WebGL/Websocket capable Browser. In general 
     these include Mozilla's FireFox, Google Chrome and Apple's Safari. 
@@ -70,34 +69,12 @@
 
 1.2.1 EGADS
 
-   The inverse evaluations and the in Face predicate have been reworked and they
-   should now be robust and reliable.
-
-   The base tessellation code has been rewritten. Very small Faces would, at 
-   times not be triangulated -- this has been fixed. An Edge/Edge proximity test 
-   has been added to the Edge discretization, which should provide more robust 
-   functioning when trimming curves come close together. Very small interior 
-   triangles are no longer generated. Overall you will notice much finer Edge
-   tessellations in the case of trimming surfaces with high normal curvature.
-
 
 1.2.2 ESP
 
-    There have been many improvements and bug fixes in this version of ESP.  
-    The most significant of these are:
-    * SELECT:   allow 0 to be wildcard
-    * CFGPMTR:  new statement
-    * EXTRACT:  several Faces or Edg4es can be extracted at once
-    * DUMP:     can write .plot files
-    * SELECT:   select an Edge by its midpoint
-    * COMBINE:  can be applied to a single SheetBody or WireBody
-    * -plugs:   new command line option for executing PLUGS
-
-    A complete list of updates and bug fixes can be found in sections 8.1 and 
-    8.2 of ESP-help.html
 
 
-1.2.3 Known issues in v1.17:
+1.2.3 Known issues in v1.18:
 
     None.
 

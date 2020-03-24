@@ -16,7 +16,7 @@
   </head>
 
   <body>
-    <p><h1 align=center>Engineering Sketch Pad (ESP) Version 1.17</h1>
+    <p><h1 align=center>Engineering Sketch Pad (ESP) Version 1.18</h1>
     <p><h3>Authors: John F. Dannenhoffer, III (Syracuse University) and Bob Haimes (MIT)</h3>
     <p><h3>Date: February 2020.</h3>
 
@@ -4596,6 +4596,8 @@ UDPRIM ellipse
            rx         radius in x-direction   [default 0]
            ry         radius in y-direction   [default 0]
            rz         radius in z-direction   [default 0]
+           nedge      number of Edges         [default 2]
+           thbeg      theta for first Node    [default 0]
        output arguments:
        usage:
            if     (rx==0 && ry>0 && rz>0)
@@ -8129,7 +8131,7 @@ EGADS_READERR                         -32
       (with a single Face) or WireBody.  Sketches are typically used
       as the basis of grown solids such as EXTRUDE, REVOLVE, RULE, and
       BLEND.  (The latter two of these actually use a series of
-      sketches.
+      sketches.)
 
       <p><strong>sketch constraint</strong> A rule for specifying the
       relationships between sketch variables.

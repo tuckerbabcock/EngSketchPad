@@ -41,7 +41,6 @@
 #include <limits.h>
 #endif
 
-
 #define NUMINPUT  9       // Number of mesh inputs
 #define NUMOUT    1       // Number of outputs
 
@@ -280,30 +279,30 @@ int aimInputs(/*@unused@*/ int iIndex, void *aimInfo, int index, char **ainame,
     } else if (index == 7) {
         *ainame               = EG_strdup("Edge_Point_Min");
         defval->type          = Integer;
-        defval->vals.integer  = 2;
+        defval->vals.integer  = 0;
         defval->lfixed        = Fixed;
         defval->nrow          = 1;
         defval->ncol          = 1;
-        defval->nullVal      = NotNull;
+        defval->nullVal       = IsNull;
 
         /*! \page aimInputsAFLR2
-         * - <B> Edge_Point_Min = 2</B> <br>
-         * Minimum number of points along an edge to use when creating a surface mesh.
+         * - <B> Edge_Point_Min = NULL</B> <br>
+         * Minimum number of points on an edge including end points to use when creating a surface mesh (min 2).
          */
 
     } else if (index == 8) {
         *ainame               = EG_strdup("Edge_Point_Max");
         defval->type          = Integer;
-        defval->vals.integer  = 10;
+        defval->vals.integer  = 0;
         defval->length        = 1;
         defval->lfixed        = Fixed;
         defval->nrow          = 1;
         defval->ncol          = 1;
-        defval->nullVal      = IsNull;
+        defval->nullVal       = IsNull;
 
         /*! \page aimInputsAFLR2
          * - <B> Edge_Point_Max = NULL</B> <br>
-         * Maximum number of points along an edge to use when creating a surface mesh.
+         * Maximum number of points on an edge including end points to use when creating a surface mesh (min 2).
          */
 
     } else if (index == 9) {
@@ -390,7 +389,7 @@ int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValu
     double refLen = -1.0;
 
     // Global settings
-    int minEdgePoint = 0, maxEdgePoint = 0;
+    int minEdgePoint = -1, maxEdgePoint = -1;
 
     // Mesh attribute parameters
     int numMeshProp = 0;
@@ -481,12 +480,34 @@ int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValu
     // Max and min number of points
     if (aimInputs[aim_getIndex(aimInfo, "Edge_Point_Min", ANALYSISIN)-1].nullVal != IsNull) {
         minEdgePoint = aimInputs[aim_getIndex(aimInfo, "Edge_Point_Min", ANALYSISIN)-1].vals.integer;
+        if (minEdgePoint < 2) {
+          printf("**********************************************************\n");
+          printf("Edge_Point_Min = %d must be greater or equal to 2\n", minEdgePoint);
+          printf("**********************************************************\n");
+          status = CAPS_BADVALUE;
+          goto cleanup;
+        }
     }
 
     if (aimInputs[aim_getIndex(aimInfo, "Edge_Point_Max", ANALYSISIN)-1].nullVal != IsNull) {
         maxEdgePoint = aimInputs[aim_getIndex(aimInfo, "Edge_Point_Max", ANALYSISIN)-1].vals.integer;
+        if (maxEdgePoint < 2) {
+          printf("**********************************************************\n");
+          printf("Edge_Point_Max = %d must be greater or equal to 2\n", maxEdgePoint);
+          printf("**********************************************************\n");
+          status = CAPS_BADVALUE;
+          goto cleanup;
+        }
     }
 
+    if (maxEdgePoint >= 2 && minEdgePoint >= 2 && minEdgePoint > maxEdgePoint) {
+      printf("**********************************************************\n");
+      printf("Edge_Point_Max must be greater or equal Edge_Point_Min\n");
+      printf("Edge_Point_Max = %d, Edge_Point_Min = %d\n",maxEdgePoint,minEdgePoint);
+      printf("**********************************************************\n");
+      status = CAPS_BADVALUE;
+      goto cleanup;
+    }
 
     // Get mesh sizing parameters
     if (aimInputs[aim_getIndex(aimInfo, "Mesh_Sizing", ANALYSISIN)-1].nullVal != IsNull) {
@@ -512,18 +533,6 @@ int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValu
                                   bodies);
     if (status != CAPS_SUCCESS) goto cleanup;
 
-    // Clean up meshProps
-    if (meshProp != NULL) {
-
-        for (i = 0; i < numMeshProp; i++) {
-
-            (void) destroy_meshSizingStruct(&meshProp[i]);
-        }
-        EG_free(meshProp);
-
-        meshProp = NULL;
-    }
-
     // Run AFLR2 for each body
     for (bodyIndex = 0; bodyIndex < numBody; bodyIndex++) {
 
@@ -534,6 +543,7 @@ int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValu
         status = aflr2_Surface_Mesh(Message_Flag, bodies[bodyIndex],
                                     aflr2Instance[iIndex].meshInput,
                                     aflr2Instance[iIndex].attrMap,
+                                    numMeshProp, meshProp,
                                     &aflr2Instance[iIndex].surfaceMesh[bodyIndex]);
         if (status != CAPS_SUCCESS) {
             printf("Problem during surface meshing of body %d\n", bodyIndex+1);
@@ -548,6 +558,18 @@ int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValu
             printf("Number of quad = %d\n", aflr2Instance[iIndex].surfaceMesh[bodyIndex].meshQuickRef.numQuadrilateral);
         }
 
+    }
+
+    // Clean up meshProps
+    if (meshProp != NULL) {
+
+        for (i = 0; i < numMeshProp; i++) {
+
+            (void) destroy_meshSizingStruct(&meshProp[i]);
+        }
+        EG_free(meshProp);
+
+        meshProp = NULL;
     }
 
     if (aflr2Instance[iIndex].meshInput.outputFileName != NULL) {

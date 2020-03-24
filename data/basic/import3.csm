@@ -8,8 +8,4 @@ patbeg  jbody  nbodies-1
    udprim  import  filename  $$/sew.stp  BodyNumber  jbody+1
 patend
 
-# make sure we get a valid tessellation
-select    body 134
-attribute .tParams  "1.0; 0.1; 20.000"
-
 end

@@ -26,6 +26,7 @@ LIBLIST =	$(LDIR)\ocsm.dll \
 		$(LDIR)\printBbox.dll \
 		$(LDIR)\printBrep.dll \
 		$(LDIR)\flend.dll \
+		$(LDIR)\ganged.dll \
 		$(LDIR)\guide.dll \
 		$(LDIR)\matchBodys.dll \
 		$(LDIR)\ellipse.dll \
@@ -261,6 +262,17 @@ $(LDIR)\flend.dll:	$(ODIR)\udfFlend.obj $(LDIR)\ocsm.dll
 $(ODIR)\udfFlend.obj:	udfFlend.c udpUtilities.c udpUtilities.h
 	cl /c $(COPTS) $(DEFINE) /I$(IDIR) udfFlend.c \
 		/Fo$(ODIR)\udfFlend.obj
+
+$(LDIR)\ganged.dll:	$(ODIR)\udfGanged.obj $(LDIR)\ocsm.dll
+	-del $(LDIR)\ganged.dll $(LDIR)\ganged.lib $(LDIR)\ganged.exp
+	link /out:$(LDIR)\ganged.dll /dll /def:udp.def \
+		$(ODIR)\udfGanged.obj $(LDIR)\ocsm.lib $(LDIR)\egads.lib
+	$(MCOMP) /manifest $(LDIR)\ganged.dll.manifest \
+		/outputresource:$(LDIR)\ganged.dll;2
+
+$(ODIR)\udfGanged.obj:	udfGanged.c udpUtilities.c udpUtilities.h
+	cl /c $(COPTS) $(DEFINE) /I$(IDIR) udfGanged.c \
+		/Fo$(ODIR)\udfGanged.obj
 
 $(LDIR)\guide.dll:	$(ODIR)\udfGuide.obj $(LDIR)\ocsm.dll
 	-del $(LDIR)\guide.dll $(LDIR)\guide.lib $(LDIR)\guide.exp
@@ -535,6 +547,7 @@ clean:
 	-del $(ODIR)\udpFitcurve.obj
 	-del $(ODIR)\udpFreeform.obj
 	-del $(ODIR)\udfFlend.obj
+	-del $(ODIR)\udfGanged.obj
 	-del $(ODIR)\udfGuide.obj
 	-del $(ODIR)\udfMatchBodys.obj
 	-del $(ODIR)\udpHex.obj
@@ -575,6 +588,7 @@ cleanall:	clean
 	-del $(LDIR)\fitcurve.dll   $(LDIR)\fitcurve.lib   $(LDIR)\fitcurve.exp
 	-del $(LDIR)\freeform.dll   $(LDIR)\freeform.lib   $(LDIR)\freeform.exp
 	-del $(LDIR)\flend.dll      $(LDIR)\flend.lib      $(LDIR)\flend.exp
+	-del $(LDIR)\ganged.dll     $(LDIR)\ganged.lib     $(LDIR)\ganged.exp
 	-del $(LDIR)\guide.dll      $(LDIR)\guide.lib      $(LDIR)\guide.exp
 	-del $(LDIR)\matchBodys.dll $(LDIR)\matchBodys.lib $(LDIR)\matchBodys.exp
 	-del $(LDIR)\hex.dll        $(LDIR)\hex.lib        $(LDIR)\hex.exp

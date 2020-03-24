@@ -4,8 +4,4 @@
 import  $/sew.stp  -1  
 set     nbodies @@numbodies
 
-# make sure we get a valid tessellation
-select    body 134
-attribute .tParams  "1.0; 0.1; 20.000"
-
 end

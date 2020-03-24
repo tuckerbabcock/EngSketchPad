@@ -52,8 +52,8 @@ class TestAstros(unittest.TestCase):
         self.astros_exe = which("astros.exe")
         if self.astros_exe == None:
             self.skipTest("No astros.exe executable")
-            return 
-        
+            return
+
         # Initialize capsProblem object
         self.myProblem = pyCAPS.capsProblem()
 
@@ -98,48 +98,49 @@ class TestAstros(unittest.TestCase):
         astros = self.myProblem.loadAIM(aim = "astrosAIM",
                                         analysisDir = "workDir_astrosPlate")
 
+        astros.setAnalysisVal("Edge_Point_Min", 3)
         astros.setAnalysisVal("Edge_Point_Max", 4)
 
         astros.setAnalysisVal("Quad_Mesh", True)
-        
+
         astros.setAnalysisVal("Tess_Params", [.25,.01,15])
 
-        
+
         # Set analysis type
         astros.setAnalysisVal("Analysis_Type", "Static");
-        
+
         # Set materials
         madeupium    = {"materialType" : "isotropic",
                         "youngModulus" : 72.0E9 ,
                         "poissonRatio": 0.33,
                         "density" : 2.8E3}
-        
+
         astros.setAnalysisVal("Material", ("Madeupium", madeupium))
-        
+
         # Set properties
         shell  = {"propertyType" : "Shell",
                   "membraneThickness" : 0.006,
                   "material"        : "madeupium",
                   "bendingInertiaRatio" : 1.0, # Default
                   "shearMembraneRatio"  : 5.0/6.0} # Default
-        
+
         astros.setAnalysisVal("Property", ("plate", shell))
-        
+
         # Set constraints
         constraint = {"groupName" : "plateEdge",
                       "dofConstraint" : 123456}
-        
+
         astros.setAnalysisVal("Constraint", ("edgeConstraint", constraint))
-        
+
         # Set load
         load = {"groupName" : "plate",
                 "loadType" : "Pressure",
                 "pressureForce" : 2.e6}
-        
+
         # Set loads
         astros.setAnalysisVal("Load", ("appliedPressure", load ))
 
-        
+
         astros.setAnalysisVal("File_Format", "Small")
         astros.setAnalysisVal("Mesh_File_Format", "Small")
         astros.setAnalysisVal("Proj_Name", "astrosPlateSmall")
@@ -171,6 +172,7 @@ class TestAstros(unittest.TestCase):
 
         astros.setAnalysisVal("Proj_Name", "astrosAero")
 
+        astros.setAnalysisVal("Edge_Point_Min", 3)
         astros.setAnalysisVal("Edge_Point_Max", 4)
 
         astros.setAnalysisVal("Quad_Mesh", True)

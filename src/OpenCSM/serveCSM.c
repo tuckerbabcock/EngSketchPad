@@ -338,6 +338,7 @@ static int        addToHistogram(double entry, int nhist, double dhist[], int hi
 static int        printHistogram(int nhist, double dhist[], int hist[]);
 
 static int        computeMassProps(modl_T *MODL, int ibody, double props[]);
+static int        checkForGanged(modl_T *MODL);
 static int        checkParallel(modl_T *MODL);
 
 static int        plugsMain(modl_T *MODL, int npass, int ncloud, double cloud[]);
@@ -1282,6 +1283,10 @@ main(int       argc,                    /* (in)  number of arguments */
         CHECK_STATUS(checkParallel);
     }
 
+    /* check for possible ganged Boolean operations */
+    status = checkForGanged(MODL);
+    CHECK_STATUS(checkForGanged);
+
     /* special code to automatically add solution verification
        (via assertions) for all Bodys on the stack.  note: this makes
        a copy of the "*.csm" file and calls it "*.csm_verify" */
@@ -1332,31 +1337,55 @@ main(int       argc,                    /* (in)  number of arguments */
             if (MODL->body[ibody].botype == OCSM_SHEET_BODY ||
                 MODL->body[ibody].botype == OCSM_SOLID_BODY   ) {
                 if        (fabs(data[0]) > 0.001) {
-                    fprintf(vrfy_fp, "   assert %13.5e  @volume  -.001  1\n", data[0]);
+                    fprintf(vrfy_fp, "   assert %15.7e  @volume  -.001  1\n", data[0]);
                 } else if (fabs(data[0]) < 1e-10) {
-                    fprintf(vrfy_fp, "   assert %13.5e  @volume  0.001  1\n", 0.0);
+                    fprintf(vrfy_fp, "   assert %15.7e  @volume  0.001  1\n", 0.0);
                 } else {
-                    fprintf(vrfy_fp, "   assert %13.5e  @volume  0.001  1\n", data[0]);
+                    fprintf(vrfy_fp, "   assert %15.7e  @volume  0.001  1\n", data[0]);
                 }
                 if        (fabs(data[1]) > 0.001) {
-                    fprintf(vrfy_fp, "   assert %13.5e  @area    -.001  1\n", data[1]);
+                    fprintf(vrfy_fp, "   assert %15.7e  @area    -.001  1\n", data[1]);
                 } else if (fabs(data[1]) < 1e-10) {
-                    fprintf(vrfy_fp, "   assert %13.5e  @area    0.001  1\n", 0.0);
+                    fprintf(vrfy_fp, "   assert %15.7e  @area    0.001  1\n", 0.0);
                 } else {
-                    fprintf(vrfy_fp, "   assert %13.5e  @area    0.001  1\n", data[1]);
+                    fprintf(vrfy_fp, "   assert %15.7e  @area    0.001  1\n", data[1]);
                 }
             } else if (MODL->body[ibody].botype == OCSM_WIRE_BODY) {
                 if        (fabs(data[1]) > 0.001) {
-                    fprintf(vrfy_fp, "   assert %13.5e  @length  -.001  1\n", data[1]);
+                    fprintf(vrfy_fp, "   assert %15.7e  @length  -.001  1\n", data[1]);
                 } else if (fabs(data[1]) < 1e-10) {
-                    fprintf(vrfy_fp, "   assert %13.5e  @length  0.001  1\n", 0.0);
+                    fprintf(vrfy_fp, "   assert %15.7e  @length  0.001  1\n", 0.0);
                 } else {
-                    fprintf(vrfy_fp, "   assert %13.5e  @length  0.001  1\n", data[1]);
+                    fprintf(vrfy_fp, "   assert %15.7e  @length  0.001  1\n", data[1]);
                 }
             }
-            fprintf(vrfy_fp, "   assert %13.5e  @xcg   %13.5e  1\n", data[2], MAX(0.001*(bbox[3]-bbox[0]),0.001));
-            fprintf(vrfy_fp, "   assert %13.5e  @ycg   %13.5e  1\n", data[3], MAX(0.001*(bbox[4]-bbox[1]),0.001));
-            fprintf(vrfy_fp, "   assert %13.5e  @zcg   %13.5e  1\n", data[4], MAX(0.001*(bbox[5]-bbox[2]),0.001));
+
+            if        (bbox[3]-bbox[0] < 0.001) {
+                fprintf(vrfy_fp, "   assert %15.7e  @xcg     -.001  1\n", data[2]);
+            } else if (fabs(data[2]) < 1e-10) {
+                fprintf(vrfy_fp, "   assert %15.7e  @xcg     0.001  1\n", 0.0);
+            } else {
+                fprintf(vrfy_fp, "   assert %15.7e  @xcg    %15.7e  1\n", data[2], 0.001*(bbox[3]-bbox[0]));
+            }
+
+            if        (bbox[4]-bbox[1] < 0.001) {
+                fprintf(vrfy_fp, "   assert %15.7e  @ycg     -.001  1\n", data[3]);
+            } else if (fabs(data[3]) < 1e-10) {
+                fprintf(vrfy_fp, "   assert %15.7e  @ycg     0.001  1\n", 0.0);
+            } else {
+                fprintf(vrfy_fp, "   assert %15.7e  @ycg    %15.7e  1\n", data[3], 0.001*(bbox[4]-bbox[1]));
+            }
+
+            if        (bbox[5]-bbox[2] < 0.001) {
+                fprintf(vrfy_fp, "   assert %15.7e  @zcg     -.001  1\n", data[4]);
+            } else if (fabs(data[4]) < 1e-10) {
+                fprintf(vrfy_fp, "   assert %15.7e  @zcg     0.001  1\n", 0.0);
+            } else {
+                fprintf(vrfy_fp, "   assert %15.7e  @zcg    %15.7e  1\n", data[4], 0.001*(bbox[5]-bbox[2]));
+            }
+//$$$            fprintf(vrfy_fp, "   assert %15.7e  @xcg   %15.7e  1\n", data[2], 0.001*MAX(bbox[3]-bbox[0],1));
+//$$$            fprintf(vrfy_fp, "   assert %15.7e  @ycg   %15.7e  1\n", data[3], 0.001*MAX(bbox[4]-bbox[1],1));
+//$$$            fprintf(vrfy_fp, "   assert %15.7e  @zcg   %15.7e  1\n", data[4], 0.001*MAX(bbox[5]-bbox[2],1));
             fprintf(vrfy_fp, "\n");
         }
 
@@ -7222,6 +7251,80 @@ computeMassProps(modl_T *MODL,          /* (in)  pointer to MODL */
     props[13] = Izz;
 
 cleanup:
+    return status;
+}
+
+
+/***********************************************************************/
+/*                                                                     */
+/*   checkForGanged - check for possible ganged Boolean operations     */
+/*                                                                     */
+/***********************************************************************/
+
+static int
+checkForGanged(modl_T *MODL)            /* (in)  pointer to MODL */
+{
+    int    status = SUCCESS;            /* return status */
+
+    int    ibody, jbody, nlist, i, *list=NULL;
+
+    ROUTINE(checkForGanged);
+
+    /* --------------------------------------------------------------- */
+
+    SPRINT0(1, "\nChecking for opportunity for ganged Boolean operations...");
+
+    MALLOC(list, int, MODL->nbody);
+
+    /* look for possible ganged SUBTRACTs */
+    for (ibody = MODL->nbody; ibody >= 1; ibody--) {
+
+        nlist = 0;
+        jbody     = ibody;
+        while (MODL->body[jbody].brtype == OCSM_SUBTRACT) {
+            list[nlist++] = jbody;
+            jbody = MODL->body[jbody].ileft;
+            if (jbody <= 0) break;
+        }
+
+        if (nlist > 1) {
+            SPRINT0x(1, "   possible ganged SUBTRACTs that created Bodys:");
+            for (i = nlist-1; i >= 0; i--) {
+                SPRINT1x(1, " %d", list[i]);
+            }
+            SPRINT0(1, " ");
+
+            /* move beyond this ganged operation */
+            ibody = list[nlist-1];
+        }
+    }
+
+    /* look for possible ganged UNIONs */
+    for (ibody = MODL->nbody; ibody >= 1; ibody--) {
+
+        nlist = 0;
+        jbody     = ibody;
+        while (MODL->body[jbody].brtype == OCSM_UNION) {
+            list[nlist++] = jbody;
+            jbody = MODL->body[jbody].ileft;
+            if (jbody <= 0) break;
+        }
+
+        if (nlist > 1) {
+            SPRINT0x(1, "   possible ganged UNIONs that created Bodys:");
+            for (i = nlist-1; i >= 0; i--) {
+                SPRINT1x(1, " %d", list[i]);
+            }
+            SPRINT0(1, " ");
+
+            /* move beyond this ganged operation */
+            ibody = list[nlist-1];
+        }
+    }
+
+cleanup:
+    FREE(list);
+        
     return status;
 }
 

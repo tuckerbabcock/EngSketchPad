@@ -31,11 +31,8 @@ myProblem = capsProblem()
 # Load CSM file
 myProblem.loadCAPS("../csmData/cfd2D.csm", verbosity=args.verbosity)
 
-# Set intention - could also be set during .loadAIM
-myProblem.capsIntent = "CFD"
-
 # Load aflr2 aim
-myMesh = myProblem.loadAIM(aim = "aflr2AIM", analysisDir = workDir)
+myMesh = myProblem.loadAIM(aim = "aflr2AIM", analysisDir = workDir, capsIntent="CFD")
 
 # Set project name
 myMesh.setAnalysisVal("Proj_Name", projectName)

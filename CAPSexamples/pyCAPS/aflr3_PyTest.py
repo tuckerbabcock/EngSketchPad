@@ -36,7 +36,7 @@ myAnalysis = myProblem.loadAIM(aim = "aflr3AIM",
 # Set project name so a mesh file is generated
 myAnalysis.setAnalysisVal("Proj_Name", "pyCAPS_AFLR3_Test")
 
-#myAnalysis.setAnalysisVal("Tess_Params", [50, .11, 20.0])
+myAnalysis.setAnalysisVal("Tess_Params", [0.1, .01, 20.0])
 
 myAnalysis.setAnalysisVal("Mesh_ASCII_Flag", True)
 
@@ -60,7 +60,7 @@ else:
     myAnalysis.setAnalysisVal("Mesh_Sizing", [("Wing1", viscousBC), ("Wing2", inviscidBC)])
 
 # mbl=2 generate a structured-layer (SL) grid
-# mblelc=2 combine elements in BL region to form pentahedra with five 
+# mblelc=2 combine elements in BL region to form pentahedra with five
 #            nodes (pyramid) or six nodes (prism) and hexahedra
 # mquadp = 1 then add a transition pyramid element to every boundary surface quad-face
 myAnalysis.setAnalysisVal("Mesh_Gen_Input_String", "mbl=2 mblelc=2 mquadp=1")

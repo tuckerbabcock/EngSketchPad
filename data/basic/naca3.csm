@@ -7,7 +7,4 @@ despmtr   camber    0.04
 udparg    naca      thickness thick
 udprim    naca      camber    camber
 
-select    edge      3
-   attribute .tParams  0.0005;0.0005;15
-
 end

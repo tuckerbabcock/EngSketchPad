@@ -1554,6 +1554,8 @@ int vlm_findTEObj(ego body, ego *teObj) {
 
         status = EG_getTopology(edges[i], &ref, &oclass, &mtype, trange, &numChildren, &children, &sens);
 
+        if (mtype == DEGENERATE) continue;
+
         if (status != EGADS_SUCCESS) {
             printf("\tError in vlm_findTEObj, Edge %d getTopology = %d!\n", i, status);
             goto cleanup;
@@ -1561,6 +1563,7 @@ int vlm_findTEObj(ego body, ego *teObj) {
 
         if (numChildren != 2) {
             printf("\tError in vlm_findTEObj, Edge %d has %d nodes!\n", i, numChildren);
+            status = CAPS_BADVALUE;
             goto cleanup;
         }
 
@@ -1968,7 +1971,7 @@ int vlm_writeSection(FILE *fp,
     double       chord;//, ainc;
     double       xdot[3], ydot[3];
 
-    int numEdge, numNode, numLoop;
+    int numEdge, numNode, numLoop, numEdgeMinusDegenrate;
     ego *nodes = NULL, *edges = NULL, *loops = NULL;
 
     int sense = 0, itemp = 0, nodeIndexTE2[2];
@@ -1977,7 +1980,7 @@ int vlm_writeSection(FILE *fp,
 
     //EGADS returns
     int oclass, mtype, *sens = NULL, *edgeLoopSense = NULL, numChildren;
-    ego ref, *children = NULL, *temp = NULL, nodeTE = NULL;
+    ego ref, prev, next, *children = NULL, *temp = NULL, nodeTE = NULL;
 
 
     ego teObj = NULL;
@@ -2040,8 +2043,15 @@ int vlm_writeSection(FILE *fp,
         goto cleanup;
     }
 
+    numEdgeMinusDegenrate = 0;
+    for (i = 0; i < numEdge; i++) {
+        status = EG_getInfo(edges[i], &oclass, &mtype, &ref, &prev, &next);
+        if (mtype == DEGENERATE) continue;
+        numEdgeMinusDegenrate += 1;
+    }
+
     // There must be at least 2 nodes and 2 edges
-    if ((numEdge != numNode) || (numNode < 2) || (numLoop != 1)) {
+    if ((numEdgeMinusDegenrate != numNode) || (numNode < 2) || (numLoop != 1)) {
         printf("\tError in vlm_writeSection, body has %d nodes, %d edges and %d loops!\n", numNode, numEdge, numLoop);
         printf("\t\tThere must be at least one leading and one trailing edge node!\n");
         status = CAPS_SOURCEERR;
@@ -2059,6 +2069,8 @@ int vlm_writeSection(FILE *fp,
     for (i = 0; i < numEdge; i++) {
 
         status = EG_getTopology(edges[i], &ref, &oclass, &mtype, trange, &numChildren, &children, &sens);
+
+        if (mtype == DEGENERATE) continue;
 
         if (status != EGADS_SUCCESS) {
             printf("\tError in vlm_writeSection, Edge %d getTopology = %d!\n", i, status);
@@ -2249,7 +2261,7 @@ int vlm_writeSection(FILE *fp,
         edgeLoopSense[i] = sens[i];
     }
 
-    // Reorder edgecd bu   indexing such that a trailing edge node is the first node in the loop
+    // Reorder edge indexing such that a trailing edge node is the first node in the loop
     while ( (int) true ) {
 
         // the first edge cannot be the TE edge
@@ -2257,6 +2269,8 @@ int vlm_writeSection(FILE *fp,
 
             status = EG_getTopology(edges[edgeOrder[0]-1], &ref, &oclass, &mtype, trange, &numChildren, &children, &sens);
             if (status != EGADS_SUCCESS) goto cleanup;
+
+            if (mtype == DEGENERATE) continue;
 
             // Get the sense of the edge from the loop
             sense = edgeLoopSense[0];

@@ -292,8 +292,4 @@ ifthen    pylon:length GT 0  AND  pod:length GT 0
     UNION
 endif
 
-# adjust tessellation parameters
-SELECT body @nbody
-   ATTRIBUTE .tParams "1.5; 0.25; 15;"
-
 end

@@ -4,17 +4,18 @@
 //  Modified by Dr. Ryan Durscher AFRL/RQVC
 //  Modified by Dr. Marshall Galbraith MIT
 
+#ifdef WIN32
+#define strcasecmp stricmp
+#define strtok_r   strtok_s
+typedef int         pid_t;   
+#endif
+
 #include <aflr4/AFLR4_LIB.h> // Bring in AFLR4 API library
 #include <egads_aflr4/EGADS_AFLR4_LIB_INC.h>
 
 #include "meshUtils.h" // Collection of helper functions for meshing
 #include "miscUtils.h"
 #include "aimUtil.h"
-
-#ifdef WIN32
-#define strcasecmp stricmp
-#define strtok_r   strtok_s
-#endif
 
 int aflr4_Surface_Mesh(int quiet,
                        int numBody, ego *bodies,
@@ -38,11 +39,11 @@ int aflr4_Surface_Mesh(int quiet,
 
     ego *faces = NULL, tess;
 
-    int ff_nseg, min_ncell, msfe_all, nprox;
+    int ff_nseg, min_ncell, mer_all, mprox;
     int EGADS_Quad = (int)false;
 
     double abs_min_scale, BL_thickness, curv_factor,
-           max_scale, min_scale, ref_len, sfe_all;
+           max_scale, min_scale, ref_len, erw_all;
 
      // Commandline inputs
     int  prog_argc   = 1;    // Number of arguments
@@ -180,19 +181,29 @@ int aflr4_Surface_Mesh(int quiet,
             if (status == EGADS_SUCCESS) {
               printf("**********************************************************\n");
               printf("Error: AFLR_Edge_Scale_Factor_Weight on face %d of body %d is deprecated\n", faceIndex+1, bodyIndex+1);
-              printf("   use AFLR4_Edge_Scale_Factor_Weight instead!\n");
+              printf("   use AFLR4_Edge_Refinement_Weight instead!\n");
               printf("**********************************************************\n");
               status = CAPS_BADVALUE;
               goto cleanup;
             }
 
-            // check to see if AFLR4_Edge_Scale_Factor_Weight is already set
             status = EG_attributeRet(faces[faceIndex], "AFLR4_Edge_Scale_Factor_Weight", &atype, &n, &pints, &preals, &pstring);
+            if (status == EGADS_SUCCESS) {
+              printf("**********************************************************\n");
+              printf("Error: AFLR4_Edge_Scale_Factor_Weight on face %d of body %d is deprecated\n", faceIndex+1, bodyIndex+1);
+              printf("   use AFLR4_Edge_Refinement_Weight instead!\n");
+              printf("**********************************************************\n");
+              status = CAPS_BADVALUE;
+              goto cleanup;
+            }
+
+            // check to see if AFLR4_Edge_Refinement_Weight is already set
+            status = EG_attributeRet(faces[faceIndex], "AFLR4_Edge_Refinement_Weight", &atype, &n, &pints, &preals, &pstring);
 
             if (status == EGADS_SUCCESS && !(atype == ATTRREAL && n == 1) ) {
                 //make sure it is only a single real
                 printf("**********************************************************\n");
-                printf("AFLR4_Edge_Scale_Factor_Weight on face %d of body %d has %d entries ", faceIndex+1, bodyIndex+1, n);
+                printf("AFLR4_Edge_Refinement_Weight on face %d of body %d has %d entries ", faceIndex+1, bodyIndex+1, n);
                 if (atype == ATTRREAL)
                     printf("of reals\n");
                 else if (atype == ATTRINT)
@@ -213,15 +224,15 @@ int aflr4_Surface_Mesh(int quiet,
 
     ff_nseg       = aimInputs[aim_getIndex(aimInfo, "ff_nseg"           , ANALYSISIN)-1].vals.integer;
     min_ncell     = aimInputs[aim_getIndex(aimInfo, "min_ncell"         , ANALYSISIN)-1].vals.integer;
-    msfe_all      = aimInputs[aim_getIndex(aimInfo, "msfe_all"          , ANALYSISIN)-1].vals.integer;
-    nprox         = aimInputs[aim_getIndex(aimInfo, "nprox"             , ANALYSISIN)-1].vals.integer;
+    mer_all      = aimInputs[aim_getIndex(aimInfo, "mer_all"          , ANALYSISIN)-1].vals.integer;
+    mprox         = aimInputs[aim_getIndex(aimInfo, "mprox"             , ANALYSISIN)-1].vals.integer;
 
     BL_thickness  = aimInputs[aim_getIndex(aimInfo, "BL_thickness"      , ANALYSISIN)-1].vals.real;
     curv_factor   = aimInputs[aim_getIndex(aimInfo, "curv_factor"       , ANALYSISIN)-1].vals.real;
     abs_min_scale = aimInputs[aim_getIndex(aimInfo, "abs_min_scale"     , ANALYSISIN)-1].vals.real;
     max_scale     = aimInputs[aim_getIndex(aimInfo, "max_scale"         , ANALYSISIN)-1].vals.real;
     min_scale     = aimInputs[aim_getIndex(aimInfo, "min_scale"         , ANALYSISIN)-1].vals.real;
-    sfe_all       = aimInputs[aim_getIndex(aimInfo, "sfe_all"           , ANALYSISIN)-1].vals.real;
+    erw_all       = aimInputs[aim_getIndex(aimInfo, "erw_all"           , ANALYSISIN)-1].vals.real;
     meshLenFac    = aimInputs[aim_getIndex(aimInfo, "Mesh_Length_Factor", ANALYSISIN)-1].vals.real;
 
     EGADS_Quad = aimInputs[aim_getIndex(aimInfo, "EGADS_Quad", ANALYSISIN)-1].vals.integer;
@@ -261,8 +272,8 @@ int aflr4_Surface_Mesh(int quiet,
     /*
     printf("ff_nseg               = %d\n", ff_nseg       );
     printf("min_ncell             = %d\n", min_ncell     );
-    printf("msfe_all              = %d\n", msfe_all      );
-    printf("nprox                 = %d\n", nprox         );
+    printf("mer_all              = %d\n", mer_all      );
+    printf("mprox                 = %d\n", mprox         );
 
     printf("BL_thickness          = %f\n", BL_thickness  );
     printf("curv_factor           = %f\n", curv_factor   );
@@ -270,7 +281,7 @@ int aflr4_Surface_Mesh(int quiet,
     printf("max_scale             = %f\n", max_scale     );
     printf("min_scale             = %f\n", min_scale     );
     printf("ref_len               = %f\n", ref_len       );
-    printf("sfe_all               = %f\n", sfe_all       );
+    printf("erw_all               = %f\n", erw_all       );
     */
 
     // Allocate argument vector.
@@ -284,10 +295,10 @@ int aflr4_Surface_Mesh(int quiet,
     status = ug_add_int_arg (  ff_nseg   , &prog_argc, &prog_argv);
     status = ug_add_flag_arg ("min_ncell", &prog_argc, &prog_argv);
     status = ug_add_int_arg (  min_ncell , &prog_argc, &prog_argv);
-    status = ug_add_flag_arg ("msfe_all" , &prog_argc, &prog_argv);
-    status = ug_add_int_arg (  msfe_all  , &prog_argc, &prog_argv);
-    status = ug_add_flag_arg ("nprox"    , &prog_argc, &prog_argv);
-    status = ug_add_int_arg (  nprox     , &prog_argc, &prog_argv);
+    status = ug_add_flag_arg ("mer_all" , &prog_argc, &prog_argv);
+    status = ug_add_int_arg (  mer_all  , &prog_argc, &prog_argv);
+    status = ug_add_flag_arg ("mprox"    , &prog_argc, &prog_argv);
+    status = ug_add_int_arg (  mprox     , &prog_argc, &prog_argv);
 
     status = ug_add_flag_arg ( "BL_thickness" , &prog_argc, &prog_argv);
     status = ug_add_double_arg (BL_thickness  , &prog_argc, &prog_argv);
@@ -301,8 +312,8 @@ int aflr4_Surface_Mesh(int quiet,
     status = ug_add_double_arg (min_scale     , &prog_argc, &prog_argv);
     status = ug_add_flag_arg ( "ref_len"      , &prog_argc, &prog_argv);
     status = ug_add_double_arg (ref_len       , &prog_argc, &prog_argv);
-    status = ug_add_flag_arg ( "sfe_all"      , &prog_argc, &prog_argv);
-    status = ug_add_double_arg (sfe_all       , &prog_argc, &prog_argv);
+    status = ug_add_flag_arg ( "erw_all"      , &prog_argc, &prog_argv);
+    status = ug_add_double_arg (erw_all       , &prog_argc, &prog_argv);
 
     // Add meshInputString arguments (if any) to argument vector.
     // Note that since this comes after setting aimInputs the

@@ -370,7 +370,7 @@
         <DesignParameters>
            filrad  0.1
         <Branches>
-           chamfer  filrad  0
+           chamfer  filrad  0  0
         <PressToRe-build>
          --- tutorial fig38
         <Branches>
@@ -415,7 +415,7 @@
            BuildToThisBranch
         <Branch_000103>
            AddNewBranchAfterThisBranch
-              fillet  filrad  6;7;7;8;
+              fillet  filrad  6;7;7;8;  0
         <PressToRe-build>
          --- tutorial fig43
         <height>

@@ -1338,8 +1338,8 @@ EG_getGeometry(const egObject     *geom, int *oclass, int *type,
 
 // Surreal version of getGeometry
 int
-EG_getGeometry( const ego geom, int *oclass, int *mtype,
-                ego *refGeom, int **ivec, SurrealS<1> **rvec )
+EG_getGeometry(const ego geom, int *oclass, int *mtype, ego *refGeom,
+               int **ivec, SurrealS<1> **rvec)
 {
   int    stat;
   double *rinfo;
@@ -2364,10 +2364,14 @@ EG_getGeometry_dot(const egObject *obj, double **rvec, double **rvec_dot)
   }
 
   if (len == 0) return EGADS_GEOMERR;
-  *rvec = (double *) EG_alloc(len*sizeof(double));
+  *rvec     = (double *) EG_alloc(len*sizeof(double));
   if (*rvec == NULL) return EGADS_MALLOC;
   *rvec_dot = (double *) EG_alloc(len*sizeof(double));
-  if (*rvec_dot == NULL) return EGADS_MALLOC;
+  if (*rvec_dot == NULL) {
+    EG_free(*rvec);
+    *rvec = NULL;
+    return EGADS_MALLOC;
+  }
 
   for (i = 0; i < len; i++) {
     (*rvec)[i]     = rdata_dot[i].value();
@@ -2687,8 +2691,8 @@ public:
 
   //! Assigns the number triples Col1, Col2, Col3 to the three
   //! columns of this matrix.
-  Standard_EXPORT void SetCols (const egXYZ<T>& Col1, const egXYZ<T>& Col2,
-                                const egXYZ<T>& Col3)
+  Standard_EXPORT void SetCols(const egXYZ<T>& Col1, const egXYZ<T>& Col2,
+                               const egXYZ<T>& Col3)
   {
     Mat00 = Col1.X(); Mat10 = Col1.Y(); Mat20 = Col1.Z();
     Mat01 = Col2.X(); Mat11 = Col2.Y(); Mat21 = Col2.Z();
@@ -2697,8 +2701,8 @@ public:
 
   //! Assigns the number triples Row1, Row2, Row3 to the three
   //! rows of this matrix.
-  Standard_EXPORT void SetRows (const egXYZ<T>& Row1, const egXYZ<T>& Row2,
-                                const egXYZ<T>& Row3)
+  Standard_EXPORT void SetRows(const egXYZ<T>& Row1, const egXYZ<T>& Row2,
+                               const egXYZ<T>& Row3)
   {
     Mat00 = Row1.X(); Mat01 = Row1.Y(); Mat02 = Row1.Z();
     Mat10 = Row2.X(); Mat11 = Row2.Y(); Mat12 = Row2.Z();
@@ -3151,7 +3155,6 @@ EG_copyGeometry_dot(const egObject *obj, /*@null@*/ const double *xform,
 
     /* Loops */
     for (i = 0; i < pface1->nloops; i++) {
-
       stat = EG_copyGeometry_dot(pface1->loops[i], xform, form, pface2->loops[i]);
       if (stat != EGADS_SUCCESS) return stat;
     }
@@ -3503,7 +3506,7 @@ EG_copyGeometry_dot(const egObject *obj, /*@null@*/ const double *xform,
             cdata_dot[0] *= fabs(form.ScaleFactor());
 
             /* transfer the data_dot information on the reference geometry */
-            stat = EG_copyGeometry_dot( psurf1->ref, xform, form, psurf2->ref );
+            stat = EG_copyGeometry_dot(psurf1->ref, xform, form, psurf2->ref);
             if (stat != EGADS_SUCCESS) return stat;
           }
           break;
@@ -6465,8 +6468,8 @@ EG_approximate_dot(egObject *bspline, int maxdeg, double tol, const int *sizes,
     if ((maxdeg < 3) && (sizes[0] > 2)) {
 
       stat = EG_spline1dFit_dot(maxdeg, -sizes[0], data, data_dot,
-                         NULL, tol, header,
-                         &rdata, &rdata_dot);
+                                NULL, tol, header,
+                                &rdata, &rdata_dot);
       if (stat != EGADS_SUCCESS) goto cleanup;
 
       stat = EG_setGeometry_dot(bspline, CURVE, BSPLINE, header, rdata, rdata_dot);
@@ -6480,8 +6483,8 @@ EG_approximate_dot(egObject *bspline, int maxdeg, double tol, const int *sizes,
     if ((maxdeg < 3) && (sizes[0] > 2)) {
 
       stat = EG_spline1dFit_dot(maxdeg, sizes[0], data, data_dot,
-                         NULL, tol, header,
-                         &rdata, &rdata_dot);
+                                NULL, tol, header,
+                                &rdata, &rdata_dot);
       if (stat != EGADS_SUCCESS) goto cleanup;
 
       stat = EG_setGeometry_dot(bspline, CURVE, BSPLINE, header, rdata, rdata_dot);
@@ -6994,13 +6997,10 @@ EG_isoCline(const egObject *surface, int UV, double value,
                ploop->nedges);
       return EGADS_GEOMERR;
     }
-/*
-    BRepBuilderAPI_FindPlane planar(ploop->loop);
-    if (planar.Found()) printf(" Planar Loop!\n");
- */
 
     Handle(Geom_BSplineCurve) bsc[4];
     ShapeConstruct_Curve      ShapeCC;
+    gp_Trsf                   form  = gp_Trsf();
     Standard_Real             prec  = Precision::Confusion();
     if (value > prec)         prec  = value;
     GeomFill_FillingStyle     style = GeomFill_StretchStyle;
@@ -7025,8 +7025,11 @@ EG_isoCline(const egObject *surface, int UV, double value,
                  i+1, ploop->nedges);
         return EGADS_NODATA;
       }
-      Handle(Geom_Curve) hCurve = pcurve->handle;
-      bsc[i] = ShapeCC.ConvertToBSpline(hCurve, range[0], range[1], prec);
+      Handle(Geom_Curve)    hCurve = pcurve->handle;
+      // copy curve so we don't change it!
+      Handle(Geom_Geometry) nGeom  = hCurve->Transformed(form);
+      Handle(Geom_Curve)    nCurve = Handle(Geom_Curve)::DownCast(nGeom);
+      bsc[i] = ShapeCC.ConvertToBSpline(nCurve, range[0], range[1], prec);
       if (bsc[i].IsNull()) {
         if (outLevel > 0)
           printf(" EGADS Warning: Failure to Convert %d/%d (EG_isoCline)!\n",

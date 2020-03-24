@@ -568,7 +568,7 @@ EG_derefObj(egObject *object, /*@null@*/ const egObject *refx, int flg)
 
   stat = EG_attributeDel(object, NULL);
   if (stat != EGADS_SUCCESS)
-    if (outLevel > 0)
+    if ((outLevel > 0) && (stat != EGADS_EMPTY))
       printf(" EGADS Warning: Del Attributes = %d (EG_destroyObject)!\n",
              stat);
 

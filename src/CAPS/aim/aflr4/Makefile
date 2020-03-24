@@ -21,9 +21,9 @@ ODIR  = .
 endif
 
 AFLR4_LIB  = -laflr4 -laflr2c
-AFLR4_LIB += -lsurf_auto -lsurf_auto_cpp -laflr4 -ldgeom -laflr3
-AFLR4_LIB += -legen -lotb -lqtb -lrec2 -lrec3 -ldftr3 -ldftr2
-AFLR4_LIB += -lice2 -lice3 -lug3 -lug2 -lug
+AFLR4_LIB += -lsurf_auto -lsurf_auto_cpp -laflr4 -laflr3
+AFLR4_LIB += -legen -lotb -lrec2 -lrec3 -ldftr3 -ldftr2 -ldgeom -lqtb
+AFLR4_LIB += -lice2 -lice3 -lug3 -lug2 -lug -lug_mp_no_mpi
 
 ifeq ("$(ESP_ARCH)","LINUX64")
 AFLR4_LIB += -lrt

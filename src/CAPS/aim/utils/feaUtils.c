@@ -9462,8 +9462,8 @@ int fea_transferExternalPressure(void *aimInfo, meshStruct *feaMesh, feaLoadStru
     printf("Extracting external pressure loads from data transfer....\n");
 
     feaLoad->numElementID = 0;
-    if (feaLoad->pressureMultiDistributeForce != NULL) EG_free(feaLoad->pressureMultiDistributeForce);
-    if (feaLoad->elementIDSet                 != NULL) EG_free(feaLoad->elementIDSet);
+    EG_free(feaLoad->pressureMultiDistributeForce); feaLoad->pressureMultiDistributeForce = NULL;
+    EG_free(feaLoad->elementIDSet); feaLoad->elementIDSet = NULL;
 
     //See if we have data transfer information
     status = aim_getBounds(aimInfo, &numTransferName, &transferName);
@@ -9531,6 +9531,8 @@ int fea_transferExternalPressure(void *aimInfo, meshStruct *feaMesh, feaLoadStru
         if (feaLoad->elementIDSet == NULL ||
             feaLoad->pressureMultiDistributeForce == NULL) {
 
+            EG_free(feaLoad->elementIDSet);
+            EG_free(feaLoad->pressureMultiDistributeForce);
             feaLoad->numElementID = 0;
             status = EGADS_MALLOC;
             goto cleanup;
@@ -9625,7 +9627,7 @@ int fea_transferExternalPressure(void *aimInfo, meshStruct *feaMesh, feaLoadStru
 
                 // If the nodes completely match the nodes on the element - break
                 if (transferIndex[0] >= 0 && transferIndex[1] >= 0 &&
-                        transferIndex[2] >= 0 && transferIndex[3] >= 0) {
+                    transferIndex[2] >= 0 && transferIndex[3] >= 0) {
                     break;
                 }
             }
@@ -9633,7 +9635,7 @@ int fea_transferExternalPressure(void *aimInfo, meshStruct *feaMesh, feaLoadStru
             // If all the nodeIndexes match the transferIndex the element is in the data set
             //  so transfer the pressure forces
             if (transferIndex[0] >= 0 && transferIndex[1] >= 0 &&
-                    transferIndex[2] >= 0 && transferIndex[3] >= 0) {
+                transferIndex[2] >= 0 && transferIndex[3] >= 0) {
 
                 feaLoad->elementIDSet[elementIndex] = elementID;
 

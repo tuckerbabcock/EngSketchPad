@@ -18,6 +18,7 @@ expectPythonSuccess ()
     echo "=================================================" | tee -a $LOGFILE
     local status
     set -x
+    echo "$1 test;" | tee -a $LOGFILE
     time $VALGRIND_COMMAND python $1 -verbosity=0 -workDir=$2 $3  | tee -a $LOGFILE; status=${PIPESTATUS[0]}
     set +x
     if [[ $status == 0 ]]; then
@@ -44,6 +45,7 @@ expectPythonFailure ()
     echo "=================================================" | tee -a $LOGFILE
     local status
     set -x
+    echo "$1 test;" | tee -a $LOGFILE
     time $VALGRIND_COMMAND python $1 -verbosity=0 -workDir=$2 $3 | tee -a $LOGFILE; status=${PIPESTATUS[0]}
     set +x
     if [[ $status == 0 ]]; then
@@ -222,7 +224,8 @@ if [[ "$TYPE" == "MESH" || "$TYPE" == "ALL" ]]; then
         expectPythonSuccess "aflr2_PyTest.py" $capsPythonRegDir
         expectPythonSuccess "aflr3_PyTest.py" $capsPythonRegDir
         expectPythonSuccess "aflr4_PyTest.py" $capsPythonRegDir
-        expectPythonSuccess "aflr4_and_aflr3_PyTest.py" $capsPythonRegDir
+        expectPythonSuccess "aflr4_PyTest.py" $capsPythonRegDir
+        expectPythonSuccess "aflr4_TipTreat_PyTest.py" $capsPythonRegDir -noPlotData
     
         if [ -f $ESP_ROOT/lib/tetgenAIM.$EXT ]; then
             expectPythonSuccess "aflr4_and_Tetgen_PyTest.py" $capsPythonRegDir
@@ -462,6 +465,15 @@ else
     echo ""
     echo "All tests pass!"
     echo ""
+fi
+
+TESSFAIL=`grep EG_fillTris $LOGFILE | wc -l`
+
+if [[ $TESSFAIL != 0 ]]; then
+    echo ""
+    echo "================================================="    
+    awk '/test;$/ { test = $0 }; /EG_fillTris/ { printf("%-35s EGADS Tess Failure\n", test, $0) }' $LOGFILE
+    echo "================================================="
 fi
 
 # exit with the status

@@ -27,7 +27,7 @@
  *     MA  02110-1301  USA
  */
 
-#define NUMUDPINPUTBODYS -1
+#define NUMUDPINPUTBODYS -2
 #define NUMUDPARGS        4
 
 /* set up the necessary structures (uses NUMUDPARGS) */

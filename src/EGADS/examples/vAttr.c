@@ -89,7 +89,7 @@ int main(int argc, char *argv[])
 
   /* initialize */
   printf(" EG_open           = %d\n", EG_open(&context));
-  printf(" EG_loadModel      = %d\n", EG_loadModel(context, 8, argv[1], &model));
+  printf(" EG_loadModel      = %d\n", EG_loadModel(context, 0, argv[1], &model));
   printf(" EG_getBoundingBox = %d\n", EG_getBoundingBox(model, box));
   printf("       BoundingBox = %lf %lf %lf\n", box[0], box[1], box[2]);
   printf("                     %lf %lf %lf\n", box[3], box[4], box[5]);
@@ -167,6 +167,8 @@ int main(int argc, char *argv[])
       printf(" EG_getBodyTopos Edge = %d\n", i);
       return 1;
     }
+    printf("           nFaces = %d   nEdges = %d\n", bodydata[ibody].nfaces,
+           bodydata[ibody].nedges);
 
     stat = EG_makeTessBody(bodies[ibody], params, &bodydata[ibody].tess);
     if (stat != EGADS_SUCCESS) {

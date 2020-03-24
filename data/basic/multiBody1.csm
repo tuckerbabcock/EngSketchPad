@@ -6,7 +6,6 @@ DESPMTR   dz   0.2
 
 BOX       0  0  0   1  1  1
    ATTRIBUTE _color $red
-   ATTRIBUTE .tParams  0.04;0.002;15
 
 BOX       1  dy dz  1  1  1
    ATTRIBUTE _color $blue

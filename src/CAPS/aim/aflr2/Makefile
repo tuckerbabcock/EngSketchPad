@@ -21,7 +21,7 @@ ODIR  = .
 endif
 
 AFLR2_LIB  = -laflr2c -legen
-AFLR2_LIB += -lqtb -lrec2 -ldftr2 -ldftr3 -ldgeom -lotb
+AFLR2_LIB += -lrec2 -ldftr2 -ldftr3 -ldgeom -lotb -lqtb
 AFLR2_LIB += -lice2 -lug2 -lug3 -lug_gq -lug
 
 ifeq ("$(ESP_ARCH)","LINUX64")

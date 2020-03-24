@@ -6761,7 +6761,124 @@
 
  4feb20  fix bug associated with cleaning up during recycling
 
-High priority (before next release)
+*******  v1.17 release
+
+ 6feb20  uprev to v1.18
+
+ 7feb20  update tutorial2 and its verification data
+
+ 7feb20  add ganged boolean test cases
+
+ 7feb20  throw error if sketch solver does not converge
+
+ 8feb20  update default tessellation parameters and remove ATTRIBUTE
+             statements in bottle and bottle2
+
+ 8feb20  allow SELECTion of Nodes, Edges, and Faces by bounding boxes
+             and add select9 test case
+
+ 8feb20  extend SUBTRACT to work on two coplanar SheetBodys and add
+             subtract6* test cases
+
+13feb20  fix bug in printing ibody argument to APPLYCSYS
+
+13feb20  add applyTparams.udc put .tParams on Body based upon its size
+
+13feb20  add coarseBox and boxWithSmallFeatures test cases
+
+14feb20  temporary .tParams fix in jsc_config1 and
+             CE13_LDI_Combustor_Test_Section_1 test cases so that we
+             get green balls in Jenkins
+
+14feb20  revert jsc_config1 and CE13_LDI_Combustor_Test_Section_1
+
+18feb20  add calcCG.udc and the calcCG1 test case to compute CG of all
+            Bodys on the stack
+
+18feb20  update ESP_QuickReference
+
+18feb20  add nedge and thbeg input parameters to udpEllipse and add
+             ellipse1 test case
+
+18feb20  remove .tParams Attribute from test cases for cases where it
+             was included to get a valid tessellation
+
+19feb20  add comments to orbiter1, fighter3, and fighter4 to tell that
+             .tParams are set to get a valid tessellation
+
+20feb20  add extract3 test case to demonstrate removing Face(s) from a
+             SheetBody
+
+20feb20  allow user to create a SELECT statement in ESP with any
+             number of arguments
+
+20feb20  allow user to add an EVALUATE statement from ESP interface
+
+21feb20  add CFGPMTR highlighting and hints in ESP
+
+21feb20  fix catmull0 test case
+
+21feb20  fix typo in ESP-help
+
+23feb20  add duct5 test case
+
+24feb20  update method for writing verification data for CGs
+
+24feb20  update sew.stp with a file that has bad geometry removed;
+             update associated verification data
+
+25feb20  generate degenerate Faces in CONNECT when edgeList* contains
+             a zero
+
+26feb20  add connect9* test cases
+
+27feb20  update names of Makefile targets associated with sensCSM
+            testing
+
+27feb20  fix bug in udfPrintBrep which mistakenly printed info for the
+             next-to-last Body on the stack
+
+27feb20  add editAttrFile4 test case
+
+28feb20  fix ESP bug that displayed the wrong file (such as wrong
+             .udc) after saving with no changes
+
+28feb20  allow PATBEG/PATEND in editAttr and modify editAttrFile4 test
+             case to demonstrate its use
+
+28feb20  add windtunnel7 test case (AIAA-2020-1309)
+
+29feb20  allow SWEEP to work if input is a FaceBody
+
+ 1mar20  add udfGanged to perform ganged SUBTRACTs or UNIONs
+
+ 2mar20  update ganged* test cases
+
+ 2mar20  allow UDFs to receive any number of input Bodys (back to Mark
+             or beginning of stack)
+
+ 2mar20  fix algorithm for finding of .ibody and .iford to avoid
+             warnings
+
+ 4mar20  fix bug in path(csm) that returns wrong value if .csm file is
+             in pwd
+
+ 5mar20  add udfGanged to Makefile and NMakefile
+
+ 5mar20  remove legacy timing includes from udfGanged
+
+ 5mar20  update PRINT_TIMES for sequential and ganged Booleans
+
+ 5mar20  print message alerting users of possible savings associated
+            with ganged Boolean operations
+
+ 5mar20  add more ganged7* test cases
+
+         same DESPMTR in multiple UDCs causes last one to be ignored
+
+         allow IFTHEN in editAttr
+
+         look for opportunities for ganged boolean operations
 
          JOIN and UNION produce inconsistent results for SheetBodys
 

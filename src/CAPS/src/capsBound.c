@@ -17,6 +17,10 @@
 #include "capsBase.h"
 #include "capsAIM.h"
 
+/* OpenCSM Defines & Includes */
+#include "common.h"
+#include "OpenCSM.h"
+
 
 //#define VSOUTPUT
 
@@ -333,8 +337,9 @@ int
 caps_makeDataSet(capsObject *vobject, const char *dname, enum capsdMethod meth,
                  int rank, capsObject **dobj)
 {
-  int           i, j, status, len, open = 0, irow = 1, icol = 1;
-  char          *pname = NULL;
+  int           i, j, status, len, type, nrow, ncol;
+  int           open = 0, irow = 1, icol = 1;
+  char          *pname = NULL, name[MAX_NAME_LEN];
   capsObject    *bobject, *pobject, *aobject, *object, **tmp;
   capsVertexSet *vertexset, *otherset;
   capsAnalysis  *analysis;
@@ -407,8 +412,18 @@ caps_makeDataSet(capsObject *vobject, const char *dname, enum capsdMethod meth,
     }
     for (i = 0; i < problem->nGeomIn; i++)
       if (strcmp(pname,problem->geomIn[i]->name) == 0) {
+        value  = (capsValue *) problem->geomIn[i]->blind;
+        status = ocsmGetPmtr(problem->modl, value->pIndex, &type, &nrow, &ncol,
+                             name);
+        if (status < SUCCESS) {
+          printf("caps_makeDataSet: %s ocsmGetPmtr = %d!\n", dname, status);
+          return status;
+        }
+        if (type != OCSM_EXTERNAL) {
+          printf("caps_makeDataSet: %s is NOT a Design Parameter!\n", dname);
+          return CAPS_NOSENSITVTY;
+        }
         if ((irow != 1) || (icol != 1)) {
-          value = (capsValue *) problem->geomIn[i]->blind;
           if (value == NULL) {
             if (open != 0) EG_free(pname);
             return CAPS_NULLVALUE;

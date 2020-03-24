@@ -167,7 +167,8 @@ int main(int argc, char *argv[])
              ibody+1, i+1, nloops);
       stat = EG_getMassProperties(bodydata[ibody].faces[i], data);
       if (stat == EGADS_SUCCESS) 
-      printf("                 CoG = %lf %lf %lf\n", data[2], data[3], data[4]);
+      printf("                 CoG = %lf %lf %lf   Area = %le\n",
+             data[2], data[3], data[4], data[1]);
       sizes[0] = ndiv;
       sizes[1] = ndiv;
       if (mtype == SREVERSE) sizes[0] = -ndiv;
@@ -289,7 +290,7 @@ int main(int argc, char *argv[])
   
     /* get faces */
     for (i = 0; i < bodydata[ibody].nfaces; i++) {
-      stat  = EG_getTessGeom(bodydata[ibody].faceTess[i], sizes, &xyzs);
+      stat = EG_getTessGeom(bodydata[ibody].faceTess[i], sizes, &xyzs);
       if (stat != EGADS_SUCCESS) continue;
       len  = sizes[0]*sizes[1];
       ntri = 2*(sizes[0]-1)*(sizes[1]-1);

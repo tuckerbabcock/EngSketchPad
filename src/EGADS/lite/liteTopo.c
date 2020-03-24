@@ -131,6 +131,102 @@ EG_getTopology(const egObject *topo, egObject **geom, int *oclass,
 }
 
 
+#ifdef CUDA
+
+static int
+EG_containedEdge(egObject *obj, egObject *src)
+{
+  int      i;
+  liteEdge *pedge;
+
+  pedge = (liteEdge *) src->blind;
+  for (i = 0; i < 2; i++)
+    if (pedge->nodes[i] == obj) return EGADS_SUCCESS;
+  return EGADS_OUTSIDE;
+}
+
+
+static int
+EG_containedLoop(egObject *obj, egObject *src)
+{
+  int      i, stat;
+  liteLoop *ploop;
+
+  ploop = (liteLoop *) src->blind;
+  if (obj->oclass == EDGE) {
+    for (i = 0; i < ploop->nedges; i++)
+      if (ploop->edges[i] == obj) return EGADS_SUCCESS;
+  } else {
+    for (i = 0; i < ploop->nedges; i++) {
+      stat = EG_containedEdge(obj, ploop->edges[i]);
+      if (stat == EGADS_SUCCESS) return stat;
+    }
+  }
+
+  return EGADS_OUTSIDE;
+}
+
+
+static int
+EG_containedFace(egObject *obj, egObject *src)
+{
+  int      i, stat;
+  liteFace *pface;
+
+  pface = (liteFace *) src->blind;
+  if (obj->oclass == LOOP) {
+    for (i = 0; i < pface->nloops; i++)
+      if (pface->loops[i] == obj) return EGADS_SUCCESS;
+  } else {
+    for (i = 0; i < pface->nloops; i++) {
+      stat = EG_containedLoop(obj, pface->loops[i]);
+      if (stat == EGADS_SUCCESS) return stat;
+    }
+  }
+
+  return EGADS_OUTSIDE;
+}
+
+
+static int
+EG_containedShel(egObject *obj, egObject *src)
+{
+  int       i, stat;
+  liteShell *pshell;
+
+  pshell = (liteShell *) src->blind;
+  if (obj->oclass == FACE) {
+    for (i = 0; i < pshell->nfaces; i++)
+      if (pshell->faces[i] == obj) return EGADS_SUCCESS;
+  } else {
+    for (i = 0; i < pshell->nfaces; i++) {
+      stat = EG_containedFace(obj, pshell->faces[i]);
+      if (stat == EGADS_SUCCESS) return stat;
+    }
+  }
+
+  return EGADS_OUTSIDE;
+}
+
+
+static int
+EG_contained(egObject *obj, egObject *src)
+{
+  if (src->oclass == EDGE) {
+    return EG_containedEdge(obj, src);
+  } else if (src->oclass == LOOP) {
+    return EG_containedLoop(obj, src);
+  } else if (src->oclass == FACE) {
+    return EG_containedFace(obj, src);
+  } else if (src->oclass == SHELL) {
+    return EG_containedShel(obj, src);
+  }
+
+  return EGADS_OUTSIDE;
+}
+
+#else
+
 static int
 EG_contained(egObject *obj, egObject *src)
 {
@@ -181,6 +277,8 @@ EG_contained(egObject *obj, egObject *src)
   
   return EGADS_OUTSIDE;
 }
+
+#endif
 
 
 int

@@ -42,7 +42,6 @@ mark
       rotatez twistangle  0  0
    patend
 blend  0  -1;10
-   attribute .tParams 0.05;0.05;8
 
 # make two blades
 store     rightprop

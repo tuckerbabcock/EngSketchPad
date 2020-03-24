@@ -670,6 +670,11 @@ processFile(ego    context,             /* (in)  EGADS context */
     int       nnode, nedge, nface, isel, nsel, istype, itoken;
     int       nlist, ilist, nnbor, inbor, iremove, atype, alen, i;
     int       status1, status2, outLevel;
+    int       nbrch, npmtr, npmtr_save, ipmtr, nbody, npat=0, iskip;
+    int       pat_pmtr[ ]={ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    int       pat_value[]={ 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
+    int       pat_end[  ]={-1,-1,-1,-1,-1,-1,-1,-1,-1,-1};
+    long      pat_seek[ ]={ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     CINT      *tempIlist;
     double     value, dot, *newList=NULL;
     CDOUBLE   *tempRlist;
@@ -697,6 +702,11 @@ processFile(ego    context,             /* (in)  EGADS context */
     /* get the outLevel from OpenCSM */
     outLevel = ocsmSetOutLevel(       0);
     (void)     ocsmSetOutLevel(outLevel);
+
+    /* remember how many Parameters there were (so that we can delete
+       any that were created via a PATBEG statement) */
+    status = ocsmInfo(modl, &nbrch, &npmtr_save, &nbody);
+    if (status < EGADS_SUCCESS) goto cleanup;
 
     /* find number of Nodes, Edges, and Faces in ebody */
     status = EG_getBodyTopos(ebody, NULL, NODE, &nnode, NULL);
@@ -730,8 +740,25 @@ processFile(ego    context,             /* (in)  EGADS context */
         goto cleanup;
     }
 
+    /* by default, we are not skipping (which we do if we are
+       in a PATBEG with no replicates) */
+    iskip = 0;
+
     /* read until end of file */
     while (!feof(fp)) {
+
+        /* read the next line */
+        (void) fgets(templine, 255, fp);
+
+        if (feof(fp)) break;
+
+        if (outLevel >= 1) {
+            if (iskip <= 0) {
+                printf("    processing: %s", templine);
+            } else {
+                printf("    skipping:   %s", templine);
+            }
+        }
 
         if (VERBOSE(0) > 0) {
             if        (istype == OCSM_FACE) {
@@ -756,13 +783,6 @@ processFile(ego    context,             /* (in)  EGADS context */
                 printf("       nothing currently selected\n");
             }
         }
-
-        /* read the next line */
-        (void) fgets(templine, 255, fp);
-
-        if (feof(fp)) break;
-
-        if (outLevel >= 1) printf("    processing: %s", templine);
 
         if (templine[0] == '#') continue;
 
@@ -790,8 +810,97 @@ processFile(ego    context,             /* (in)  EGADS context */
         } else if (strcmp(token1, "END") == 0 || strcmp(token1, "end") == 0) {
             break;
 
+       /* begin a pattern */
+        } else if (strcmp(token1, "PATBEG") == 0 || strcmp(token1, "patbeg") == 0) {
+            if (npat < 9) {
+                npat++;
+            } else {
+                printf(" udpExecute: PATBEGs nested too deeply\n");
+                status = EGADS_RANGERR;
+                goto cleanup;
+            }
+
+            /* remember where we in the file are so that we can get back here */
+            pat_seek[npat] = ftell(fp);
+
+            if (iskip > 0) {
+                pat_end[npat] = -1;
+                iskip++;
+                continue;
+            }
+
+            /* get the number of replicates */
+            status = getToken(templine, 2, ' ', 255, token2);
+            if (status < EGADS_SUCCESS) goto cleanup;
+
+            status = ocsmEvalExpr(modl, token2, &value, &dot, str);
+            if (status < EGADS_SUCCESS) goto cleanup;
+
+            pat_end[npat] = NINT(value);
+
+            /* if there are no replicates, skip to after matching PATEND */
+            if (pat_end[npat] <= 0) {
+                iskip++;
+                continue;
+            } else {
+                pat_value[npat] = 1;
+            }
+
+            /* set up Parameter to hold pattern index */
+            status = getToken(templine, 1, ' ', 255, token2);
+            if (status < EGADS_SUCCESS) goto cleanup;
+
+            status = ocsmFindPmtr(modl, token2, OCSM_INTERNAL, 1, 1, &pat_pmtr[npat]);
+            if (status < EGADS_SUCCESS) goto cleanup;
+
+            if (pat_pmtr[npat] <= npmtr_save) {
+                printf(" udpExecute: cannot use \"%s\" as pattern variable since it was previously defined in current scope\n", token2);
+                status = EGADS_NONAME;
+                goto cleanup;
+            }
+
+            status = ocsmSetValuD(modl, pat_pmtr[npat], 1, 1, (double)pat_value[npat]);
+            if (status < EGADS_SUCCESS) goto cleanup;
+
+        /* end a pattern */
+        } else if (strcmp(token1, "PATEND") == 0 || strcmp(token1, "patend") == 0   ) {
+            if (iskip > 0) {
+                iskip--;
+                npat--;
+                continue;
+            }
+
+            if (pat_end[npat] < 0) {
+                printf(" udpExecute: PATEND without PATBEG\n");
+                status = EGADS_RANGERR;
+                goto cleanup;
+            }
+
+            /* for another replicate, increment the value and place file pointer
+               just after the PATBEG statement */
+            if (pat_value[npat] < pat_end[npat]) {
+                (pat_value[npat])++;
+
+                status = ocsmSetValuD(modl, pat_pmtr[npat], 1, 1, (double)pat_value[npat]);
+                if (status < EGADS_SUCCESS) goto cleanup;
+
+                if (pat_seek[npat] != 0) {
+                    fseek(fp, pat_seek[npat], SEEK_SET);
+                }
+
+                /* otherwise, reset the pattern variables */
+            } else {
+
+                pat_pmtr[npat] = -1;
+                pat_end[ npat] = -1;
+
+                npat--;
+            }
+
        /* esel will contain all Faces */
         } else if (strcmp(token1, "FACE") == 0 || strcmp(token1, "face") == 0) {
+            if (iskip > 0) continue;
+
             istype = OCSM_FACE;
             status = EG_getBodyTopos(ebody, NULL, FACE, &nlist, &elist);
             if (status < EGADS_SUCCESS) goto cleanup;
@@ -806,6 +915,8 @@ processFile(ego    context,             /* (in)  EGADS context */
 
         /* esel will contain all Edges */
         } else if (strcmp(token1, "EDGE") == 0 || strcmp(token1, "edge") == 0) {
+            if (iskip > 0) continue;
+
             istype = OCSM_EDGE;
             status = EG_getBodyTopos(ebody, NULL, EDGE, &nlist, &elist);
             if (status < EGADS_SUCCESS) goto cleanup;
@@ -820,6 +931,8 @@ processFile(ego    context,             /* (in)  EGADS context */
 
         /* esel will contain all Nodes */
         } else if (strcmp(token1, "NODE") == 0 || strcmp(token1, "node") == 0) {
+            if (iskip > 0) continue;
+
             istype = OCSM_NODE;
             status = EG_getBodyTopos(ebody, NULL, NODE, &nlist, &elist);
             if (status < EGADS_SUCCESS) goto cleanup;
@@ -834,6 +947,8 @@ processFile(ego    context,             /* (in)  EGADS context */
 
         /* entries will (possibly) be removed from esel */
         } else if (strcmp(token1, "AND") == 0 || strcmp(token1, "and") == 0) {
+            if (iskip > 0) continue;
+
             if        (nsel   == 0) {
                 printf("                    *** AND being skipped since nothing is selected\n");
             } else if (istype == 0) {
@@ -844,6 +959,8 @@ processFile(ego    context,             /* (in)  EGADS context */
 
         /* entries will (possibly) be removed from esel */
         } else if (strcmp(token1, "ANDNOT") == 0 || strcmp(token1, "andnot") == 0) {
+            if (iskip > 0) continue;
+
             if        (nsel   == 0) {
                 printf("                    *** ANDNOT being skipped since nothing is selected\n");
             } else if (istype == 0) {
@@ -854,6 +971,7 @@ processFile(ego    context,             /* (in)  EGADS context */
 
         /* all entries in esel will get specified Attribute name/value pairs */
         } else if (strcmp(token1, "SET") == 0 || strcmp(token1, "set") == 0) {
+            if (iskip > 0) continue;
 
             /* apply the Attribute name/value to everything in esel */
             itoken = 0;
@@ -893,7 +1011,6 @@ processFile(ego    context,             /* (in)  EGADS context */
                         if (status < EGADS_SUCCESS) goto cleanup;
                         (*nchange)++;
                     }
-                    
                 /* if first character of attrValu is an exclamation point,
                    evaluate the expression */
                 } else if (attrValu[0] == '!') {
@@ -913,7 +1030,7 @@ processFile(ego    context,             /* (in)  EGADS context */
                             (*nchange)++;
                         }
 
-                     /* attrValue evaluates to a number */
+                    /* attrValue evaluates to a number */
                     } else {
                         for (isel = 0; isel < nsel; isel++) {
                             status = EG_attributeAdd(esel[isel], attrName, ATTRREAL, 1,
@@ -938,6 +1055,7 @@ processFile(ego    context,             /* (in)  EGADS context */
 
         /* all entries in esel will get specified Attribute name/value pairs added to existing Attributes */
         } else if (strcmp(token1, "ADD") == 0 || strcmp(token1, "add") == 0) {
+            if (iskip > 0) continue;
 
             /* append the Attribute name/value to everything in esel */
             itoken = 0;
@@ -1084,6 +1202,12 @@ processFile(ego    context,             /* (in)  EGADS context */
             continue;
         }
 
+        /* do not process rest of tokens (in this line) if PATBEG or PATEND */
+        if (strcmp(token1, "PATBEG") == 0 || strcmp(token1, "patbeg") == 0 ||
+            strcmp(token1, "PATEND") == 0 || strcmp(token1, "patend") == 0   ) {
+            continue;
+        }
+
         /* process the rest of the tokens (specifier attrName=AttrValue ...) */
         status = getToken(templine, 1, ' ', 255, token2);
 
@@ -1108,7 +1232,7 @@ processFile(ego    context,             /* (in)  EGADS context */
             status = EG_getBodyTopos(ebody, NULL, NODE, &nlist, &elist);
             if (status < EGADS_SUCCESS) goto cleanup;
 
-        /* there will be no list if there is not a specifier and this is either 
+        /* there will be no list if there is not a specifier and this is either
            a FACE, EDGE, or NODE statement */
         } else if (strcmp(token1, "FACE") == 0 || strcmp(token1, "face") == 0 ||
                    strcmp(token1, "EDGE") == 0 || strcmp(token1, "edge") == 0 ||
@@ -1310,7 +1434,6 @@ processFile(ego    context,             /* (in)  EGADS context */
                             break;
                         }
                     }
-                
                     if (iremove == 1) {
                         esel[isel] = esel[nsel-1];
                         nsel--;
@@ -1397,7 +1520,6 @@ processFile(ego    context,             /* (in)  EGADS context */
                             break;
                         }
                     }
-                
                     if (iremove == 1) {
                         esel[isel] = esel[nsel-1];
                         nsel--;
@@ -1411,6 +1533,15 @@ processFile(ego    context,             /* (in)  EGADS context */
     }
 
     fclose(fp);
+
+    /* delete any Parameters that were added */
+    status = ocsmInfo(modl, &nbrch, &npmtr, &nbody);
+    if (status < EGADS_SUCCESS) goto cleanup;
+
+    for (ipmtr = npmtr; ipmtr > npmtr_save; ipmtr--) {
+        status = ocsmDelPmtr(modl, ipmtr);
+        if (status < EGADS_SUCCESS) goto cleanup;
+    }
 
 cleanup:
     if (newList != NULL) free(newList);

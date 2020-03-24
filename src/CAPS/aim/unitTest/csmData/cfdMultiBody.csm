@@ -66,7 +66,7 @@ restore   Wing 0
     attribute capsGroup $Wing1
     attribute _name $Wing1
     attribute AFLR4_Cmp_ID 1
-    attribute AFLR4_Edge_Scale_Factor_Weight 1
+    attribute AFLR4_Edge_Refinement_Weight 1
 
 # Wing 2 -  Restore and scale, translate
 restore   Wing 0

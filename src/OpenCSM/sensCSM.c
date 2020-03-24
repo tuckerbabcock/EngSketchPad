@@ -128,11 +128,6 @@ main(int       argc,                    /* (in)  number of arguments */
 
     DPRINT0("starting sensCSM");
 
-    /* enable floating point exceptions for testing */
-#if !defined(__APPLE__) && !defined(WIN32)
-    feenableexcept(FE_INVALID | FE_OVERFLOW | FE_DIVBYZERO);
-#endif
-
     /* get the flags and casename from the command line */
     casename[0] = '\0';
     pmtrname[0] = '\0';

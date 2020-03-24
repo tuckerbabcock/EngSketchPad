@@ -25,7 +25,6 @@ parser = argparse.ArgumentParser(description = 'Aeroelastic SU2 and Mystran Exam
 #Setup the available commandline options
 parser.add_argument('-workDir', default = "." + os.sep, nargs=1, type=str, help = 'Set working/run directory')
 parser.add_argument('-numberProc', default = 1, nargs=1, type=float, help = 'Number of processors')
-parser.add_argument('-noPlotData', action='store_true', default = False, help = "Don't plot data")
 parser.add_argument("-verbosity", default = 1, type=int, choices=[0, 1, 2], help="Set output verbosity")
 args = parser.parse_args()
 
@@ -97,6 +96,7 @@ myProblem.analysis["su2"].setAnalysisVal("Boundary_Condition", [("Skin", invisci
 
 # Set inputs for mystran
 myProblem.analysis["mystran"].setAnalysisVal("Proj_Name", projectName)
+myProblem.analysis["mystran"].setAnalysisVal("Edge_Point_Min", 3)
 myProblem.analysis["mystran"].setAnalysisVal("Edge_Point_Max", 10)
 
 myProblem.analysis["mystran"].setAnalysisVal("Quad_Mesh", True)
@@ -166,7 +166,7 @@ for iter in range(numTransferIteration):
     os.chdir(myProblem.analysis["su2"].analysisDir) # Move into test directory
 
     # Run SU2 mesh deformation
-    if iter > 0: 
+    if iter > 0:
         # Work around python 3 bug in su2Deform function
         if sys.version_info[0] < 3:
             su2Deform(projectName + ".cfg", args.numberProc)

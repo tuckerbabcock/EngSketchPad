@@ -2234,6 +2234,14 @@ var editCsmOk = function () {
 
     if (wv.curFile == newFile && wv.nchanges == 0) {
         alert("No changes were made");
+        wv.curFile = "";
+
+        // remove from editor
+        if (wv.codeMirror !== undefined) {
+            wv.codeMirror.toTextArea();
+            wv.codeMirror = undefined;
+        }
+
         changeMode(0);
         return;
 
@@ -3683,20 +3691,25 @@ var editBrchOk = function () {
         // check for blanks (allowed for some Branch types because they
         // have variable number of arguments)
         if (value.length <= 0) {
-            if (brch[ibrch].type == "evaluate" || brch[ibrch].type == "evaluate") {
+            if (brch[ibrch].type == "evaluate") {
                 if (iarg == 0) {
-                    alert(name+" should not be blank (type)");
+                    alert(name+" should not be blank");
                     return;
                 }
             } else if (brch[ibrch].type == "udparg" || brch[ibrch].type == "udprim") {
                 if (iarg == 0) {
-                    alert(name+" should not be blank (primtype)");
+                    alert(name+" should not be blank");
                     return;
                 } else if (iarg == 2 || iarg == 4 || iarg == 6 || iarg == 8) {
                     if (prev_value.length > 0) {
                         alert(name+" should not be blank (follows non-blank)");
                         return;
                     }
+                }
+            } else if (brch[ibrch].type == "select") {
+                if (iarg == 0) {
+                    alert(name+" should not be blank");
+                    return;
                 }
             } else {
                 alert(name+" should not be blank");
@@ -7184,6 +7197,8 @@ var cmdEditHint = function () {
         hintText =        "hint:: CATBEG    sigCode";
     } else if (curLine.match(/^\s*catend/i) !== null) {
         hintText =        "hint:: CATEND";
+    } else if (curLine.match(/^\s*cfgpmtr/i) !== null) {
+        hintText =        "hint:: CFGPMTR   $pmtrName values";
     } else if (curLine.match(/^\s*chamfer/i) !== null) {
         hintText =        "hint:: CHAMFER   radius edgeList=0 listStyle=0";
     } else if (curLine.match(/^\s*cirarc/i) !== null) {
@@ -7416,6 +7431,7 @@ CodeMirror.defineSimpleMode("csm_mode", {
     {token: "keyword", regex: /\s*(box|BOX)\b/,             sol: true},
     {token: "keyword", regex: /\s*(catbeg|CATBEG)\b/,       sol: true, indent: true},
     {token: "keyword", regex: /\s*(catend|CATEND)\b/,       sol: true,               dednet: true},
+    {token: "keyword", regex: /\s*(cfgpmtr|CFGPMTR)\b/,     sol: true},
     {token: "keyword", regex: /\s*(chamfer|CHAMFER)\b/,     sol: true},
     {token: "keyword", regex: /\s*(cirarc|CIRARC)\b/,       sol: true},
     {token: "keyword", regex: /\s*(combine|COMBINE)\b/,     sol: true},

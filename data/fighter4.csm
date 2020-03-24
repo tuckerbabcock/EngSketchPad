@@ -423,6 +423,7 @@ patbeg  foo  makeSSM
 
    import fighter_OML.egads
    intersect
+#      this is needed to get a valid tessellation
        attribute .tParams "0.380000; 0.015200; 15.000000"
 
    dump fighter_SSM.egads

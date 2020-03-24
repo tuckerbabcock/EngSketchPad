@@ -74,10 +74,6 @@ set       ctip_v    taper_v*croot_v
 set       xtip_v    xroot_v+(span_v/2)*tand(sweep_v)
 set       ztip_v    zroot_v+span_v/2
 
-# tellellation parameters
-dimension params 1 3 0
-set       params "0.05; 0.005; 15.0;"
-
 # set mark so that all bodys can be dumped
 mark
 
@@ -153,7 +149,6 @@ mark
    translate xtip_h    ytip_h    ztip_h
 
    rule
-      attribute .tParams  params
       attribute _stlColor 3
 
 # build  the vertical tail
@@ -168,7 +163,6 @@ mark
    translate xtip_v    0         ztip_v
 
    rule
-      attribute .tParams  params
       attribute _stlColor 4
 
 # dump the .bstl file

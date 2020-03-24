@@ -15,11 +15,7 @@
 
 //#define PERIODIC
 //#define OPENLOOP
-//#define SENSITIVITY
-
-#ifdef SENSITIVITY
-#include "egadsBlendSens.h"
-#endif
+//#define SAVEMODEL
 
 
 int main(int argc, char *argv[])
@@ -29,7 +25,10 @@ int main(int argc, char *argv[])
   double xyz[3], data[10], range[2], xform[12], rc[8], *rc1, *rcN;
   double btan[4], etan[4];
   ego    context, nodes[3], curve, edges[2], objs[2], oform, secs[7];
-  ego    others[2], body, model, *faces;
+  ego    others[2], body, *faces;
+#ifdef SAVEMODEL
+  ego    model;
+#endif
   const  char   *str;
   const  int    *ints;
   const  double *reals;
@@ -228,104 +227,6 @@ int main(int argc, char *argv[])
   printf(" EG_blend           = %d\n", EG_blend(nsec, secs, rc1, rcN, &body));
   printf(" EG_getBodyTopos    = %d\n", EG_getBodyTopos(body, NULL, FACE,
                                                        &nface, &faces));
-#ifdef SENSITIVITY
-  {
-    int    k, m, npt, imax, nstrip, oclass, mtype, *sens;
-    double dist, *ts, uv[2], result[18];
-    double X[3*12*7], Xdot[3*12*7], tbeg[3*7], tend[3*7];
-    ego    ref, *objs, *dum;
-    void   *cache;
-    
-    printf("\n");
-    for (i = 0; i < 8; i++) data[i] = 0.0;
-    status = EG_blend_init(nsec, secs, rc1, data, rcN, data, &nstrip, &cache);
-    printf(" EG_blend_init       = %d  %d\n", status, nstrip);
-    if (status == EGADS_SUCCESS) {
-      for (m = 1; m <= nstrip; m++) {
-        status = EG_blend_pos(cache, m, &objs, &imax, &ts);
-        printf("  Strip = %d  status = %d\n", m, status);
-        assert( imax <= 12 );
-        assert( status == EGADS_SUCCESS );
-        for (npt = i = 0; i < nsec; i++) {
-          status = EG_getTopology(objs[i], &ref, &oclass, &mtype, xyz, &j, &dum,
-                                  &sens);
-          if (status != EGADS_SUCCESS) printf(" EG_getTopology = %d\n", status);
-          if (oclass == NODE) {
-            for (j = 0; j < imax; j++, npt++) {
-              X[3*npt  ]    = xyz[0];
-              X[3*npt+1]    = xyz[1];
-              X[3*npt+2]    = xyz[2];
-              Xdot[3*npt  ] = 0.0;
-              Xdot[3*npt+1] = 0.0;
-              Xdot[3*npt+2] = 0.0;
-            }
-            tbeg[3*i  ] = 0.0;
-            tbeg[3*i+1] = 0.0;
-            tbeg[3*i+2] = 0.0;
-            tend[3*i  ] = 0.0;
-            tend[3*i+1] = 0.0;
-            tend[3*i+2] = 0.0;
-          } else {
-            for (j = 0; j < imax; j++, npt++) {
-              status = EG_evaluate(objs[i], &ts[npt], result);
-              if (status != EGADS_SUCCESS)
-                printf("  EG_evaluate = %d for %d %d %d\n", status, m, i+1, j+1);
-              X[3*npt  ]    = result[0];
-              X[3*npt+1]    = result[1];
-              X[3*npt+2]    = result[2];
-              Xdot[3*npt  ] = 0.0;
-              Xdot[3*npt+1] = 0.0;
-              Xdot[3*npt+2] = 0.0;
-              if (j == 0) {
-                tbeg[3*i  ] = result[3]*(xyz[1]-xyz[0]);
-                tbeg[3*i+1] = result[4]*(xyz[1]-xyz[0]);
-                tbeg[3*i+2] = result[5]*(xyz[1]-xyz[0]);
-              }
-              if (j == imax-1) {
-                tend[3*i  ] = result[3]*(xyz[1]-xyz[0]);
-                tend[3*i+1] = result[4]*(xyz[1]-xyz[0]);
-                tend[3*i+2] = result[5]*(xyz[1]-xyz[0]);
-              }
-            }
-          }
-        }
-        status = EG_blend_sens(cache, m, X, Xdot, tbeg, NULL, tend, NULL);
-        printf("  EG_blend_sens = %d for strip %d\n", status, m);
-      }
-    }
-    /* spot compare surfaces */
-    for (m = 1; m <= nstrip+2; m++) {
-      j = m;
-      if (m == nstrip+1) {
-        if (beg == 3) {
-          j = -1;
-        } else {
-          continue;
-        }
-      }
-      if (m == nstrip+2) {
-        if (end == 3) {
-          j = -2;
-        } else {
-          continue;
-        }
-      }
-      uv[0]  = 0.9;
-      uv[1]  = 0.9;
-      status = EG_blend_seval(cache, j, uv, xyz, data);
-      printf("  %d:  %lf %lf %lf  %d  %lf %lf %lf\n",
-             m, xyz[0], xyz[1], xyz[2], status, data[0], data[1], data[2]);
-      status = EG_evaluate(faces[m-1], uv, result);
-      dist   = sqrt((xyz[0]-result[0])*(xyz[0]-result[0]) +
-                    (xyz[1]-result[1])*(xyz[1]-result[1]) +
-                    (xyz[2]-result[2])*(xyz[2]-result[2]));
-      printf("  %d:  %lf %lf %lf  %d  %le\n",
-             m, result[0], result[1], result[2], status, dist);
-    }
-    EG_sens_free(cache);
-    printf("\n");
-  }
-#endif
 
   for (i = 0; i < nface; i++) {
     status = EG_attributeRet(faces[i], ".blendSamples", &atype, &alen,
@@ -351,6 +252,7 @@ int main(int argc, char *argv[])
       printf("\n");
     }
   }
+#ifdef SAVEMODEL
   printf(" EG_makeTopology M  = %d\n", EG_makeTopology(context, NULL, MODEL, 0,
                                                        NULL, 1, &body,
                                                        NULL, &model));
@@ -360,6 +262,14 @@ int main(int argc, char *argv[])
 
   /* cleanup */
   EG_deleteObject(model);
+#else
+  printf(" EG_saveModel       = %d\n", EG_saveModel(body, "blend.egads"));
+  printf("\n");
+  EG_free(faces);
+  
+  /* cleanup */
+  EG_deleteObject(body);
+#endif
   for (i = nsec-1; i >= 0; i--) EG_deleteObject(secs[i]);
   if (others[0] != NULL) EG_deleteObject(others[0]);
   if (others[1] != NULL) EG_deleteObject(others[1]);

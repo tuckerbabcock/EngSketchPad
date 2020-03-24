@@ -316,46 +316,37 @@ linInterp2D(int length, double xIn[], double yIn[], double xOut, double* yOut)
 
 // ********************** AIM Function Break *****************************
 static int
-tessPointReturn(int length, double xOut, const double *xyz_tess,
+tessPointReturn(int length, double xOut, const ego edge, const double *xyz_tess, const double *t_tess,
                 double *yOut, double *zOut)
 {
-    double *dx, xmax=-1E9, xmin=1E9;
-    int    i, loc;
+    double dx, dX, t0, t1, t, s, result[18];
+    int    i, status;
 
     *yOut = 0.0;
     *zOut = 0.0;
-    if (length <= 0) return EGADS_DEGEN;
-    dx    = (double *) EG_alloc(length*sizeof(double));
-    if (dx == NULL) return EGADS_MALLOC;
-    loc   = 0;
-    for (i = 0; i < length; i++) {
-        dx[i] = xyz_tess[3*i] - xOut;
-        if (dx[i] < 0.0) {
-            dx[i] = -dx[i];
-        }
-        if (i > 0)
-            if (dx[i] < dx[i-1]) {
-                loc = i;
-            }
-        if (i == 0) {
-            xmax = xmin = xyz_tess[3*i];
-        } else {
-            if (xmax < xyz_tess[3*i]) {
-                xmax = xyz_tess[3*i];
-            }
-            if (xmin > xyz_tess[3*i]) {
-                xmin = xyz_tess[3*i];
-            }
+
+    for (i = 0; i < length-1; i++) {
+        if ((xyz_tess[3*(i+1)] >= xOut && xyz_tess[3*(i  )] <= xOut) ||
+            (xyz_tess[3*(i  )] >= xOut && xyz_tess[3*(i+1)] <= xOut)) {
+          t0 = t_tess[i];
+          t1 = t_tess[i+1];
+          dX = xyz_tess[3*(i+1)] - xyz_tess[3*i];
+          dx = xOut - xyz_tess[3*i];
+          s = dx/dX;
+
+          t = t0*(1.0-s) + s*t1;
+
+          status = EG_evaluate(edge, &t, result);
+          if (status != EGADS_SUCCESS) return status;
+
+          *yOut = result[1];
+          *zOut = result[2];
+
+          return CAPS_SUCCESS;
         }
     }
-    if (dx != NULL) EG_free(dx);
 
-    *yOut = xyz_tess[3*loc + 1];
-    *zOut = xyz_tess[3*loc + 2];
-
-    if ((xOut > xmax) || (xOut < xmin)) return CAPS_IOERR;
-
-    return CAPS_SUCCESS;
+    return CAPS_NOTFOUND;
 }
 
 // ********************** AIM Function Break *****************************
@@ -483,7 +474,7 @@ findSectionData(ego body, int *nle, double *xle, int *nte, double *xte,
     //Find arc length around the body
 
     int    i, n, status, nNode, nEdge, oclass, mtype, *sens,index;
-    double xmin=1E9, xyz[3], xmax=-1E9, box[6], data[4];
+    double xmin=1e300, xyz[3], xmax=-1e300, box[6], data[4];
     double massData[14];
     double thickness;
     ego    ref, *nodes, *objs, *edges;
@@ -578,8 +569,8 @@ findSectionData(ego body, int *nle, double *xle, int *nte, double *xte,
                         (xle[2]-xte[2])*(xle[2]-xte[2]));
 
     if ( fabs(*chordLength) < 1.0e-8 ) {
-		*chordLength = box[3] - box[0];
-	}
+        *chordLength = box[3] - box[0];
+    }
 
     *thickOverChord = thickness / *chordLength;
     if (nodes != NULL) EG_free(nodes);
@@ -622,13 +613,14 @@ defineAwaveAirfoil(ego body, int nPts, double *xOut, double *cOut, double *hOut)
     // cOut - camber values at each xOut location
     // hOut - half thickness values at each xOut location 100*(t/c) / 2.0
 
-    int             i, j, n, status, nle, nte, nEdge, *loc = NULL;
-    double          dx, xle[3], xte[3], *x = NULL, dtmp, clen;
-    double          *foil_xyz = NULL, chord; // sign; Never used
-    double          yOut, zOut, yAvg, zAvg;
-    double          parms[3];
-    ego             tess = NULL, *edges = NULL;
-    tessStorage     *tessOut = NULL;
+    int          i, j, n, status, nle, nte, nEdge, *loc = NULL;
+    int          nVert;
+    const double *pxyz, *pt;
+    double       dx, xle[3], xte[3], *x = NULL, dtmp, clen;
+    double       *foil_xyz = NULL, chord; // sign; Never used
+    double       yOut, zOut, yAvg, zAvg;
+    double       parms[3];
+    ego          tess = NULL, *edges = NULL;
 
     status = findSectionData(body, &nle, xle, &nte, xte, &clen, &dtmp, &dtmp);
     if (status != CAPS_SUCCESS) {
@@ -655,9 +647,10 @@ defineAwaveAirfoil(ego body, int nPts, double *xOut, double *cOut, double *hOut)
     chord = xte[0] - xle[0];
     dx = (chord) / (double)(nPts-1);
     x[0] = xle[0];
-    for (i = 1; i < nPts; i++) {
-        x[i] = x[i-1] + dx;
+    for (i = 1; i < nPts-1; i++) {
+        x[i] = xle[0] + dx*i;
     }
+    x[nPts-1] = xte[0];
 
     // a NODE has zero camber or thickness
     if (nle == 0 & nte == 0) {
@@ -674,9 +667,10 @@ defineAwaveAirfoil(ego body, int nPts, double *xOut, double *cOut, double *hOut)
         goto cleanup;
     }
 
-    parms[0] = clen / 100.0; // edge maximum length in physical space
-    parms[1] = clen / 10.0; // curvature - based value, refines areas where curvature is high
-    parms[2] = 15.0; // max angle constraint, not required for this
+    // Negating the first parameter triggers EGADS to only put vertexes on edges
+    parms[0] = -clen / 100.0; // edge maximum length in physical space
+    parms[1] =  clen / 10.0;  // curvature - based value, refines areas where curvature is high
+    parms[2] =  15.0;         // max angle constraint, not required for this
 
     status = EG_makeTessBody(body, parms, &tess);
     if ((status != EGADS_SUCCESS) || (tess == NULL)) {
@@ -697,30 +691,23 @@ defineAwaveAirfoil(ego body, int nPts, double *xOut, double *cOut, double *hOut)
         status = EGADS_MALLOC;
         goto cleanup;
     }
-    tessOut  = (tessStorage *) EG_alloc(nEdge*sizeof(tessStorage));
-    if (tessOut == NULL) {
-        printf(" Awave AIM Warning: EG_alloc of tessOut (nEdge = %d)!\n", nEdge);
-        status = EGADS_MALLOC;
-        goto cleanup;
-    }
 
     for (i = 0; i < nPts; i++) {
         loc[2*i] = loc[2*i+1] = -1;
     }
 
     j = 0;
-    for (n = 1; n <= nEdge; n++) {
-        status = EG_getTessEdge(tess, n, &tessOut[n-1].nVert, &tessOut[n-1].pxyz,
-                                &tessOut[n-1].pt);
+    for (n = 0; n < nEdge; n++) {
+        status = EG_getTessEdge(tess, n+1, &nVert, &pxyz, &pt);
         if (status != EGADS_SUCCESS) {
             printf(" Awave AIM Warning: EG_getTessEdge = %d, Edge Number %d\n", status, n+1);
             goto cleanup;
         }
 
         for (i = 0; i < nPts; i++) {
-            status = tessPointReturn(tessOut[n-1].nVert, x[i], tessOut[n-1].pxyz, &yOut, &zOut);
+            status = tessPointReturn(nVert, x[i], edges[n], pxyz, pt, &yOut, &zOut);
             // look for CAPS_SUCCESS otherwise extrapolation is present and no data is kept
-            if (status == 0) {
+            if (status == CAPS_SUCCESS) {
                 foil_xyz[3*j+0] = x[i];
                 foil_xyz[3*j+1] = yOut;
                 foil_xyz[3*j+2] = zOut;
@@ -732,6 +719,7 @@ defineAwaveAirfoil(ego body, int nPts, double *xOut, double *cOut, double *hOut)
                 j++;
             }
         }
+        if (j == 2*nPts) break;
     }
 
     for (i = 0; i < nPts; i++) {
@@ -739,20 +727,14 @@ defineAwaveAirfoil(ego body, int nPts, double *xOut, double *cOut, double *hOut)
         // define + chamber as +z
         // reference is the leading edge location xle[]
 
-        //sign = 1.0; Never used
-
         if (loc[2*i] == -1 & loc[2*i+1] > -1) {
             j = loc[2*i+1];
-
-            //if ( foil_xyz[3*j+2] - xle[2] < 0.0 ) sign = -1.0;Never used
 
             cOut[i] = sqrt((xle[1] - foil_xyz[3*j+1]) * (xle[1] - foil_xyz[3*j+1]) +
                            (xle[2] - foil_xyz[3*j+2]) * (xle[2] - foil_xyz[3*j+2]));
             hOut[i] = 0.0;
         } else if (loc[2*i] > -1 & loc[2*i+1] == -1) {
             j = loc[2*i];
-
-            //if ( foil_xyz[3*j+2] - xle[2] < 0.0 ) sign = -1.0;Never used
 
             cOut[i] = sqrt((xle[1] - foil_xyz[3*j+1]) * (xle[1] - foil_xyz[3*j+1]) +
                            (xle[2] - foil_xyz[3*j+2]) * (xle[2] - foil_xyz[3*j+2]));
@@ -766,29 +748,25 @@ defineAwaveAirfoil(ego body, int nPts, double *xOut, double *cOut, double *hOut)
             yAvg = (foil_xyz[3*n+1] + foil_xyz[3*j+1]) / 2.0;
             zAvg = (foil_xyz[3*n+2] + foil_xyz[3*j+2]) / 2.0;
 
-            //if ( zAvg - xle[2] < 0.0 ) sign = -1.0;Never used
-
             cOut[i] = sqrt((xle[1] - yAvg) * (xle[1] - yAvg) + (xle[2] - zAvg) * (xle[2] - zAvg));
             hOut[i] = (100.0 / chord) * sqrt((foil_xyz[3*n+1] - foil_xyz[3*j+1]) * (foil_xyz[3*n+1] - foil_xyz[3*j+1]) +
-                           (foil_xyz[3*n+2] - foil_xyz[3*j+2]) * (foil_xyz[3*n+2] - foil_xyz[3*j+2])) / 2.0;
+                                             (foil_xyz[3*n+2] - foil_xyz[3*j+2]) * (foil_xyz[3*n+2] - foil_xyz[3*j+2])) / 2.0;
         }
     }
 
 
     status = CAPS_SUCCESS;
-    goto cleanup;
 
-    cleanup:
-        if (loc != NULL) EG_free(loc);
-        if (foil_xyz != NULL) EG_free(foil_xyz);
-        if (x != NULL) EG_free(x);
+cleanup:
+    if (loc != NULL) EG_free(loc);
+    if (foil_xyz != NULL) EG_free(foil_xyz);
+    if (x != NULL) EG_free(x);
 
-        if (edges != NULL) EG_free(edges);
+    if (edges != NULL) EG_free(edges);
 
-        if (tessOut != NULL) EG_free(tessOut);
-        if (tess != NULL) (void) EG_deleteObject(tess);
+    if (tess != NULL) (void) EG_deleteObject(tess);
 
-        return status;
+    return status;
 }
 
 /* ********************** Exposed AIM Functions ***************************** */
