@@ -904,6 +904,13 @@ aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValue *a
             /// write native tesselation
             std::string tess_filename(filename);
             tess_filename += ".eto";
+
+            /// remove existing tesselation file if it exists
+            {
+                std::ifstream tess_file(tess_filename.c_str());
+                if (tess_file.good())
+                    std::remove(tess_filename.c_str());
+            }
             status = EG_saveTess(tess, tess_filename.c_str());
             if (status != EGADS_SUCCESS)
                 printf(" PUMI AIM Warning: EG_saveTess failed with status: %d!\n", status);
@@ -918,12 +925,45 @@ aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValue *a
             if (status != EGADS_SUCCESS)
                 printf(" PUMI AIM Warning: EG_getContext failed with status: %d!\n", status);
 
+            ego *bodyCopy = (ego *) EG_alloc(sizeof(ego));
+            if (bodyCopy == NULL) {
+                status = EGADS_MALLOC;
+                if (status != EGADS_SUCCESS)
+                    printf(" PUMI AIM Warning: EG_alloc failed with status: %d!\n", status);
+            }
+
+            *bodyCopy = NULL;
+
+            status = EG_copyObject(body, NULL, bodyCopy);
+            // if (status != EGADS_SUCCESS) goto cleanup;
+
             // Create a model
             ego model;
-            status = EG_makeTopology(context, NULL, MODEL, 0, NULL, numBody, &body, NULL, &model);
+            status = EG_makeTopology(context, NULL, MODEL, 0, NULL, numBody, bodyCopy, NULL, &model);
             if (status != EGADS_SUCCESS)
                 printf(" PUMI AIM Warning: EG_makeTopology failed with status: %d!\n", status);
-            EG_saveModel(model, model_filename.c_str());
+
+            /// remove existing model file if it exists
+            {
+                std::ifstream model_file(model_filename.c_str());
+                if (model_file.good())
+                    std::remove(model_filename.c_str());
+            }
+            status = EG_saveModel(model, model_filename.c_str());
+            if (status != EGADS_SUCCESS)
+                printf(" PUMI AIM Warning: EG_saveModel failed with status: %d!\n", status);
+
+            // delete the model
+            if (model != NULL) {
+            EG_deleteObject(model);
+            } else {
+            if (bodyCopy != NULL) {
+                if (*bodyCopy != NULL)  {
+                    (void) EG_deleteObject(*bodyCopy);
+                }
+            }
+            }
+            EG_free(bodyCopy);
 
             /// write adjacency table
             std::string adj_filename(filename);
