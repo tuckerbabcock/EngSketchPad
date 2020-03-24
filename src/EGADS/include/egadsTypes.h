@@ -15,8 +15,8 @@
 
 
 #define EGADSMAJOR     1
-#define EGADSMINOR    17
-#define EGADSPROP     EGADSprop: Revision 1.17
+#define EGADSMINOR    18
+#define EGADSPROP     EGADSprop: Revision 1.18
 
 #define MAGIC      98789
 #define MTESSPARAM     2
@@ -87,11 +87,12 @@
 #define ATTRPTR       13
 
 
-/* SOLID BOOLEAN OPERATIONS */
+/* SOLID/GENERAL BOOLEAN OPERATIONS */
 
 #define SUBTRACTION    1
 #define INTERSECTION   2
 #define FUSION         3
+#define SPLITTER       4
 
 
 /* SOLID BODY TYPES */
