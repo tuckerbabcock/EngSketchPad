@@ -904,7 +904,26 @@ aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValue *a
             /// write native tesselation
             std::string tess_filename(filename);
             tess_filename += ".eto";
-            EG_saveTess(tess, tess_filename.c_str());
+            status = EG_saveTess(tess, tess_filename.c_str());
+            if (status != EGADS_SUCCESS)
+                printf(" PUMI AIM Warning: EG_saveTess failed with status: %d!\n", status);
+
+            /// write EGADS model file
+            std::string model_filename(filename);
+            model_filename += ".egads";
+
+            // Get context
+            ego context;
+            status = EG_getContext(body, &context);
+            if (status != EGADS_SUCCESS)
+                printf(" PUMI AIM Warning: EG_getContext failed with status: %d!\n", status);
+
+            // Create a model
+            ego model;
+            status = EG_makeTopology(context, NULL, MODEL, 0, NULL, numBody, &body, NULL, &model);
+            if (status != EGADS_SUCCESS)
+                printf(" PUMI AIM Warning: EG_makeTopology failed with status: %d!\n", status);
+            EG_saveModel(model, model_filename.c_str());
 
             /// write adjacency table
             std::string adj_filename(filename);
