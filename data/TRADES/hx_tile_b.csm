@@ -1,0 +1,111 @@
+# hx_tile
+# written by John Dannenhoffer
+
+despmtr   thick:000    0.10
+despmtr   thick:001    0.10
+despmtr   thick:010    0.10
+despmtr   thick:011    0.10
+despmtr   thick:100    0.10
+despmtr   thick:101    0.10
+despmtr   thick:110    0.10
+despmtr   thick:111    0.10
+
+despmtr   dumu:000     0.00
+despmtr   dumu:001     0.00
+despmtr   dumu:010     0.00
+despmtr   dumu:011     0.00
+despmtr   dumu:100     0.00
+despmtr   dumu:101     0.00
+despmtr   dumu:110     0.00
+despmtr   dumu:111     0.00
+
+despmtr   dumv:000     0.00
+despmtr   dumv:001     0.00
+despmtr   dumv:010     0.00
+despmtr   dumv:011     0.00
+despmtr   dumv:100     0.00
+despmtr   dumv:101     0.00
+despmtr   dumv:110     0.00
+despmtr   dumv:111     0.00
+
+despmtr   dumw:000     0.00
+despmtr   dumw:001     0.00
+despmtr   dumw:010     0.00
+despmtr   dumw:011     0.00
+despmtr   dumw:100     0.00
+despmtr   dumw:101     0.00
+despmtr   dumw:110     0.00
+despmtr   dumw:111     0.00
+
+# default corner locations
+dimension corners 8 3
+set       corners "0.0; 0.4; 0.0; \
+                   1.0; 0.4; 0.0; \
+                   0.0; 0.6; 0.0; \
+                   1.0; 0.6; 0.0; \
+                   0.0; 0.4; 1.0; \
+                   1.0; 0.4; 1.0; \
+                   0.0; 0.6; 1.0; \
+                   1.0; 0.6; 1.0"
+
+# override y-coordinates with given thicknesses
+# upper fin (centered at z=0.50, thick=0.04)
+box       0.00  0.85  0.48   1.00  0.15  0.04
+   select    face   @nbody 5
+   attribute _color $red
+   select    face   @nbody 6
+   attribute _color $red
+ 
+# upper plate (centered at y=0.85, thick=0.10)
+set       corners[1,2]  0.85-(thick:000+thick:010)/4
+set       corners[2,2]  0.85-(thick:001+thick:011)/4
+set       corners[3,2]  0.85+(thick:000+thick:010)/4
+set       corners[4,2]  0.85+(thick:001+thick:011)/4
+set       corners[5,2]  0.85-(thick:100+thick:110)/4
+set       corners[6,2]  0.85-(thick:101+thick:111)/4
+set       corners[7,2]  0.85+(thick:100+thick:110)/4
+set       corners[8,2]  0.85+(thick:101+thick:111)/4
+
+udprim    hex   corners  corners
+#box       0.00  0.80  0.00   1.00  0.10  1.00
+   select    face   @nbody 4
+   attribute _color $red
+   select    face   @nbody 2
+   attribute _color $blue
+union
+
+# middle fin (centered at x=0.50, thick=0.04)
+box       0.48  0.15  0.00   0.04  0.70  1.00
+   select    face   @nbody 1
+   attribute _color $blue
+   select    face   @nbody 2
+   attribute _color $blue
+union
+
+# lower plate (centered at y=0.15, thick=0.10)
+set       corners[1,2]  0.15-(thick:000+thick:010)/4
+set       corners[2,2]  0.15-(thick:001+thick:011)/4
+set       corners[3,2]  0.15+(thick:000+thick:010)/4
+set       corners[4,2]  0.15+(thick:001+thick:011)/4
+set       corners[5,2]  0.15-(thick:100+thick:110)/4
+set       corners[6,2]  0.15-(thick:101+thick:111)/4
+set       corners[7,2]  0.15+(thick:100+thick:110)/4
+set       corners[8,2]  0.15+(thick:101+thick:111)/4
+
+udprim    hex   corners  corners
+#box       0.00  0.10  0.00   1.00  0.10  1.00
+   select    face   @nbody 2
+   attribute _color $red
+   select    face   @nbody 4
+   attribute _color $blue
+union
+
+# lower fin (centered at z=0.50, thick=0.04)
+box       0.00  0.00  0.48   1.00  0.15  0.04
+   select    face   @nbody 5
+   attribute _color $red
+   select    face   @nbody 6
+   attribute _color $red
+union
+
+end

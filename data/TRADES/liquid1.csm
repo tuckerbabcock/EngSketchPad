@@ -1,0 +1,40 @@
+# liquid1
+# written by John Dannenhoffer
+
+despmtr   nutile   2
+despmtr   nvtile   2
+despmtr   nwtile   5
+
+# duct definition
+mark
+   skbeg     0.0  0.3  1.2
+      linseg 0.0  0.3  -.2
+      linseg 0.0  0.7  -.2
+      linseg 0.0  0.7  1.2
+      linseg 0.0  0.3  1.2
+   skend
+
+   skbeg     2.0  0.0  1.0
+      linseg 2.0  0.0  0.0
+      linseg 2.0  1.0  0.0
+      linseg 2.0  1.0  1.0
+      linseg 2.0  0.0  1.0
+   skend
+rule
+store duct
+
+# tile the configuration
+patbeg ibody 10000
+   restore duct
+   udparg tile filename $$/liquid_tile.csm
+   udparg tile nutile   nutile
+   udparg tile nvtile   nvtile
+   udparg tile nwtile   nwtile
+   udprim tile bodynum  ibody
+patbreak ibody+1-@@numbodys
+patend
+
+restore duct
+attribute _name $duct
+
+end
