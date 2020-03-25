@@ -1,6 +1,6 @@
 #MAC OS X 10.5 & up -- 64 bit (clang):
 #
-EGREV   = 1.0.17
+EGREV   = 1.0.18
 
 LIBPATH = -L$(CASROOT)/$(CASARCH)/lib -L$(ESP_ROOT)/lib
 ifeq ($(CASREV),6.8)

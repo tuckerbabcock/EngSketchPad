@@ -25,6 +25,7 @@
 #define SPLITDEGEN
 #define INSERTKNOTS
 
+
 #define NOTFILLED	-1
 #define TOL		 1.e-7
 #define UVTOL            1.e-4
@@ -1603,6 +1604,7 @@ EG_fillTris(egObject *body, int iFace, egObject *face, egObject *tess,
       ts->loop[i] = 0;
       continue;
     }
+
     lor = 1;
     if ((lsenses[i] == 2) || (lsenses[i] == -2)) lor = -1;
     n = 0;

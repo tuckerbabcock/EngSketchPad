@@ -4591,6 +4591,7 @@ EG_makeFace(egObject *object, int mtype,
       printf(" EGADS Warning: Cannot makeFace (EG_makeFace)!\n");
       return EGADS_CONSTERR;
     }
+
 /*  BRepCheck_Analyzer fCheck(Face);
     if (!fCheck.IsValid()) {
       if (outLevel > 0)

@@ -156,6 +156,8 @@ typedef struct egObject* ego;
 typedef struct {
   int      outLevel;		/* output level for messages
                                    0 none, 1 minimal, 2 verbose, 3 debug */
+  int      fixedKnots;          /* always use evenly spaced knots */
+  int      fullAttrs;           /* persist Edge and Node Attributes */
   double   tess[MTESSPARAM];    /* global tessellation parameters */
   char     **signature;
   void     *usrPtr;
