@@ -1910,6 +1910,24 @@ EG_fillTris(egObject *body, int iFace, egObject *face, egObject *tess,
 #endif
          
   if (n != ntri) {
+#ifdef WRITEFRAME
+    char filename[24];
+    FILE *fp;
+    
+    snprintf(filename, 24, "Face%d.frame", iFace);
+    fp = fopen(filename, "w");
+    if (fp != NULL) {
+      fprintf(fp, " %d\n", nloop);
+      for (j = i = 0; i < nloop; i++) {
+        fprintf(fp, " %d", ts->loop[i]);
+        j += ts->loop[i];
+      }
+      fprintf(fp, "\n");
+      for (i = 0; i < j; i++)
+        fprintf(fp, " %20.13le %20.13le\n", uvs[2*i+2], uvs[2*i+3]);
+      fclose(fp);
+    }
+#endif
     range[0] = range[2] = uvs[2];
     range[1] = range[3] = uvs[3];
     for (i = 2; i < np; i++) {
@@ -2245,9 +2263,9 @@ EG_tessEdge(egTessel *btess, egObject **faces, int j, egObject *edge,
 {
   int      i, k, l, n, npts, stat, outLevel, oclass, mtype, nnode, btype, *info;
   int      nf, ntype, ndum, face, sense, *senses, aStat, aType, aLen, f2e = 0;
-  double   xyz[MAXELEN][3], t[MAXELEN], aux[MAXELEN][3], mindist, tol, dist;
+  double   xyz[MAXELEN][3], t[MAXELEN], aux[MAXELEN][3], mindist, dist;
   double   d, dotnrm, dot, limits[2], mid[3], range[4], dx[3], result[18];
-  double   sag, dm[3], xyzm[3], params[3], uv[2], *prv;
+  double   sag, tol, toldist, dm[3], xyzm[3], params[3], uv[2], *prv;
   egObject *body, *geom, *ref, *rref, **nodes, **facs, **dum, **edges;
 #ifdef SPLITDEGEN
   int      be[2];
@@ -2539,10 +2557,10 @@ EG_tessEdge(egTessel *btess, egObject **faces, int j, egObject *edge,
          (xyz[1][2]-result[2])*(xyz[1][2]-result[2]);
   if (dist > mindist) mindist = dist;
   mindist = sqrt(mindist);
-  if (0.1*params[1] > mindist) mindist = 0.1*params[1];
   stat = EG_tolerance(edge, &tol);
   if (stat == EGADS_SUCCESS)
     if (mindist < tol) mindist = tol;
+  if (0.1*params[1] > mindist) mindist = 0.1*params[1];
 #ifdef DEBUG
   printf("%lX     minDist = %le\n", tID, mindist);
 #endif
@@ -3142,12 +3160,16 @@ EG_tessEdge(egTessel *btess, egObject **faces, int j, egObject *edge,
   edges = (egObject **) EG_alloc(aLen*sizeof(egObject *));
   if (edges == NULL) goto fill1D;
   
+  toldist = 0.0;
   for (aLen = n = 0; n < 2; n++) {
     for (nf = 0; nf < btess->tess1d[j].faces[n].nface; nf++) {
       face = btess->tess1d[j].faces[n].index;
       if (btess->tess1d[j].faces[n].nface > 1)
         face = btess->tess1d[j].faces[n].faces[nf];
       if (face <= 0) continue;
+      stat = EG_tolerance(faces[face-1], &tol);
+      if (stat == EGADS_SUCCESS)
+        if (tol > toldist) toldist = tol;
       stat = EG_getBodyTopos(body, faces[face-1], EDGE, &ndum, &dum);
       if (stat != EGADS_SUCCESS) continue;
       for (i = 0; i < ndum; i++) {
@@ -3164,6 +3186,8 @@ EG_tessEdge(egTessel *btess, egObject **faces, int j, egObject *edge,
     EG_free(edges);
     goto fill1D;
   }
+  toldist *= 10.0;
+  if (toldist == 0.0) toldist = mindist;
   
   for (i = 0; i < npts-1; i++) {
     uv[0]     = 0.5*(t[i]+t[i+1]);
@@ -3213,9 +3237,9 @@ EG_tessEdge(egTessel *btess, egObject **faces, int j, egObject *edge,
     /* find the segment with the closest neighbor */
     d = 1.e308;
     for (n = i = 0; i < npts-1; i++) {
-      if (aux[i][2] == 0.0)                 continue;
-      if (aux[i][0] <  4.0*mindist*mindist) continue;
-      if (aux[i][1] >= 0.125*aux[i][0])     continue;
+      if (aux[i][2] == 0.0)             continue;
+      if (aux[i][0] <  toldist*toldist) continue;
+      if (aux[i][1] >= 0.125*aux[i][0]) continue;
       dist = 0.125*aux[i][0] - aux[i][1];
       if (n == 0) {
         n = i+1;
@@ -6191,6 +6215,29 @@ EG_mapTessBody(egObject *tess, egObject *body, egObject **mapTess)
         mtess->tess1d[k].faces[1].tric[i] = btess->tess1d[j].faces[1].tric[i];
     }
     n = mtess->tess1d[k].npts;
+    if (n <= 0) {
+      if (mtess->tess1d[k].obj->mtype != DEGENERATE) {
+        if (outLevel > 0)
+          printf(" EGADS Error: NonDegenerate 0 pnt Edge %d (EG_mapTessBody)!\n",
+                 k+1);
+        EG_free(faces);
+        EG_free(nodes);
+        EG_cleanupTess(mtess);
+        EG_free(mtess);
+        return EGADS_DEGEN;
+      }
+      if (btess->tess1d[j].t != NULL) {
+        if (outLevel > 0)
+          printf(" EGADS Error: Degenerate nonNULL Edge %d w/ 0 (EG_mapTessBody)!\n",
+                 k+1);
+        EG_free(faces);
+        EG_free(nodes);
+        EG_cleanupTess(mtess);
+        EG_free(mtess);
+        return EGADS_DEGEN;
+      }
+      mtess->tess1d[k].npts = n = 2;
+    }
     mtess->tess1d[k].xyz = (double *) EG_alloc(3*n*sizeof(double));
     mtess->tess1d[k].t   = (double *) EG_alloc(  n*sizeof(double));
     if ((mtess->tess1d[k].xyz == NULL) || (mtess->tess1d[k].xyz == NULL)) {
@@ -6213,10 +6260,15 @@ EG_mapTessBody(egObject *tess, egObject *body, egObject **mapTess)
       EG_free(mtess);
       return stat;
     }
-    tr = btess->tess1d[j].t[n-1] - btess->tess1d[j].t[0];
-    for (i = 0; i < n; i++) {
-      param                 = (btess->tess1d[j].t[i]-btess->tess1d[j].t[0])/tr;
-      mtess->tess1d[k].t[i] = range[0] + param*(range[1]-range[0]);
+    if (btess->tess1d[j].t == NULL) {
+      mtess->tess1d[k].t[0] = range[0];
+      mtess->tess1d[k].t[1] = range[1];
+    } else {
+      tr = btess->tess1d[j].t[n-1] - btess->tess1d[j].t[0];
+      for (i = 0; i < n; i++) {
+        param                 = (btess->tess1d[j].t[i]-btess->tess1d[j].t[0])/tr;
+        mtess->tess1d[k].t[i] = range[0] + param*(range[1]-range[0]);
+      }
     }
     stat = EG_getTopology(child[0], &geom, &oclass, &mtype,
                           &mtess->tess1d[k].xyz[0], &i, &edges, &senses);

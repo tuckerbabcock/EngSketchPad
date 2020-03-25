@@ -20,6 +20,8 @@ EG_makeTransform
 EG_getTransformation
 EG_getContext
 EG_setOutLevel
+EG_setFixedKnots
+EG_setFullAttrs
 EG_getInfo
 EG_copyObject
 EG_flipObject
@@ -30,6 +32,8 @@ EG_context
 EG_sameThread
 EG_updateThread
 EG_outLevel
+EG_fixedKnots
+EG_fullAttrs
 EG_makeObject
 EG_referenceObjects
 EG_referenceObject
@@ -47,6 +51,7 @@ EG_copyGeometry_dot
 EG_hasGeometry_dot
 EG_makeGeometry
 EG_getRange
+EG_getRange_dot
 EG_evaluate
 EG_evaluate_dot
 EG_invEvaluate
@@ -160,15 +165,14 @@ EG_ruled_vels
 EG_skinning
 EG_spline2dAppx
 EG_spline1dEval
-EG_spline1dEval_psens
 EG_spline1dEval_dot
 EG_spline1dDeriv
 EG_spline1dDeriv_dot
 EG_spline1dFit
-EG_spline1dFit_psens
 EG_spline1dFit_dot
+EG_spline1dTan
+EG_spline1dTan_dot
 EG_spline2dEval
-EG_spline2dEval_psens
 EG_exportModel
 prm_CreateUV
 prm_BestCfit

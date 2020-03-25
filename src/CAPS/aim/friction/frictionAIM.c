@@ -322,6 +322,10 @@ static int findSectionData(ego body,
         *chordLength = box[3] - box[0];
     }
 
+    if ( fabs(*chordLength) < 1.0e-8 ) {
+        *chordLength = 1.0;
+    }
+
     *thickOverChord = thickness / *chordLength;
     EG_free(nodes);
 

@@ -377,7 +377,8 @@ int aimInputs(/*@unused@*/ int iIndex, void *aimInfo, int index, char **ainame,
     int status; // error code
     UG_Param_Struct *AFLR4_Param_Struct_Ptr = NULL; // AFRL4 input structure used to get default values
 
-    int ff_nseg, min_ncell, mer_all, mprox;
+    int ff_nseg, min_ncell, mer_all;
+    CHAR_UG_MAX no_prox;
 
     double abs_min_scale, BL_thickness, curv_factor,
            max_scale, min_scale, erw_all; //, ref_len;
@@ -517,8 +518,7 @@ int aimInputs(/*@unused@*/ int iIndex, void *aimInfo, int index, char **ainame,
          * less than the minimum number of cells<br>
          * specified by min_ncell. Proximity checking is<br>
          * automatically disabled if min_ncell=1 or if<br>
-         * mprox=0 or if there is only<br>
-         * one component/body defined.
+         * there is only one component/body defined.
          */
 
     } else if (index == 8) {
@@ -551,25 +551,25 @@ int aimInputs(/*@unused@*/ int iIndex, void *aimInfo, int index, char **ainame,
 
     } else if (index == 9) {
 
-        status = ug_get_int_param ((char*)"mprox", &mprox, AFLR4_Param_Struct_Ptr);
+        status = ug_get_char_param ((char*)"-no_prox", no_prox, AFLR4_Param_Struct_Ptr);
         if (status == 1) status = CAPS_SUCCESS;
         if (status != CAPS_SUCCESS) {
-            printf("Failed to retrieve default value for 'mprox'\n");
+            printf("Failed to retrieve default value for 'no_prox'\n");
             status = CAPS_NOTFOUND;
             goto cleanup;
         }
 
-        *ainame              = EG_strdup("mprox");
+        *ainame              = EG_strdup("no_prox");
         defval->type         = Boolean;
         defval->dim          = Scalar;
-        defval->vals.integer = mprox;
+        defval->vals.integer = False;
 
         /*! \page aimInputsAFLR4
-         * - <B>mprox</B> <br>
-         * Proximity check flag.<br>
-         * If mprox=1 then proximity of components/bodies to each other is estimated <br>
+         * - <B>no_prox</B> <br>
+         * Disable proximity check flag.<br>
+         * If no_prox=False then proximity of components/bodies to each other is estimated <br>
          * and surface spacing is locally reduced if needed. <br>
-         * If mprox=0 or if there is only one component/body defined then proximity <br>
+         * If no_prox=True or if there is only one component/body defined then proximity <br>
          * checking is disabled. <br>
          *
          */
@@ -596,9 +596,8 @@ int aimInputs(/*@unused@*/ int iIndex, void *aimInfo, int index, char **ainame,
          * absolute minimum spacing to reference length<br>
          * (ref_len) controls the absolute minimum<br>
          * spacing that can be set on any component/body<br>
-         * surface by proximity checking (see min_ncell<br>
-         * and mprox). Note that the<br>
-         * value of abs_min_scale is limited to be less<br>
+         * surface by proximity checking (see min_ncell).<br>
+         * Note that the value of abs_min_scale is limited to be less<br>
          * than or equal to min_scale.
          */
 

@@ -57,6 +57,7 @@ ocsmSetValuD
 ocsmSetVel
 ocsmSetVelD
 ocsmSolveSketch
+ocsmUpdateDespmtrs
 ocsmVersion
 removeTessVels
 velocityOfEdge

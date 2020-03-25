@@ -25,7 +25,7 @@
 #define TOBEFILLED      -2
 #define PI              3.1415926535897931159979635
 #define ANGTOL          1.e-6
-#define DEVANG          2.85
+#define DEVANG          2.65
 #define CUTANG          3.10
 #define MAXANG          3.13
 #define MAXORCNT        500
@@ -2017,9 +2017,10 @@ EG_addFacetNorm(triStruct *ts)
 static int
 EG_addFacetDist(triStruct *ts)
 {
-  int    i, j, i0, i1, i2, t1, total, split, side;
+  int    j, i0, i1, i2, t1, total, split, side;
   double cmp, xyz[3], uv[2];
 
+  cmp   = MAX(ts->chord*ts->chord, ts->devia2);
   total = ts->ntris;
   for (split = t1 = 0; t1 < total; t1++) {
     if (ts->tris[t1].close != 0) continue;
@@ -2031,16 +2032,15 @@ EG_addFacetDist(triStruct *ts)
               ts->verts[i2].uv[0])  / 3.0;
     uv[1]  = (ts->verts[i0].uv[1]  + ts->verts[i1].uv[1] +
               ts->verts[i2].uv[1])  / 3.0;
+  
     xyz[0] = (ts->verts[i0].xyz[0] + ts->verts[i1].xyz[0] +
               ts->verts[i2].xyz[0]) / 3.0;
     xyz[1] = (ts->verts[i0].xyz[1] + ts->verts[i1].xyz[1] +
               ts->verts[i2].xyz[1]) / 3.0;
     xyz[2] = (ts->verts[i0].xyz[2] + ts->verts[i1].xyz[2] +
               ts->verts[i2].xyz[2]) / 3.0;
-
-    cmp = MAX(ts->chord*ts->chord, ts->devia2);
-
     if (DIST2(xyz, ts->tris[t1].mid)  <= cmp)    continue;
+
     if (EG_maxUVangle(i0, i1, i2, ts) >  DEVANG) continue;
     xyz[0] = ts->tris[t1].mid[0];
     xyz[1] = ts->tris[t1].mid[1];
@@ -2052,13 +2052,12 @@ EG_addFacetDist(triStruct *ts)
                    ts->verts[i0].xyz) < 0.0) continue;
     if (EG_dotNorm(ts->verts[i2].xyz, ts->verts[i0].xyz, xyz,
                    ts->verts[i1].xyz) < 0.0) continue;
-    for (i = j = side = 0; side < 3; side++) {
+    for (j = side = 0; side < 3; side++) {
       i1 = ts->tris[t1].indices[sides[side][0]]-1;
       i2 = ts->tris[t1].indices[sides[side][1]]-1;
-      if (ts->tris[t1].neighbors[side] > 0) i++;
       if (DIST2(ts->verts[i1].xyz, ts->verts[i2].xyz) <= cmp) j++;
     }
-    if ((j != 0) || (i <= 1)) continue;
+    if (j != 0) continue;
 
     if (EG_splitTri(t1, uv, xyz, ts) == EGADS_SUCCESS) split++;
     if (ts->maxPts > 0)

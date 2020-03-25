@@ -816,8 +816,6 @@ int get_ControlSurface(ego bodies[],
 
     int numAttr = 0; // Number of attributes
 
-    int stringLength = 0; // Length of a string
-
     // Control related variables
     double chordPercent, chordVec[3]; //chordLength
 
@@ -847,12 +845,12 @@ int get_ControlSurface(ego bodies[],
 
             if (alen == 0) {
                 printf( "Warning: %s should be followed by a single value corresponding to the flap location "
-                        "as a function of the chord. 0 - 1 (fraction - %% / 100), 1-100 (%%)\n", attributeKey);
+                        "as a function of the chord. 0 - 1 (fraction - %% / 100), 1-100 (%%)\n", aName);
                 continue;
             }
 
             if (reals[0] > 100) {
-                printf( "Warning: %s value (%f) must be less than 100\n", attributeKey, reals[0]);
+                printf( "Warning: %s value (%f) must be less than 100\n", aName, reals[0]);
                 continue;
             }
 
@@ -886,7 +884,10 @@ int get_ControlSurface(ego bodies[],
                         vlmSurface->vlmSection[section].numControl*sizeof(vlmControlStruct));
             }
 
-            if (vlmSurface->vlmSection[section].vlmControl == NULL) return EGADS_MALLOC;
+            if (vlmSurface->vlmSection[section].vlmControl == NULL) {
+              status = EGADS_MALLOC;
+              goto cleanup;
+            }
 
             status = initiate_vlmControlStruct(&vlmSurface->vlmSection[section].vlmControl[index]);
             if (status != CAPS_SUCCESS) return status;
@@ -894,16 +895,11 @@ int get_ControlSurface(ego bodies[],
             // Get name of control surface
             if (vlmSurface->vlmSection[section].vlmControl[index].name != NULL) EG_free(vlmSurface->vlmSection[section].vlmControl[index].name);
 
-            stringLength = strlen(attrName);
-
-            vlmSurface->vlmSection[section].vlmControl[index].name = (char *) EG_alloc((stringLength+1)*sizeof(char));
-            if (vlmSurface->vlmSection[section].vlmControl[index].name == NULL) return EGADS_MALLOC;
-
-            memcpy(vlmSurface->vlmSection[section].vlmControl[index].name,
-                    attrName,
-                    stringLength*sizeof(char));
-
-            vlmSurface->vlmSection[section].vlmControl[index].name[stringLength] = '\0';
+            vlmSurface->vlmSection[section].vlmControl[index].name = EG_strdup(attrName);
+            if (vlmSurface->vlmSection[section].vlmControl[index].name == NULL) {
+              status = EGADS_MALLOC;
+              goto cleanup;
+            }
 
             // Loop through control surfaces from input Tuple and see if defaults have be augmented
             for (control = 0; control < numControl; control++) {
@@ -987,7 +983,9 @@ int get_ControlSurface(ego bodies[],
         }
     }
 
-    return CAPS_SUCCESS;
+cleanup:
+
+    return status;
 }
 
 

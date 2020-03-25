@@ -2500,21 +2500,13 @@ sket.keyPress = function (e) {
         if (target == sket.basePoint) {
             alert("Width not set since base and target Point are the same");
         } else {
-            var wvalue;
-            if (Number(sket.pnt.x[sket.basePoint]) <= Number(sket.pnt.x[target])) {
+            var wvalue = (sket.pnt.x[target] - sket.pnt.y[sket.basePoint]) * sket.scale;
+            if (wvalue > 0) {
                 wvalue = prompt("Enter width (should be positive as drawn): ", wvalue);
             } else {
                 wvalue = prompt("Enter width (should be negative as drawn): ", wvalue);
             }
             if (wvalue !== null) {
-                if (isNaN(wvalue) !== true) {
-                    if (sket.pnt.x[target] > sket.pnt.x[sket.basePoint]) {
-                        wvalue = +Math.abs(wvalue);
-                    } else {
-                        wvalue = -Math.abs(wvalue);
-                    }
-                }
-
                 sket.con.type[  ncon] = "W";
                 sket.con.index1[ncon] = sket.basePoint;
                 sket.con.index2[ncon] = target;
@@ -2534,21 +2526,13 @@ sket.keyPress = function (e) {
         if (target == sket.basePoint) {
             alert("Depth not set since base and target Point are the same");
         } else {
-            var dvalue;
-            if (Number(sket.pnt.y[sket.basePoint]) >= Number(sket.pnt.y[target])) {
+            var dvalue = (sket.pnt.y[sket.basePoint] - sket.pnt.y[target]) * sket.scale;
+            if (dvalue > 0) {
                 dvalue = prompt("Enter depth (should be positive as drawn): ", dvalue);
             } else {
                 dvalue = prompt("Enter depth (should be negative as drawn): ", dvalue);
             }
             if (dvalue !== null) {
-                if (isNaN(dvalue) !== true) {
-                    if (sket.pnt.y[target] > sket.pnt.y[sket.basePoint]) {
-                        dvalue = +Math.abs(dvalue);
-                    } else {
-                        dvalue = -Math.abs(dvalue);
-                    }
-                }
-
                 sket.con.type[  ncon] = "D";
                 sket.con.index1[ncon] = sket.basePoint;
                 sket.con.index2[ncon] = target;

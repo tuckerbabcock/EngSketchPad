@@ -6874,18 +6874,108 @@
 
  5mar20  add more ganged7* test cases
 
+ 7mar20  add wingSew* test cases
+
+ 7mar20  add transport* test cases to demonstrate COMBINE and udpSew
+
+ 7mar20  fix bug that did not store at-at-parameters when a Body is
+             recycled
+
+ 9mar20  unpost File or Tool menu if File, Tool, StepThur, Help,
+             UpToDate, or Undo button is pressed
+
+ 9mar20  in ESP, switch to new method for setting the charset
+             attribute to UTF-8
+
+10mar20  add ocsmUpdateDespmtrs to allow a user to update the DESPMTR
+             values from a file
+
+10mar20  add -despmtrs command line argument to serveCSM to use
+             ocsmUpdateDespmtrs
+
+11mar20  fix memory leaks in udpSew
+
+16mar20  modify persist2 to remove ambiguity
+
+17mar20  modify SCALE to allow a scaling center
+
+17mar20  modify design1b to use SCALE with non-zero rotation center
+
+17mar20  make groups for at- and at-at-parameters in ESP
+
+17mar20  prototype SSLOPE statement
+
+17mar20  add tessAtEnd to MODL structure to (optionally) skip
+             tessellation at end of ocsmBuild
+
+17mar20  disable -loadEgads when the user uses File->Edit
+
+17mar20  update Makefile.DARWIN64 to test -loadEgads from wrong case
+
+17mar20  add __filename__ to files processed by -loadEgads and
+             -dumpEgads
+
+17mar20  remove tmp_OpenCSM files at beginning of ocsmLoad
+
+18mar20  update SELECT documentation for edge ibody1 0 ibody2 0
+
+18mar20  Edges that come from Booleans no longer have the Attributes
+            of possibly-coincident Edges in one of the parents
+
+18mar20  Nodes in Booleans get all Attributes of any coincident Node
+             in the parents
+
+18mar20  add attribute6* and attribute7* test cases
+
+18mar20  fix bug associated with Edge attributes
+
+18mar20  speed up RESTORE (and other commands)
+
+19mar20  make error message in udfGanged more explicit
+
+19mar20  fix bug that did not ignore degenerate Edges in CONNECT
+
+20mar20  fix bug that did not restore csystems in RESTORE command
+
+21mar20  CONNECT wing halves in wingSew2
+
+21mar20  add -skipTess command line argument to serveCSM
+
+21mar20  do not delete Edge Attributes that are returned from a
+             UDP/UDF
+
+22mar20  fix ESP bug that stored wrong values for D and W options
+
+22mar20  add feature in sensCSM to check accuracy against known
+             errors (in *.csen and .tsen files)
+
+22mar20  add -addData command line option to sensCSM to write .csen
+             or .tsen files
+
+22mar20  add *.csen files for all design test cases
+
+23mar20  fix bug that does not re-set at-at-paraneters when UDP is
+            called from UDC from File->Edit
+
+         fix sketcher bug (R Gomez)
+
+         add mass property sensitivity tests to sensCSM
+
+         implement SSLOPE statement and assictaed test cases
+
+         reorganize Plugs data so that it can be tested by Jenkins
+
+         migrate from EG_solidBoolean and EG_fuseSheets to
+             EG_generalBoolean
+
+         set up verification for Plugs
+
          same DESPMTR in multiple UDCs causes last one to be ignored
-
-         allow IFTHEN in editAttr
-
-         look for opportunities for ganged boolean operations
 
          JOIN and UNION produce inconsistent results for SheetBodys
 
          apply FLENDs to wing/fuselage junctions, especially for
              fuselages with chines
-
-         add mass property sensitivity tests to sensCSM
 
          update GLOVES to build configurations
 

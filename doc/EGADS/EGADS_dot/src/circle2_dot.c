@@ -111,7 +111,7 @@ setCircleBody_dot( ego ebody,       /* (in/out) body with sensitivities */
   int    status = EGADS_SUCCESS;
   int    oclass, mtype, senses[1] = {SFORWARD}, *ivec=NULL;
   double data[10], data_dot[10], dx[3], dx_dot[3];
-  double tdata[2], *rvec=NULL, *rvec_dot=NULL;
+  double tdata[2], tdata_dot[2], *rvec=NULL, *rvec_dot=NULL;
   ego    context, ecircle, enode, eloop, eedge, ebody2, eref;
 
   status = EG_getContext(ebody, &context);
@@ -188,6 +188,15 @@ setCircleBody_dot( ego ebody,       /* (in/out) body with sensitivities */
   status = EG_makeTopology(context, ecircle, EDGE, ONENODE,
                            tdata, 1, &enode, NULL, &eedge);
   if (status != EGADS_SUCCESS) goto cleanup;
+
+  /* set the t-range sensitivity */
+  tdata_dot[0] = 0;
+  tdata_dot[1] = 0;
+
+  status = EG_setGeometry_dot(eedge, EDGE, ONENODE, NULL, tdata, tdata_dot);
+  if (status != EGADS_SUCCESS) goto cleanup;
+
+  status = EGADS_SUCCESS;
 
   status = EG_makeTopology(context, NULL, LOOP, CLOSED,
                            NULL, 1, &eedge, senses, &eloop);

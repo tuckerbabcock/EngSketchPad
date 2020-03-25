@@ -215,6 +215,8 @@ EG_copyAttrTopo(egadsBody *pbody, /*@null@*/ double *xform, gp_Trsf form,
           pedge->edge        = Edge;
           pedge->bbox.filled = 0;
           BRep_Tool::Range(Edge, pedge->trange[0], pedge->trange[1]);
+          pedge->filled      = 0;
+          pedge->trange_dot[0] = pedge->trange_dot[1] = 0;
           edgeo[k]->blind    = pedge;
           EG_copyAttrTopo(pbody, xform, form, sloop->edges[k], edgeo[k], topObj);
           if (index > 0) pbody->edges.objs[index-1] = edgeo[k];
@@ -358,7 +360,7 @@ int
 EG_copyTopology(/*@null@*/ egObject *context, const egObject *topo,
                 /*@null@*/ double *xform, egObject **copy)
 {
-  int             i, stat, nent, outLevel, nerr;
+  int             i, j, stat, nent, outLevel, nerr;
   egObject        *obj;
   egadsBody       ebody;
   TopoDS_Shape    shape, nTopo;
@@ -453,6 +455,8 @@ EG_copyTopology(/*@null@*/ egObject *context, const egObject *topo,
     pedge->edge        = Edge;
     pedge->bbox.filled = 0;
     BRep_Tool::Range(Edge, pedge->trange[0], pedge->trange[1]);
+    pedge->filled      = 0;
+    pedge->trange_dot[0] = pedge->trange_dot[1] = 0;
     obj->blind         = pedge;
     EG_copyAttrTopo(&ebody, xform, form, topo, obj, obj);
     
@@ -552,6 +556,7 @@ EG_copyTopology(/*@null@*/ egObject *context, const egObject *topo,
     pbody->senses      = NULL;
     pbody->shape       = nTopo;
     pbody->bbox.filled = 0;
+    pbody->massFill    = 0;
     obj->blind         = pbody;
     stat = EG_traverseBody(context, 0, obj, obj, pbody, &nerr);
     if (stat != EGADS_SUCCESS) {
@@ -559,6 +564,73 @@ EG_copyTopology(/*@null@*/ egObject *context, const egObject *topo,
       return stat;
     }
     EG_attriBodyCopy(topo, xform, obj);
+    
+    if (xform == NULL) {
+      /* copy caches when not transformed */
+      egadsBody *pbods = (egadsBody *) topo->blind;
+      for (i = 0; i < pbody->nodes.map.Extent(); i++) {
+        if (pbody->nodes.objs[i] == NULL) continue;
+        egadsNode *pnods = (egadsNode *) pbods->nodes.objs[i]->blind;
+        egadsNode *pnode = (egadsNode *) pbody->nodes.objs[i]->blind;
+        if (pnods->bbox.filled != 0) {
+          pnode->bbox.filled = pnods->bbox.filled;
+          for (j = 0; j < 6; j++)
+            pnode->bbox.box[j] = pnods->bbox.box[j];
+        }
+      }
+      for (i = 0; i < pbody->edges.map.Extent(); i++) {
+        if (pbody->edges.objs[i] == NULL) continue;
+        egadsEdge *pedgs = (egadsEdge *) pbods->edges.objs[i]->blind;
+        egadsEdge *pedge = (egadsEdge *) pbody->edges.objs[i]->blind;
+        if (pedgs->bbox.filled != 0) {
+          pedge->bbox.filled = pedgs->bbox.filled;
+          for (j = 0; j < 6; j++)
+            pedge->bbox.box[j] = pedgs->bbox.box[j];
+        }
+      }
+      for (i = 0; i < pbody->loops.map.Extent(); i++) {
+        if (pbody->loops.objs[i] == NULL) continue;
+        egadsLoop *ploos = (egadsLoop *) pbods->loops.objs[i]->blind;
+        egadsLoop *ploop = (egadsLoop *) pbody->loops.objs[i]->blind;
+        if (ploos->bbox.filled != 0) {
+          ploop->bbox.filled = ploos->bbox.filled;
+          for (j = 0; j < 6; j++)
+            ploop->bbox.box[j] = ploos->bbox.box[j];
+        }
+      }
+      for (i = 0; i < pbody->faces.map.Extent(); i++) {
+        if (pbody->faces.objs[i] == NULL) continue;
+        egadsFace *pfacs = (egadsFace *) pbods->faces.objs[i]->blind;
+        egadsFace *pface = (egadsFace *) pbody->faces.objs[i]->blind;
+        if (pfacs->bbox.filled != 0) {
+          pface->bbox.filled = pfacs->bbox.filled;
+          for (j = 0; j < 6; j++)
+            pface->bbox.box[j] = pfacs->bbox.box[j];
+        }
+      }
+      for (i = 0; i < pbody->shells.map.Extent(); i++) {
+        if (pbody->shells.objs[i] == NULL) continue;
+        egadsShell *pshels = (egadsShell *) pbods->shells.objs[i]->blind;
+        egadsShell *pshell = (egadsShell *) pbody->shells.objs[i]->blind;
+        if (pshels->bbox.filled != 0) {
+          pshell->bbox.filled = pshels->bbox.filled;
+          for (j = 0; j < 6; j++)
+            pshell->bbox.box[j] = pshels->bbox.box[j];
+        }
+      }
+      if (pbods->bbox.filled != 0) {
+        pbody->bbox.filled = pbods->bbox.filled;
+        for (j = 0; j < 6; j++)
+          pbody->bbox.box[j] = pbods->bbox.box[j];
+      }
+        
+      /* mass Props */
+      if (pbods->massFill != 0) {
+        pbody->massFill = pbods->massFill;
+        for (j = 0; j < 14; j++)
+          pbody->massProp[j] = pbods->massProp[j];
+      }
+    }
 
   } else {
 
@@ -591,6 +663,7 @@ EG_copyTopology(/*@null@*/ egObject *context, const egObject *topo,
       pbody->shells.objs = NULL;
       pbody->senses      = NULL;
       pbody->bbox.filled = 0;
+      pbody->massFill    = 0;
       pobj->blind        = pbody;
     }
     
@@ -876,6 +949,8 @@ EG_flipAttrTopo(egadsBody *pbody, egadsBody *tbody, const egObject *src,
           pedge->edge        = Edge;
           pedge->bbox.filled = 0;
           BRep_Tool::Range(Edge, pedge->trange[0], pedge->trange[1]);
+          pedge->filled      = 0;
+          pedge->trange_dot[0] = pedge->trange_dot[1] = 0;
           edgeo[k]->blind    = pedge;
           edgeo[k]->oclass   = EDGE;
           EG_flipAttrTopo(pbody, tbody, src, edgeo[k], topObj);
@@ -1114,6 +1189,8 @@ EG_flipTopology(const egObject *topo, egObject **copy)
     pedge->topFlg      = 0;
     pedge->bbox.filled = 0;
     BRep_Tool::Range(Edge, pedge->trange[0], pedge->trange[1]);
+    pedge->filled      = 0;
+    pedge->trange_dot[0] = pedge->trange_dot[1] = 0;
     obj->oclass        = EDGE;
     obj->blind         = pedge;
     obj->mtype         = topo->mtype;

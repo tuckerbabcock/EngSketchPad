@@ -39,8 +39,8 @@ pingBodies(ego tess1, ego tess2, double dtime, int iparam, const char *shape, do
 {
   int    status = EGADS_SUCCESS;
   int    n, d, np1, np2, nt1, nt2, nerr=0;
-  int    nface, nedge, nnode, iface, iedge, inode, oclass, mtype;
-  double p1_dot[18], p1[18], p2[18], fd_dot[3];
+  int    nface, nedge, nnode, iface, iedge, inode, oclass, mtype, periodic;
+  double p1_dot[18], p1[18], p2[18], fd_dot[3], range1[4], range2[4], range_dot[4];
   const int    *pt1, *pi1, *pt2, *pi2, *ts1, *tc1, *ts2, *tc2;
   const double *t1, *t2, *x1, *x2, *uv1, *uv2;
   ego    ebody1, ebody2;
@@ -160,6 +160,24 @@ pingBodies(ego tess1, ego tess2, double dtime, int iparam, const char *shape, do
       //printf("fd_dot = (%+f, %+f, %+f)\n", fd_dot[0], fd_dot[1], fd_dot[2]);
       //printf("\n");
     }
+
+    /* check t-range sensitivity */
+    status = EG_getRange_dot( eedges1[iedge], range1, range_dot, &periodic );
+    if (status != EGADS_SUCCESS) goto cleanup;
+
+    status = EG_getRange( eedges2[iedge], range2, &periodic );
+    if (status != EGADS_SUCCESS) goto cleanup;
+
+    fd_dot[0] = (range2[0] - range1[0])/dtime;
+    fd_dot[1] = (range2[1] - range1[1])/dtime;
+
+    for (d = 0; d < 2; d++) {
+      if (fabs(range_dot[d] - fd_dot[d]) > etol) {
+        printf("%s Edge %d iparam=%d, trng[%d]=%+le fabs(%+le - %+le) = %+le > %e\n",
+               shape, iedge+1, iparam, d, range1[d], range_dot[d], fd_dot[d], fabs(range_dot[d] - fd_dot[d]), etol);
+        nerr++;
+      }
+    }
   }
 
   for (inode = 0; inode < nnode; inode++) {
@@ -203,6 +221,90 @@ cleanup:
   EG_free(enodes2);
 
   return status + nerr;
+}
+
+/*****************************************************************************/
+/*                                                                           */
+/*  pingBodiesExtern                                                         */
+/*                                                                           */
+/*****************************************************************************/
+
+int
+pingBodiesExtern(ego tess1, ego ebody2, double dtime, int iparam, const char *shape, double ftol, double etol, double ntol)
+{
+  int status = EGADS_SUCCESS;
+  int iedge, nedge, iface, nface, oclass, mtype;
+  int np1, nt1;
+  const int    *pt1, *pi1, *ts1, *tc1;
+  const double *t1, *x1, *uv1;
+  ego ebody1, tess=NULL, tess2=NULL, *eedges1=NULL, *efaces1=NULL;
+  ego top, prev, next;
+
+  status = EG_statusTessBody( tess1, &ebody1, &oclass, &mtype );
+  if (status != EGADS_SUCCESS) goto cleanup;
+  
+  /* get the Edges from the Body */
+  status = EG_getBodyTopos(ebody1, NULL, EDGE, &nedge, &eedges1);
+  if (status != EGADS_SUCCESS) goto cleanup;
+
+  /* get the Faces from the Body */
+  status = EG_getBodyTopos(ebody1, NULL, FACE, &nface, &efaces1);
+  if (status != EGADS_SUCCESS) goto cleanup;
+
+
+  status = EG_initTessBody(ebody1, &tess);
+  if (status != EGADS_SUCCESS) goto cleanup;
+
+  for (iedge = 0; iedge < nedge; iedge++) {
+
+    status = EG_getInfo(eedges1[iedge], &oclass, &mtype, &top, &prev, &next);
+    if (status != EGADS_SUCCESS) goto cleanup;
+    if (mtype == DEGENERATE) continue;
+
+    /* extract the tessellation from the edge */
+    status = EG_getTessEdge(tess1, iedge+1, &np1, &x1, &t1);
+    if (status != EGADS_SUCCESS) goto cleanup;
+
+    /* set the tessellation on the edge */
+    status = EG_setTessEdge(tess, iedge+1, np1, x1, t1);
+    if (status != EGADS_SUCCESS) goto cleanup;
+  }
+
+
+  for (iface = 0; iface < nface; iface++) {
+
+    /* extract the face tessellation */
+    status = EG_getTessFace(tess1, iface+1, &np1, &x1, &uv1, &pt1, &pi1,
+                                            &nt1, &ts1, &tc1);
+    if (status != EGADS_SUCCESS) goto cleanup;
+
+    /* set the face tessellation */
+    status = EG_setTessFace(tess, iface+1, np1, x1, uv1,
+                                           nt1, ts1);
+    if (status != EGADS_SUCCESS) goto cleanup;
+  }
+
+  status = EG_statusTessBody(tess, &ebody1, &oclass, &mtype);
+  if (status != EGADS_SUCCESS) goto cleanup;
+
+  /* map the tessellation */
+  status = EG_mapTessBody(tess, ebody2, &tess2);
+  if (status != EGADS_SUCCESS) goto cleanup;
+
+  /* ping the bodies */
+  status = pingBodies(tess, tess2, dtime, iparam, shape, ftol, etol, ntol);
+  if (status != EGADS_SUCCESS) goto cleanup;
+
+cleanup:
+  if (status != EGADS_SUCCESS) {
+    printf(" Failure %d in %s\n", status, __func__);
+  }
+  EG_free(eedges1);
+  EG_free(efaces1);
+  EG_deleteObject(tess);
+  EG_deleteObject(tess2);
+
+  return status;
 }
 
 /*****************************************************************************/
@@ -554,7 +656,7 @@ setLineBody_dot( const double *x0,     /* (in)  coordinates of the first point  
 {
   int    status = EGADS_SUCCESS;
   int    nnode, nedge, nloop, oclass, mtype, *senses;
-  double data[6], data_dot[6];
+  double data[6], data_dot[6], tdata[2], tdata_dot[2];
   ego    eline, *enodes, *eloops, *eedges, eref;
 
   /* get the Loop from the Body */
@@ -595,6 +697,16 @@ setLineBody_dot( const double *x0,     /* (in)  coordinates of the first point  
   data_dot[5] = x1_dot[2] - x0_dot[2];
 
   status = EG_setGeometry_dot(eline, CURVE, LINE, NULL, data, data_dot);
+  if (status != EGADS_SUCCESS) goto cleanup;
+
+  /* set the t-range sensitivity */
+  tdata[0] = 0;
+  tdata[1] = sqrt(data[3]*data[3] + data[4]*data[4] + data[5]*data[5]);
+
+  tdata_dot[0] = 0;
+  tdata_dot[1] = (data[3]*data_dot[3] + data[4]*data_dot[4] + data[5]*data_dot[5])/tdata[1];
+
+  status = EG_setGeometry_dot(eedges[0], EDGE, TWONODE, NULL, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   status = EGADS_SUCCESS;
@@ -662,6 +774,9 @@ pingLine(ego context)
 
     /* ping the bodies */
     status = pingBodies(tess1, tess2, dtime, iparam, "Line", 1e-7, 1e-7, 1e-7);
+    if (status != EGADS_SUCCESS) goto cleanup;
+
+    status = pingBodiesExtern(tess1, ebody2, dtime, iparam, "Line", 1e-7, 1e-7, 1e-7);
     if (status != EGADS_SUCCESS) goto cleanup;
 
     EG_deleteObject(tess2);
@@ -776,7 +891,7 @@ setCircleBody_dot( const double *xcent,     /* (in)  Center          */
 {
   int    status = EGADS_SUCCESS;
   int    nnode, nedge, nloop, oclass, mtype, *senses;
-  double data[10], data_dot[10], dx[3], dx_dot[3];
+  double data[10], data_dot[10], dx[3], dx_dot[3], tdata[2], tdata_dot[2];
   double *rvec=NULL, *rvec_dot=NULL;
   ego    ecircle, *enodes, *eloops, *eedges, eref;
 
@@ -793,6 +908,15 @@ setCircleBody_dot( const double *xcent,     /* (in)  Center          */
   /* get the Node and the Circle from the Edge */
   status = EG_getTopology(eedges[0], &ecircle, &oclass, &mtype,
                           data, &nnode, &enodes, &senses);
+  if (status != EGADS_SUCCESS) goto cleanup;
+
+  /* set the Edge t-range sensitivity */
+  tdata[0]     = 0;
+  tdata[1]     = TWOPI;
+  tdata_dot[0] = 0;
+  tdata_dot[1] = 0;
+
+  status = EG_setGeometry_dot(eedges[0], EDGE, ONENODE, NULL, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   /* set the Circle data and velocity */
@@ -921,6 +1045,9 @@ pingCircle(ego context)
     status = pingBodies(tess1, tess2, dtime, iparam, "Circle", 1e-7, 1e-7, 1e-7);
     if (status != EGADS_SUCCESS) goto cleanup;
 
+    status = pingBodiesExtern(tess1, ebody2, dtime, iparam, "Circle", 1e-7, 1e-7, 1e-7);
+    if (status != EGADS_SUCCESS) goto cleanup;
+
     EG_deleteObject(tess2);
     EG_deleteObject(ebody2);
   }
@@ -1028,7 +1155,7 @@ setEllipseBody_dot( const double *xcent,     /* (in)  Center                */
 {
   int    status = EGADS_SUCCESS;
   int    nnode, nedge, nloop, oclass, mtype, *senses;
-  double data[11], data_dot[11];
+  double data[11], data_dot[11], tdata[2], tdata_dot[2];
   ego    eellipse, *enodes, *eloops, *eedges, eref;
 
   /* get the Loop from the Body */
@@ -1044,6 +1171,15 @@ setEllipseBody_dot( const double *xcent,     /* (in)  Center                */
   /* get the Node and the Circle from the Edge */
   status = EG_getTopology(eedges[0], &eellipse, &oclass, &mtype,
                           data, &nnode, &enodes, &senses);
+  if (status != EGADS_SUCCESS) goto cleanup;
+
+  /* set the Edge t-range sensitivity */
+  tdata[0]     = 0;
+  tdata[1]     = TWOPI;
+  tdata_dot[0] = 0;
+  tdata_dot[1] = 0;
+
+  status = EG_setGeometry_dot(eedges[0], EDGE, ONENODE, NULL, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   /* set the sensitivity of the Node */
@@ -1162,6 +1298,9 @@ pingEllipse(ego context)
     status = pingBodies(tess1, tess2, dtime, iparam, "Ellipse", 1e-7, 1e-7, 1e-7);
     if (status != EGADS_SUCCESS) goto cleanup;
 
+    status = pingBodiesExtern(tess1, ebody2, dtime, iparam, "Ellipse", 1e-7, 1e-7, 1e-7);
+    if (status != EGADS_SUCCESS) goto cleanup;
+
     EG_deleteObject(tess2);
     EG_deleteObject(ebody2);
   }
@@ -1275,7 +1414,7 @@ setParabolaBody_dot( const double *xcent,   /* (in)  Center          */
 {
   int    status = EGADS_SUCCESS;
   int    nnode, nedge, nloop, oclass, mtype, *senses;
-  double data[18], data_dot[18], tdata[2];
+  double data[18], data_dot[18], tdata[2], tdata_dot[2];
   ego    eparabola, *enodes, *eloops, *eedges, eref;
 
   /* get the Loop from the Body */
@@ -1291,6 +1430,15 @@ setParabolaBody_dot( const double *xcent,   /* (in)  Center          */
   /* get the Node and the Circle from the Edge */
   status = EG_getTopology(eedges[0], &eparabola, &oclass, &mtype,
                           data, &nnode, &enodes, &senses);
+  if (status != EGADS_SUCCESS) goto cleanup;
+
+  /* set the Edge t-range sensitivity */
+  tdata[0]     = -1;
+  tdata[1]     =  1;
+  tdata_dot[0] = 0;
+  tdata_dot[1] = 0;
+
+  status = EG_setGeometry_dot(eedges[0], EDGE, TWONODE, NULL, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   /* set the Circle data and velocity */
@@ -1411,6 +1559,9 @@ pingParabola(ego context)
     status = pingBodies(tess1, tess2, dtime, iparam, "Parabola", 1e-7, 1e-7, 1e-7);
     if (status != EGADS_SUCCESS) goto cleanup;
 
+    status = pingBodiesExtern(tess1, ebody2, dtime, iparam, "Parabola", 1e-7, 1e-7, 1e-7);
+    if (status != EGADS_SUCCESS) goto cleanup;
+
     EG_deleteObject(tess2);
     EG_deleteObject(ebody2);
   }
@@ -1528,7 +1679,7 @@ setHyperbolaBody_dot( const double *xcent,     /* (in)  Center                */
 {
   int    status = EGADS_SUCCESS;
   int    nnode, nedge, nloop, oclass, mtype, *senses;
-  double data[11], data_dot[11], tdata[2];
+  double data[11], data_dot[11], tdata[2], tdata_dot[2];
   ego    ehyperbola, *enodes, *eloops, *eedges, eref;
 
   /* get the Loop from the Body */
@@ -1544,6 +1695,15 @@ setHyperbolaBody_dot( const double *xcent,     /* (in)  Center                */
   /* get the Node and the Circle from the Edge */
   status = EG_getTopology(eedges[0], &ehyperbola, &oclass, &mtype,
                           data, &nnode, &enodes, &senses);
+  if (status != EGADS_SUCCESS) goto cleanup;
+
+  /* set the Edge t-range sensitivity */
+  tdata[0]     = -1;
+  tdata[1]     =  1;
+  tdata_dot[0] = 0;
+  tdata_dot[1] = 0;
+
+  status = EG_setGeometry_dot(eedges[0], EDGE, TWONODE, NULL, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   /* set the Circle data and velocity */
@@ -1668,6 +1828,9 @@ pingHyperbola(ego context)
     status = pingBodies(tess1, tess2, dtime, iparam, "Hyperbola", 1e-7, 1e-7, 1e-7);
     if (status != EGADS_SUCCESS) goto cleanup;
 
+    status = pingBodiesExtern(tess1, ebody2, dtime, iparam, "Hyperbola", 1e-7, 1e-7, 1e-7);
+    if (status != EGADS_SUCCESS) goto cleanup;
+
     EG_deleteObject(tess2);
     EG_deleteObject(ebody2);
   }
@@ -1740,6 +1903,10 @@ makeOffsetCurveBody( ego context,         /* (in)  EGADS context                
                            data, &eline);
   if (status != EGADS_SUCCESS) goto cleanup;
 
+  /* t-data for the edge */
+  tdata[0] = 0;
+  tdata[1] = sqrt(data[3]*data[3] + data[4]*data[4] + data[5]*data[5]);
+
   /* create the Offset curve */
   data[0] = vec[0];
   data[1] = vec[1];
@@ -1751,9 +1918,6 @@ makeOffsetCurveBody( ego context,         /* (in)  EGADS context                
   if (status != EGADS_SUCCESS) goto cleanup;
 
   /* make the Edge on the Offset curve */
-  tdata[0] = 0;
-  tdata[1] = sqrt(data[3]*data[3] + data[4]*data[4] + data[5]*data[5]);
-
   status = EG_makeTopology(context, ecurve, EDGE, TWONODE,
                            tdata, 2, enodes, NULL, &eedge);
   if (status != EGADS_SUCCESS) goto cleanup;
@@ -1785,7 +1949,7 @@ setOffsetCurveBody_dot( const double *x0,        /* (in)  coordinates of the fir
 {
   int    status = EGADS_SUCCESS;
   int    nnode, nedge, nloop, oclass, mtype, *senses, *ivec=NULL;
-  double data[6], data_dot[6], *rvec=NULL;
+  double data[6], data_dot[6], *rvec=NULL, tdata[2], tdata_dot[2];
   ego    ecurve, eline, *enodes, *eloops, *eedges, eref;
 
   /* get the Loop from the Body */
@@ -1830,6 +1994,16 @@ setOffsetCurveBody_dot( const double *x0,        /* (in)  coordinates of the fir
   data_dot[5] = x1_dot[2] - x0_dot[2];
 
   status = EG_setGeometry_dot(eline, CURVE, LINE, NULL, data, data_dot);
+  if (status != EGADS_SUCCESS) goto cleanup;
+
+  /* set the t-range sensitivity */
+  tdata[0] = 0;
+  tdata[1] = sqrt(data[3]*data[3] + data[4]*data[4] + data[5]*data[5]);
+
+  tdata_dot[0] = 0;
+  tdata_dot[1] = (data[3]*data_dot[3] + data[4]*data_dot[4] + data[5]*data_dot[5])/tdata[1];
+
+  status = EG_setGeometry_dot(eedges[0], EDGE, TWONODE, NULL, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   /* set the offset curve velocity */
@@ -1922,6 +2096,9 @@ pingOffsetCurve(ego context)
 
     /* ping the bodies */
     status = pingBodies(tess1, tess2, dtime, iparam, "Offset Curve", 1e-7, 5e-7, 1e-7);
+    if (status != EGADS_SUCCESS) goto cleanup;
+
+    status = pingBodiesExtern(tess1, ebody2, dtime, iparam, "Offset Curve", 1e-7, 5e-7, 1e-7);
     if (status != EGADS_SUCCESS) goto cleanup;
 
     EG_deleteObject(tess2);
@@ -2024,7 +2201,7 @@ setBezierCurveBody_dot( const int npts,        /* (in)  number of points        
 {
   int    status = EGADS_SUCCESS;
   int    nnode, nedge, nloop, oclass, mtype, *senses, header[3];
-  double data[6], data_dot[6];
+  double data[6], data_dot[6], tdata[2], tdata_dot[2];
   ego    ecurve, *enodes, *eloops, *eedges, eref;
 
   /* the bezier curve header */
@@ -2045,6 +2222,15 @@ setBezierCurveBody_dot( const int npts,        /* (in)  number of points        
   /* get the Nodes and the Curve from the Edge */
   status = EG_getTopology(eedges[0], &ecurve, &oclass, &mtype,
                           data, &nnode, &enodes, &senses);
+  if (status != EGADS_SUCCESS) goto cleanup;
+
+  /* set the Edge t-range sensitivity */
+  tdata[0]     = 0;
+  tdata[1]     = 1;
+  tdata_dot[0] = 0;
+  tdata_dot[1] = 0;
+
+  status = EG_setGeometry_dot(eedges[0], EDGE, TWONODE, NULL, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   /* set the sensitivity of the Nodes */
@@ -2134,6 +2320,9 @@ pingBezierCurve(ego context)
 
     /* ping the bodies */
     status = pingBodies(tess1, tess2, dtime, iparam, "Bezier", 1e-7, 1e-7, 1e-7);
+    if (status != EGADS_SUCCESS) goto cleanup;
+
+    status = pingBodiesExtern(tess1, ebody2, dtime, iparam, "Bezier", 1e-7, 1e-7, 1e-7);
     if (status != EGADS_SUCCESS) goto cleanup;
 
     EG_deleteObject(tess2);
@@ -2233,7 +2422,7 @@ setBsplineCurveBody_dot( const int npts,        /* (in)  number of points       
 {
   int    status = EGADS_SUCCESS;
   int    nnode, nedge, nloop, oclass, mtype, *senses, sizes[2];
-  double data[6], data_dot[6];
+  double data[6], data_dot[6], tdata[2], tdata_dot[2];
   ego    ecurve, *enodes, *eloops, *eedges, eref;
 
   /* get the Loop from the Body */
@@ -2249,6 +2438,15 @@ setBsplineCurveBody_dot( const int npts,        /* (in)  number of points       
   /* get the Nodes and the Curve from the Edge */
   status = EG_getTopology(eedges[0], &ecurve, &oclass, &mtype,
                           data, &nnode, &enodes, &senses);
+  if (status != EGADS_SUCCESS) goto cleanup;
+
+  /* set the Edge t-range sensitivity */
+  tdata[0]     = 0;
+  tdata[1]     = 1;
+  tdata_dot[0] = 0;
+  tdata_dot[1] = 0;
+
+  status = EG_setGeometry_dot(eedges[0], EDGE, TWONODE, NULL, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   /* set the sensitivity of the Nodes */
@@ -2351,6 +2549,9 @@ pingBsplineCurve(ego context)
     status = pingBodies(tess1, tess2, dtime, iparam, "B-spline Curve", 1e-7, 5e-7, 1e-7);
     if (status != EGADS_SUCCESS) goto cleanup;
 
+    status = pingBodiesExtern(tess1, ebody2, dtime, iparam, "B-spline Curve", 1e-7, 5e-7, 1e-7);
+    if (status != EGADS_SUCCESS) goto cleanup;
+
     EG_deleteObject(tess2);
     EG_deleteObject(ebody2);
   }
@@ -2430,6 +2631,7 @@ setLineEdge_dot( ego eedge )      /* (in/out) Edge with velocity */
   int    status = EGADS_SUCCESS;
   int    nnode, oclass, mtype, *senses;
   double data[6], data_dot[6], x1[3], x1_dot[3], x2[3], x2_dot[3];
+  double tdata[2], tdata_dot[2];
   ego    eline, *enodes;
 
   /* get the Nodes and the Line from the Edge */
@@ -2460,6 +2662,16 @@ setLineEdge_dot( ego eedge )      /* (in/out) Edge with velocity */
   data_dot[5] = x2_dot[2] - x1_dot[2];
 
   status = EG_setGeometry_dot(eline, CURVE, LINE, NULL, data, data_dot);
+  if (status != EGADS_SUCCESS) goto cleanup;
+
+  /* set the t-range sensitivity */
+  tdata[0] = 0;
+  tdata[1] = sqrt(data[3]*data[3] + data[4]*data[4] + data[5]*data[5]);
+
+  tdata_dot[0] = 0;
+  tdata_dot[1] = (data[3]*data_dot[3] + data[4]*data_dot[4] + data[5]*data_dot[5])/tdata[1];
+
+  status = EG_setGeometry_dot(eedge, EDGE, TWONODE, NULL, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   status = EGADS_SUCCESS;
@@ -2815,6 +3027,9 @@ pingPlane(ego context)
     status = pingBodies(tess1, tess2, dtime, iparam, "Plane", 1e-7, 1e-7, 1e-7);
     if (status != EGADS_SUCCESS) goto cleanup;
 
+    status = pingBodiesExtern(tess1, ebody2, dtime, iparam, "Plane", 1e-7, 1e-7, 1e-7);
+    if (status != EGADS_SUCCESS) goto cleanup;
+
     EG_deleteObject(tess2);
     EG_deleteObject(ebody2);
   }
@@ -3003,7 +3218,7 @@ setSphericalBody_dot( const double *xcent,     /* (in)  Center          */
   int    status = EGADS_SUCCESS;
   int    nnode, nedge, nloop, nface, oclass, mtype, *senses;
   double data[10], data_dot[10], dx[3], dx_dot[3], dy[3], dy_dot[3], dz[3], dz_dot[3];
-  double *rvec=NULL, *rvec_dot=NULL;
+  double *rvec=NULL, *rvec_dot=NULL, tdata[2], tdata_dot[2];
   ego    esphere, ecircle, *enodes, *eloops, *eedges, *efaces, eref;
 
   /* get the Face from the Body */
@@ -3026,6 +3241,22 @@ setSphericalBody_dot( const double *xcent,     /* (in)  Center          */
                           data, &nnode, &enodes, &senses);
   if (status != EGADS_SUCCESS) goto cleanup;
 
+
+  /* set the Edge t-range sensitivity */
+  tdata_dot[0] = 0;
+  tdata_dot[1] = 0;
+  tdata[0]     = -PI/2;
+  tdata[1]     =  PI/2;
+
+  status = EG_setGeometry_dot(eedges[0], EDGE, TWONODE, NULL, tdata, tdata_dot);
+  if (status != EGADS_SUCCESS) goto cleanup;
+
+  tdata[0]     = 0;
+  tdata[1]     = TWOPI;
+  status = EG_setGeometry_dot(eedges[1], EDGE, DEGENERATE, NULL, tdata, tdata_dot);
+  if (status != EGADS_SUCCESS) goto cleanup;
+  status = EG_setGeometry_dot(eedges[3], EDGE, DEGENERATE, NULL, tdata, tdata_dot);
+  if (status != EGADS_SUCCESS) goto cleanup;
 
   /* set the Sphere data and velocity */
   data[0] = xcent[0]; /* center */
@@ -3248,6 +3479,9 @@ pingSpherical(ego context)
       status = pingBodies(tess1, tess2, dtime, iparam, "Spherical", 1e-7, 1e-7, 1e-7);
       if (status != EGADS_SUCCESS) goto cleanup;
 
+      status = pingBodiesExtern(tess1, ebody2, dtime, iparam, "Spherical", 1e-7, 1e-7, 1e-7);
+      if (status != EGADS_SUCCESS) goto cleanup;
+
       EG_deleteObject(tess2);
       EG_deleteObject(ebody2);
     }
@@ -3467,6 +3701,7 @@ setConicalBody_dot( const double *xcent,     /* (in)  Center          */
   int    nnode, nedge, nloop, nface, oclass, mtype, *senses;
   double data[14], data_dot[14], dx[3], dx_dot[3], dy[3], dy_dot[3], dz[3], dz_dot[3];
   double *rvec=NULL, *rvec_dot=NULL, vmin, vmin_dot, h, h_dot, x1[3], x1_dot[3], x2[3], x2_dot[3];
+  double tdata[2], tdata_dot[2];
   ego    econe, ecircle, eline, *enodes, *eloops, *eedges, *efaces, eref;
 
   /* get the Face from the Body */
@@ -3493,7 +3728,6 @@ setConicalBody_dot( const double *xcent,     /* (in)  Center          */
   status = EG_getTopology(eedges[0], &eline, &oclass, &mtype,
                           data, &nnode, &enodes, &senses);
   if (status != EGADS_SUCCESS) goto cleanup;
-
 
   /* set the Cone data and velocity */
   data[ 0] = xcent[0]; /* center */
@@ -3622,6 +3856,24 @@ setConicalBody_dot( const double *xcent,     /* (in)  Center          */
   data_dot[5] = x2_dot[2] - x1_dot[2];
 
   status = EG_setGeometry_dot(eline, CURVE, LINE, NULL, data, data_dot);
+  if (status != EGADS_SUCCESS) goto cleanup;
+
+  /* set the Edge t-range sensitivity */
+  tdata[0]     = vmin;
+  tdata[1]     = 0;
+  tdata_dot[0] = vmin_dot;
+  tdata_dot[1] = 0;
+
+  status = EG_setGeometry_dot(eedges[0], EDGE, TWONODE, NULL, tdata, tdata_dot);
+  if (status != EGADS_SUCCESS) goto cleanup;
+
+  tdata[0]     = 0;
+  tdata[1]     = TWOPI;
+  tdata_dot[0] = 0;
+  tdata_dot[1] = 0;
+  status = EG_setGeometry_dot(eedges[1], EDGE, DEGENERATE, NULL, tdata, tdata_dot);
+  if (status != EGADS_SUCCESS) goto cleanup;
+  status = EG_setGeometry_dot(eedges[3], EDGE, ONENODE, NULL, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
 #ifdef PCURVE_SENSITIVITY
@@ -3756,6 +4008,9 @@ pingConical(ego context)
 
     /* ping the bodies */
     status = pingBodies(tess1, tess2, dtime, iparam, "Conical", 1e-7, 1e-7, 1e-7);
+    if (status != EGADS_SUCCESS) goto cleanup;
+
+    status = pingBodiesExtern(tess1, ebody2, dtime, iparam, "Conical", 1e-7, 1e-7, 1e-7);
     if (status != EGADS_SUCCESS) goto cleanup;
 
     EG_deleteObject(tess2);
@@ -3967,6 +4222,7 @@ setCylindricalBody_dot( const double *xcent,     /* (in)  Center          */
   int    nnode, nedge, nloop, nface, oclass, mtype, *senses;
   double data[13], data_dot[13], dx[3], dx_dot[3], dy[3], dy_dot[3], dz[3], dz_dot[3];
   double *rvec=NULL, *rvec_dot=NULL, x1[3], x1_dot[3], x2[3], x2_dot[3];
+  double tdata[2], tdata_dot[2];
   ego    ecylinder, ecircle[2], *enodes, *eloops, *eedges, *efaces, eref;
 
   /* get the Face from the Body */
@@ -4133,6 +4389,16 @@ setCylindricalBody_dot( const double *xcent,     /* (in)  Center          */
   status = setLineEdge_dot( eedges[0] );
   if (status != EGADS_SUCCESS) goto cleanup;
 
+  /* set the Edge t-range sensitivity */
+  tdata[0]     = 0;
+  tdata[1]     = TWOPI;
+  tdata_dot[0] = 0;
+  tdata_dot[1] = 0;
+  status = EG_setGeometry_dot(eedges[1], EDGE, ONENODE, NULL, tdata, tdata_dot);
+  if (status != EGADS_SUCCESS) goto cleanup;
+  status = EG_setGeometry_dot(eedges[3], EDGE, ONENODE, NULL, tdata, tdata_dot);
+  if (status != EGADS_SUCCESS) goto cleanup;
+
   status = EGADS_SUCCESS;
 
 cleanup:
@@ -4236,6 +4502,9 @@ pingCylindrical(ego context)
 
     /* ping the bodies */
     status = pingBodies(tess1, tess2, dtime, iparam, "Cylindrical", 1e-7, 1e-7, 1e-7);
+    if (status != EGADS_SUCCESS) goto cleanup;
+
+    status = pingBodiesExtern(tess1, ebody2, dtime, iparam, "Cylindrical", 1e-7, 1e-7, 1e-7);
     if (status != EGADS_SUCCESS) goto cleanup;
 
     EG_deleteObject(tess2);
@@ -4471,7 +4740,7 @@ setToroidalBody_dot( const double *xcent,     /* (in)  Center                  *
   int    status = EGADS_SUCCESS;
   int    nnode, nedge, nloop, nface, oclass, mtype, *senses;
   double data[14], data_dot[14], dx[3], dx_dot[3], dy[3], dy_dot[3], dz[3], dz_dot[3];
-  double *rvec=NULL, *rvec_dot=NULL, R, R_dot;
+  double *rvec=NULL, *rvec_dot=NULL, R, R_dot, tdata[2], tdata_dot[2];
   ego    etorus, ecircle[3], *enodes, *eloops, *eedges, *efaces, eref;
 
   R     = minr     + majr;
@@ -4505,6 +4774,22 @@ setToroidalBody_dot( const double *xcent,     /* (in)  Center                  *
   /* get the Circle and Nodes from the Edge */
   status = EG_getTopology(eedges[1], &ecircle[1], &oclass, &mtype,
                           data, &nnode, &enodes, &senses);
+  if (status != EGADS_SUCCESS) goto cleanup;
+
+  /* set the Edge t-range sensitivity */
+  tdata_dot[0] = 0;
+  tdata_dot[1] = 0;
+  tdata[0]     = 0;
+  tdata[1]     = TWOPI;
+  status = EG_setGeometry_dot(eedges[0], EDGE, ONENODE, NULL, tdata, tdata_dot);
+  if (status != EGADS_SUCCESS) goto cleanup;
+  status = EG_setGeometry_dot(eedges[2], EDGE, ONENODE, NULL, tdata, tdata_dot);
+  if (status != EGADS_SUCCESS) goto cleanup;
+
+  tdata[0]     = 0;
+  tdata[1]     = PI;
+
+  status = EG_setGeometry_dot(eedges[1], EDGE, TWONODE, NULL, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
 
@@ -4773,6 +5058,9 @@ pingToroidal(ego context)
     status = pingBodies(tess1, tess2, dtime, iparam, "Toroidal", 5e-7, 1e-7, 1e-7);
     if (status != EGADS_SUCCESS) goto cleanup;
 
+    status = pingBodiesExtern(tess1, ebody2, dtime, iparam, "Toroidal", 5e-7, 1e-7, 1e-7);
+    if (status != EGADS_SUCCESS) goto cleanup;
+
     EG_deleteObject(tess2);
     EG_deleteObject(ebody2);
   }
@@ -4974,7 +5262,7 @@ setRevolutionBody_dot( const double *xcent,     /* (in)  Center                 
   int    status = EGADS_SUCCESS;
   int    nnode, nedge, nloop, nface, oclass, mtype, *senses, *ivec=NULL;
   double data[14], data_dot[14], dx[3], dx_dot[3], dy[3], dy_dot[3], dz[3], dz_dot[3];
-  double *rvec=NULL, *rvec_dot=NULL;
+  double *rvec=NULL, *rvec_dot=NULL, tdata[2], tdata_dot[2];
   ego    esurf, ecircle[2], eline, *enodes, *eloops, *eedges, *efaces, eref;
 
   /* get the Face from the Body */
@@ -5103,6 +5391,16 @@ setRevolutionBody_dot( const double *xcent,     /* (in)  Center                 
 
   /* set Line Edge velocities */
   status = setLineEdge_dot( eedges[0] );
+  if (status != EGADS_SUCCESS) goto cleanup;
+
+  /* set the Edge t-range sensitivity */
+  tdata_dot[0] = 0;
+  tdata_dot[1] = 0;
+  tdata[0]     = 0;
+  tdata[1]     = TWOPI;
+  status = EG_setGeometry_dot(eedges[1], EDGE, ONENODE, NULL, tdata, tdata_dot);
+  if (status != EGADS_SUCCESS) goto cleanup;
+  status = EG_setGeometry_dot(eedges[3], EDGE, ONENODE, NULL, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   /* set the velocity on the surface */
@@ -5235,6 +5533,9 @@ pingRevolution(ego context)
 
     /* ping the bodies */
     status = pingBodies(tess1, tess2, dtime, iparam, "Revolution", 5e-7, 1e-7, 1e-7);
+    if (status != EGADS_SUCCESS) goto cleanup;
+
+    status = pingBodiesExtern(tess1, ebody2, dtime, iparam, "Revolution", 5e-7, 1e-7, 1e-7);
     if (status != EGADS_SUCCESS) goto cleanup;
 
     EG_deleteObject(tess2);
@@ -5431,7 +5732,7 @@ setExtrusionBody_dot( const double *xcent,     /* (in)  Center                  
   int    status = EGADS_SUCCESS;
   int    nnode, nedge, nloop, nface, oclass, mtype, *senses, *ivec=NULL;
   double data[14], data_dot[14], dx[3], dx_dot[3], dy[3], dy_dot[3];
-  double *rvec=NULL, *rvec_dot=NULL;
+  double *rvec=NULL, *rvec_dot=NULL, tdata[2], tdata_dot[2];
   ego    esurf, ecircle[2], eline, *enodes, *eloops, *eedges, *efaces, eref;
 
   /* get the Face from the Body */
@@ -5577,6 +5878,16 @@ setExtrusionBody_dot( const double *xcent,     /* (in)  Center                  
   status = setLineEdge_dot( eedges[0] );
   if (status != EGADS_SUCCESS) goto cleanup;
 
+  /* set the Edge t-range sensitivity */
+  tdata[0]     = 0;
+  tdata[1]     = TWOPI;
+  tdata_dot[0] = 0;
+  tdata_dot[1] = 0;
+  status = EG_setGeometry_dot(eedges[1], EDGE, ONENODE, NULL, tdata, tdata_dot);
+  if (status != EGADS_SUCCESS) goto cleanup;
+  status = EG_setGeometry_dot(eedges[3], EDGE, ONENODE, NULL, tdata, tdata_dot);
+  if (status != EGADS_SUCCESS) goto cleanup;
+
   status = EGADS_SUCCESS;
 
 cleanup:
@@ -5680,6 +5991,9 @@ pingExtrusion(ego context)
 
     /* ping the bodies */
     status = pingBodies(tess1, tess2, dtime, iparam, "Extrusion", 5e-7, 5e-7, 1e-7);
+    if (status != EGADS_SUCCESS) goto cleanup;
+
+    status = pingBodiesExtern(tess1, ebody2, dtime, iparam, "Extrusion", 5e-7, 5e-7, 1e-7);
     if (status != EGADS_SUCCESS) goto cleanup;
 
     EG_deleteObject(tess2);
@@ -5918,7 +6232,7 @@ setBezierSurfaceBody_dot( const int nCPu,        /* (in)  number of points in u 
 {
   int    status = EGADS_SUCCESS;
   int    i, j, nnode, nedge, nloop, nface, oclass, mtype, *senses, header[5];
-  double data[18], data_dot[18];
+  double data[18], data_dot[18], tdata[2], tdata_dot[2];
   double *lpts=NULL, *lpts_dot=NULL;
   ego    esurf, ecurves[4], enodes[4], *nodes, *eloops, *eedges, *efaces, eref;
 
@@ -6089,6 +6403,19 @@ setBezierSurfaceBody_dot( const int nCPu,        /* (in)  number of points in u 
   status = EG_setGeometry_dot(ecurves[3], CURVE, BEZIER, header, lpts, lpts_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
+  /* set the Edge t-range sensitivity */
+  tdata[0]     = 0;
+  tdata[1]     = 1;
+  tdata_dot[0] = 0;
+  tdata_dot[1] = 0;
+  status = EG_setGeometry_dot(eedges[0], EDGE, TWONODE, NULL, tdata, tdata_dot);
+  if (status != EGADS_SUCCESS) goto cleanup;
+  status = EG_setGeometry_dot(eedges[1], EDGE, TWONODE, NULL, tdata, tdata_dot);
+  if (status != EGADS_SUCCESS) goto cleanup;
+  status = EG_setGeometry_dot(eedges[2], EDGE, TWONODE, NULL, tdata, tdata_dot);
+  if (status != EGADS_SUCCESS) goto cleanup;
+  status = EG_setGeometry_dot(eedges[3], EDGE, TWONODE, NULL, tdata, tdata_dot);
+  if (status != EGADS_SUCCESS) goto cleanup;
 
   status = EGADS_SUCCESS;
 
@@ -6192,6 +6519,9 @@ pingBezierSurface(ego context)
 
     /* ping the bodies */
     status = pingBodies(tess1, tess2, dtime, i, "Bezier Surface", 1e-6, 1e-7, 1e-7);
+    if (status != EGADS_SUCCESS) goto cleanup;
+
+    status = pingBodiesExtern(tess1, ebody2, dtime, i, "Bezier Surface", 1e-6, 1e-7, 1e-7);
     if (status != EGADS_SUCCESS) goto cleanup;
 
     EG_deleteObject(tess2);
@@ -6626,6 +6956,9 @@ pingOffsetSurface(ego context)
     status = pingBodies(tess1, tess2, dtime, iparam, "Offset Surface", 1e-7, 1e-7, 1e-7);
     if (status != EGADS_SUCCESS) goto cleanup;
 
+    status = pingBodiesExtern(tess1, ebody2, dtime, iparam, "Offset Surface", 1e-7, 1e-7, 1e-7);
+    if (status != EGADS_SUCCESS) goto cleanup;
+
     EG_deleteObject(tess2);
     EG_deleteObject(ebody2);
   }
@@ -6842,7 +7175,7 @@ setBsplineSurfaceBody_dot( const int nCPu,        /* (in)  number of points in u
 {
   int    status = EGADS_SUCCESS;
   int    i, j, nnode, nedge, nloop, nface, oclass, mtype, *senses, sizes[2], *header=NULL, lheader[4];
-  double data[18], data_dot[18];
+  double data[18], data_dot[18], tdata[2], tdata_dot[2];
   double *lpts=NULL, *lpts_dot=NULL, *rvec=NULL, *rvec_dot=NULL;
   ego    esurf, ecurves[4], enodes[4], *nodes, *eloops, *eedges, *efaces, eref;
 
@@ -6984,6 +7317,19 @@ setBsplineSurfaceBody_dot( const int nCPu,        /* (in)  number of points in u
   EG_free(lpts); lpts = NULL;
   EG_free(lpts_dot); lpts_dot = NULL;
 
+  /* set the Edge t-range sensitivity */
+  tdata[0]     = 0;
+  tdata[1]     = 1;
+  tdata_dot[0] = 0;
+  tdata_dot[1] = 0;
+  status = EG_setGeometry_dot(eedges[0], EDGE, TWONODE, NULL, tdata, tdata_dot);
+  if (status != EGADS_SUCCESS) goto cleanup;
+  status = EG_setGeometry_dot(eedges[1], EDGE, TWONODE, NULL, tdata, tdata_dot);
+  if (status != EGADS_SUCCESS) goto cleanup;
+  status = EG_setGeometry_dot(eedges[2], EDGE, TWONODE, NULL, tdata, tdata_dot);
+  if (status != EGADS_SUCCESS) goto cleanup;
+  status = EG_setGeometry_dot(eedges[3], EDGE, TWONODE, NULL, tdata, tdata_dot);
+  if (status != EGADS_SUCCESS) goto cleanup;
 
   status = EGADS_SUCCESS;
 
@@ -7090,6 +7436,9 @@ pingBsplineSurface(ego context)
 
     /* ping the bodies */
     status = pingBodies(tess1, tess2, dtime, i, "B-spline Surface", 1e-6, 5e-7, 1e-7);
+    if (status != EGADS_SUCCESS) goto cleanup;
+
+    status = pingBodiesExtern(tess1, ebody2, dtime, i, "B-spline Surface", 1e-6, 5e-7, 1e-7);
     if (status != EGADS_SUCCESS) goto cleanup;
 
     EG_deleteObject(tess2);
@@ -7210,7 +7559,7 @@ checkCurve_dot(ego context)
 {
   int    status = EGADS_SUCCESS;
   int    esens[1] = {SFORWARD}, *senses, oclass, mtype, nloop, nedge, nnode;
-  double data[18], data_dot[18], tdata[2];
+  double data[18], data_dot[18], tdata[2], tdata_dot[2];
   ego    eline=NULL, enodes[2]={NULL,NULL}, eedge=NULL, eloop=NULL, ebody=NULL;
   ego    bline, *bnodes, *bedges, *bloops, eref;
 
@@ -7332,11 +7681,17 @@ checkCurve_dot(ego context)
   tdata[0] = 0;
   tdata[1] = sqrt(data[3]*data[3] + data[4]*data[4] + data[5]*data[5]);
 
+  tdata_dot[0] = 0;
+  tdata_dot[1] = (data[3]*data_dot[3] + data[4]*data_dot[4] + data[5]*data_dot[5])/tdata[1];
+
   status = EG_makeTopology(context, eline, EDGE, TWONODE,
                            tdata, 2, enodes, NULL, &eedge);
   if (status != EGADS_SUCCESS) goto cleanup;
 
-  /* hasGeometry_dot checks the curve and nodes for an edge */
+  status = EG_setGeometry_dot(eedge, EDGE, TWONODE, NULL, tdata, tdata_dot);
+  if (status != EGADS_SUCCESS) goto cleanup;
+
+  /* hasGeometry_dot checks the Edge t-range, curve and nodes for an edge */
   status = EG_hasGeometry_dot(eedge);
   if (status != EGADS_NOTFOUND) {
     status = EGADS_NODATA;
@@ -7494,7 +7849,7 @@ checkSurface_dot(ego context)
   int    status = EGADS_SUCCESS;
   int    i, esens[4] = {SREVERSE, SFORWARD, SFORWARD, SREVERSE}, lsens[1]={SFORWARD}, *senses;
   int    oclass, mtype, nface, nloop, nedge, nnode;
-  double data[18], data_dot[18], tdata[2];
+  double data[18], data_dot[18], tdata[2], tdata_dot[2];
   ego    esphere=NULL, ecircle=NULL, enodes[2]={NULL,NULL};
   ego    eedges[8]={NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL}, eloop=NULL, eface=NULL, ebody=NULL;
   ego    bcircle, *bnodes, *bedges, *bloops, *bfaces, eref;
@@ -7623,7 +7978,7 @@ checkSurface_dot(ego context)
   status = EG_setGeometry_dot(ecircle, CURVE, CIRCLE, NULL, data, data_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
-  /* create Nodes with sensitvities for the Edge */
+  /* create Nodes with sensitivities for the Edge */
   data[0] =  0;
   data[1] =  0;
   data[2] = -2;
@@ -7647,23 +8002,36 @@ checkSurface_dot(ego context)
   /* make the Edge on the Circle */
   tdata[0] = -PI/2.;
   tdata[1] =  PI/2.;
+  tdata_dot[0] = 0;
+  tdata_dot[1] = 0;
 
   status = EG_makeTopology(context, ecircle, EDGE, TWONODE,
                            tdata, 2, enodes, NULL, &eedges[0]);
   if (status != EGADS_SUCCESS) goto cleanup;
 
+  status = EG_setGeometry_dot(eedges[0], EDGE, TWONODE, NULL, tdata, tdata_dot);
+  if (status != EGADS_SUCCESS) goto cleanup;
+
   /* make the Degenerate Edges on the Nodes */
   tdata[0] = 0;
   tdata[1] = TWOPI;
+  tdata_dot[0] = 0;
+  tdata_dot[1] = 0;
 
   status = EG_makeTopology(context, NULL, EDGE, DEGENERATE,
                            tdata, 1, &enodes[0], NULL, &eedges[1]);
+  if (status != EGADS_SUCCESS) goto cleanup;
+
+  status = EG_setGeometry_dot(eedges[1], EDGE, DEGENERATE, NULL, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   eedges[2] = eedges[0]; /* repeat the circle edge */
 
   status = EG_makeTopology(context, NULL, EDGE, DEGENERATE,
                            tdata, 1, &enodes[1], NULL, &eedges[3]);
+  if (status != EGADS_SUCCESS) goto cleanup;
+
+  status = EG_setGeometry_dot(eedges[3], EDGE, DEGENERATE, NULL, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   /* create P-curves */
@@ -7819,7 +8187,6 @@ int main(int argc, char *argv[])
     printf(" EG_open return = %d\n", status);
     return EXIT_FAILURE;
   }
-
 
   status = pingLine(context);
   if (status != EGADS_SUCCESS) goto cleanup;

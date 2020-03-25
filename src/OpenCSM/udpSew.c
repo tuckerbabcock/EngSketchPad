@@ -194,7 +194,7 @@ udpExecute(ego  context,                /* (in)  EGADS context */
             emodel1 = NULL;
         }
         if (emodel2 != NULL) {
-            EG_deleteObject(emodel1);
+            EG_deleteObject(emodel2);
             emodel2 = NULL;
         }
         goto cleanup;
@@ -223,7 +223,7 @@ udpExecute(ego  context,                /* (in)  EGADS context */
             emodel1 = NULL;
         }
         if (emodel2 != NULL) {
-            EG_deleteObject(emodel1);
+            EG_deleteObject(emodel2);
             emodel2 = NULL;
         }
         goto cleanup;
@@ -236,7 +236,7 @@ udpExecute(ego  context,                /* (in)  EGADS context */
             emodel1 = NULL;
         }
         if (emodel2 != NULL) {
-            EG_deleteObject(emodel1);
+            EG_deleteObject(emodel2);
             emodel2 = NULL;
         }
         goto cleanup;
@@ -257,7 +257,7 @@ udpExecute(ego  context,                /* (in)  EGADS context */
             emodel1 = NULL;
         }
         if (emodel2 != NULL) {
-            EG_deleteObject(emodel1);
+            EG_deleteObject(emodel2);
             emodel2 = NULL;
         }
         goto cleanup;
@@ -272,7 +272,7 @@ udpExecute(ego  context,                /* (in)  EGADS context */
             emodel1 = NULL;
         }
         if (emodel2 != NULL) {
-            EG_deleteObject(emodel1);
+            EG_deleteObject(emodel2);
             emodel2 = NULL;
         }
         goto cleanup;
@@ -290,7 +290,7 @@ udpExecute(ego  context,                /* (in)  EGADS context */
             emodel1 = NULL;
         }
         if (emodel2 != NULL) {
-            EG_deleteObject(emodel1);
+            EG_deleteObject(emodel2);
             emodel2 = NULL;
         }
         goto cleanup;
@@ -322,7 +322,7 @@ udpExecute(ego  context,                /* (in)  EGADS context */
         emodel1 = NULL;
     }
     if (emodel2 != NULL) {
-        EG_deleteObject(emodel1);
+        EG_deleteObject(emodel2);
         emodel2 = NULL;
     }
 

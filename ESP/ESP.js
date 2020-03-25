@@ -220,6 +220,11 @@ var cmdUndo = function() {
 // callback when "solveButton" is pressed (called by ESP.html)
 //
 var cmdSolve = function() {
+
+    // if myFileMenu or myToolMenu is currently posted, delet it/them now
+    document.getElementById("myFileMenu").classList.remove("showFileMenu");
+    document.getElementById("myToolMenu").classList.remove("showToolMenu");
+
     if (wv.curTool.cmdSolve !== undefined) {
         wv.curTool.cmdSolve();
     }
@@ -1928,6 +1933,9 @@ var cmdFile = function () {
     // toggle between hiding and showing the File menu contents
     document.getElementById("myFileMenu").classList.toggle("showFileMenu");
 
+    // if myToolMenu is currently posted, delete it now
+    document.getElementById("myToolMenu").classList.remove("showToolMenu");
+
     /* remove previous menu entries */
     var menu = document.getElementById("myFileMenu");
     while (menu.firstChild !== null) {
@@ -2457,6 +2465,9 @@ var cmdTool = function () {
 
     // toggle between hiding and showing the File menu contents
     document.getElementById("myToolMenu").classList.toggle("showToolMenu");
+
+    // if myFileMenu is currently posted, delete it now
+    document.getElementById("myFileMenu").classList.remove("showFileMenu");
 };
 
 
@@ -2476,6 +2487,10 @@ var cmdDone = function () {
 //
 var cmdStepThru = function (direction) {
     // alert("in cmdStepThru(direction="+direction+")");
+
+    // if myFileMenu or myToolMenu is currently posted, delet it/them now
+    document.getElementById("myFileMenu").classList.remove("showFileMenu");
+    document.getElementById("myToolMenu").classList.remove("showToolMenu");
 
     if        (wv.curMode >= 7) {
         alert("stepThru not enabled when in tool");
@@ -2498,6 +2513,10 @@ var cmdStepThru = function (direction) {
 // callback when "helpButton" is pressed (called by ESP.html)
 //
 var cmdHelp = function () {
+
+    // if myFileMenu or myToolMenu is currently posted, delet it/them now
+    document.getElementById("myFileMenu").classList.remove("showFileMenu");
+    document.getElementById("myToolMenu").classList.remove("showToolMenu");
 
     // open help in another tab
     window.open("ESP-help.html");
@@ -4265,6 +4284,10 @@ main.cmdSolve = function () {
 main.cmdUndo = function () {
     // alert("in cmdUndo()");
 
+    // if myFileMenu or myToolMenu is currently posted, delet it/them now
+    document.getElementById("myFileMenu").classList.remove("showFileMenu");
+    document.getElementById("myToolMenu").classList.remove("showToolMenu");
+
     if (wv.curMode != 0) {
         alert("Command disabled.  Press 'Cancel' or 'OK' first");
         return;
@@ -5884,6 +5907,9 @@ var rebuildTreeWindow = function () {
         myTree.addNode(0, "Display");                                            // 4
     }
 
+    myTree.addNode(2, "@-parameters",      "",                  "", null   );    // 5
+    myTree.addNode(2, "@@-parameters",     "",                  "", null   );    // 6
+
     // put the Design Parameters into the Tree
     for (var ipmtr = 0; ipmtr < pmtr.length; ipmtr++) {
         if (pmtr[ipmtr].type == OCSM_EXTERNAL ||
@@ -5961,8 +5987,13 @@ var rebuildTreeWindow = function () {
                 value = "["+nrow+"x"+ncol+"]";
             }
 
-            myTree.addNode(2, name, "", "", null,
-                           ""+value, "");
+            if (pmtr[ipmtr].name[0] == "@" && pmtr[ipmtr].name[1] == "@") {
+                myTree.addNode(6, name, "", "", null, ""+value, "");
+            } else if (pmtr[ipmtr].name[0] == "@") {
+                myTree.addNode(5, name, "", "", null, ""+value, "");
+            } else {
+                myTree.addNode(2, name, "", "", null, ""+value, "");
+            }
             var inode = myTree.name.length - 1;
 
             var indx = 0;

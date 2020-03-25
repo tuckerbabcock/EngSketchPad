@@ -49,8 +49,18 @@ patbeg ileft 3
       # union the Bodys
       union
 
-      # if an error, grouop the Bodys instead
+      # if an error, add to group and color the Bodys red
       catbeg    $wrong_types_on_stack
+         select body @stack[@stack.size-1]
+         select face
+            attribute  _color $red
+         select edge
+            attribute  _color $red
+         select body @stack[@stack.size]
+         select face
+            attribute  _color $red
+         select edge
+            attribute  _color $red
          group
       catend
 

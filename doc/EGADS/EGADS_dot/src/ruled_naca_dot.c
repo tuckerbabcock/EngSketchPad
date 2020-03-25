@@ -19,10 +19,8 @@ pingBodies(ego tess1, ego tess2, double dtime, int iparam, const char *shape, do
 #define NUMPNTS    101
 #define DXYTOL     1.0e-8
 
-/* set KNOTS to 0 for arc-length knots, and -1 for equally spaced knots
- * Equally spaced knots is required for the finite difference sensitivities to be correct
- */
-#define KNOTS      -1
+/* set KNOTS to 0 for arc-length knots, and -1 for equally spaced knots */
+#define KNOTS      0
 
 /* NACA 4 series coefficients */
 static const double A =  0.2969;
@@ -243,7 +241,7 @@ int setNacaBody_dot( ego eobj,  /* (in/out) body with sensitivities    */
 {
   int     status = EGADS_SUCCESS;
   int     ipnt, nedge, oclass, mtype, nchild, nloop, nface, *senses, sizes[2];
-  double  data[18], data_dot[18], trange[4];
+  double  data[18], data_dot[18], tdata[2], tdata_dot[2];
   double  zeta, s, *pnts=NULL, *pnts_dot=NULL;
   double  yt, yt_dot, yc, yc_dot, theta, theta_dot;
   double  ycm, ycm_dot, dycm, dycm_dot, tle, tle_dot;
@@ -266,7 +264,7 @@ int setNacaBody_dot( ego eobj,  /* (in/out) body with sensitivities    */
   if (status != EGADS_SUCCESS) goto cleanup;
 
   /* get the nodes and the curve from the first edge */
-  status = EG_getTopology(eedges[0], &ecurve, &oclass, &mtype, trange, &nchild, &echildren,
+  status = EG_getTopology(eedges[0], &ecurve, &oclass, &mtype, data, &nchild, &echildren,
                           &senses);
   if (status != EGADS_SUCCESS) goto cleanup;
   enodes[0] = echildren[0]; // upper trailing edge
@@ -360,6 +358,24 @@ int setNacaBody_dot( ego eobj,  /* (in/out) body with sensitivities    */
   status = EG_setGeometry_dot(enodes[1], NODE, 0, NULL, data, data_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
+  /* set Edge t-range sensitivity for upper surface */
+  tdata[0]     = 0;
+  tdata[1]     = tle;
+  tdata_dot[0] = 0;
+  tdata_dot[1] = tle_dot;
+
+  status = EG_setGeometry_dot(eedges[0], EDGE, TWONODE, NULL, tdata, tdata_dot);
+  if (status != EGADS_SUCCESS) goto cleanup;
+
+  /* set Edge t-range sensitivity for lower surface */
+  tdata[0]     = tdata[1];
+  tdata[1]     = 1;
+  tdata_dot[0] = tdata_dot[1];
+  tdata_dot[1] = 0;
+
+  status = EG_setGeometry_dot(eedges[1], EDGE, TWONODE, NULL, tdata, tdata_dot);
+  if (status != EGADS_SUCCESS) goto cleanup;
+
 
   if (sharpte == 0) {
     /* trailing edge line and lower trailing edge node from the 3rd edge */
@@ -391,6 +407,16 @@ int setNacaBody_dot( ego eobj,  /* (in/out) body with sensitivities    */
     data_dot[5] = pnts_dot[2] - data_dot[2];
 
     status = EG_setGeometry_dot(eline, CURVE, LINE, NULL, data, data_dot);
+    if (status != EGADS_SUCCESS) goto cleanup;
+
+    /* set Edge t-range sensitivity */
+    tdata[0] = 0;
+    tdata[1] = sqrt(data[3]*data[3] + data[4]*data[4] + data[5]*data[5]);
+
+    tdata_dot[0] = 0;
+    tdata_dot[1] = (data[3]*data_dot[3] + data[4]*data_dot[4] + data[5]*data_dot[5])/tdata[1];
+
+    status = EG_setGeometry_dot(eedges[2], EDGE, TWONODE, NULL, tdata, tdata_dot);
     if (status != EGADS_SUCCESS) goto cleanup;
   }
 
@@ -437,7 +463,7 @@ main(int       argc,                    /* (in)  number of arguments */
   int    status = EGADS_SUCCESS;
   int    iparam, np1, nt1, iedge, nedge, iface, nface;
   int    sharpte, oclass, mtype, *senses, nsec = 2;
-  double x[4], x_dot[4], params[3], dtime = 1e-6;
+  double x[4], x_dot[4], params[3], dtime = 1e-7;
   double mat[12], mat_dot[12], range[4];
   const int    *pt1, *pi1, *ts1, *tc1;
   const double *t1, *x1, *uv1;

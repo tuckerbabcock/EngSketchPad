@@ -126,7 +126,8 @@ main(int argc, char *argv[])
     return 1;
   }
   MODL = (modl_T *) modl;
-  MODL->context = context;
+  MODL->context   = context;
+  MODL->tessAtEnd = 0;
 
   /* check that Branches are properly ordered */
   stat = ocsmCheck(modl);

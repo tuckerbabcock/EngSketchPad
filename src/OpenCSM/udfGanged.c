@@ -219,7 +219,7 @@ udpExecute(ego  emodel,                 /* (in)  input model */
     if (status != EGADS_SUCCESS) goto cleanup;
 
     if (nchild != 1) {
-        printf(" udpExecute: expecting 1 Body, got %d\n", nchild);
+        printf(" udpExecute: expecting 1 result Body, got %d\n", nchild);
         status = EGADS_TOPOERR;
         goto cleanup;
     }

@@ -53,6 +53,12 @@
    #include <fenv.h>
 #endif
 
+#ifdef WIN32
+    #define  SLASH '\\'
+#else
+    #define  SLASH '/'
+#endif
+
 /***********************************************************************/
 /*                                                                     */
 /* macros (including those that go along with common.h)                */
@@ -78,10 +84,11 @@
 /***********************************************************************/
 
 /* global variable holding a MODL */
-       char      casename[255];        /* name of case */
-       char      pmtrname[255];        /* name of single design Parameter */
+static char      casename[255];        /* name of case */
+static char      pmtrname[255];        /* name of single design Parameter */
 static void      *modl;                /* pointer to MODL */
 
+static int       addData  = 0;         /* =1 to write .csen or .tsen file */
 static int       config   = 0;         /* =1 for configuration sensitivites */
 static double    dtime    = 1.0e-6;    /* nominal dtime for perturbation */
 static int       outLevel = 1;         /* default output level */
@@ -97,7 +104,7 @@ static int       maxlist  = 10;        /* maximum number of errors to list */
 /***********************************************************************/
 
 /* declarations for high-level routines defined below */
-static int checkConfigSens(int ipmtr, int irow, int icol, int *ntotal, int *nsuppress, double *errmaxConf);
+static int checkConfigSens(int ipmtr, int irow, int icol, int *ntotal, int *nsuppress, double *errmax);
 static int checkTesselSens(int ipmtr, int irow, int icol, int *ntotal, /*@unused@*/int *nsuppress, double *errmaxTess);
 
 
@@ -114,11 +121,13 @@ main(int       argc,                    /* (in)  number of arguments */
 
     int       status, status2, i, nbody, ibody;
     int       imajor, iminor, builtTo, showUsage=0;
-    int       ipmtr, irow, icol, ntotal, nsuppress=0;
-    double    errmaxConf=0, errmaxTess=0;
-    char      filename[255];
+    int       ipmtr, irow, icol, iirow, iicol, ntotal, nsuppress=0, nerror=0;
+    double    errmax, error, errmaxConf=0, errmaxTess=0;
+    char      basename[MAX_FILENAME_LEN], dirname[MAX_FILENAME_LEN];
+    char      filename[MAX_FILENAME_LEN], pname[  MAX_FILENAME_LEN];
     CCHAR     *OCC_ver;
     ego       context;
+    FILE      *fp_data=NULL;
 
     modl_T    *MODL;
 
@@ -135,6 +144,8 @@ main(int       argc,                    /* (in)  number of arguments */
     for (i = 1; i < argc; i++) {
         if        (strcmp(argv[i], "--") == 0) {
             /* ignore (needed for gdb) */
+        } else if (strcmp(argv[i], "-addData") == 0) {
+            addData = 1;
         } else if (strcmp(argv[i], "-config") == 0) {
             config = 1;
         } else if (strcmp(argv[i], "-despmtr") == 0) {
@@ -190,7 +201,8 @@ main(int       argc,                    /* (in)  number of arguments */
     if (showUsage) {
         SPRINT2(0, "sensCSM version %2d.%02d\n", imajor, iminor);
         SPRINT0(0, "proper usage: 'sensCSM [casename[.csm]] [options...]");
-        SPRINT0(0, "   where [options...] = -config");
+        SPRINT0(0, "   where [options...] = -addData");
+        SPRINT0(0, "                        -config");
         SPRINT0(0, "                        -despmtr pmtrname");
         SPRINT0(0, "                        -dtime dtime");
         SPRINT0(0, "                        -help  -or-  -h");
@@ -219,6 +231,7 @@ main(int       argc,                    /* (in)  number of arguments */
     SPRINT0(1, "**********************************************************\n");
 
     SPRINT1(1, "    casename   = %s", casename  );
+    SPRINT1(1, "    addData    = %d", addData   );
     SPRINT1(1, "    config     = %d", config    );
     SPRINT1(1, "    despmtr    = %s", pmtrname  );
     SPRINT1(1, "    dtime      = %f", dtime     );
@@ -287,10 +300,53 @@ main(int       argc,                    /* (in)  number of arguments */
         CHECK_STATUS(ocsmPrintBodys);
     }
 
+    /* open the .csen or .tsen file */
+    EG_revision(&imajor, &iminor, &OCC_ver);
+
+    /* get basename and dirname */
+    i = strlen(casename) - 1;
+    while (i >= 0) {
+        if (casename[i] == '/' || casename[i] == '\\') {
+            i++;
+            break;
+        }
+        i--;
+    }
+    if (i == -1) {
+        strcpy(dirname, ".");
+        strcpy(basename, casename);
+    } else {
+        strcpy(basename, &(filename[i]));
+        strcpy(dirname, casename);
+        dirname[i-1] = '\0';
+    }
+
+    /* remove .csm or .cpc extension */
+    i = strlen(basename);
+    basename[i-4] = '\0';
+
+    /* create the full filename */
+    if (config) {
+        snprintf(filename, MAX_FILENAME_LEN-1, "%s%cverify_%s%c%s.csen", dirname, SLASH, &(OCC_ver[strlen(OCC_ver)-5]), SLASH, basename);
+        if (addData) {
+            fp_data = fopen(filename, "w");
+        } else {
+            fp_data = fopen(filename, "r");
+        }
+    } else {
+        snprintf(filename, MAX_FILENAME_LEN-1, "%s%cverify_%s%c%s.tsen", dirname, SLASH, &(OCC_ver[strlen(OCC_ver)-5]), SLASH, basename);
+        if (addData) {
+            fp_data = fopen(filename, "w");
+        } else {
+            fp_data = fopen(filename, "r");
+        }
+    }
+
     /* check configuration and tessellation sensitivities */
     ntotal     = 0;              // total number of errors exceeding tolerance
-    errmaxConf = 0;              // maximmum error   (configuration)
+    errmaxConf = 0;              // maximum error (configuration)
     errmaxTess = 0;              // maximum error (tessellation)
+    nerror     = 0;              // number of sensitivites whose error has increased
 
     /* loop through all design Parameters */
     for (ipmtr = 1; ipmtr <= MODL->npmtr; ipmtr++) {
@@ -314,18 +370,60 @@ main(int       argc,                    /* (in)  number of arguments */
 //$$$                CHECK_STATUS(ocsmBuild);
 
                 if (config) {
-                    status = checkConfigSens(ipmtr, irow, icol, &ntotal, &nsuppress, &errmaxConf);
+                    errmax = EPS20;
+                    status = checkConfigSens(ipmtr, irow, icol, &ntotal, &nsuppress, &errmax);
                     CHECK_STATUS(check_status);
+
+                    if (addData) {
+                        fprintf(fp_data, "%-32s %5d %5d %12.5e\n", MODL->pmtr[ipmtr].name, irow, icol, errmax);
+
+                        printf("INFO:: config error for %32s[%d,%d] is%12.5e being written to file\n",
+                                   MODL->pmtr[ipmtr].name, irow, icol, errmax);
+                    } else {
+                        fscanf(fp_data, "%s %d %d %lf", pname, &iirow, &iicol, &error);
+
+                        if (strcmp(MODL->pmtr[ipmtr].name, pname) != 0 || irow != iirow || icol != iicol) {
+                            printf("ERROR:: .csen file does not match case\n");
+                        } else if (errmax > 1.10*error) {
+                            printf("ERROR:: config error for %32s[%d,%d] increased from %12.5e to %12.5e\n",
+                                   MODL->pmtr[ipmtr].name, irow, icol, error, errmax);
+                            nerror++;
+                        }
+                    }
+
+                    if (errmax > errmaxConf) errmaxConf = errmax;
                 }
 
                 if (tessel) {
-                    status = checkTesselSens(ipmtr, irow, icol, &ntotal, &nsuppress, &errmaxTess);
+                    errmax = EPS20;
+                    status = checkTesselSens(ipmtr, irow, icol, &ntotal, &nsuppress, &errmax);
                     CHECK_STATUS(checkTesselSens);
+
+                    if (addData) {
+                        fprintf(fp_data, "%-32s %5d %5d %12.5e\n", MODL->pmtr[ipmtr].name, irow, icol, errmaxTess);
+
+                        printf("INFO:: tessel error for %32s[%d,%d] is%12.5e being written to file\n",
+                                   MODL->pmtr[ipmtr].name, irow, icol, errmax);
+                    } else {
+                        fscanf(fp_data, "%s %d %d %lf", pname, &iirow, &iicol, &error);
+
+                        if (strcmp(MODL->pmtr[ipmtr].name, pname) != 0 || irow != iirow || icol != iicol) {
+                            printf("ERROR:: .csen file does not match case\n");
+                        } else if (errmax > 1.10*error) {
+                            printf("ERROR:: tessel error for %32s[%d,%d] increased from %12.5e to %12.5e\n",
+                                   MODL->pmtr[ipmtr].name, irow, icol, error, errmax);
+                            nerror++;
+                        }
+                    }
+
+                    if (errmax > errmaxTess) errmaxTess = errmax;
                 }
             }
         }
         SPRINT0(0, " ");
     }
+
+    if (fp_data != NULL) fclose(fp_data);
 
     SPRINT0(0, "==> sensCSM completed successfully");
     status = EXIT_SUCCESS;
@@ -393,6 +491,7 @@ cleanup:
 
     /* these statements are in case we used an error return to go to cleanup */
     if (status < 0) status = EXIT_FAILURE;
+    if (nerror > 0) status = EXIT_FAILURE;
 
     return status;
 }

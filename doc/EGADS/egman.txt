@@ -1356,6 +1356,24 @@ tool	the tool SHEETBODY object
 sheet	the resultant SHEETBODY object
 
 --------------------------------------------------------------------------------------------
+--generalBoolean
+
+icode = EG_generalBoolean(ego src, ego tool, int oper,
+                          double tol, ego *model)
+icode = IG_generalBoolean(I*8 src, I*8 tool, I*4 oper,
+                          R*8    tol, I*8  model)
+
+Performs the Boolean Operations on the source BODY Object(s). The tool Object(s) are applied depending on the operation. This supports Intersection, Splitter, Subtraction and Union.
+
+src	the source BODY object(s) in the form of a MODEL or BODY
+tool	the tool BODY object(s) in the form of a MODEL or BODY
+oper	1-Subtraction, 2-Intersection, 3-Fusion, 4-Splitter
+tol	the tolerance applied to perform the operation. If set to zero, the minimum tolerance is applied
+model	the resultant MODEL object (this is because there may be multiple bodies from either the subtraction or intersection operation).
+
+Note: The BODY Object(s) for src  and tool can be of any type but the results depend on the operation. Only works for OpenCASCADE 7.3.1 and higher.
+
+--------------------------------------------------------------------------------------------
 --intersection
 
 icode = EG_intersection(ego src, ego tool, int *nEdge,

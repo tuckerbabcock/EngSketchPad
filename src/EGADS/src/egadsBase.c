@@ -212,6 +212,76 @@ EG_setOutLevel(egObject *context, int outLevel)
 
 
 int
+EG_fixedKnots(const egObject *obj)
+{
+  egObject *context;
+  egCntxt  *cntxt;
+
+  if (obj == NULL)               return 0;
+  if (obj->magicnumber != MAGIC) return 0;
+  context = EG_context(obj);
+  if (context == NULL)           return 0;
+  
+  cntxt = (egCntxt *) context->blind;
+  return cntxt->fixedKnots;
+}
+
+
+int
+EG_setFixedKnots(egObject *context, int fixedKnots)
+{
+  int     old;
+  egCntxt *cntx;
+
+  if  (context == NULL)                     return EGADS_NULLOBJ;
+  if  (context->magicnumber != MAGIC)       return EGADS_NOTOBJ;
+  if  (context->oclass != CONTXT)           return EGADS_NOTCNTX;
+  if ((fixedKnots < 0) || (fixedKnots > 1)) return EGADS_RANGERR;
+  cntx = (egCntxt *) context->blind;
+  if  (cntx == NULL)                        return EGADS_NODATA;
+  old              = cntx->fixedKnots;
+  cntx->fixedKnots = fixedKnots;
+  
+  return old;
+}
+
+
+int
+EG_fullAttrs(const egObject *obj)
+{
+  egObject *context;
+  egCntxt  *cntxt;
+
+  if (obj == NULL)               return 0;
+  if (obj->magicnumber != MAGIC) return 0;
+  context = EG_context(obj);
+  if (context == NULL)           return 0;
+  
+  cntxt = (egCntxt *) context->blind;
+  return cntxt->fullAttrs;
+}
+
+
+int
+EG_setFullAttrs(egObject *context, int fullAttrs)
+{
+  int     old;
+  egCntxt *cntx;
+
+  if  (context == NULL)                   return EGADS_NULLOBJ;
+  if  (context->magicnumber != MAGIC)     return EGADS_NOTOBJ;
+  if  (context->oclass != CONTXT)         return EGADS_NOTCNTX;
+  if ((fullAttrs < 0) || (fullAttrs > 1)) return EGADS_RANGERR;
+  cntx = (egCntxt *) context->blind;
+  if  (cntx == NULL)                      return EGADS_NODATA;
+  old             = cntx->fullAttrs;
+  cntx->fullAttrs = fullAttrs;
+  
+  return old;
+}
+
+
+int
 EG_setTessParam(egObject *context, int iParam, double value, double *oldValue)
 {
   egCntxt *cntx;
@@ -294,13 +364,15 @@ EG_open(egObject **context)
     return EGADS_MALLOC;
   }
   for (i = 0; i < MTESSPARAM; i++) cntx->tess[i] = 0.0;
-  cntx->outLevel  = 1;
-  cntx->signature = EGADSprop;
-  cntx->usrPtr    = NULL;
-  cntx->threadID  = EMP_ThreadID();
-  cntx->mutex     = EMP_LockCreate();
-  cntx->pool      = NULL;
-  cntx->last      = object;
+  cntx->outLevel   = 1;
+  cntx->fixedKnots = 0;
+  cntx->fullAttrs  = 0;
+  cntx->signature  = EGADSprop;
+  cntx->usrPtr     = NULL;
+  cntx->threadID   = EMP_ThreadID();
+  cntx->mutex      = EMP_LockCreate();
+  cntx->pool       = NULL;
+  cntx->last       = object;
   if (cntx->mutex == NULL)
     printf(" EMP Error: mutex creation = NULL (EG_open)!\n");
   

@@ -180,13 +180,15 @@ EG_open(egObject **context)
     return EGADS_MALLOC;
   }
   for (i = 0; i < MTESSPARAM; i++) cntx->tess[i] = 0.0;
-  cntx->outLevel  = 1;
-  cntx->signature = EGADSprop;
-  cntx->usrPtr    = NULL;
-  cntx->threadID  = EMP_ThreadID();
-  cntx->mutex     = EMP_LockCreate();
-  cntx->pool      = NULL;
-  cntx->last      = object;
+  cntx->outLevel   = 1;
+  cntx->fixedKnots = 0;
+  cntx->fullAttrs  = 0;
+  cntx->signature  = EGADSprop;
+  cntx->usrPtr     = NULL;
+  cntx->threadID   = EMP_ThreadID();
+  cntx->mutex      = EMP_LockCreate();
+  cntx->pool       = NULL;
+  cntx->last       = object;
   if (cntx->mutex == NULL)
     printf(" EMP Error: mutex creation = NULL (EG_open)!\n");
   

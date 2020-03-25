@@ -47,7 +47,7 @@ patend
 # optional slot
 ifthen Dslot GT 0
    set    temp      Length/2-Wslot
-   box    temp      -Height/2 -.1       Wslot     Dslot     Depth+.2
+   box    temp      -Height/2-.1 -.1       Wslot     Dslot+.1     Depth+.2
    patbeg iface 6
       select       face @nbody iface
          attribute name $slotFace

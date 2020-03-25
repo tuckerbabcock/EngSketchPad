@@ -107,10 +107,10 @@ EG_openTessBody(egObject *tess)
   egTessel *btess;
   egObject *obj;
 
-  if  (tess == NULL)                 return EGADS_NULLOBJ;
-  if  (tess->magicnumber != MAGIC)   return EGADS_NOTOBJ;
-  if  (tess->oclass != TESSELLATION) return EGADS_NOTTESS;
-  if (EG_sameThread(tess))           return EGADS_CNTXTHRD;
+  if (tess == NULL)                 return EGADS_NULLOBJ;
+  if (tess->magicnumber != MAGIC)   return EGADS_NOTOBJ;
+  if (tess->oclass != TESSELLATION) return EGADS_NOTTESS;
+  if (EG_sameThread(tess))          return EGADS_CNTXTHRD;
   btess = (egTessel *) tess->blind;
   if (btess == NULL) {
     printf(" EGADS Error: NULL Blind Object (EG_openTessBody)!\n");
@@ -505,10 +505,10 @@ EG_computeTessMap(egTessel *btess, int outLevel)
       if (btess->tess1d[i].nodes[1]   <           0) continue;
       n = btess->tess1d[i].nodes[0] - 1;
       if (inode[n] > 0) {
-        btess->globals[2*k  ]      =   0;
+        btess->globals[2*k  ]      = 0;
         btess->globals[2*k+1]      = n+1;
         k++;
-        btess->tess1d[i].global[0] =   k;
+        btess->tess1d[i].global[0] = k;
         inode[n] = -k;
       } else {
         btess->tess1d[i].global[0] = -inode[n];
@@ -518,19 +518,19 @@ EG_computeTessMap(egTessel *btess, int outLevel)
         btess->globals[2*k  ]      = j+1;
         btess->globals[2*k+1]      = i+1;
         k++;
-        btess->tess1d[i].global[j] =   k;
+        btess->tess1d[i].global[j] = k;
       }
 
       n = btess->tess1d[i].nodes[1] - 1;
       j = btess->tess1d[i].npts     - 1;
       if (inode[n] > 0) {
-        btess->globals[2*k  ]      =   0;
+        btess->globals[2*k  ]      = 0;
         btess->globals[2*k+1]      = n+1;
         k++;
-        btess->tess1d[i].global[j] =   k;
+        btess->tess1d[i].global[j] = k;
         inode[n] = -k;
       } else {
-        btess->tess1d[i].global[j] =  -inode[n];
+        btess->tess1d[i].global[j] = -inode[n];
       }
 
     }
@@ -2209,7 +2209,7 @@ EG_minArc4(const ego face, double fact1, double fact2, const double *uv0,
 
   stat = EG_getRange(face, range, &it);
   if (stat != EGADS_SUCCESS) {
-    printf(" EG_minArc4: EG_egetRange %d !!\n ", stat);
+    printf(" EG_minArc4: EG_getRange = %d!\n", stat);
     return;
   }
 
@@ -2232,7 +2232,7 @@ EG_minArc4(const ego face, double fact1, double fact2, const double *uv0,
   printf("%lf %lf %lf 4\n", pIT[0], pIT[1], pIT[2]);
 #endif
   if (i != EGADS_SUCCESS) {
-    printf(" EG_minArc4: EG_evaluate %d!!\n ", i);
+    printf(" EG_minArc4: EG_evaluate %d!\n", i);
     return;
   }
   
@@ -2416,7 +2416,7 @@ EG_minArc4(const ego face, double fact1, double fact2, const double *uv0,
         uvOUT[0] = uvIT[0];
         uvOUT[1] = uvIT[1];
         /* we are hopelessly out of range... */
-        printf(" EG_minArc4: Out of UVbox!!!!!\n");
+        printf(" EG_minArc4: Out of UVbox!\n");
         return;
       }
     }
@@ -2444,7 +2444,7 @@ EG_minArc4(const ego face, double fact1, double fact2, const double *uv0,
     if (i != EGADS_SUCCESS || x2 < EPS10) break;
   }
   if (it == nT)
-    printf(" EG_minArc4: Not Converged!!!!!\n");
+    printf(" EG_minArc4: Not Converged!\n");
 
 #ifdef DEBUG
   printf("\n\n --------------- REPORT MIN ARC 4 --------------------------- \n");
@@ -2487,21 +2487,23 @@ void
 EG_getEdgepoint(const ego edge, double w, double tm, double tp, double *tOUT)
 {
   int    nT = 50, stat, i, it, nS = 20;
-  double pIT[18], pm[18], pp[18], dt = 0.0, vt0[3], vt1[3], r0[3] = {0.,0.,0.}, r1[3] = {0.,0.,0.};
+  double pIT[18], pm[18], pp[18], dt = 0.0, vt0[3], vt1[3];
+  double r0[3] = {0.,0.,0.}, r1[3] = {0.,0.,0.};
   double k, xyz[3], res = 1.0, t, tIT, l0, l1, f, ff;
   double s, nEPS = 1.e-10;
 #ifdef DEBUG
   double lt, x0 = 0.0, x1 = 0.0, x2 = 0.0, e1 = -1.0, e2 = -1.0;
 #endif
   
-  k     = (w * w) / ((1.0 - w ) * (1.0 - w));
-  tIT   = tp * w + tm * ( 1.0 - w );
+  k     = (w * w) / ((1.0 - w) * (1.0 - w));
+  tIT   = tp * w + tm * (1.0 - w);
   *tOUT = tIT;
   stat  = EG_evaluate(edge, &tm,  pm);
   stat += EG_evaluate(edge, &tp,  pp);
   stat += EG_evaluate(edge, &tIT, pIT);
   if (stat != EGADS_SUCCESS) {
-    printf("EG_getEdgePoint before Newton: EG_evaluate %d\n ", stat);
+    printf(" EG_getEdgePoint before Newton: EG_evaluate error sum = %d\n ",
+           stat);
     return;
   }
   
@@ -2668,7 +2670,7 @@ EG_getSidepoint(const ego face, double fact, const double *uvm,
 
   stat = EG_getRange(face, range, &it);
   if (stat != EGADS_SUCCESS) {
-    printf(" EG_getSidepoint: EG_egetRange %d !!\n ", stat);
+    printf(" EG_getSidepoint: EG_egetRange = %d!\n ", stat);
     return;
   }
   /* Initial guess uv  */
@@ -2682,7 +2684,7 @@ EG_getSidepoint(const ego face, double fact, const double *uvm,
   if (uvl != NULL) stat += EG_evaluate(face, uvl, pL);
   if (uvr != NULL) stat += EG_evaluate(face, uvr, pR);
   if (stat != EGADS_SUCCESS) {
-    printf(" EG_getSidepoint: EG_evaluate %d !!\n ", stat);
+    printf(" EG_getSidepoint: EG_evaluate = %d!\n ", stat);
     return;
   }
 #ifdef DEBUG
