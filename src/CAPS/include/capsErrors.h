@@ -51,5 +51,6 @@
 #define CAPS_BADINTENT    -337
 #define CAPS_BADINIT      -338
 #define CAPS_NOTNEEDED    -339
+#define CAPS_NOSENSITVTY  -340
 
 #endif
