@@ -85,6 +85,8 @@ public:
   int         topFlg;
   double      trange[2];
   egadsBox    bbox;
+  int         filled;
+  SurrealS<1> trange_dot[2];
 };
 
 
@@ -147,6 +149,8 @@ public:
   egadsMap     shells;
   int          *senses;                 // shell outer/inner (solids)
   egadsBox     bbox;
+  int          massFill;
+  double       massProp[14];
 };
 
 

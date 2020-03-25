@@ -115,8 +115,7 @@ translate tlen+0.75*(croot-ctip) ctip toff
 # fuselage
 # -----------------------------------------------------------------
 ## [createFuse]
-skbeg -0.4*tlen 0.0 0.0
-skend
+point -0.4*tlen 0.0 0.0
 attribute capsType $Fuse
 
 udprim 	ellipse ry 0.5*croot rz 0.2*croot

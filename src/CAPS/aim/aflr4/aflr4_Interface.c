@@ -17,6 +17,7 @@ typedef int         pid_t;
 #include "miscUtils.h"
 #include "aimUtil.h"
 
+
 int aflr4_Surface_Mesh(int quiet,
                        int numBody, ego *bodies,
                        void *aimInfo, capsValue *aimInputs,
@@ -37,9 +38,9 @@ int aflr4_Surface_Mesh(int quiet,
 
     double capsMeshLength = 0, meshLenFac = 0;
 
-    ego *faces = NULL, tess;
+    ego *faces = NULL, *copy_bodies=NULL, context, tess, model=NULL;
 
-    int ff_nseg, min_ncell, mer_all, mprox;
+    int ff_nseg, min_ncell, mer_all, no_prox;
     int EGADS_Quad = (int)false;
 
     double abs_min_scale, BL_thickness, curv_factor,
@@ -224,8 +225,8 @@ int aflr4_Surface_Mesh(int quiet,
 
     ff_nseg       = aimInputs[aim_getIndex(aimInfo, "ff_nseg"           , ANALYSISIN)-1].vals.integer;
     min_ncell     = aimInputs[aim_getIndex(aimInfo, "min_ncell"         , ANALYSISIN)-1].vals.integer;
-    mer_all      = aimInputs[aim_getIndex(aimInfo, "mer_all"          , ANALYSISIN)-1].vals.integer;
-    mprox         = aimInputs[aim_getIndex(aimInfo, "mprox"             , ANALYSISIN)-1].vals.integer;
+    mer_all       = aimInputs[aim_getIndex(aimInfo, "mer_all"           , ANALYSISIN)-1].vals.integer;
+    no_prox       = aimInputs[aim_getIndex(aimInfo, "no_prox"           , ANALYSISIN)-1].vals.integer;
 
     BL_thickness  = aimInputs[aim_getIndex(aimInfo, "BL_thickness"      , ANALYSISIN)-1].vals.real;
     curv_factor   = aimInputs[aim_getIndex(aimInfo, "curv_factor"       , ANALYSISIN)-1].vals.real;
@@ -272,8 +273,8 @@ int aflr4_Surface_Mesh(int quiet,
     /*
     printf("ff_nseg               = %d\n", ff_nseg       );
     printf("min_ncell             = %d\n", min_ncell     );
-    printf("mer_all              = %d\n", mer_all      );
-    printf("mprox                 = %d\n", mprox         );
+    printf("mer_all               = %d\n", mer_all       );
+    printf("no_prox               = %d\n", no_prox       );
 
     printf("BL_thickness          = %f\n", BL_thickness  );
     printf("curv_factor           = %f\n", curv_factor   );
@@ -297,8 +298,8 @@ int aflr4_Surface_Mesh(int quiet,
     status = ug_add_int_arg (  min_ncell , &prog_argc, &prog_argv);
     status = ug_add_flag_arg ("mer_all" , &prog_argc, &prog_argv);
     status = ug_add_int_arg (  mer_all  , &prog_argc, &prog_argv);
-    status = ug_add_flag_arg ("mprox"    , &prog_argc, &prog_argv);
-    status = ug_add_int_arg (  mprox     , &prog_argc, &prog_argv);
+    if (no_prox == True)
+      status = ug_add_flag_arg ("-no_prox"    , &prog_argc, &prog_argv);
 
     status = ug_add_flag_arg ( "BL_thickness" , &prog_argc, &prog_argv);
     status = ug_add_double_arg (BL_thickness  , &prog_argc, &prog_argv);
@@ -364,13 +365,29 @@ int aflr4_Surface_Mesh(int quiet,
 
     // Allocate AFLR4-EGADS data structure, initialize, and link body data.
 
-    status = egads_cad_geom_data_setup (0, numBody, bodies);
+    copy_bodies = (ego*)EG_alloc(numBody*sizeof(ego));
+    for (bodyIndex = 0; bodyIndex < numBody; bodyIndex++) {
+      status = EG_copyObject(bodies[bodyIndex], NULL, &copy_bodies[bodyIndex]);
+      if (status != CAPS_SUCCESS) goto cleanup;
+    }
+    status = EG_getContext(bodies[0], &context);
+    if (status != CAPS_SUCCESS) goto cleanup;
+    status = EG_makeTopology(context, NULL, MODEL, 0, NULL, numBody, copy_bodies, NULL, &model);
+    if (status != CAPS_SUCCESS) goto cleanup;
+
+    status = egads_set_ext_cad_data (model);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     // Complete all tasks required for AFLR4 surface grid generation.
 
     status = aflr4_setup_and_grid_gen (prog_argc, prog_argv);
-    if (status != CAPS_SUCCESS) goto cleanup;
+    if (status != CAPS_SUCCESS) {
+      printf("AFLR4 mesh generation failed.\n");
+      printf("An EGADS file with all AFLR4 parameters has been written to 'aflr4_debug.egads'");
+      remove("aflr4_debug.egads");
+      EG_saveModel(model, "aflr4_debug.egads");
+      goto cleanup;
+    }
 
 //#define DUMP_TECPLOT_DEBUG_FILE
 #ifdef DUMP_TECPLOT_DEBUG_FILE
@@ -486,15 +503,11 @@ int aflr4_Surface_Mesh(int quiet,
         }
     }
 
-    // Free all CAD related array space (and re-compress CAD input data file).
-    // Modifications or replacement of this routine may be required for
-    // alternative CAD systems and implementations.
-
     status = CAPS_SUCCESS;
 
 cleanup:
     // Free all aflr4 data
-    aflr4_free_all ();
+    aflr4_free_all (0);
 
     // Free DGEOM data from AFLR4 - note this deletes the data used by aflr4_get_def
     dgeom_def_free_all ();
@@ -505,6 +518,8 @@ cleanup:
     EG_free(faces); faces = NULL;
 
     EG_free(meshInputString); meshInputString = NULL;
+
+    EG_free(copy_bodies);
 
     // free memory from egads_aflr4_tess
     EG_free(tessBodies); tessBodies = NULL;

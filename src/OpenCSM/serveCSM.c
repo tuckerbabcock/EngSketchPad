@@ -252,9 +252,11 @@ static int        plotCP     = 0;      /* =1 to plot Bspline control polygons */
 static int        plugs      =-1;      /* >= 0 to run plugs for specified number of passes */
 static int        sensTess   = 0;      /* =1 for tessellation sensitivities */
 static int        skipBuild  = 0;      /* =1 to skip initial build */
+static int        skipTess   = 0;      /* -1 to skip tessellation at end of build */
 static int        verify     = 0;      /* =1 to enable verification */
 static char       *filename  = NULL;   /* name of .csm file */
 static char       *vrfyname  = NULL;   /* name of .vfy file */
+static char       *despname  = NULL;   /* name of DESPMTRs file */
 static char       *dictname  = NULL;   /* name of dictionary file */
 static char       *ptrbname  = NULL;   /* name of peerturbation file */
 static char       *eggname   = NULL;   /* name of external grid generator */
@@ -399,6 +401,7 @@ main(int       argc,                    /* (in)  number of arguments */
     MALLOC(tempname,    char, MAX_FILENAME_LEN);
     MALLOC(filename,    char, MAX_FILENAME_LEN);
     MALLOC(vrfyname,    char, MAX_FILENAME_LEN);
+    MALLOC(despname,    char, MAX_FILENAME_LEN);
     MALLOC(dictname,    char, MAX_FILENAME_LEN);
     MALLOC(ptrbname,    char, MAX_FILENAME_LEN);
     MALLOC(pmtrname,    char, MAX_FILENAME_LEN);
@@ -425,6 +428,7 @@ main(int       argc,                    /* (in)  number of arguments */
     jrnlname[ 0] = '\0';
     filename[ 0] = '\0';
     vrfyname[ 0] = '\0';
+    despname[ 0] = '\0';
     dictname[ 0] = '\0';
     ptrbname[ 0] = '\0';
     pmtrname[ 0] = '\0';
@@ -443,6 +447,13 @@ main(int       argc,                    /* (in)  number of arguments */
             checkMass = 1;
         } else if (strcmp(argv[i], "-checkPara") == 0) {
             checkPara = 1;
+        } else if (strcmp(argv[i], "-despmtrs") == 0) {
+            if (i < argc-1) {
+                STRNCPY(despname, argv[++i], MAX_FILENAME_LEN);
+            } else {
+                showUsage = 1;
+                break;
+            }
         } else if (strcmp(argv[i], "-dict") == 0) {
             if ( i < argc-1) {
                 STRNCPY(dictname, argv[++i], MAX_FILENAME_LEN);
@@ -531,6 +542,8 @@ main(int       argc,                    /* (in)  number of arguments */
             sensTess = 1;
         } else if (strcmp(argv[i], "-skipBuild") == 0) {
             skipBuild = 1;
+        } else if (strcmp(argv[i], "-skipTess") == 0) {
+            skipTess = 1;
         } else if (strcmp(argv[i], "-verify") == 0) {
             verify = 1;
         } else if (strcmp(argv[i], "--version") == 0 ||
@@ -559,6 +572,7 @@ main(int       argc,                    /* (in)  number of arguments */
         SPRINT0(0, "                        -batch");
         SPRINT0(0, "                        -checkMass");
         SPRINT0(0, "                        -checkPara");
+        SPRINT0(0, "                        -despmtrs despname");
         SPRINT0(0, "                        -dict dictname");
         SPRINT0(0, "                        -dumpEgads");
         SPRINT0(0, "                        -egg eggname");
@@ -576,6 +590,7 @@ main(int       argc,                    /* (in)  number of arguments */
         SPRINT0(0, "                        -ptrb ptrbname");
         SPRINT0(0, "                        -sensTess");
         SPRINT0(0, "                        -skipBuild");
+        SPRINT0(0, "                        -skipTess");
         SPRINT0(0, "                        -verify");
         SPRINT0(0, "                        -version  -or-  -v");
         SPRINT0(0, "STOPPING...\a");
@@ -598,6 +613,7 @@ main(int       argc,                    /* (in)  number of arguments */
     SPRINT1(1, "    batch       = %d", batch      );
     SPRINT1(1, "    checkMass   = %d", checkMass  );
     SPRINT1(1, "    checkPara   = %d", checkPara  );
+    SPRINT1(1, "    despmtrs    = %s", despname   );
     SPRINT1(1, "    dictname    = %s", dictname   );
     SPRINT1(1, "    dumpEgads   = %d", dumpEgads  );
     SPRINT1(1, "    eggname     = %s", eggname    );
@@ -612,6 +628,7 @@ main(int       argc,                    /* (in)  number of arguments */
     SPRINT1(1, "    ptrbname    = %s", ptrbname   );
     SPRINT1(1, "    sensTess    = %d", sensTess   );
     SPRINT1(1, "    skipBuild   = %d", skipBuild  );
+    SPRINT1(1, "    skipTess    = %d", skipTess   );
     SPRINT1(1, "    verify      = %d", verify     );
     SPRINT1(1, "    ESP_ROOT    = %s", getenv("ESP_ROOT"));
     SPRINT0(1, " ");
@@ -735,6 +752,11 @@ main(int       argc,                    /* (in)  number of arguments */
 
     if (pendingError == 0) {
         status = ocsmLoadDict(modl, dictname);
+        if (status < EGADS_SUCCESS) goto cleanup;
+    }
+
+    if (strlen(despname) > 0) {
+        status = ocsmUpdateDespmtrs(MODL, despname);
         if (status < EGADS_SUCCESS) goto cleanup;
     }
 
@@ -1620,6 +1642,7 @@ cleanup:
     FREE(ptrbname   );
     FREE(dictname   );
     FREE(vrfyname   );
+    FREE(despname   );
     FREE(filename   );
     FREE(tempname   );
     FREE(jrnlname   );
@@ -2044,6 +2067,9 @@ buildBodys(int     buildTo,             /* (in)  last Branch to execute */
         /* set the dumpEgads and loadEgads flags */
         MODL->dumpEgads = dumpEgads;
         MODL->loadEgads = loadEgads;
+
+        /* set the skipp tessellation flag */
+        MODL->tessAtEnd = 1 - skipTess;
 
         /* build the Bodys */
         if (skipBuild == 1) {
@@ -6154,6 +6180,11 @@ processBrowserToServer(char    *text)
             SPRINT1(0, "ERROR:: ocsmLoadDict -> status=%d", status);
         }
 
+        if (strlen(despname) > 0) {
+            status = ocsmUpdateDespmtrs(MODL, despname);
+            if (status < EGADS_SUCCESS) goto cleanup;
+        }
+
         status = buildBodys(0, &builtTo, &buildStatus, &nwarn);
 
         /* build the response */
@@ -6212,6 +6243,11 @@ processBrowserToServer(char    *text)
             if (status != SUCCESS) {
                 SPRINT2(0, "ERROR:: ocsmLoadDict(%s) detected %s",
                         dictname, ocsmGetText(status));
+            }
+
+            if (strlen(despname) > 0) {
+                status = ocsmUpdateDespmtrs(MODL, despname);
+                if (status < EGADS_SUCCESS) goto cleanup;
             }
 
             status = buildBodys(0, &builtTo, &buildStatus, &nwarn);
@@ -6383,6 +6419,11 @@ processBrowserToServer(char    *text)
                 SPRINT1(0, "ERROR:: ocsmLoadDict -> status=%d", status);
             }
 
+            if (strlen(despname) > 0) {
+                status = ocsmUpdateDespmtrs(MODL, despname);
+                if (status < EGADS_SUCCESS) goto cleanup;
+            }
+
             /* move the Body info from the saved_MODL into the
                new MODL so that recycling might happen */
             MODL->nbody = saved_MODL->nbody;
@@ -6430,6 +6471,9 @@ processBrowserToServer(char    *text)
         if (status != SUCCESS) {
             SPRINT1(0, "ERROR:: ocsmFree -> status=%d", status);
         }
+
+        /* disable -loadEgads */
+        loadEgads = 0;
 
         response_len = STRLEN(response);
 

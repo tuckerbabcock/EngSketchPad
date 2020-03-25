@@ -1510,7 +1510,8 @@ SELECT    $type arg1 ...
                   elseif arguments are: "edge 0 iford1 ibody2 iford2" or
                                         "edge ibody1 0 ibody2 iford2" or
                                         "edge ibody1 iford1 0 iford2" or
-                                        "edge ibody1 iford1 ibody2 0"
+                                        "edge ibody1 iford1 ibody2 0" or
+                                        "edge ibody1 0 ibody2 0"
                      sets @seltype to 1
                      uses @selbody
                      sets @sellist to Edge in @selbody that adjoins Faces
@@ -1777,6 +1778,23 @@ SPLINE    x y z
                   Solver may not be open
                   sensitivity computed w.r.t. x, y, z
                   signals that may be thrown/caught:
+
+SSLOPE    dx dy dz
+          use:    define the slope at the beginning or end of a SPLINE
+          pops:   -
+          pushes: -
+          notes:  Sketch must be open
+                  Solver may not be open
+                  for defining slope at beginning:
+                      must not follow a SPLINE statement
+                      must    precede a SPLINE statement
+                  for definiing slope at end:
+                      must      follow a SPLINE statement
+                      must not precede a SPLINE statement
+                  dx, dy, and dz must not be zero
+                  sensitivity computed w.r.t. x, y, z
+                  signals that may be thrown/caught:
+                     $illegal_value
 
 STORE     $name index=0 keep=0
           use:    stores Group on top of Stack
@@ -2644,11 +2662,7 @@ typedef struct {
     edge_T        *edge;                /* array  of Edges */
     int           nface;                /* number of Faces */
     face_T        *face;                /* array  of Faces */
-//$$$#ifndef NEW_SENSITIVITIES
-//$$$    void          *cache;               /* (blind) structure for caching sensitivity info */
-//$$$#else
     int           sens;                 /* flag for caching sensitivity info */
-//$$$#endif
     grat_T        gratt;                /* GRatt of the Nodes */
 } body_T;
 
@@ -2730,6 +2744,7 @@ typedef struct modl_T {
     int           cleanup;              /* =1 if unattaned egos are auto cleaned up */
     int           dumpEgads;            /* =1 if Bodys are dumped during build */
     int           loadEgads;            /* =1 if Bodys are loaded during build */
+    int           tessAtEnd;            /* =1 to tessellate Bodys on stack at end of ocsmBuild */
     int           bodyLoaded;           /* Body index of last Body loaded */
     int           seltype;              /* selection type: 0=Node, 1=Edge, 2=Face, or -1 */
     int           selbody;              /* Body selected (or -1)  (bias-1) */
@@ -2805,6 +2820,10 @@ int ocsmLoad(char   filename[],         /* (in)  file to be read (with .csm) */
 /* load dictionary from dictname */
 int ocsmLoadDict(void   *modl,          /* (in)  pointer to MODL */
                  char   dictname[]);    /* (in)  file that contains dictionary */
+
+/* update DESPMTRs from filename */
+int ocsmUpdateDespmtrs(void   *modl,    /* (in)  pointer to MODL */
+                       char   filename[]); /* (in) file that contains DESPMTRs */
 
 /* get a list of all .csm, .cpc. and .udc files */
 int ocsmGetFilelist(void   *modl,       /* (in)  pointer to MODL */
@@ -3228,14 +3247,15 @@ int ocsmGetCode(char   *text);          /* (in)  text to look up */
 #define           OCSM_APPLYCSYS  157
 #define           OCSM_REORDER    158
 
-#define           OCSM_SKBEG      161   /* OCSM_SKETCH */
-#define           OCSM_SKVAR      162
-#define           OCSM_SKCON      163
-#define           OCSM_LINSEG     164
-#define           OCSM_CIRARC     165
-#define           OCSM_ARC        166
-#define           OCSM_ELLARC     167
-#define           OCSM_SPLINE     168
+#define           OCSM_SKBEG      160   /* OCSM_SKETCH */
+#define           OCSM_SKVAR      161
+#define           OCSM_SKCON      162
+#define           OCSM_LINSEG     163
+#define           OCSM_CIRARC     164
+#define           OCSM_ARC        165
+#define           OCSM_ELLARC     166
+#define           OCSM_SPLINE     167
+#define           OCSM_SSLOPE     168
 #define           OCSM_BEZIER     169
 #define           OCSM_SKEND      170
 

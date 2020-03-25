@@ -29,8 +29,8 @@ pingBodies(ego tess1, ego tess2, double dtime, int iparam, const char *shape, do
 {
   int    status = EGADS_SUCCESS;
   int    n, d, np1, np2, nt1, nt2, nerr=0;
-  int    nface, nedge, nnode, iface, iedge, inode, oclass, mtype;
-  double p1_dot[18], p1[18], p2[18], fd_dot[3];
+  int    nface, nedge, nnode, iface, iedge, inode, oclass, mtype, periodic;
+  double p1_dot[18], p1[18], p2[18], fd_dot[3], range1[4], range2[4], range_dot[4];
   const int    *pt1, *pi1, *pt2, *pi2, *ts1, *tc1, *ts2, *tc2;
   const double *t1, *t2, *x1, *x2, *uv1, *uv2;
   ego    ebody1, ebody2;
@@ -150,6 +150,28 @@ pingBodies(ego tess1, ego tess2, double dtime, int iparam, const char *shape, do
       //printf("fd_dot = (%+f, %+f, %+f)\n", fd_dot[0], fd_dot[1], fd_dot[2]);
       //printf("\n");
     }
+
+    /* check t-range sensitivity */
+    status = EG_getRange_dot( eedges1[iedge], range1, range_dot, &periodic );
+    if (status != EGADS_SUCCESS) goto cleanup;
+
+    status = EG_getRange( eedges2[iedge], range2, &periodic );
+    if (status != EGADS_SUCCESS) goto cleanup;
+
+    fd_dot[0] = (range2[0] - range1[0])/dtime;
+    fd_dot[1] = (range2[1] - range1[1])/dtime;
+
+    for (d = 0; d < 2; d++) {
+      if (fabs(range_dot[d] - fd_dot[d]) > etol) {
+        printf("%s Edge %d iparam=%d, trng[%d]=%+le fabs(%+le - %+le) = %+le > %e\n",
+               shape, iedge+1, iparam, d, range1[d], range_dot[d], fd_dot[d], fabs(range_dot[d] - fd_dot[d]), etol);
+        nerr++;
+      }
+    }
+
+    //printf("range_dot = (%+f, %+f)\n", range_dot[0], range_dot[1]);
+    //printf("   fd_dot = (%+f, %+f)\n", fd_dot[0], fd_dot[1]);
+    //printf("\n");
   }
 
   for (inode = 0; inode < nnode; inode++) {
@@ -202,7 +224,25 @@ cleanup:
 /*                                                                           */
 /*****************************************************************************/
 
-int velocityOfNode( void* usrData, const ego *sections, int i, ego node, ego edge,
+int velocityOfRange( void* usrData, const ego *sections, int isec, ego edge,
+                     double *trange, double *trange_dot )
+{
+  int status = EGADS_SUCCESS;
+  int periodic;
+
+  /* get the velocity of the edge t-range */
+  status = EG_getRange_dot(edge, trange, trange_dot, &periodic);
+  if (status != EGADS_SUCCESS) goto cleanup;
+
+cleanup:
+  if (status != EGADS_SUCCESS) {
+    printf(" Failure %d in %s\n", status, __func__);
+  }
+
+  return status;
+}
+
+int velocityOfNode( void* usrData, const ego *sections, int isec, ego node, ego edge,
                     double *xyz, double *xyz_dot )
 {
   int status = EGADS_SUCCESS;
@@ -219,7 +259,7 @@ cleanup:
   return status;
 }
 
-int velocityOfEdge( void* usrData, const ego *sections, int i, ego edge,
+int velocityOfEdge( void* usrData, const ego *sections, int isec, ego edge,
                     const int jmax, const double *ts, const double *ts_dot,
                     double *xyzs, double *xyzs_dot,
                     double *tbeg, double *tbeg_dot,
@@ -271,6 +311,32 @@ cleanup:
 
   return status;
 }
+
+
+int
+velocityOfBspline( void* usrData, const ego *secs, int isec, ego edge, ego geom,
+                   int **ivec, double **rvec, double **rvec_dot )
+{
+  int status = EGADS_SUCCESS;
+  int oclass, mtype;
+  ego ref;
+
+  status = EG_getGeometry(geom, &oclass, &mtype, &ref, ivec, rvec);
+  if (status != EGADS_SUCCESS) goto cleanup;
+  EG_free(*rvec);
+
+  /* get the b-spline data sensitivity */
+  status = EG_getGeometry_dot(geom, rvec, rvec_dot);
+  if (status != EGADS_SUCCESS) goto cleanup;
+
+cleanup:
+  if (status != EGADS_SUCCESS) {
+    printf(" Failure %d in %s\n", status, __func__);
+  }
+
+  return status;
+}
+
 
 int
 equivDotVels(ego tess1, ego tess2, int iparam, const char *shape, double ftol, double etol, double ntol)
@@ -340,8 +406,8 @@ equivDotVels(ego tess1, ego tess2, int iparam, const char *shape, double ftol, d
 
       for (d = 0; d < 3; d++) {
         if (fabs(p1_dot[d] - p2_dot[d]) > ftol) {
-          printf("%s Face %d iparam=%d, [%d] diff fabs(%+le - %+le) = %+le > %e\n",
-                 shape, iface+1, iparam, d, p1_dot[d], p2_dot[d], fabs(p1_dot[d] - p2_dot[d]), ftol);
+          printf("%s Face %d iparam=%d, p1[%d]=%+le diff fabs(%+le - %+le) = %+le > %e\n",
+                 shape, iface+1, iparam, d, p1[d], p1_dot[d], p2_dot[d], fabs(p1_dot[d] - p2_dot[d]), ftol);
           nerr++;
         }
       }
@@ -378,8 +444,8 @@ equivDotVels(ego tess1, ego tess2, int iparam, const char *shape, double ftol, d
 
       for (d = 0; d < 3; d++) {
         if (fabs(p1_dot[d] - p2_dot[d]) > etol) {
-          printf("%s Edge %d iparam=%d, [%d] diff fabs(%+le - %+le) = %+le > %e\n",
-                 shape, iedge+1, iparam, d, p1_dot[d], p2_dot[d], fabs(p1_dot[d] - p2_dot[d]), etol);
+          printf("%s Edge %d iparam=%d, p1[%d]=%+le diff fabs(%+le - %+le) = %+le > %e\n",
+                 shape, iedge+1, iparam, d, p1[d], p1_dot[d], p2_dot[d], fabs(p1_dot[d] - p2_dot[d]), etol);
           nerr++;
         }
       }
@@ -402,8 +468,8 @@ equivDotVels(ego tess1, ego tess2, int iparam, const char *shape, double ftol, d
 
     for (d = 0; d < 3; d++) {
       if (fabs(p1_dot[d] - p2_dot[d]) > etol) {
-        printf("%s Node %d iparam=%d, [%d] diff fabs(%+le - %+le) = %+le > %e\n",
-               shape, inode+1, iparam, d, p1_dot[d], p2_dot[d], fabs(p1_dot[d] - p2_dot[d]), etol);
+        printf("%s Node %d iparam=%d, p1[%d]=%+le diff fabs(%+le - %+le) = %+le > %e\n",
+               shape, inode+1, iparam, d, p1[d], p1_dot[d], p2_dot[d], fabs(p1_dot[d] - p2_dot[d]), etol);
         nerr++;
       }
     }
@@ -586,7 +652,7 @@ setLineLoop_dot( const double *x0,     /* (in)  coordinates of the first point  
 {
   int    status = EGADS_SUCCESS;
   int    nnode, nedge, oclass, mtype, *senses;
-  double data[6], data_dot[6];
+  double data[6], data_dot[6], tdata[2], tdata_dot[2];
   ego    eline, *enodes, *eedges, eref;
 
   /* get the Edge from the Loop */
@@ -622,6 +688,16 @@ setLineLoop_dot( const double *x0,     /* (in)  coordinates of the first point  
   data_dot[5] = x1_dot[2] - x0_dot[2];
 
   status = EG_setGeometry_dot(eline, CURVE, LINE, NULL, data, data_dot);
+  if (status != EGADS_SUCCESS) goto cleanup;
+
+  /* set the t-range sensitivity */
+  tdata[0] = 0;
+  tdata[1] = sqrt(data[3]*data[3] + data[4]*data[4] + data[5]*data[5]);
+
+  tdata_dot[0] = 0;
+  tdata_dot[1] = (data[3]*data_dot[3] + data[4]*data_dot[4] + data[5]*data_dot[5])/tdata[1];
+
+  status = EG_setGeometry_dot(eedges[0], EDGE, TWONODE, NULL, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   status = EGADS_SUCCESS;
@@ -662,7 +738,7 @@ pingLineRuled(ego context)
 
     /* make the ruled body */
     p1[0] = 0.00; p1[1] = 0.00; p1[2] = 0.00;
-    p2[0] = 1.00; p2[1] = 0.00; p2[2] = 0.00;
+    p2[0] = 1.00; p2[1] = 0.20; p2[2] = 0.10;
     status = makeLineLoop(context, p1, p2, &secs1[0]);
     if (status != EGADS_SUCCESS) goto cleanup;
 
@@ -795,14 +871,14 @@ pingLineBlend(ego context)
     xform1[2] = 0.2;
     xform1[3] = 1.*dir;
 
-    xform2[0] = 1.0;
+    xform2[0] = 0.75;
     xform2[1] = 0.;
     xform2[2] = 0.;
     xform2[3] = 2.*dir;
 
     /* make the ruled body */
     p1[0] = 0.00; p1[1] = 0.00; p1[2] = 0.00;
-    p2[0] = 1.00; p2[1] = 0.00; p2[2] = 0.00;
+    p2[0] = 1.00; p2[1] = 0.20; p2[2] = 0.10;
     status = makeLineLoop(context, p1, p2, &secs1[0]);
     if (status != EGADS_SUCCESS) goto cleanup;
 
@@ -888,7 +964,7 @@ pingLineBlend(ego context)
       if (status != EGADS_SUCCESS) goto cleanup;
 
       /* ping the bodies */
-      status = pingBodies(tess1, tess2, dtime, iparam, "Ping Blend Line", 5e-6, 1e-7, 1e-7);
+      status = pingBodies(tess1, tess2, dtime, iparam, "Ping Blend Line", 5e-7, 1e-7, 1e-7);
       if (status != EGADS_SUCCESS) goto cleanup;
 
       EG_deleteObject(tess2);
@@ -924,8 +1000,10 @@ equivLineRuled(ego context)
 
   egadsSplineVels vels;
   vels.usrData = NULL;
+  vels.velocityOfRange = &velocityOfRange;
   vels.velocityOfNode = &velocityOfNode;
   vels.velocityOfEdge = &velocityOfEdge;
+  vels.velocityOfBspline = &velocityOfBspline;
 
   p1 = x;
   p2 = x+3;
@@ -947,7 +1025,7 @@ equivLineRuled(ego context)
 
     /* make the body for _dot sensitivities */
     p1[0] = 0.00; p1[1] = 0.00; p1[2] = 0.00;
-    p2[0] = 1.00; p2[1] = 0.00; p2[2] = 0.00;
+    p2[0] = 1.00; p2[1] = 0.20; p2[2] = 0.10;
     status = makeLineLoop(context, p1, p2, &secs[0]);
     if (status != EGADS_SUCCESS) goto cleanup;
 
@@ -1063,8 +1141,10 @@ equivLineBlend(ego context)
   egadsSplineVels vels;
 
   vels.usrData = NULL;
+  vels.velocityOfRange = &velocityOfRange;
   vels.velocityOfNode = &velocityOfNode;
   vels.velocityOfEdge = &velocityOfEdge;
+  vels.velocityOfBspline = &velocityOfBspline;
 
   p1 = x;
   p2 = x+3;
@@ -1086,7 +1166,7 @@ equivLineBlend(ego context)
 
     /* make the body for _dot sensitivities */
     p1[0] = 0.00; p1[1] = 0.00; p1[2] = 0.00;
-    p2[0] = 1.00; p2[1] = 0.00; p2[2] = 0.00;
+    p2[0] = 1.00; p2[1] = 0.20; p2[2] = 0.10;
     status = makeLineLoop(context, p1, p2, &secs[0]);
     if (status != EGADS_SUCCESS) goto cleanup;
 
@@ -1305,6 +1385,10 @@ setLine2Loop_dot( const double *x0,     /* (in)  the point                      
   if (status != EGADS_SUCCESS) goto cleanup;
 
   status = EG_setGeometry_dot(enodes[1], NODE, 0, NULL, data, data_dot);
+  if (status != EGADS_SUCCESS) goto cleanup;
+
+  /* set the t-range sensitivity */
+  status = EG_setGeometry_dot(eedges[0], EDGE, TWONODE, NULL, ts, ts_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   status = EGADS_SUCCESS;
@@ -1719,6 +1803,7 @@ setCircle_dot( const double *xcent,     /* (in)  Center          */
   int    status = EGADS_SUCCESS;
   int    nnode, nedge, nloop, oclass, mtype, *senses, btype;
   double data[10], data_dot[10], dx[3], dx_dot[3], dy[3], dy_dot[3];
+  double tdata[2], tdata_dot[2];
   double *rvec=NULL, *rvec_dot=NULL;
   ego    ecircle, eplane, *enodes, *eloops, *eedges, eref;
 
@@ -1743,6 +1828,16 @@ setCircle_dot( const double *xcent,     /* (in)  Center          */
   /* get the Node and the Circle from the Edge */
   status = EG_getTopology(eedges[0], &ecircle, &oclass, &mtype,
                           data, &nnode, &enodes, &senses);
+  if (status != EGADS_SUCCESS) goto cleanup;
+
+  /* set the t-range sensitivity */
+  tdata[0] = 0;
+  tdata[1] = TWOPI;
+
+  tdata_dot[0] = 0;
+  tdata_dot[1] = 0;
+
+  status = EG_setGeometry_dot(eedges[0], EDGE, ONENODE, NULL, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   /* set the Circle data and velocity */
@@ -2171,8 +2266,10 @@ equivCircleRuled(ego context)
 
   egadsSplineVels vels;
   vels.usrData = NULL;
+  vels.velocityOfRange = &velocityOfRange;
   vels.velocityOfNode = &velocityOfNode;
   vels.velocityOfEdge = &velocityOfEdge;
+  vels.velocityOfBspline = &velocityOfBspline;
 
   xcent = x;
   xax   = x+3;
@@ -2327,8 +2424,10 @@ equivCircleBlend(ego context)
 
   egadsSplineVels vels;
   vels.usrData = NULL;
+  vels.velocityOfRange = &velocityOfRange;
   vels.velocityOfNode = &velocityOfNode;
   vels.velocityOfEdge = &velocityOfEdge;
+  vels.velocityOfBspline = &velocityOfBspline;
 
   xcent = x;
   xax   = x+3;
@@ -2604,6 +2703,7 @@ setCircle2_dot( const double *xcent,     /* (in)  Center          */
   int    status = EGADS_SUCCESS;
   int    nnode, nedge, nloop, oclass, mtype, *senses, btype;
   double data[10], data_dot[10], dx[3], dx_dot[3], dy[3], dy_dot[3];
+  double tdata[2], tdata_dot[2];
   double *rvec=NULL, *rvec_dot=NULL;
   ego    ecircle, eplane, *enodes, *eloops, *eedges, eref;
 
@@ -2624,6 +2724,20 @@ setCircle2_dot( const double *xcent,     /* (in)  Center          */
   status = EG_getTopology(eloops[0], &eref, &oclass, &mtype,
                           data, &nedge, &eedges, &senses);
   if (status != EGADS_SUCCESS) goto cleanup;
+
+  /* set the t-range sensitivity */
+  tdata[0] = 0;
+  tdata[1] = PI;
+
+  tdata_dot[0] = 0;
+  tdata_dot[1] = 0;
+
+  status = EG_setGeometry_dot(eedges[0], EDGE, TWONODE, NULL, tdata, tdata_dot);
+
+  tdata[0] = PI;
+  tdata[1] = TWOPI;
+
+  status = EG_setGeometry_dot(eedges[1], EDGE, TWONODE, NULL, tdata, tdata_dot);
 
   /* get the Nodes and the Circle from the Edge */
   status = EG_getTopology(eedges[0], &ecircle, &oclass, &mtype,
@@ -2824,9 +2938,9 @@ pingNoseCircleBlend(ego context)
     if (status != EGADS_SUCCESS) goto cleanup;
 
     /* tessellation parameters */
-    params[0] =  0.4;
-    params[1] =  0.2;
-    params[2] = 20.0;
+    params[0] =  1.0;
+    params[1] =  1.0;
+    params[2] = 30.0;
 
     /* make the tessellation */
     status = EG_makeTessBody(ebody1, params, &tess1);
@@ -3053,9 +3167,9 @@ pingNoseCircle2Blend(ego context)
     if (status != EGADS_SUCCESS) goto cleanup;
 
     /* tessellation parameters */
-    params[0] =  0.4;
-    params[1] =  0.2;
-    params[2] = 20.0;
+    params[0] =  1.0;
+    params[1] =  1.0;
+    params[2] = 30.0;
 
     /* make the tessellation */
     status = EG_makeTessBody(ebody1, params, &tess1);
@@ -3196,8 +3310,7 @@ cleanup:
 
 /* set KNOTS to 0 for arc-length knots, and -1 for equally spaced knots
  */
-#define KNOTS      -1
-
+#define KNOTS      0
 
 int makeNaca( ego context,     /* (in) EGADS context */
               int btype,       /* (in) result type (LOOP, FACE, or FACEBODY) */
@@ -3308,7 +3421,7 @@ int makeNaca( ego context,     /* (in) EGADS context */
     enodes[2] = enodes[0];
   }
 
-  /* make Edge for upper surface */
+  /* make Edge for lower surface */
   tdata[0] = 0;   /* t value at lower TE because EG_spline1dFit was used */
   tdata[1] = tle;
 
@@ -3317,7 +3430,7 @@ int makeNaca( ego context,     /* (in) EGADS context */
                            tdata, 2, &enodes[0], NULL, &eedges[0]);
   if (status != EGADS_SUCCESS) goto cleanup;
 
-  /* make Edge for lower surface */
+  /* make Edge for upper surface */
   tdata[0] = tdata[1]; /* t-value at leading edge */
   tdata[1] = 1;        /* t value at upper TE because EG_spline1dFit was used */
 
@@ -3419,7 +3532,7 @@ int setNaca_dot( int sharpte,     /* (in) sharp or blunt TE */
   int status = EGADS_SUCCESS;
 
   int     ipnt, nedge, oclass, btype, mtype, nchild, nloop, *senses, sizes[2];
-  double  data[18], data_dot[18], trange[4];
+  double  data[18], data_dot[18], trange[4], tdata[2], tdata_dot[2];
   double  zeta, s, *pnts=NULL, *pnts_dot=NULL;
   double  yt, yt_dot, yc, yc_dot, theta, theta_dot;
   double  ycm, ycm_dot, dycm, dycm_dot, tle, tle_dot;
@@ -3532,7 +3645,7 @@ int setNaca_dot( int sharpte,     /* (in) sharp or blunt TE */
   status = EG_setGeometry_dot(enodes[0], NODE, 0, NULL, &pnts[3*ipnt], &pnts_dot[3*ipnt]);
   if (status != EGADS_SUCCESS) goto cleanup;
 
-  /* set the sensitivity of the Node at leading edge */
+  /* set the t-sensitivity at the leading edge */
   status = EG_getGeometry_dot(ecurve, &rvec, &rvec_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
@@ -3540,6 +3653,26 @@ int setNaca_dot( int sharpte,     /* (in) sharp or blunt TE */
   tle     = rvec[ipnt];         /* leading edge t-value (should be very close to (0,0,0) */
   tle_dot = rvec_dot[ipnt];
 
+
+  /* set Edge t-range sensitivity for upper surface */
+  tdata[0]     = 0;
+  tdata[1]     = tle;
+  tdata_dot[0] = 0;
+  tdata_dot[1] = tle_dot;
+
+  status = EG_setGeometry_dot(eedges[0], EDGE, TWONODE, NULL, tdata, tdata_dot);
+  if (status != EGADS_SUCCESS) goto cleanup;
+
+  /* set Edge t-range sensitivity for lower surface */
+  tdata[0]     = tdata[1];
+  tdata[1]     = 1;
+  tdata_dot[0] = tdata_dot[1];
+  tdata_dot[1] = 0;
+
+  status = EG_setGeometry_dot(eedges[1], EDGE, TWONODE, NULL, tdata, tdata_dot);
+  if (status != EGADS_SUCCESS) goto cleanup;
+
+  /* set the sensitivity of the Node at leading edge */
   status = EG_evaluate_dot(ecurve, &tle, &tle_dot, data, data_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
   status = EG_setGeometry_dot(enodes[1], NODE, 0, NULL, data, data_dot);
@@ -3574,6 +3707,16 @@ int setNaca_dot( int sharpte,     /* (in) sharp or blunt TE */
     data_dot[5] = pnts_dot[2] - data_dot[2];
 
     status = EG_setGeometry_dot(eline, CURVE, LINE, NULL, data, data_dot);
+    if (status != EGADS_SUCCESS) goto cleanup;
+
+    /* set Edge t-range sensitivity */
+    tdata[0] = 0;
+    tdata[1] = sqrt(data[3]*data[3] + data[4]*data[4] + data[5]*data[5]);
+
+    tdata_dot[0] = 0;
+    tdata_dot[1] = (data[3]*data_dot[3] + data[4]*data_dot[4] + data[5]*data_dot[5])/tdata[1];
+
+    status = EG_setGeometry_dot(eedges[2], EDGE, TWONODE, NULL, tdata, tdata_dot);
     if (status != EGADS_SUCCESS) goto cleanup;
   }
 
@@ -3724,136 +3867,141 @@ pingNacaRuled(ego context)
   x[ip] = 0.4;  /* max loc */
   x[it] = 0.16; /* thickness */
 
-  for (dir = -1; dir <= 1; dir += 2) {
+  for (sharpte = 0; sharpte <= 1; sharpte++) {
+    for (dir = -1; dir <= 1; dir += 2) {
 
-    xform1[0] = 1.0;
-    xform1[1] = 0.1;
-    xform1[2] = 0.2;
-    xform1[3] = 1.*dir;
+      printf(" ---------------------------------\n");
+      printf(" Ping Ruled NACA dir %+d sharpte %d\n", dir, sharpte);
 
-    xform2[0] = 1.0;
-    xform2[1] = 0.;
-    xform2[2] = 0.;
-    xform2[3] = 2.*dir;
+      xform1[0] = 1.0;
+      xform1[1] = 0.1;
+      xform1[2] = 0.2;
+      xform1[3] = 1.*dir;
 
-    /* make the ruled body */
-    status = makeNaca( context, FACE, sharpte, x[im], x[ip], x[it], &secs1[0] );
-    if (status != EGADS_SUCCESS) goto cleanup;
+      xform2[0] = 0.75;
+      xform2[1] = 0.;
+      xform2[2] = 0.;
+      xform2[3] = 2.*dir;
 
-    status = makeNaca( context, LOOP, sharpte, x[im], x[ip], x[it], &eloop1 );
-    if (status != EGADS_SUCCESS) goto cleanup;
-
-    status = makeTransform( eloop1, xform1, &secs1[1] );
-    if (status != EGADS_SUCCESS) goto cleanup;
-
-    status = makeTransform( secs1[0], xform2, &secs1[2] );
-    if (status != EGADS_SUCCESS) goto cleanup;
-
-    status = EG_ruled(nsec, secs1, &ebody1);
-    if (status != EGADS_SUCCESS) goto cleanup;
-
-    /* tessellation parameters */
-    params[0] =  0.5;
-    params[1] =  4.0;
-    params[2] = 35.0;
-
-    /* make the tessellation */
-    status = EG_makeTessBody(ebody1, params, &tess1);
-
-    /* get the Faces from the Body */
-    status = EG_getBodyTopos(ebody1, NULL, FACE, &nface, NULL);
-    if (status != EGADS_SUCCESS) goto cleanup;
-
-    /* get the Edges from the Body */
-    status = EG_getBodyTopos(ebody1, NULL, EDGE, &nedge, NULL);
-    if (status != EGADS_SUCCESS) goto cleanup;
-
-    for (iedge = 0; iedge < nedge; iedge++) {
-      status = EG_getTessEdge(tess1, iedge+1, &np1, &x1, &t1);
-      if (status != EGADS_SUCCESS) goto cleanup;
-      printf(" Ping Ruled NACA Edge %d np1 = %d\n", iedge+1, np1);
-    }
-
-    for (iface = 0; iface < nface; iface++) {
-      status = EG_getTessFace(tess1, iface+1, &np1, &x1, &uv1, &pt1, &pi1,
-                              &nt1, &ts1, &tc1);
-      if (status != EGADS_SUCCESS) goto cleanup;
-      printf(" Ping Ruled NACA Face %d np1 = %d\n", iface+1, np1);
-    }
-
-    /* zero out velocities */
-    for (iparam = 0; iparam < 3; iparam++) x_dot[iparam] = 0;
-
-    for (iparam = 0; iparam < 3; iparam++) {
-
-      /* set the velocity of the original body */
-      x_dot[iparam] = 1.0;
-      status = setNaca_dot( sharpte,
-                            x[im], x_dot[im],
-                            x[ip], x_dot[ip],
-                            x[it], x_dot[it],
-                            secs1[0] );
+      /* make the ruled body */
+      status = makeNaca( context, FACE, sharpte, x[im], x[ip], x[it], &secs1[0] );
       if (status != EGADS_SUCCESS) goto cleanup;
 
-      status = setNaca_dot( sharpte,
-                            x[im], x_dot[im],
-                            x[ip], x_dot[ip],
-                            x[it], x_dot[it],
-                            eloop1 );
+      status = makeNaca( context, LOOP, sharpte, x[im], x[ip], x[it], &eloop1 );
       if (status != EGADS_SUCCESS) goto cleanup;
 
-      status = setTransform_dot( eloop1, xform1, xform_dot, secs1[1] );
+      status = makeTransform( eloop1, xform1, &secs1[1] );
       if (status != EGADS_SUCCESS) goto cleanup;
 
-      status = setTransform_dot( secs1[0], xform2, xform_dot, secs1[2] );
+      status = makeTransform( secs1[0], xform2, &secs1[2] );
       if (status != EGADS_SUCCESS) goto cleanup;
 
-      status = EG_ruled_dot(ebody1, nsec, secs1);
-      if (status != EGADS_SUCCESS) goto cleanup;
-      x_dot[iparam] = 0.0;
-
-      status = EG_hasGeometry_dot(ebody1);
+      status = EG_ruled(nsec, secs1, &ebody1);
       if (status != EGADS_SUCCESS) goto cleanup;
 
+      /* tessellation parameters */
+      params[0] =  0.5;
+      params[1] =  4.0;
+      params[2] = 35.0;
 
-      /* make a perturbed body for finite difference */
-      x[iparam] += dtime;
-      status = makeNaca( context, FACE, sharpte, x[im], x[ip], x[it], &secs2[0] );
+      /* make the tessellation */
+      status = EG_makeTessBody(ebody1, params, &tess1);
+
+      /* get the Faces from the Body */
+      status = EG_getBodyTopos(ebody1, NULL, FACE, &nface, NULL);
       if (status != EGADS_SUCCESS) goto cleanup;
 
-      status = makeNaca( context, LOOP, sharpte, x[im], x[ip], x[it], &eloop2 );
+      /* get the Edges from the Body */
+      status = EG_getBodyTopos(ebody1, NULL, EDGE, &nedge, NULL);
       if (status != EGADS_SUCCESS) goto cleanup;
 
-      status = makeTransform( eloop2, xform1, &secs2[1] );
-      if (status != EGADS_SUCCESS) goto cleanup;
+      for (iedge = 0; iedge < nedge; iedge++) {
+        status = EG_getTessEdge(tess1, iedge+1, &np1, &x1, &t1);
+        if (status != EGADS_SUCCESS) goto cleanup;
+        printf(" Ping Ruled NACA Edge %d np1 = %d\n", iedge+1, np1);
+      }
 
-      status = makeTransform( secs2[0], xform2, &secs2[2] );
-      if (status != EGADS_SUCCESS) goto cleanup;
+      for (iface = 0; iface < nface; iface++) {
+        status = EG_getTessFace(tess1, iface+1, &np1, &x1, &uv1, &pt1, &pi1,
+                                &nt1, &ts1, &tc1);
+        if (status != EGADS_SUCCESS) goto cleanup;
+        printf(" Ping Ruled NACA Face %d np1 = %d\n", iface+1, np1);
+      }
 
-      status = EG_ruled(nsec, secs2, &ebody2);
-      if (status != EGADS_SUCCESS) goto cleanup;
-      x[iparam] -= dtime;
+      /* zero out velocities */
+      for (iparam = 0; iparam < 3; iparam++) x_dot[iparam] = 0;
 
-      /* map the tessellation */
-      status = EG_mapTessBody(tess1, ebody2, &tess2);
-      if (status != EGADS_SUCCESS) goto cleanup;
+      for (iparam = 0; iparam < 3; iparam++) {
 
-      /* ping the bodies */
-      status = pingBodies(tess1, tess2, dtime, iparam, "Ping Ruled NACA", 5e-7, 5e-7, 1e-7);
-      if (status != EGADS_SUCCESS) goto cleanup;
+        /* set the velocity of the original body */
+        x_dot[iparam] = 1.0;
+        status = setNaca_dot( sharpte,
+                              x[im], x_dot[im],
+                              x[ip], x_dot[ip],
+                              x[it], x_dot[it],
+                              secs1[0] );
+        if (status != EGADS_SUCCESS) goto cleanup;
 
-      EG_deleteObject(eloop2);
-      EG_deleteObject(tess2);
-      EG_deleteObject(ebody2);
+        status = setNaca_dot( sharpte,
+                              x[im], x_dot[im],
+                              x[ip], x_dot[ip],
+                              x[it], x_dot[it],
+                              eloop1 );
+        if (status != EGADS_SUCCESS) goto cleanup;
+
+        status = setTransform_dot( eloop1, xform1, xform_dot, secs1[1] );
+        if (status != EGADS_SUCCESS) goto cleanup;
+
+        status = setTransform_dot( secs1[0], xform2, xform_dot, secs1[2] );
+        if (status != EGADS_SUCCESS) goto cleanup;
+
+        status = EG_ruled_dot(ebody1, nsec, secs1);
+        if (status != EGADS_SUCCESS) goto cleanup;
+        x_dot[iparam] = 0.0;
+
+        status = EG_hasGeometry_dot(ebody1);
+        if (status != EGADS_SUCCESS) goto cleanup;
+
+
+        /* make a perturbed body for finite difference */
+        x[iparam] += dtime;
+        status = makeNaca( context, FACE, sharpte, x[im], x[ip], x[it], &secs2[0] );
+        if (status != EGADS_SUCCESS) goto cleanup;
+
+        status = makeNaca( context, LOOP, sharpte, x[im], x[ip], x[it], &eloop2 );
+        if (status != EGADS_SUCCESS) goto cleanup;
+
+        status = makeTransform( eloop2, xform1, &secs2[1] );
+        if (status != EGADS_SUCCESS) goto cleanup;
+
+        status = makeTransform( secs2[0], xform2, &secs2[2] );
+        if (status != EGADS_SUCCESS) goto cleanup;
+
+        status = EG_ruled(nsec, secs2, &ebody2);
+        if (status != EGADS_SUCCESS) goto cleanup;
+        x[iparam] -= dtime;
+
+        /* map the tessellation */
+        status = EG_mapTessBody(tess1, ebody2, &tess2);
+        if (status != EGADS_SUCCESS) goto cleanup;
+
+        /* ping the bodies */
+        status = pingBodies(tess1, tess2, dtime, iparam, "Ping Ruled NACA", 5e-7, 5e-7, 1e-7);
+        if (status != EGADS_SUCCESS) goto cleanup;
+
+        EG_deleteObject(eloop2);
+        EG_deleteObject(tess2);
+        EG_deleteObject(ebody2);
+        for (i = 0; i < nsec; i++)
+          EG_deleteObject(secs2[i]);
+      }
+
+      EG_deleteObject(eloop1);
+      EG_deleteObject(tess1);
+      EG_deleteObject(ebody1);
       for (i = 0; i < nsec; i++)
-        EG_deleteObject(secs2[i]);
+        EG_deleteObject(secs1[i]);
     }
-
-    EG_deleteObject(eloop1);
-    EG_deleteObject(tess1);
-    EG_deleteObject(ebody1);
-    for (i = 0; i < nsec; i++)
-      EG_deleteObject(secs1[i]);
   }
 
 cleanup:
@@ -3902,10 +4050,13 @@ pingNacaBlend(ego context)
       xform1[2] = 0.2;
       xform1[3] = 1.*dir;
 
-      xform2[0] = 1.0;
+      xform2[0] = 0.75;
       xform2[1] = 0.;
       xform2[2] = 0.;
       xform2[3] = 2.*dir;
+
+      printf(" ---------------------------------\n");
+      printf(" Ping Blend NACA dir %+d sharpte %d\n", dir, sharpte);
 
       /* make the ruled body */
       status = makeNaca( context, FACE, sharpte, x[im], x[ip], x[it], &secs1[0] );
@@ -3925,7 +4076,7 @@ pingNacaBlend(ego context)
 
       /* tessellation parameters */
       params[0] =  0.5;
-      params[1] =  4.0;
+      params[1] = 20.0;
       params[2] = 35.0;
 
       /* make the tessellation */
@@ -4012,7 +4163,7 @@ pingNacaBlend(ego context)
         if (status != EGADS_SUCCESS) goto cleanup;
 
         /* ping the bodies */
-        status = pingBodies(tess1, tess2, dtime, iparam, "Ping Blend NACA", 5e-7, 1e-7, 1e-7);
+        status = pingBodies(tess1, tess2, dtime, iparam, "Ping Blend NACA", 5e-7, 5e-7, 1e-7);
         if (status != EGADS_SUCCESS) goto cleanup;
 
         EG_deleteObject(eloop2);
@@ -4054,129 +4205,135 @@ equivNacaRuled(ego context)
   egadsSplineVels vels;
 
   vels.usrData = NULL;
+  vels.velocityOfRange = &velocityOfRange;
   vels.velocityOfNode = &velocityOfNode;
   vels.velocityOfEdge = &velocityOfEdge;
+  vels.velocityOfBspline = &velocityOfBspline;
 
   x[im] = 0.1;  /* camber */
   x[ip] = 0.4;  /* max loc */
   x[it] = 0.16; /* thickness */
 
-  for (dir = -1; dir <= 1; dir += 2) {
+  for (sharpte = 0; sharpte <= 1; sharpte++) {
+    for (dir = -1; dir <= 1; dir += 2) {
 
-    xform1[0] = 1.0;
-    xform1[1] = 0.1;
-    xform1[2] = 0.2;
-    xform1[3] = 1.*dir;
+      printf(" ---------------------------------\n");
+      printf(" Equiv Ruled NACA dir %+d sharpte %d\n", dir, sharpte);
 
-    xform2[0] = 1.0;
-    xform2[1] = 0.;
-    xform2[2] = 0.;
-    xform2[3] = 2.*dir;
+      xform1[0] = 1.0;
+      xform1[1] = 0.1;
+      xform1[2] = 0.2;
+      xform1[3] = 1.*dir;
 
-    /* make the ruled body */
-    status = makeNaca( context, FACE, sharpte, x[im], x[ip], x[it], &secs[0] );
-    if (status != EGADS_SUCCESS) goto cleanup;
+      xform2[0] = 0.75;
+      xform2[1] = 0.;
+      xform2[2] = 0.;
+      xform2[3] = 2.*dir;
 
-    status = makeNaca( context, LOOP, sharpte, x[im], x[ip], x[it], &eloop );
-    if (status != EGADS_SUCCESS) goto cleanup;
-
-    status = makeTransform( eloop, xform1, &secs[1] );
-    if (status != EGADS_SUCCESS) goto cleanup;
-
-    status = makeTransform( secs[0], xform2, &secs[2] );
-    if (status != EGADS_SUCCESS) goto cleanup;
-
-    status = EG_ruled(nsec, secs, &ebody1);
-    if (status != EGADS_SUCCESS) goto cleanup;
-
-    /* make the body for _vels sensitivities */
-    status = EG_ruled(nsec, secs, &ebody2);
-    if (status != EGADS_SUCCESS) goto cleanup;
-
-    /* tessellation parameters */
-    params[0] =  0.5;
-    params[1] =  4.0;
-    params[2] = 35.0;
-
-    /* make the tessellation */
-    status = EG_makeTessBody(ebody1, params, &tess1);
-
-    /* map the tessellation */
-    status = EG_mapTessBody(tess1, ebody2, &tess2);
-    if (status != EGADS_SUCCESS) goto cleanup;
-
-    /* get the Faces from the Body */
-    status = EG_getBodyTopos(ebody1, NULL, FACE, &nface, NULL);
-    if (status != EGADS_SUCCESS) goto cleanup;
-
-    /* get the Edges from the Body */
-    status = EG_getBodyTopos(ebody1, NULL, EDGE, &nedge, NULL);
-    if (status != EGADS_SUCCESS) goto cleanup;
-
-    for (iedge = 0; iedge < nedge; iedge++) {
-      status = EG_getTessEdge(tess1, iedge+1, &np1, &x1, &t1);
+      /* make the ruled body */
+      status = makeNaca( context, FACE, sharpte, x[im], x[ip], x[it], &secs[0] );
       if (status != EGADS_SUCCESS) goto cleanup;
-      printf(" Equiv Ruled NACA Edge %d np1 = %d\n", iedge+1, np1);
+
+      status = makeNaca( context, LOOP, sharpte, x[im], x[ip], x[it], &eloop );
+      if (status != EGADS_SUCCESS) goto cleanup;
+
+      status = makeTransform( eloop, xform1, &secs[1] );
+      if (status != EGADS_SUCCESS) goto cleanup;
+
+      status = makeTransform( secs[0], xform2, &secs[2] );
+      if (status != EGADS_SUCCESS) goto cleanup;
+
+      status = EG_ruled(nsec, secs, &ebody1);
+      if (status != EGADS_SUCCESS) goto cleanup;
+
+      /* make the body for _vels sensitivities */
+      status = EG_ruled(nsec, secs, &ebody2);
+      if (status != EGADS_SUCCESS) goto cleanup;
+
+      /* tessellation parameters */
+      params[0] =  0.5;
+      params[1] =  4.0;
+      params[2] = 35.0;
+
+      /* make the tessellation */
+      status = EG_makeTessBody(ebody1, params, &tess1);
+
+      /* map the tessellation */
+      status = EG_mapTessBody(tess1, ebody2, &tess2);
+      if (status != EGADS_SUCCESS) goto cleanup;
+
+      /* get the Faces from the Body */
+      status = EG_getBodyTopos(ebody1, NULL, FACE, &nface, NULL);
+      if (status != EGADS_SUCCESS) goto cleanup;
+
+      /* get the Edges from the Body */
+      status = EG_getBodyTopos(ebody1, NULL, EDGE, &nedge, NULL);
+      if (status != EGADS_SUCCESS) goto cleanup;
+
+      for (iedge = 0; iedge < nedge; iedge++) {
+        status = EG_getTessEdge(tess1, iedge+1, &np1, &x1, &t1);
+        if (status != EGADS_SUCCESS) goto cleanup;
+        printf(" Equiv Ruled NACA Edge %d np1 = %d\n", iedge+1, np1);
+      }
+
+      for (iface = 0; iface < nface; iface++) {
+        status = EG_getTessFace(tess1, iface+1, &np1, &x1, &uv1, &pt1, &pi1,
+                                &nt1, &ts1, &tc1);
+        if (status != EGADS_SUCCESS) goto cleanup;
+        printf(" Equiv Ruled NACA Face %d np1 = %d\n", iface+1, np1);
+      }
+
+      /* zero out velocities */
+      for (iparam = 0; iparam < 3; iparam++) x_dot[iparam] = 0;
+
+      for (iparam = 0; iparam < 3; iparam++) {
+
+        /* set the velocity of the original body */
+        x_dot[iparam] = 1.0;
+        status = setNaca_dot( sharpte,
+                              x[im], x_dot[im],
+                              x[ip], x_dot[ip],
+                              x[it], x_dot[it],
+                              secs[0] );
+        if (status != EGADS_SUCCESS) goto cleanup;
+
+        status = setNaca_dot( sharpte,
+                              x[im], x_dot[im],
+                              x[ip], x_dot[ip],
+                              x[it], x_dot[it],
+                              eloop );
+        if (status != EGADS_SUCCESS) goto cleanup;
+
+        status = setTransform_dot( eloop, xform1, xform_dot, secs[1] );
+        if (status != EGADS_SUCCESS) goto cleanup;
+
+        status = setTransform_dot( secs[0], xform2, xform_dot, secs[2] );
+        if (status != EGADS_SUCCESS) goto cleanup;
+
+        status = EG_ruled_dot(ebody1, nsec, secs);
+        if (status != EGADS_SUCCESS) goto cleanup;
+
+        status = EG_hasGeometry_dot(ebody1);
+        if (status != EGADS_SUCCESS) goto cleanup;
+
+
+        /* set the velocity with _vels functions */
+        status = EG_ruled_vels(nsec, secs, &vels, ebody2);
+        if (status != EGADS_SUCCESS) goto cleanup;
+        x_dot[iparam] = 0.0;
+
+
+        /* ping the bodies */
+        status = equivDotVels(tess1, tess2, iparam, "Equiv Ruled NACA", 1e-7, 1e-7, 1e-7);
+        if (status != EGADS_SUCCESS) goto cleanup;
+      }
+
+      EG_deleteObject(eloop);
+      EG_deleteObject(tess1);
+      EG_deleteObject(ebody1);
+      for (i = 0; i < nsec; i++)
+        EG_deleteObject(secs[i]);
     }
-
-    for (iface = 0; iface < nface; iface++) {
-      status = EG_getTessFace(tess1, iface+1, &np1, &x1, &uv1, &pt1, &pi1,
-                              &nt1, &ts1, &tc1);
-      if (status != EGADS_SUCCESS) goto cleanup;
-      printf(" Equiv Ruled NACA Face %d np1 = %d\n", iface+1, np1);
-    }
-
-    /* zero out velocities */
-    for (iparam = 0; iparam < 3; iparam++) x_dot[iparam] = 0;
-
-    for (iparam = 0; iparam < 3; iparam++) {
-
-      /* set the velocity of the original body */
-      x_dot[iparam] = 1.0;
-      status = setNaca_dot( sharpte,
-                            x[im], x_dot[im],
-                            x[ip], x_dot[ip],
-                            x[it], x_dot[it],
-                            secs[0] );
-      if (status != EGADS_SUCCESS) goto cleanup;
-
-      status = setNaca_dot( sharpte,
-                            x[im], x_dot[im],
-                            x[ip], x_dot[ip],
-                            x[it], x_dot[it],
-                            eloop );
-      if (status != EGADS_SUCCESS) goto cleanup;
-
-      status = setTransform_dot( eloop, xform1, xform_dot, secs[1] );
-      if (status != EGADS_SUCCESS) goto cleanup;
-
-      status = setTransform_dot( secs[0], xform2, xform_dot, secs[2] );
-      if (status != EGADS_SUCCESS) goto cleanup;
-
-      status = EG_ruled_dot(ebody1, nsec, secs);
-      if (status != EGADS_SUCCESS) goto cleanup;
-
-      status = EG_hasGeometry_dot(ebody1);
-      if (status != EGADS_SUCCESS) goto cleanup;
-
-
-      /* set the velocity with _vels functions */
-      status = EG_ruled_vels(nsec, secs, &vels, ebody2);
-      if (status != EGADS_SUCCESS) goto cleanup;
-      x_dot[iparam] = 0.0;
-
-
-      /* ping the bodies */
-      status = equivDotVels(tess1, tess2, iparam, "Equiv Ruled NACA", 1e-7, 1e-7, 1e-7);
-      if (status != EGADS_SUCCESS) goto cleanup;
-
-    }
-
-    EG_deleteObject(eloop);
-    EG_deleteObject(tess1);
-    EG_deleteObject(ebody1);
-    for (i = 0; i < nsec; i++)
-      EG_deleteObject(secs[i]);
   }
 
 cleanup:
@@ -4204,8 +4361,10 @@ equivNacaBlend(ego context)
   egadsSplineVels vels;
 
   vels.usrData = NULL;
+  vels.velocityOfRange = &velocityOfRange;
   vels.velocityOfNode = &velocityOfNode;
   vels.velocityOfEdge = &velocityOfEdge;
+  vels.velocityOfBspline = &velocityOfBspline;
 
   RC1 = x + 3;
   RCn = x + 5;
@@ -4231,10 +4390,13 @@ equivNacaBlend(ego context)
       xform1[2] = 0.2;
       xform1[3] = 1.*dir;
 
-      xform2[0] = 1.0;
+      xform2[0] = 0.75;
       xform2[1] = 0.;
       xform2[2] = 0.;
       xform2[3] = 2.*dir;
+
+      printf(" ---------------------------------\n");
+      printf(" Equiv Blend NACA dir %+d sharpte %d\n", dir, sharpte);
 
       /* make the ruled body */
       status = makeNaca( context, FACE, sharpte, x[im], x[ip], x[it], &secs[0] );
@@ -4258,7 +4420,7 @@ equivNacaBlend(ego context)
 
       /* tessellation parameters */
       params[0] =  0.5;
-      params[1] =  4.0;
+      params[1] = 20.0;
       params[2] = 35.0;
 
       /* make the tessellation */
@@ -4364,7 +4526,7 @@ int main(int argc, char *argv[])
     printf(" EG_open return = %d\n", status);
     return EXIT_FAILURE;
   }
-
+#if 0
   /*-------*/
   status = pingLineRuled(context);
   if (status != EGADS_SUCCESS) goto cleanup;
@@ -4414,7 +4576,7 @@ int main(int argc, char *argv[])
 
   status = pingNacaBlend(context);
   if (status != EGADS_SUCCESS) goto cleanup;
-
+#endif
   status = equivNacaRuled(context);
   if (status != EGADS_SUCCESS) goto cleanup;
 

@@ -938,6 +938,7 @@ EG_loadModel(egObject *context, int bflg, const char *name, egObject **model)
     pbody->shells.objs = NULL;
     pbody->senses      = NULL;
     pbody->bbox.filled = 0;
+    pbody->massFill    = 0;
     pobj->blind        = pbody;
   }
   

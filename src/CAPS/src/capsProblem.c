@@ -2785,7 +2785,8 @@ caps_open(const char *filename, const char *pname, capsObject **pobject)
         return status;
       }
       MODL = (modl_T *) problem->modl;
-      MODL->context = problem->context;
+      MODL->context   = problem->context;
+      MODL->tessAtEnd = 0;
       /* check that Branches are properly ordered */
       status = ocsmCheck(problem->modl);
       if (status < SUCCESS) {
@@ -3003,7 +3004,8 @@ caps_open(const char *filename, const char *pname, capsObject **pobject)
       return status;
     }
     MODL = (modl_T *) problem->modl;
-    MODL->context = problem->context;
+    MODL->context   = problem->context;
+    MODL->tessAtEnd = 0;
 
     /* Restore ocsm outLevel */
     ocsmSetOutLevel(1);

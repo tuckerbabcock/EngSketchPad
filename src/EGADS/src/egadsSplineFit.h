@@ -13,38 +13,37 @@ extern "C" {
 
 __ProtoExt__ int EG_spline1dEval( int *ivec, double *rdata, double t,
                                   double *point );
-__ProtoExt__ int EG_spline1dEval_psens( int *ivec, const double *rdata,
-                                        const double *rdata_xyz,
-                                        const double *xyz_dot, double t,
-                                        double *point, double *point_dot);
-__ProtoExt__ int EG_spline1dEval_dot( int *ivec,
-                                      const double *rdata, const double *rdata_dot,
-                                      double t,
-                                      double *point, double *point_dot);
+__ProtoExt__ int EG_spline1dEval_dot( int *ivec, const double *rdata,
+                                      const double *rdata_dot, double t,
+                                      double *point, double *point_dot );
 __ProtoExt__ int EG_spline1dDeriv( int *ivec, double *rdata, int der, double t,
                                    double *deriv );
-__ProtoExt__ int EG_spline1dDeriv_dot( int *ivec, double *rdata, double *rdata_dot,
-                                       int der, double t,
+__ProtoExt__ int EG_spline1dDeriv_dot( int *ivec, double *rdata,
+                                       double *rdata_dot, int der, double t,
                                        double *deriv, double *deriv_dot );
-
 
 __ProtoExt__ int EG_spline1dFit( int endx, int imaxx, const double *xyz,
                                  const double *kn, double tol, int *header,
                                  double **rdata );
-__ProtoExt__ int EG_spline1dFit_psens( int endx, int imaxx, const double *xyz,
-                                       const double *kn, double tol, int *header,
-                                       double **rdata, double **rdata_xyz );
-__ProtoExt__ int EG_spline1dFit_dot( int endx, int imaxx, const
-                                     double *xyz, const double *xyz_dot,
-                                     const double *kn, double tol, int *header,
+__ProtoExt__ int EG_spline1dFit_dot( int endx, int imaxx,
+                                     const double *xyz, const double *xyz_dot,
+                                     const double *kn, const double *kn_dot,
+                                     double tol, int *header,
                                      double **rdata, double **rdata_dot );
+
+__ProtoExt__ int EG_spline1dTan( int imaxx, const double *t1, const double *xyz,
+                                 const double *tn, const double *kn, double tol,
+                                 int *ivec, double **rdata );
+__ProtoExt__ int EG_spline1dTan_dot( int imaxx,
+                                     const double *t1,  const double *t1_dot,
+                                     const double *xyz, const double *xyz_dot,
+                                     const double *tn,  const double *tn_dot,
+                                     const double *kn,  const double *kn_dot,
+                                     double tol, int *ivec,
+                                     double **rdata,    double **rdata_dot );
 
 __ProtoExt__ int EG_spline2dEval( int *ivec, double *data, const double *uv,
                                   double *point );
-__ProtoExt__ int EG_spline2dEval_psens( int *ivec, const double *data,
-                                        const double *data_dot,
-                                        const double *xyz_dot, const double *uv,
-                                        double *point, double *point_dot );
 __ProtoExt__ int EG_spline2dDeriv( int *ivec, double *data, int der,
                                    const double *uv, double *deriv );
   
@@ -67,15 +66,18 @@ template<int N, class T>
 int EG_spline1dEval(int *ivec, SurrealS<N> *data, T& t, SurrealS<N> *point);
 
 template<int N, class T>
-int EG_spline1dDeriv(int *ivec, SurrealS<N> *data, int der, T& t, SurrealS<N> *point);
+int EG_spline1dDeriv(int *ivec, SurrealS<N> *data, int der, T& t,
+                     SurrealS<N> *point);
 
-int EG_spline1d_rdata_dot(int *ivec, const double *data, const double *rdata_xyz,
-                          const SurrealS<1> *xyz_dot, SurrealS<1> **data_dot);
+template<class T>
+int EG_spline1dFit(int endx, int imaxx, const T *xyz,
+                   const T *kn, double tol, int *ivec,
+                   T **rdata);
 
-template<int N>
-int EG_spline1dFit(int endx, int imaxx, const SurrealS<N> *xyz,
-                   const double *kn, double tol, int *ivec,
-                   SurrealS<N> **rdata);
+template<class T>
+int EG_spline1dTan(int imaxx, const T *t1, const T *xyz, const T *tn,
+                   const T *kn, double tol, int *ivec,
+                   T **rdata);
 
 template<int N, class T>
 int EG_spline2dEval(int *ivec, SurrealS<N> *data, const T *uv,
@@ -97,27 +99,40 @@ int EG_spline2dAprx(int endc, int imax, int jmax, const SurrealS<N> *xyz,
 #ifdef WIN32
 /* all explicit instantiations need to be exposed here for WIN32 */
 template __declspec( dllimport )
-         int EG_spline1dEval<1, double>(int *, SurrealS<1> *, double&, SurrealS<1> *);
-template __declspec( dllimport )
-         int EG_spline1dEval<1, SurrealS<1>>(int *, SurrealS<1> *, SurrealS<1>&, SurrealS<1> *);
+         int EG_spline1dEval<1, double>(int *, SurrealS<1> *, double&,
+                                        SurrealS<1> *);
 
 template __declspec( dllimport )
-         int EG_spline1dFit<1>(int, int, const SurrealS<1> *, const double *,
-                               double, int *, SurrealS<1> **);
+         int EG_spline1dEval<1, SurrealS<1>>(int *, SurrealS<1> *, SurrealS<1>&,
+                                             SurrealS<1> *);
+
+template __declspec( dllimport )
+         int EG_spline1dFit< SurrealS<1> >(int, int, const SurrealS<1> *,
+                                           const SurrealS<1> *,
+                                           double, int *, SurrealS<1> **);
+
+template __declspec( dllimport )
+         int EG_spline1dTan< SurrealS<1> >(int imaxx, const SurrealS<1> *t1,
+                                           const SurrealS<1> *xyz,
+                                           const SurrealS<1> *tn,
+                                           const SurrealS<1> *kn, double tol,
+                                           int *ivec, SurrealS<1> **rdata);
 
 template __declspec( dllimport )
          int EG_spline2dEval<1, double>(int *, SurrealS<1> *, const double *,
                                         SurrealS<1> *);
-template __declspec( dllimport )
-         int EG_spline2dEval<1, SurrealS<1>>(int *, SurrealS<1> *, const SurrealS<1> *,
-                                             SurrealS<1> *);
 
 template __declspec( dllimport )
-         int EG_spline2dDeriv<1, double>(int *, SurrealS<1> *, int, const double *,
-                                         SurrealS<1> *);
+         int EG_spline2dEval<1, SurrealS<1>>(int *, SurrealS<1> *,
+                                             const SurrealS<1> *, SurrealS<1> *);
+
 template __declspec( dllimport )
-         int EG_spline2dDeriv<1, SurrealS<1>>(int *, SurrealS<1> *, int, const SurrealS<1> *,
-                                              SurrealS<1> *);
+         int EG_spline2dDeriv<1, double>(int *, SurrealS<1> *, int,
+                                         const double *, SurrealS<1> *);
+
+template __declspec( dllimport )
+         int EG_spline2dDeriv<1, SurrealS<1>>(int *, SurrealS<1> *, int,
+                                              const SurrealS<1> *, SurrealS<1> *);
 
 template __declspec( dllimport )
          int EG_spline2dAprx<1>(int endc, int imax, int jmax,

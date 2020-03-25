@@ -15,6 +15,8 @@
 
 typedef struct {
   void *usrData;
+  int (*velocityOfRange)( void* usrData, const ego *secs, int isec, ego edge,
+                          double *trange, double *trange_dot );
   int (*velocityOfNode)( void* usrData, const ego *secs, int isec, ego node, ego edge,
                          double *xyz, double *xyz_dot );
   int (*velocityOfEdge)( void* usrData, const ego *secs, int isec, ego edge,
@@ -22,6 +24,8 @@ typedef struct {
                          double *xyzs, double *xyzs_dot,
                          double *tbeg, double *tbeg_dot,
                          double *tend, double *tend_dot );
+  int (*velocityOfBspline)( void* usrData, const ego *secs, int isec, ego edge, ego geom,
+                            int **ivec, double **rvec, double **rvec_dot );
 } egadsSplineVels;
 
 #ifdef __ProtoExt__

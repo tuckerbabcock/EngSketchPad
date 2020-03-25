@@ -33,6 +33,8 @@
 #define DOT(a,b)          (a[0]*b[0] + a[1]*b[1] + a[2]*b[2])
 #define MIN(a,b)        (((a) < (b)) ? (a) : (b))
 
+extern "C" int EG_fixedKnots( const ego object );
+
 
 
 /* to deal with tolerance & print statements */
@@ -208,45 +210,6 @@ EG_spline1dEval(int *ivec, double *data, double t, double *point)
 
 extern "C"
 int
-EG_spline1dEval_psens(int *ivec, const double *data, const double *rdata_xyz,
-                       const double *xyz_dot, double t,
-                       double *point, double *point_dot)
-{
-  SurrealS<1>* dataS = NULL;
-  SurrealS<1>  pointS[3];
-
-  point[0]     = point[1]     = point[2]     = 0.0;
-  point_dot[0] = point_dot[1] = point_dot[2] = 0.0;
-  int icp      = ivec[2];
-  int iknot    = ivec[3];
-  int imax     = icp-2;
-
-  dataS = new SurrealS<1>[iknot+3*icp];
-  if (dataS == NULL) return EGADS_MALLOC;
-
-  for (int i = 0; i < iknot+3*icp; i++) {
-    dataS[i] = data[i];
-    double deriv = 0;
-    for (int j = 0; j < 3*imax; j++) {
-      deriv += rdata_xyz[j + i*3*imax]*xyz_dot[j];
-    }
-    dataS[i].deriv() = deriv;
-  }
-
-  int stat = EG_spline1dEval_impl(ivec, dataS, t, pointS);
-  delete [] dataS;
-  if (stat != EGADS_SUCCESS) return stat;
-
-  for (int i = 0; i < 3; i++) {
-    point[i]     = pointS[i].value();
-    point_dot[i] = pointS[i].deriv();
-  }
-  return EGADS_SUCCESS;
-}
-
-
-extern "C"
-int
 EG_spline1dEval_dot(int *ivec,
                     const double *rdata, const double *rdata_dot,
                     double t,
@@ -276,30 +239,6 @@ EG_spline1dEval_dot(int *ivec,
     point[i]     = pointS[i].value();
     point_dot[i] = pointS[i].deriv();
   }
-  return EGADS_SUCCESS;
-}
-
-
-int
-EG_spline1d_rdata_dot(int *ivec, const double *rdata, const double *rdata_xyz,
-                      const SurrealS<1> *xyz_dot, SurrealS<1> **rdata_dot)
-{
-  int icp      = ivec[2];
-  int iknot    = ivec[3];
-  int imax     = icp-2;
-
-  (*rdata_dot) = new SurrealS<1>[iknot+3*icp];
-  if ((*rdata_dot) == NULL) return EGADS_MALLOC;
-
-  for (int i = 0; i < iknot+3*icp; i++) {
-    (*rdata_dot)[i] = rdata[i];
-    double deriv = 0;
-    for (int j = 0; j < 3*imax; j++) {
-      deriv += rdata_xyz[j + i*3*imax]*xyz_dot[j].deriv();
-    }
-    (*rdata_dot)[i].deriv() = deriv;
-  }
-
   return EGADS_SUCCESS;
 }
 
@@ -382,7 +321,7 @@ int
 EG_spline1dDeriv_dot(int *ivec, double *rdata, double *rdata_dot,
                      int der, double t, double *deriv, double *deriv_dot)
 {
-  SurrealS<1>* dataS = NULL;
+  SurrealS<1>* dataS  = NULL;
   SurrealS<1>* derivS = NULL;
 
   int degree = ivec[1];
@@ -435,8 +374,8 @@ EG_spline1dDeriv_dot(int *ivec, double *rdata, double *rdata_dot,
 
 template<class T>
 static int
-EG_spline1dFit_impl(int endx, int imaxx, const T *xyz, const double *kn,
-                    double tol, int *header, T *rdata)
+EG_spline1dFit_impl(int endx, int imaxx, const T *t1, const T *xyz, const T *tn,
+                    const T *kn, double tol, int *header, T *rdata)
 {
     int i, kk, iknot, icp, iter, endc, imax, *mdata;
     T   du, dx, dy, dz, dxyzmax, rj[3], u21, u20, data[9];
@@ -472,6 +411,7 @@ EG_spline1dFit_impl(int endx, int imaxx, const T *xyz, const double *kn,
 
     mdata = (int *) EG_alloc(imax*sizeof(int));
     if (mdata == NULL) return EGADS_MALLOC;
+    for (i = 0; i < imax; i++) mdata[i] = 1;
     icp   = imax + 2;
     iknot = imax + 6;
     knots =  rdata;
@@ -499,6 +439,11 @@ EG_spline1dFit_impl(int endx, int imaxx, const T *xyz, const double *kn,
                       sqrt((xyz[3*i  ]-xyz[3*i-3])*(xyz[3*i  ]-xyz[3*i-3]) +
                            (xyz[3*i+1]-xyz[3*i-2])*(xyz[3*i+1]-xyz[3*i-2]) +
                            (xyz[3*i+2]-xyz[3*i-1])*(xyz[3*i+2]-xyz[3*i-1]));
+          if (knots[kk] == knots[kk-1]) {
+            printf("EG_spline1dFit: Repeated point %d in Spline Data!\n", kk);
+            EG_free(mdata);
+            return EGADS_DEGEN;
+          }
           kk++;
         }
       } else {
@@ -512,7 +457,9 @@ EG_spline1dFit_impl(int endx, int imaxx, const T *xyz, const double *kn,
 
       /* normalize */
       for (i = 0; i < kk; i++) knots[i] /= knots[kk-1];
+      
     } else {
+      
       /* note: the start and end knots are added */
       kk          = 0;
       knots[kk++] = kn[0];
@@ -525,107 +472,110 @@ EG_spline1dFit_impl(int endx, int imaxx, const T *xyz, const double *kn,
     }
 
     /* look for knots with multiplicity 2 or 3 */
-    mdata[0] = mdata[imax-1] = 1;
-    for (i = 1; i < imax-1; i++)
-        if ((knots[i+3] == knots[i+4]) && (knots[i+3] == knots[i+5])) {
-            if (knots[i+3] == knots[i+6]) {
-                EG_free(mdata);
-                return EGADS_DEGEN;
-            }
+    if (kn != NULL) {
+      for (i = 1; i < imax-1; i++) {
+        if ((i < imax-3) && (knots[i+3] == knots[i+4]) &&
+                            (knots[i+3] == knots[i+5])) {
+          if ((i < imax-4) && (knots[i+3] == knots[i+6])) {
+            printf("EG_spline1dFit: Multiplicity > 3 at %d\n", i);
+            EG_free(mdata);
+            return EGADS_DEGEN;
+          }
 #ifdef DEBUG
-            printf("repeated knot at i=%d, %d, and %d\n", i, i+1, i+2);
+          printf("repeated knot at i=%d, %d, and %d\n", i, i+1, i+2);
 #endif
-            mdata[i++] = -3;
-            mdata[i++] =  1;
-            mdata[i  ] = +3;
+          mdata[i++] = -3;
+          mdata[i++] =  1;
+          mdata[i  ] = +3;
         } else if (knots[i+3] == knots[i+4]) {
 #ifdef DEBUG
-            printf("repeated knot at i=%d and %d\n", i, i+1);
+          printf("repeated knot at i=%d and %d\n", i, i+1);
 #endif
-            mdata[i++] = -2;
-            mdata[i  ] = +2;
+          mdata[i++] = -2;
+          mdata[i  ] = +2;
         } else {
-            mdata[i  ] =  1;
+          mdata[i  ] =  1;
         }
+      }
 #ifdef DEBUG
-    printf("after pass 1\n");
-    for (i = 0; i < imax; i++)
+      printf("after pass 1\n");
+      for (i = 0; i < imax; i++)
         printf("mdata[%2d]=%2d\n", i, mdata[i]);
 #endif
 
-    /* for all multiplicity 2 knots, determine where the flat spot is */
-    for (i = 1; i < imax-1; i++)
+      /* for all multiplicity 2 knots, determine where the flat spot is */
+      for (i = 1; i < imax-1; i++)
         if ((mdata[i] == -2) && (mdata[i+1] == +2)) {
-            if (i < 2) {
-                /* flat on left */
-                mdata[i+1] = 1;
-            } else if (i > imax-4) {
-                /* flat on right */
-                mdata[i  ] = 1;
-            } else if ((knots[i+2] == knots[i+1]) && (knots[i+6] == knots[i+5])) {
-                /* flat on both sides */
-                printf("EG_spline1dFit: Not enough on either side of %d and %d\n",
-                       i, i+1);
-                printf("                This is probably an error!\n");
-                mdata[i  ] = 1;
-                mdata[i+1] = 1;
-            } else if (knots[i+2] == knots[i+1]) {
-                /* flat on left because of another multiplicity 2 too close */
+          if (i < 2) {
+            /* flat on left */
+            mdata[i+1] = 1;
+          } else if (i > imax-4) {
+            /* flat on right */
+            mdata[i  ] = 1;
+          } else if ((knots[i+2] == knots[i+1]) && (knots[i+6] == knots[i+5])) {
+            /* flat on both sides */
+            printf("EG_spline1dFit: Not enough on either side of %d and %d\n",
+                   i, i+1);
+            EG_free(mdata);
+            return EGADS_DEGEN;
+          } else if (knots[i+2] == knots[i+1]) {
+            /* flat on left because of another multiplicity 2 too close */
 #ifdef DEBUG
-                printf("flat on left at %d and %d due to close data\n", i, i+1);
+            printf("flat on left at %d and %d due to close data\n", i, i+1);
 #endif
-                mdata[i+1] = 1;
-            } else if (knots[i+6] == knots[i+5]) {
-                /* flat on right because of another multiplicity 2 too close */
+            mdata[i+1] = 1;
+          } else if (knots[i+6] == knots[i+5]) {
+            /* flat on right because of another multiplicity 2 too close */
 #ifdef DEBUG
-                printf("flat on right at %d and %d due to close data\n", i, i+1);
+            printf("flat on right at %d and %d due to close data\n", i, i+1);
 #endif
-                mdata[i  ] = 1;
+            mdata[i  ] = 1;
+          } else {
+            /* find second derivatives on both sides */
+            d2xdt2L = ((xyz[3*i   ]-xyz[3*i-3])/(knots[i+3]-knots[i+2]) -
+                       (xyz[3*i- 3]-xyz[3*i-6])/(knots[i+2]-knots[i+1])) /
+                                                (knots[i+3]-knots[i+1]);
+            d2ydt2L = ((xyz[3*i+ 1]-xyz[3*i-2])/(knots[i+3]-knots[i+2]) -
+                       (xyz[3*i- 2]-xyz[3*i-5])/(knots[i+2]-knots[i+1])) /
+                                                (knots[i+3]-knots[i+1]);
+            d2zdt2L = ((xyz[3*i+ 2]-xyz[3*i-1])/(knots[i+3]-knots[i+2]) -
+                       (xyz[3*i- 1]-xyz[3*i-4])/(knots[i+2]-knots[i+1])) /
+                                                (knots[i+3]-knots[i+1]);
+
+            d2xdt2R = ((xyz[3*i+ 9]-xyz[3*i+6])/(knots[i+6]-knots[i+5]) -
+                       (xyz[3*i+ 6]-xyz[3*i+3])/(knots[i+5]-knots[i+4])) /
+                                                (knots[i+6]-knots[i+4]);
+            d2ydt2R = ((xyz[3*i+10]-xyz[3*i+7])/(knots[i+6]-knots[i+5]) -
+                       (xyz[3*i+ 7]-xyz[3*i+4])/(knots[i+5]-knots[i+4])) /
+                                                (knots[i+6]-knots[i+4]);
+            d2zdt2R = ((xyz[3*i+11]-xyz[3*i+8])/(knots[i+6]-knots[i+5]) -
+                       (xyz[3*i+ 8]-xyz[3*i+5])/(knots[i+5]-knots[i+4])) /
+                                                (knots[i+6]-knots[i+4]);
+
+            d2sdt2L = d2xdt2L*d2xdt2L + d2ydt2L*d2ydt2L + d2zdt2L*d2zdt2L;
+            d2sdt2R = d2xdt2R*d2xdt2R + d2ydt2R*d2ydt2R + d2zdt2R*d2zdt2R;
+            if (d2sdt2L > d2sdt2R) {
+              /* flat on right because left curvature is smaller */
+#ifdef DEBUG
+              printf("flat on right\n");
+#endif
+              mdata[i  ] = 1;
             } else {
-                /* find second derivatives on both sides */
-                d2xdt2L = ((xyz[3*i   ]-xyz[3*i-3])/(knots[i+3]-knots[i+2]) -
-                           (xyz[3*i- 3]-xyz[3*i-6])/(knots[i+2]-knots[i+1])) /
-                                                    (knots[i+3]-knots[i+1]);
-                d2ydt2L = ((xyz[3*i+ 1]-xyz[3*i-2])/(knots[i+3]-knots[i+2]) -
-                           (xyz[3*i- 2]-xyz[3*i-5])/(knots[i+2]-knots[i+1])) /
-                                                    (knots[i+3]-knots[i+1]);
-                d2zdt2L = ((xyz[3*i+ 2]-xyz[3*i-1])/(knots[i+3]-knots[i+2]) -
-                           (xyz[3*i- 1]-xyz[3*i-4])/(knots[i+2]-knots[i+1])) /
-                                                    (knots[i+3]-knots[i+1]);
-
-                d2xdt2R = ((xyz[3*i+ 9]-xyz[3*i+6])/(knots[i+6]-knots[i+5]) -
-                           (xyz[3*i+ 6]-xyz[3*i+3])/(knots[i+5]-knots[i+4])) /
-                                                    (knots[i+6]-knots[i+4]);
-                d2ydt2R = ((xyz[3*i+10]-xyz[3*i+7])/(knots[i+6]-knots[i+5]) -
-                           (xyz[3*i+ 7]-xyz[3*i+4])/(knots[i+5]-knots[i+4])) /
-                                                    (knots[i+6]-knots[i+4]);
-                d2zdt2R = ((xyz[3*i+11]-xyz[3*i+8])/(knots[i+6]-knots[i+5]) -
-                           (xyz[3*i+ 8]-xyz[3*i+5])/(knots[i+5]-knots[i+4])) /
-                                                    (knots[i+6]-knots[i+4]);
-
-                d2sdt2L = d2xdt2L*d2xdt2L + d2ydt2L*d2ydt2L + d2zdt2L*d2zdt2L;
-                d2sdt2R = d2xdt2R*d2xdt2R + d2ydt2R*d2ydt2R + d2zdt2R*d2zdt2R;
-                if (d2sdt2L > d2sdt2R) {
-                    /* flat on right because left curvature is smaller */
+              /* flat on left because right curvture is smaller  */
 #ifdef DEBUG
-                    printf("flat on right\n");
+              printf("flat on left\n");
 #endif
-                    mdata[i  ] = 1;
-                } else {
-                    /* flat on left because right curvture is smaller  */
-#ifdef DEBUG
-                    printf("flat on left\n");
-#endif
-                    mdata[i+1] = 1;
-                }
+              mdata[i+1] = 1;
             }
-            i++;
+          }
+          i++;
         }
 #ifdef DEBUG
-    printf("after pass 2\n");
-    for (i = 0; i < imax; i++)
+      printf("after pass 2\n");
+      for (i = 0; i < imax; i++)
         printf("mdata[%2d]=%2d\n", i, mdata[i]);
 #endif
+    }
 
     /* initial control point */
     kk        = 0;
@@ -662,7 +612,12 @@ EG_spline1dFit_impl(int endx, int imaxx, const T *xyz, const double *kn,
         /* condition at beginning */
         EG_spline1dDeriv_impl(header, rdata, 2, knots[3], data);
         du = knots[4] - knots[3];
-        if (endc == 0) {
+        if (t1 != NULL) {
+            /* tangent specified */
+            dx = t1[0] - du * data[3];
+            dy = t1[1] - du * data[4];
+            dz = t1[2] - du * data[5];
+        } else if (endc == 0) {
             /* natural end */
             dx = du * du * data[6];
             dy = du * du * data[7];
@@ -749,7 +704,12 @@ EG_spline1dFit_impl(int endx, int imaxx, const T *xyz, const double *kn,
         /* condition at end */
         EG_spline1dDeriv_impl(header, rdata, 2, knots[imax+2], data);
         du = knots[imax+2] - knots[imax+1];
-        if (endc == 0) {
+        if (tn != NULL) {
+            /* tangent specified  */
+            dx = du * data[3] - tn[0];
+            dy = du * data[4] - tn[1];
+            dz = du * data[5] - tn[2];
+        } else if (endc == 0) {
             /* natural end */
             dx = du * du * data[6];
             dy = du * du * data[7];
@@ -802,10 +762,10 @@ EG_spline1dFit_impl(int endx, int imaxx, const T *xyz, const double *kn,
 }
 
 
-extern "C"
+template<class T>
 int
-EG_spline1dFit(int endx, int imaxx, const double *xyz, const double *kn,
-               double tol, int *ivec, double **rdata)
+EG_spline1dFit(int endx, int imaxx, const T *xyz, const T *kn,
+               double tol, int *ivec, T **rdata)
 {
   *rdata   = NULL;
   int imax = imaxx;
@@ -813,96 +773,54 @@ EG_spline1dFit(int endx, int imaxx, const double *xyz, const double *kn,
   if (imax < 2)                   return EGADS_DEGEN;
   if ((endx <  0) || (endx >  2)) return EGADS_RANGERR;
 
-  int icp      = imax + 2;
-  int iknot    = imax + 6;
-  double *rvec = (double *) EG_alloc((iknot+6*icp)*sizeof(double));
+  int icp   = imax + 2;
+  int iknot = imax + 6;
+  T *rvec   = new T[iknot+6*icp];
   if (rvec == NULL) return EGADS_MALLOC;
 
-  int stat = EG_spline1dFit_impl(endx, imaxx, xyz, kn, tol, ivec, rvec);
+  int stat = EG_spline1dFit_impl< T >(endx, imaxx, NULL, xyz, NULL,
+                                      kn, tol, ivec, rvec);
   if (stat == EGADS_SUCCESS) {
-    *rdata = (double *) EG_alloc((iknot+3*icp)*sizeof(double));
+    *rdata = (T*)EG_alloc( (iknot+3*icp)*sizeof(T) );
     if (*rdata == NULL) {
-      EG_free(rvec);
+      delete [] rvec;
       return EGADS_MALLOC;
     }
     for (int i = 0; i < iknot+3*icp; i++) (*rdata)[i] = rvec[i];
   }
-  EG_free(rvec);
+  delete [] rvec;
 
   return stat;
 }
 
+// Create explicit instantiations of the function
+template int
+EG_spline1dFit(int, int, const double *,
+               const double *, double, int *,
+               double **);
+
+template DllExport int
+EG_spline1dFit(int, int, const SurrealS<1> *,
+               const SurrealS<1> *, double, int *,
+               SurrealS<1> **);
 
 extern "C"
 int
-EG_spline1dFit_psens(int endx, int imaxx, const double *xyz, const double *kn,
-                     double tol, int *ivec, double **rdata, double **rdata_xyz)
+EG_spline1dFit(int endx, int imaxx, const double *xyz, const double *kn,
+               double tol, int *ivec, double **rdata)
 {
-  SurrealD *xyzS = NULL, *rdataS = NULL;
-
-  int imax = imaxx;
-  if (imax == 0)                  return EGADS_DEGEN;
-  if (imax < 0)                   imax = -imax;
-  if (imax < 2)                   return EGADS_DEGEN;
-  if ((endx <  0) || (endx >  2)) return EGADS_RANGERR;
-
-  int icp   = imax + 2;
-  int iknot = imax + 6;
-  xyzS      = new SurrealD[3*imax];
-  if (xyzS == NULL) return EGADS_MALLOC;
-  rdataS    = new SurrealD[iknot+6*icp];
-  if (rdataS == NULL) {
-    delete [] xyzS;
-    return EGADS_MALLOC;
-  }
-
-#ifndef __clang_analyzer__
-  for (int i = 0; i < 3*imax; i++) {
-    xyzS[i]          = SurrealD(xyz[i],3*imax);
-    xyzS[i].deriv(i) = 1;
-  }
-#endif
-
-  int stat = EG_spline1dFit_impl(endx, imaxx, xyzS, kn, tol, ivec, rdataS);
-  delete [] xyzS;
-  if (stat == EGADS_SUCCESS) {
-    *rdata = (double *) EG_alloc((iknot+3*icp)*sizeof(double));
-    if (*rdata == NULL) {
-      delete [] rdataS;
-      return EGADS_MALLOC;
-    }
-
-    *rdata_xyz = (double *) EG_alloc((iknot+3*icp)*3*imax*sizeof(double));
-    if (*rdata_xyz == NULL) {
-      EG_free(*rdata);
-      delete [] rdataS;
-      return EGADS_MALLOC;
-    }
-
-    for (int i = 0; i < iknot+3*icp; i++) {
-      (*rdata)[i] = rdataS[i].value();
-      if (rdataS[i].size() == 0) {
-        for (int j = 0; j < 3*imax; j++)
-          (*rdata_xyz)[i*3*imax+j] = 0;
-      } else {
-        for (int j = 0; j < 3*imax; j++)
-          (*rdata_xyz)[i*3*imax+j] = rdataS[i].deriv(j);
-      }
-    }
-  }
-  delete [] rdataS;
-
-  return stat;
+  return EG_spline1dFit<double>(endx, imaxx, xyz, kn, tol, ivec, rdata);
 }
 
 
 extern "C"
 int
 EG_spline1dFit_dot(int endx, int imaxx, const double *xyz, const double *xyz_dot,
-                   const double *kn, double tol, int *ivec,
+                   const double *kn, const double *kn_dot,
+                   double tol, int *ivec,
                    double **rdata, double **rdata_dot)
 {
-  SurrealS<1> *xyzS = NULL, *rdataS = NULL;
+  SurrealS<1> *xyzS = NULL, *knS = NULL, *rdataS = NULL;
 
   int imax = imaxx;
   if (imax == 0)                  return EGADS_DEGEN;
@@ -927,8 +845,28 @@ EG_spline1dFit_dot(int endx, int imaxx, const double *xyz, const double *xyz_dot
   }
 #endif
 
-  int stat = EG_spline1dFit_impl(endx, imaxx, xyzS, kn, tol, ivec, rdataS);
+  if (kn != NULL) {
+    if (kn_dot == NULL) {
+      delete [] xyzS;
+      delete [] rdataS;
+      return EGADS_NULLOBJ;
+    }
+    knS       = new SurrealS<1>[iknot];
+    if (knS == NULL) {
+      delete [] xyzS;
+      delete [] rdataS;
+      return EGADS_MALLOC;
+    }
+    for (int i = 0; i < iknot; i++) {
+      knS[i]         = kn[i];
+      knS[i].deriv() = kn_dot[i];
+    }
+  }
+
+  int stat = EG_spline1dFit_impl< SurrealS<1> >(endx, imaxx, NULL, xyzS, NULL,
+                                                knS, tol, ivec, rdataS);
   delete [] xyzS;
+  delete [] knS;
   if (stat == EGADS_SUCCESS) {
     *rdata = (double *) EG_alloc((iknot+3*icp)*sizeof(double));
     if (*rdata == NULL) {
@@ -954,40 +892,152 @@ EG_spline1dFit_dot(int endx, int imaxx, const double *xyz, const double *xyz_dot
 }
 
 
-template<int N>
+template<class T>
 int
-EG_spline1dFit(int endx, int imaxx, const SurrealS<N> *xyz, const double *kn,
-               double tol, int *ivec, SurrealS<N> **rdata)
+EG_spline1dTan(int imaxx, const T *t1, const T *xyz, const T *tn,
+               const T *kn, double tol, int *ivec, T **rdata)
 {
   *rdata   = NULL;
   int imax = imaxx;
-  if (imax < 0)                   imax = -imax;
-  if (imax < 2)                   return EGADS_DEGEN;
-  if ((endx <  0) || (endx >  2)) return EGADS_RANGERR;
+  if (imax < 0) imax = -imax;
+  if (imax < 2) return EGADS_DEGEN;
 
   int icp      = imax + 2;
   int iknot    = imax + 6;
-  SurrealS<N> *rvec = new SurrealS<N>[iknot+6*icp];
+  T *rvec = (T *) EG_alloc((iknot+6*icp)*sizeof(T));
   if (rvec == NULL) return EGADS_MALLOC;
 
-  int stat = EG_spline1dFit_impl(endx, imaxx, xyz, kn, tol, ivec, rvec);
+  int stat = EG_spline1dFit_impl<T>(0, imaxx, t1, xyz, tn, kn, tol,
+                                    ivec, rvec);
   if (stat == EGADS_SUCCESS) {
-    *rdata = new SurrealS<N>[iknot+3*icp];
+    *rdata = (T *) EG_alloc((iknot+3*icp)*sizeof(T));
     if (*rdata == NULL) {
-      delete [] rvec;
+      EG_free(rvec);
       return EGADS_MALLOC;
     }
     for (int i = 0; i < iknot+3*icp; i++) (*rdata)[i] = rvec[i];
   }
-  delete [] rvec;
+  EG_free(rvec);
 
   return stat;
 }
 
-// Create explicit instantiations of the function
-template DllExport int EG_spline1dFit<1>(int, int, const SurrealS<1> *,
-                                         const double *, double, int *,
-                                         SurrealS<1> **);
+template int
+EG_spline1dTan(int imaxx, const double *t1, const double *xyz, const double *tn,
+               const double *kn, double tol, int *ivec, double **rdata);
+
+template DllExport int
+EG_spline1dTan(int imaxx, const SurrealS<1> *t1, const SurrealS<1> *xyz,
+               const SurrealS<1> *tn, const SurrealS<1> *kn, double tol,
+               int *ivec, SurrealS<1> **rdata);
+
+extern "C" int
+EG_spline1dTan(int imaxx, const double *t1, const double *xyz, const double *tn,
+               const double *kn, double tol, int *ivec, double **rdata)
+{
+  return EG_spline1dTan<double>(imaxx, t1, xyz, tn, kn, tol, ivec, rdata);
+}
+
+
+extern "C"
+int
+EG_spline1dTan_dot(int imaxx,
+                   const double *t1,  const double *t1_dot,
+                   const double *xyz, const double *xyz_dot,
+                   const double *tn,  const double *tn_dot,
+                   const double *kn,  const double *kn_dot,
+                   double tol, int *ivec,
+                   double **rdata,    double **rdata_dot)
+{
+  SurrealS<1> *xyzS = NULL, *knS = NULL, *rdataS = NULL, *t1sp = NULL, *tnsp = NULL;
+  SurrealS<1> t1s[3], tns[3];
+
+  int imax = imaxx;
+  if (imax == 0) return EGADS_DEGEN;
+  if (imax < 0)  imax = -imax;
+  if (imax < 2)  return EGADS_DEGEN;
+
+  if (t1 != NULL) {
+    t1s[0]         = t1[0];
+    t1s[0].deriv() = t1_dot[0];
+    t1s[1]         = t1[1];
+    t1s[1].deriv() = t1_dot[1];
+    t1s[2]         = t1[2];
+    t1s[2].deriv() = t1_dot[2];
+    t1sp           = (SurrealS<1> *) &t1s;
+  }
+  if (tn != NULL) {
+    tns[0]         = tn[0];
+    tns[0].deriv() = tn_dot[0];
+    tns[1]         = tn[1];
+    tns[1].deriv() = tn_dot[1];
+    tns[2]         = tn[2];
+    tns[2].deriv() = tn_dot[2];
+    tnsp           = (SurrealS<1> *) &tns;
+  }
+  
+  int icp   = imax + 2;
+  int iknot = imax + 6;
+  xyzS      = new SurrealS<1>[3*imax];
+  if (xyzS == NULL) return EGADS_MALLOC;
+  rdataS    = new SurrealS<1>[iknot+6*icp];
+  if (rdataS == NULL) {
+    delete [] xyzS;
+    return EGADS_MALLOC;
+  }
+
+#ifndef __clang_analyzer__
+  for (int i = 0; i < 3*imax; i++) {
+    xyzS[i]         = xyz[i];
+    xyzS[i].deriv() = xyz_dot[i];
+  }
+#endif
+
+  if (kn != NULL) {
+    if (kn_dot == NULL) {
+      delete [] xyzS;
+      delete [] rdataS;
+      return EGADS_NULLOBJ;
+    }
+    knS       = new SurrealS<1>[iknot];
+    if (knS == NULL) {
+      delete [] xyzS;
+      delete [] rdataS;
+      return EGADS_MALLOC;
+    }
+    for (int i = 0; i < iknot; i++) {
+      knS[i]         = kn[i];
+      knS[i].deriv() = kn_dot[i];
+    }
+  }
+
+  int stat = EG_spline1dFit_impl< SurrealS<1> >(0, imaxx, t1sp, xyzS, tnsp,
+                                                knS, tol, ivec, rdataS);
+  delete [] xyzS;
+  if (kn != NULL) delete [] knS;
+  if (stat == EGADS_SUCCESS) {
+    *rdata = (double *) EG_alloc((iknot+3*icp)*sizeof(double));
+    if (*rdata == NULL) {
+      delete [] rdataS;
+      return EGADS_MALLOC;
+    }
+
+    *rdata_dot = (double *) EG_alloc((iknot+3*icp)*sizeof(double));
+    if (*rdata_dot == NULL) {
+      EG_free(*rdata);
+      delete [] rdataS;
+      return EGADS_MALLOC;
+    }
+
+    for (int i = 0; i < iknot+3*icp; i++) {
+      (*rdata)[i]     = rdataS[i].value();
+      (*rdata_dot)[i] = rdataS[i].deriv();
+    }
+  }
+  delete [] rdataS;
+
+  return stat;
+}
 
 
 extern "C"
@@ -995,7 +1045,7 @@ int
 EG_spline1d(egObject *context, int endx, int imaxx, const double *xyz,
             double tol, egObject **ecurv)
 {
-  int    stat, icp, iknot, imax, ivec[4];
+  int    stat, icp, iknot, imax, fixed, ivec[4];
   double *rvec;
 
   *ecurv = NULL;
@@ -1007,12 +1057,15 @@ EG_spline1d(egObject *context, int endx, int imaxx, const double *xyz,
   if (imax < 2)                      return EGADS_DEGEN;
   if ((endx <  0) || (endx >  2))    return EGADS_RANGERR;
 
+  fixed = EG_fixedKnots(context);
   icp   = imax + 2;
   iknot = imax + 6;
   rvec  = (double *) EG_alloc((iknot+6*icp)*sizeof(double));
   if (rvec == NULL) return EGADS_MALLOC;
 
-  stat = EG_spline1dFit_impl(endx, imaxx, xyz, NULL, tol, ivec, rvec);
+  if ((fixed != 0) && (imaxx > 0)) imaxx = -imaxx;
+  stat = EG_spline1dFit_impl<double>(endx, imaxx, NULL, xyz, NULL, NULL, tol,
+                                     ivec, rvec);
   if (stat == EGADS_SUCCESS)
     stat = EG_makeGeometry(context, CURVE, BSPLINE, NULL, ivec, rvec, ecurv);
   EG_free(rvec);
@@ -1026,7 +1079,7 @@ int
 EG_spline1dPCrv(egObject *context, int endx, int imax, const double *xy,
                 const double *knots, double tol, egObject **ecurv)
 {
-  int    i, stat, icp, iknot, ivec[4];
+  int    i, stat, icp, iknot, fixed, imaxx, ivec[4];
   double *rvec, *xyz, *cp;
 
   *ecurv = NULL;
@@ -1044,6 +1097,8 @@ EG_spline1dPCrv(egObject *context, int endx, int imax, const double *xy,
     xyz[3*i+2] = 0.0;
   }
 
+  imaxx = imax;
+  fixed = EG_fixedKnots(context);
   icp   = imax + 2;
   iknot = imax + 6;
   rvec  = (double *) EG_alloc((iknot+6*icp)*sizeof(double));
@@ -1052,7 +1107,9 @@ EG_spline1dPCrv(egObject *context, int endx, int imax, const double *xy,
     return EGADS_MALLOC;
   }
 
-  stat = EG_spline1dFit_impl(endx, imax, xyz, knots, tol, ivec, rvec);
+  if (fixed != 0) imaxx = -imaxx;
+  stat = EG_spline1dFit_impl<double>(endx, imaxx, NULL, xyz, NULL, knots, tol,
+                                     ivec, rvec);
   if (stat == EGADS_SUCCESS) {
     cp = &rvec[iknot];
     for (i = 1; i < imax; i++) {
@@ -1130,45 +1187,6 @@ EG_spline2dEval(int *ivec, double *data, const double *uv, double *point)
 }
 
 
-extern "C"
-int
-EG_spline2dEval_psens(int *ivec, const double *data, const double *data_dot,
-                         const double *xyz_dot, const double *uv,
-                         double *point, double *point_dot)
-{
-  SurrealS<1>* dataS = NULL;
-  SurrealS<1>  pointS[3];
-
-  point[0]     = point[1]     = point[2]     = 0.0;
-  point_dot[0] = point_dot[1] = point_dot[2] = 0.0;
-  int icp      =  ivec[2]*ivec[5];
-  int iknot    =  ivec[3]+ivec[6];
-  int imax     = (ivec[2]-2)*(ivec[5]-2);
-
-  dataS = new SurrealS<1>[iknot+3*icp];
-  if (dataS == NULL) return EGADS_MALLOC;
-
-  for (int i = 0; i < iknot+3*icp; i++) {
-    dataS[i] = data[i];
-    double deriv = 0.0;
-    for (int j = 0; j < 3*imax; j++) {
-      deriv += data_dot[j + i*3*imax]*xyz_dot[j];
-    }
-    dataS[i].deriv() = deriv;
-  }
-
-  int stat = EG_spline2dEval_impl(ivec, dataS, uv, pointS);
-  delete [] dataS;
-  if (stat != EGADS_SUCCESS) return stat;
-
-  for (int i = 0; i < 3; i++) {
-    point[i]     = pointS[i].value();
-    point_dot[i] = pointS[i].deriv();
-  }
-  return EGADS_SUCCESS;
-}
-
-
 template<int N, class T>
 int
 EG_spline2dEval(int *ivec, SurrealS<N> *data, const T *uv,
@@ -1177,10 +1195,12 @@ EG_spline2dEval(int *ivec, SurrealS<N> *data, const T *uv,
   return EG_spline2dEval_impl(ivec, data, uv, point);
 }
 
+
 // Create explicit instantiations of the function
 template DllExport int EG_spline2dEval<1, double>(int *, SurrealS<1> *,
                                                   const double *,
                                                   SurrealS<1> *);
+
 template DllExport int EG_spline2dEval<1, SurrealS<1> >(int *, SurrealS<1> *,
                                                         const SurrealS<1> *,
                                                         SurrealS<1> *);
@@ -1269,6 +1289,7 @@ EG_spline2dDeriv(int *ivec, SurrealS<N> *data, int der,
 // Create explicit instantiations of the function
 template DllExport int EG_spline2dDeriv<1, double>(int *, SurrealS<1> *, int,
                                                    const double *, SurrealS<1> *);
+
 template DllExport int EG_spline2dDeriv<1, SurrealS<1> >(int *, SurrealS<1> *, int,
                                                          const SurrealS<1> *,
                                                          SurrealS<1> *);
@@ -1364,7 +1385,7 @@ EG_getEllRad(const T *drnd, T *nell)
 
 template<class T>
 int
-EG_spline2dAppr(int endc, int imax, int jmax, const T *xyz,
+EG_spline2dAppr(int endc, int imaxx, int jmaxx, const T *xyz,
                 /*@null@*/ const T   *uknot, /*@null@*/ const T *vknot,
                 /*@null@*/ const int *vdata,
                 /*@null@*/ const T   *wesT,  /*@null@*/ const T *easT,
@@ -1373,14 +1394,18 @@ EG_spline2dAppr(int endc, int imax, int jmax, const T *xyz,
                 double tol, int *header, T **rdata)
 {
     int i, j, iknot, jknot, icp, jcp, iter, tanOK;
-    int endi, endj, jj, kk, ms, mn;
+    int endi, endj, imax, jmax, jj, kk, ms, mn;
     T   ns[3], nn[3], rs[3][3], rn[3][3], thet, q0, q1, q2, q3, x2[3];
     T   r, tt, du, dv, dx, dy, dz, dist, mmu, con, con2, dxyzmax, normnell;
     T   dD, eE, F, G, rj[3], u21, u20, norm[3], nell[3], x0[3], x1[3], t[3][3];
     T   basis[4], uv[2], eval[18], *rvec, *knotu, *knotv, *cp, *cpsav;
     double box[6], rsize;
 
-    dx = dy = tt = 0.0;
+    imax = imaxx;
+    if (imax < 0) imax = -imax;
+    jmax = jmaxx;
+    if (jmax < 0) jmax = -jmax;
+    dx   = dy = tt = 0.0;
 #ifdef DEBUG
     printf(" In EG_splin2dAppr: endc = %d, imax = %d, jmax = %d  tol = %le\n",
            endc, imax, jmax, tol);
@@ -1529,48 +1554,48 @@ EG_spline2dAppr(int endc, int imax, int jmax, const T *xyz,
     knotu[kk++] = 0.0;
     knotu[kk++] = 0.0;
     if (uknot == NULL) {
-        /* arc-length spaced */
-        for (i = 0; i < imax; i++) knotu[kk+i] = 0.0;
-        dz = jmax;
-        for (j = 0; j < jmax; j++) {
-            dy = 0.0;
-            for (i = 1; i < imax; i++) {
-                dy += sqrt((xyz[3*((i)+(j)*imax)  ]-xyz[3*((i-1)+(j)*imax)  ])*
-                           (xyz[3*((i)+(j)*imax)  ]-xyz[3*((i-1)+(j)*imax)  ]) +
-                           (xyz[3*((i)+(j)*imax)+1]-xyz[3*((i-1)+(j)*imax)+1])*
-                           (xyz[3*((i)+(j)*imax)+1]-xyz[3*((i-1)+(j)*imax)+1]) +
-                           (xyz[3*((i)+(j)*imax)+2]-xyz[3*((i-1)+(j)*imax)+2])*
-                           (xyz[3*((i)+(j)*imax)+2]-xyz[3*((i-1)+(j)*imax)+2]));
-            }
-            if (dy < 1.e-13*rsize) {
-                dz -= 1.0;
-                continue;
-            }
-            dx = 0.0;
-            for (i = 1; i < imax; i++) {
-              dx += sqrt((xyz[3*((i)+(j)*imax)  ]-xyz[3*((i-1)+(j)*imax)  ])*
+      /* arc-length spaced */
+      for (i = 0; i < imax; i++) knotu[kk+i] = 0.0;
+      dz = jmax;
+      for (j = 0; j < jmax; j++) {
+          dy = 0.0;
+          for (i = 1; i < imax; i++) {
+              dy += sqrt((xyz[3*((i)+(j)*imax)  ]-xyz[3*((i-1)+(j)*imax)  ])*
                          (xyz[3*((i)+(j)*imax)  ]-xyz[3*((i-1)+(j)*imax)  ]) +
                          (xyz[3*((i)+(j)*imax)+1]-xyz[3*((i-1)+(j)*imax)+1])*
                          (xyz[3*((i)+(j)*imax)+1]-xyz[3*((i-1)+(j)*imax)+1]) +
                          (xyz[3*((i)+(j)*imax)+2]-xyz[3*((i-1)+(j)*imax)+2])*
-                         (xyz[3*((i)+(j)*imax)+2]-xyz[3*((i-1)+(j)*imax)+2]))/dy;
-              knotu[kk+i] += dx;
-            }
+                         (xyz[3*((i)+(j)*imax)+2]-xyz[3*((i-1)+(j)*imax)+2]));
+          }
+          if (dy < 1.e-13*rsize) {
+              dz -= 1.0;
+              continue;
+          }
+          dx = 0.0;
+          for (i = 1; i < imax; i++) {
+            dx += sqrt((xyz[3*((i)+(j)*imax)  ]-xyz[3*((i-1)+(j)*imax)  ])*
+                       (xyz[3*((i)+(j)*imax)  ]-xyz[3*((i-1)+(j)*imax)  ]) +
+                       (xyz[3*((i)+(j)*imax)+1]-xyz[3*((i-1)+(j)*imax)+1])*
+                       (xyz[3*((i)+(j)*imax)+1]-xyz[3*((i-1)+(j)*imax)+1]) +
+                       (xyz[3*((i)+(j)*imax)+2]-xyz[3*((i-1)+(j)*imax)+2])*
+                       (xyz[3*((i)+(j)*imax)+2]-xyz[3*((i-1)+(j)*imax)+2]))/dy;
+            knotu[kk+i] += dx;
+          }
+      }
+      for (iter = i = 1; i < imax; i++)
+          if (knotu[kk+i] <= knotu[kk+i-1]) iter++;
+      if ((iter == 1) && (imaxx > 0)) {
+        for (i = 0; i < imax; i++) knotu[kk++] /= dz;
+      } else {
+        /* equally spaced */
+        for (i = 0; i < imax; i++) {
+          dx          = i;
+          knotu[kk++] = dx/(imax-1);
         }
-        for (iter = i = 1; i < imax; i++)
-            if (knotu[kk+i] <= knotu[kk+i-1]) iter++;
-        if (iter == 1) {
-          for (i = 0; i < imax; i++) knotu[kk++] /= dz;
-        } else {
-            /* equally spaced */
-            for (i = 0; i < imax; i++) {
-                dx          = i;
-                knotu[kk++] = dx/(imax-1);
-            }
-        }
+      }
     } else {
-        /* knots in u set by input */
-        for (i = 0; i < imax; i++) knotu[kk++] = uknot[i];
+      /* knots in u set by input */
+      for (i = 0; i < imax; i++) knotu[kk++] = uknot[i];
     }
     knotu[kk++] = 1.0;
     knotu[kk++] = 1.0;
@@ -1582,38 +1607,46 @@ EG_spline2dAppr(int endc, int imax, int jmax, const T *xyz,
     knotv[kk++] = 0.0;
     knotv[kk++] = 0.0;
     if (vknot == NULL) {
-        /* arc-length spaced */
-        for (j = 0; j < jmax; j++) knotv[kk+j] = 0.0;
-        dz = imax;
-        for (i = 0; i < imax; i++) {
-            dy = 0.0;
-            for (j = 1; j < jmax; j++) {
-                dy += sqrt((xyz[3*((i)+(j)*imax)  ]-xyz[3*((i)+(j-1)*imax)  ])*
-                           (xyz[3*((i)+(j)*imax)  ]-xyz[3*((i)+(j-1)*imax)  ]) +
-                           (xyz[3*((i)+(j)*imax)+1]-xyz[3*((i)+(j-1)*imax)+1])*
-                           (xyz[3*((i)+(j)*imax)+1]-xyz[3*((i)+(j-1)*imax)+1]) +
-                           (xyz[3*((i)+(j)*imax)+2]-xyz[3*((i)+(j-1)*imax)+2])*
-                           (xyz[3*((i)+(j)*imax)+2]-xyz[3*((i)+(j-1)*imax)+2]));
-            }
-            if (dy < 1.e-13*rsize) {
-                dz -= 1.0;
-                continue;
-            }
-            dx = 0.0;
-            for (j = 1; j < jmax; j++) {
-                dx += sqrt((xyz[3*((i)+(j)*imax)  ]-xyz[3*((i)+(j-1)*imax)  ])*
-                           (xyz[3*((i)+(j)*imax)  ]-xyz[3*((i)+(j-1)*imax)  ]) +
-                           (xyz[3*((i)+(j)*imax)+1]-xyz[3*((i)+(j-1)*imax)+1])*
-                           (xyz[3*((i)+(j)*imax)+1]-xyz[3*((i)+(j-1)*imax)+1]) +
-                           (xyz[3*((i)+(j)*imax)+2]-xyz[3*((i)+(j-1)*imax)+2])*
-                           (xyz[3*((i)+(j)*imax)+2]-xyz[3*((i)+(j-1)*imax)+2]))/dy;
-                knotv[kk+j] += dx;
-            }
+      /* arc-length spaced */
+      for (j = 0; j < jmax; j++) knotv[kk+j] = 0.0;
+      dz = imax;
+      for (i = 0; i < imax; i++) {
+        dy = 0.0;
+        for (j = 1; j < jmax; j++) {
+          dy += sqrt((xyz[3*((i)+(j)*imax)  ]-xyz[3*((i)+(j-1)*imax)  ])*
+                     (xyz[3*((i)+(j)*imax)  ]-xyz[3*((i)+(j-1)*imax)  ]) +
+                     (xyz[3*((i)+(j)*imax)+1]-xyz[3*((i)+(j-1)*imax)+1])*
+                     (xyz[3*((i)+(j)*imax)+1]-xyz[3*((i)+(j-1)*imax)+1]) +
+                     (xyz[3*((i)+(j)*imax)+2]-xyz[3*((i)+(j-1)*imax)+2])*
+                     (xyz[3*((i)+(j)*imax)+2]-xyz[3*((i)+(j-1)*imax)+2]));
         }
+        if (dy < 1.e-13*rsize) {
+          dz -= 1.0;
+          continue;
+        }
+        dx = 0.0;
+        for (j = 1; j < jmax; j++) {
+          dx += sqrt((xyz[3*((i)+(j)*imax)  ]-xyz[3*((i)+(j-1)*imax)  ])*
+                     (xyz[3*((i)+(j)*imax)  ]-xyz[3*((i)+(j-1)*imax)  ]) +
+                     (xyz[3*((i)+(j)*imax)+1]-xyz[3*((i)+(j-1)*imax)+1])*
+                     (xyz[3*((i)+(j)*imax)+1]-xyz[3*((i)+(j-1)*imax)+1]) +
+                     (xyz[3*((i)+(j)*imax)+2]-xyz[3*((i)+(j-1)*imax)+2])*
+                     (xyz[3*((i)+(j)*imax)+2]-xyz[3*((i)+(j-1)*imax)+2]))/dy;
+          knotv[kk+j] += dx;
+        }
+      }
+      if (jmaxx > 0) {
         for (j = 0; j < jmax; j++) knotv[kk++] /= dz;
+      } else {
+        /* equally spaced */
+        for (j = 0; j < jmax; j++) {
+          dx          = j;
+          knotv[kk++] = dx/(jmax-1);
+        }
+      }
     } else {
-        /* knots in v set by input */
-        for (j = 0; j < jmax; j++) knotv[kk++] = vknot[j];
+      /* knots in v set by input */
+      for (j = 0; j < jmax; j++) knotv[kk++] = vknot[j];
     }
     knotv[kk++] = 1.0;
     knotv[kk++] = 1.0;
@@ -3814,7 +3847,7 @@ EG_spline2dAppx(egObject *context,  int endc,   /*@null@*/ const double *uknot,
                 int imax, int jmax, const double *xyz,           double tol,
                 egObject **esurf)
 {
-  int    stat, header[7];
+  int    stat, fixed, header[7];
   double *rdata;
 #ifdef WRITEAPPX
   int    i, head[12];
@@ -3867,6 +3900,9 @@ EG_spline2dAppx(egObject *context,  int endc,   /*@null@*/ const double *uknot,
   num++;
 #endif
 
+  fixed = EG_fixedKnots(context);
+  if ((uknot == NULL) && (fixed != 0)) imax = -imax;
+  if ((vknot == NULL) && (fixed != 0)) jmax = -jmax;
   stat = EG_spline2dAppr(endc, imax, jmax, xyz, uknot, vknot, vdata, wesT, easT,
                          south, snor, north, nnor, tol, header, &rdata);
   if (stat != EGADS_SUCCESS) return stat;
@@ -3892,10 +3928,13 @@ EG_spline2dAppx(egObject *context, int endc,
                 int imax, int jmax, const SurrealS<1> *xyz, double tol,
                 egObject **esurf)
 {
-  int         stat, header[7], size, i;
+  int         stat, header[7], size, i, fixed;
   double      *data = NULL, *data_dot = NULL;
   SurrealS<1> *rdata = NULL;
-
+  
+  fixed = EG_fixedKnots(context);
+  if ((uknot == NULL) && (fixed != 0)) imax = -imax;
+  if ((vknot == NULL) && (fixed != 0)) jmax = -jmax;
   stat = EG_spline2dAppr(endc, imax, jmax, xyz, uknot, vknot, vdata, wesT, easT,
                          south, snor, north, nnor, tol, header, &rdata);
   if (stat != EGADS_SUCCESS) return stat;
@@ -4264,6 +4303,7 @@ EG_isoCurve(const int *header2d, const T *data2d,
 template int
 EG_isoCurve(const int *header2d, const double *data2d,
             const int ik, const int jk, int *header, double **data);
+
 template int
 EG_isoCurve(const int *header2d, const SurrealS<1> *data2d,
             const int ik, const int jk, int *header, SurrealS<1> **data);
@@ -4294,7 +4334,7 @@ EG_isoCurve_dot(const int *header2d, const double *data2d,
 
   len = iknot+jknot+3*icp*jcp;
 
-  sdata2d = (SurrealS<1>*)EG_alloc(len*sizeof(SurrealS<1>));
+  sdata2d = (SurrealS<1>*) EG_alloc(len*sizeof(SurrealS<1>));
 
   for (int i = 0; i < len; i++) {
     sdata2d[i].value() = data2d[i];
@@ -4465,6 +4505,7 @@ template int
 EG_subSpline(const int *fheader, const double *fdata,
              const int i1, const int iN,
              const int j1, const int jN, int *sheader, double **sdata);
+
 template int
 EG_subSpline(const int *fheader, const SurrealS<1> *fdata,
              const int i1, const int iN,
@@ -4477,4 +4518,3 @@ EG_subSpline(const int *fheader, const double *fdata,
 {
   return EG_subSpline<double>(fheader, fdata, i1,iN, j1, jN, sheader, sdata);
 }
-

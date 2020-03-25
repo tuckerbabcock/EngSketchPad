@@ -27,6 +27,8 @@
                                egObject **oform);
   extern int  EG_getTransformation(const egObject *oform, double *xform);
   extern int  EG_setOutLevel(egObject *context, int outLevel);
+  extern int  EG_setFixedKnots(egObject *context, int fixed);
+  extern int  EG_setFullAttrs(egObject *context, int full);
   extern int  EG_setTessParam(egObject *context, int iParam, double value,
                              double *oldValue);
   extern int  EG_getContext(egObject *object, egObject **context);
@@ -168,6 +170,34 @@ ig_setoutlevel_(INT8 *cntxt, int *out)
 
   context = (egObject *) *cntxt;
   return EG_setOutLevel(context, *out);
+}
+
+
+int
+#ifdef WIN32
+IG_SETFIXEDKNOTS (INT8 *cntxt, int *out)
+#else
+ig_setfixedknots_(INT8 *cntxt, int *out)
+#endif
+{
+  egObject *context;
+
+  context = (egObject *) *cntxt;
+  return EG_setFixedKnots(context, *out);
+}
+
+
+int
+#ifdef WIN32
+IG_SETFULLATTRS (INT8 *cntxt, int *out)
+#else
+ig_setfullattrs_(INT8 *cntxt, int *out)
+#endif
+{
+  egObject *context;
+
+  context = (egObject *) *cntxt;
+  return EG_setFullAttrs(context, *out);
 }
 
 

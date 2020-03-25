@@ -1,4 +1,8 @@
 #
+!IFNDEF ESP_ROOT
+!ERROR ESP_ROOT must be set -- Please fix the environment...
+!ENDIF
+#
 IDIR  = $(ESP_ROOT)\include
 !include $(IDIR)\$(ESP_ARCH).$(MSVC)
 LDIR  = $(ESP_ROOT)\lib
