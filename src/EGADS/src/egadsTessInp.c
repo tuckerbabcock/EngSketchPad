@@ -911,6 +911,11 @@ EG_setTessEdge(const egObject *tess, int index, int len, const double *xyz,
     EG_free(xyzs);
     return EGADS_MALLOC;
   }
+#ifdef SETNODE
+  if ((xyz[0] != xyz0[0]) || (xyz[1] != xyz0[1]) || (xyz[2] != xyz0[2])) {
+    printf(" EGADS Warning: Edge %d- Node %d  XYZ misMatch (EG_setTessEdge)!\n",
+           index, EG_indexBodyTopo(obj, nodes[0]));
+  }
   ts[0]   = trange[0];
   xyzs[0] = xyz0[0];
   xyzs[1] = xyz0[1];
@@ -921,10 +926,23 @@ EG_setTessEdge(const egObject *tess, int index, int len, const double *xyz,
     xyzs[3*i+1] = xyz[3*i+1];
     xyzs[3*i+2] = xyz[3*i+2];
   }
+  if ((xyz[3*len-3] != xyz1[0]) || (xyz[3*len-2] != xyz1[1]) ||
+      (xyz[3*len-1] != xyz1[2])) {
+    printf(" EGADS Warning: Edge %d+ Node %d  XYZ misMatch (EG_setTessEdge)!\n",
+           index, EG_indexBodyTopo(obj, nodes[j]));
+  }
   ts[len-1]     = trange[1];
   xyzs[3*len-3] = xyz1[0];
   xyzs[3*len-2] = xyz1[1];
   xyzs[3*len-1] = xyz1[2];
+#else
+  for (i = 0; i < len; i++) {
+    ts[i]       = t[i];
+    xyzs[3*i  ] = xyz[3*i  ];
+    xyzs[3*i+1] = xyz[3*i+1];
+    xyzs[3*i+2] = xyz[3*i+2];
+  }
+#endif
 
   /* set the data */
   if (btess->tess1d[index-1].xyz != NULL) EG_free(btess->tess1d[index-1].xyz);
@@ -1066,7 +1084,8 @@ EG_setTessFace(const egObject *tess, int index, int len, const double *xyz,
   fillArea fast;
   egTessel *btess;
   egObject *obj, *geom, *face, **faces, **loops, **edges, **nds;
-  static double scl[3][2] = {{1.0, 1.0},  {10.0, 1.0},  {0.1, 10.0}};
+  static int    sides[3][2] = {{1,2}, {2,0}, {0,1}};
+  static double scl[3][2]   = {{1.0, 1.0},  {10.0, 1.0},  {0.1, 10.0}};
 
   if  (tess == NULL)                 return EGADS_NULLOBJ;
   if  (tess->magicnumber != MAGIC)   return EGADS_NOTOBJ;
@@ -1569,6 +1588,23 @@ EG_setTessFace(const egObject *tess, int index, int len, const double *xyz,
     xyzs[3*i+2] = xyz[3*j+2];
   }
   EG_free(table);
+  
+  /* are we OK with the Frame? */
+  for (i = 0; i < ntri; i++)
+    for (j = 0; j < 3; j++)
+      if (tric[3*i+j] == 0) {
+        printf(" Face %d: tri = %d, side = %d -- No Neighbor!\n",
+               index, i+1, j);
+      } else if (tric[3*i+j] < 0) {
+        mm = tris[3*i+sides[j][0]]-1;
+        mp = tris[3*i+sides[j][1]]-1;
+        if (ptype[mm] < 0)
+          printf(" Face %d: Edge = %d  tri = %d, side = %d -> Not in Frame-!\n",
+                 index, -tric[3*i+j], i+1, j);
+        if (ptype[mp] < 0)
+          printf(" Face %d: Edge = %d  tri = %d, side = %d -> Not in Frame+!\n",
+                 index, -tric[3*i+j], i+1, j);
+      }
 
   /* update the Face pointers */
   if (btess->tess2d[index-1].xyz    != NULL)

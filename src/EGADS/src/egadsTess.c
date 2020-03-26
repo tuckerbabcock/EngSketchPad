@@ -22,6 +22,7 @@
 #include "emp.h"
 
 
+//#define WRITEFRAME
 #define SPLITDEGEN
 #define INSERTKNOTS
 
@@ -2264,11 +2265,12 @@ EG_tessEdge(egTessel *btess, egObject **faces, int j, egObject *edge,
             int ignore, long tID)
 {
   int      i, k, l, n, npts, stat, outLevel, oclass, mtype, nnode, btype, *info;
-  int      nf, ntype, ndum, face, sense, *senses, aStat, aType, aLen, f2e = 0;
+  int      nf, ntype, ndum, face, sense, *senses, aStat, aType, aLen, nobj;
+  int      f2e = 0;
   double   xyz[MAXELEN][3], t[MAXELEN], aux[MAXELEN][3], mindist, dist;
   double   d, dotnrm, dot, limits[2], mid[3], range[4], dx[3], result[18];
   double   sag, tol, toldist, dm[3], xyzm[3], params[3], uv[2], *prv;
-  egObject *body, *geom, *ref, *rref, **nodes, **facs, **dum, **edges;
+  egObject *body, *geom, *ref, *rref, **nodes, **facs, **dum, **objs, **edges;
 #ifdef SPLITDEGEN
   int      be[2];
 #endif
@@ -3161,6 +3163,9 @@ EG_tessEdge(egTessel *btess, egObject **faces, int j, egObject *edge,
   if (aLen == 0) goto fill1D;
   edges = (egObject **) EG_alloc(aLen*sizeof(egObject *));
   if (edges == NULL) goto fill1D;
+  stat  = EG_getBodyTopos(body, NULL, NODE, &nnode, &nodes);
+  if (stat != EGADS_SUCCESS) nodes = NULL;
+  if (nodes != NULL) for (n = 0; n < nnode; n++) nodes[n] = NULL;
   
   toldist = 0.0;
   for (aLen = n = 0; n < 2; n++) {
@@ -3180,13 +3185,37 @@ EG_tessEdge(egTessel *btess, egObject **faces, int j, egObject *edge,
         if (dum[i]->mtype == DEGENERATE) continue;
         edges[aLen] = dum[i];
         aLen++;
+        if (nodes != NULL) {
+          stat = EG_getTopology(dum[i], &ref, &oclass, &ntype, range,
+                                &nobj, &objs, &senses);
+          if (stat != EGADS_SUCCESS) continue;
+          k = EG_indexBodyTopo(body, objs[0]);
+          if (k > 0) nodes[k-1] = objs[0];
+          if (nobj > 1) {
+            k = EG_indexBodyTopo(body, objs[1]);
+            if (k > 0) nodes[k-1] = objs[1];
+          }
+        }
       }
       EG_free(dum);
     }
   }
   if (aLen == 0) {
+    if (nodes != NULL) EG_free(nodes);
     EG_free(edges);
     goto fill1D;
+  }
+  if (nodes != NULL) {
+    stat = EG_getTopology(edge, &ref, &oclass, &ntype, range,
+                          &nobj, &objs, &senses);
+    if (stat == EGADS_SUCCESS) {
+      k = EG_indexBodyTopo(body, objs[0]);
+      nodes[k-1] = NULL;
+      if (nobj > 1) {
+        k = EG_indexBodyTopo(body, objs[1]);
+        if (k > 0) nodes[k-1] = NULL;
+      }
+    }
   }
   toldist *= 10.0;
   if (toldist == 0.0) toldist = mindist;
@@ -3267,6 +3296,7 @@ EG_tessEdge(egTessel *btess, egObject **faces, int j, egObject *edge,
     t[n]      = 0.5*(t[n-1]+t[n+1]);
     stat      = EG_evaluate(edge, &t[n], result);
     if (stat != EGADS_SUCCESS) {
+      if (nodes != NULL) EG_free(nodes);
       EG_free(edges);
       return stat;
     }
@@ -3320,9 +3350,55 @@ EG_tessEdge(egTessel *btess, egObject **faces, int j, egObject *edge,
   EG_free(edges);
 #ifdef DEBUG
   if (ndum != npts)
-    printf("%lX  Edge %d: Proximity phase added %d verts!\n",
+    printf("%lX  Edge %d: Edge Proximity phase added %d verts!\n",
            tID, j+1, npts-ndum);
 #endif
+ 
+  if (nodes != NULL) {
+    ndum = npts;
+    for (n = 0; n < nnode; n++) {
+      if (nodes[n] == NULL) continue;
+      if (npts >= MAXELEN)  continue;
+      stat = EG_getTopology(nodes[n], &ref, &oclass, &ntype, xyzm,
+                            &nobj, &objs, &senses);
+      if (stat != EGADS_SUCCESS) continue;
+      stat = EG_invEvaluate(edge, xyzm, uv, result);
+      if (stat != EGADS_SUCCESS) continue;
+      if (fabs(uv[0] - t[0])      < UVTOL) continue;
+      if (fabs(uv[0] - t[npts-1]) < UVTOL) continue;
+      dist = sqrt((result[0]-xyzm[0])*(result[0]-xyzm[0]) +
+                  (result[1]-xyzm[1])*(result[1]-xyzm[1]) +
+                  (result[2]-xyzm[2])*(result[2]-xyzm[2]));
+      for (k = 1; k < npts; k++)
+        if (uv[0] < t[k]) break;
+      if (k == npts) continue;
+      d = sqrt((xyz[k-1][0]-xyz[k][0])*(xyz[k-1][0]-xyz[k][0]) +
+               (xyz[k-1][1]-xyz[k][1])*(xyz[k-1][1]-xyz[k][1]) +
+               (xyz[k-1][2]-xyz[k][2])*(xyz[k-1][2]-xyz[k][2]));
+      if (d  < toldist) continue;
+      if (dist > 2.0*d) continue;
+      for (i = npts-1; i >= k; i--) {
+        xyz[i+1][0] = xyz[i][0];
+        xyz[i+1][1] = xyz[i][1];
+        xyz[i+1][2] = xyz[i][2];
+        t[i+1]      = t[i];
+      }
+      uv[0]     = 0.5*(t[k-1]+t[k+1]);
+      stat      = EG_evaluate(edge, uv, result);
+      if (stat != EGADS_SUCCESS) continue;
+      t[k]      = uv[0];
+      xyz[k][0] = result[0];
+      xyz[k][1] = result[1];
+      xyz[k][2] = result[2];
+      npts++;
+    }
+    EG_free(nodes);
+#ifdef DEBUG
+    if (ndum != npts)
+      printf("%lX  Edge %d: Node Proximity phase added %d verts!\n",
+             tID, j+1, npts-ndum);
+#endif
+  }
   
   /* fill in the 1D structure */
   
