@@ -68,6 +68,9 @@
 extern "C" int
 EG_saveTess(ego tess, const char *name); // super secret experimental EGADS tessellation format
 
+extern "C" int
+EG_loadTess(ego body, const char *name, ego *tess);
+
 #define NUMINPUT   3  // number of mesh inputs
 #define NUMOUT     1  // number of outputs // placeholder for now
 
@@ -964,6 +967,49 @@ aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValue *a
             }
             }
             EG_free(bodyCopy);
+
+            // /// try to load the tess here
+            // {
+            //     ego load_tess;
+            //     status = EG_loadTess(body, tess_filename.c_str(), &load_tess);
+            //     if (status != EGADS_SUCCESS)
+            //         printf(" PUMI AIM Warning: EG_saveTess failed with status: %d!\n", status);
+            //     else
+            //         printf("Loaded tess!\n");
+            // }
+
+            // /// try to load the tess and model
+            // {
+            //     ego load_model;
+            //     status = EG_loadModel(context, 0, model_filename.c_str(), &load_model);
+            //     if (status != EGADS_SUCCESS)
+            //     {
+            //         printf("EGADS failed to load model with error code: %d", status);
+            //     }
+
+            //     int oclass, mtype, nbody, *senses;
+            //     ego geom, *eg_bodies;
+            //     status = EG_getTopology(load_model, &geom, &oclass, &mtype, NULL, &nbody,
+            //                             &eg_bodies, &senses);
+            //     if (status != EGADS_SUCCESS)
+            //     {
+            //         printf("EGADS failed to get bodies with error code: %d", status);
+            //     }
+            //     else if (nbody > 1)
+            //     {
+            //         printf("EGADS model should only have one body");
+            //         return -1;
+            //     }                
+
+            //     ego load_body = eg_bodies[0];
+
+            //     ego load_tess;
+            //     status = EG_loadTess(load_body, tess_filename.c_str(), &load_tess);
+            //     if (status != EGADS_SUCCESS)
+            //         printf(" PUMI AIM Warning: EG_saveTess failed with status: %d!\n", status);
+            //     else
+            //         printf("Loaded tess and model!\n");
+            // }
 
             /// write adjacency table
             std::string adj_filename(filename);
