@@ -109,13 +109,13 @@ int EG_spline2dDeriv( int *ivec, SurrealS<N> *data, int der, const T *uv,
 
 template<class T>
 int
-EG_spline2dAppr( int endc, int imax, int jmax, const T *xyz,
-                 /*@null@*/ const T   *uknot, /*@null@*/ const T *vknot,
-                 /*@null@*/ const int *vdata,
-                 /*@null@*/ const T   *wesT,  /*@null@*/ const T *easT,
-                 /*@null@*/ const T   *south, /*@null@*/       T *snor,
-                 /*@null@*/ const T   *north, /*@null@*/       T *nnor,
-                 double tol, int *header, T **rdata );
+EG_spline2dAppr(int endc, int imaxx, int jmaxx, const T *xyz,
+                /*@null@*/ const T   *uknot, /*@null@*/ const T *vknot,
+                /*@null@*/ const int *vdata,
+                /*@null@*/ const T   *wesT,  /*@null@*/ const T *easT,
+                /*@null@*/ const T   *south, /*@null@*/       T *snor,
+                /*@null@*/ const T   *north, /*@null@*/       T *nnor,
+                double tol, int *header, T **rdata);
 template<class T>
 int
 EG_isoCurve( const int *header2d, const T *data2d,
@@ -182,8 +182,7 @@ struct egSpline
   }
 };
 
-
-#if defined(DEBUG) || defined(SPLINE_TECPLOT_DEBUG)
+#ifdef SPLINE_TECPLOT_DEBUG
 static double value(double val)
 {
   return val;
@@ -194,10 +193,7 @@ static double value(SurrealS<N> valS)
 {
   return valS.value();
 }
-#endif
 
-
-#ifdef SPLINE_TECPLOT_DEBUG
 void
 EG_tecplotSpline(int *header, SurrealS<1> *data, const char *file) {}
 
@@ -735,11 +731,18 @@ EG_setSequence(int nsec, const ego *secs, int te, int nstripe,
       if (mtype == LINE) {
         stat = EG_setSeq<T>(j, ncp, 3, trange, NULL, NULL);
       } else if (mtype == CIRCLE) {
-/*      k = 16*(data[1]-data[0])/3.1415926;
+/*      This fixes windtunnel6 and rule8 for OCC 7.4
+        k = 36.*(value(trange[1])-value(trange[0]))/PI;
         if (k < 4) k = 4;
-        stat = EG_setSeq(j, ncp,  k, NULL, NULL);  */
+        stat = EG_setSeq<T>(j, ncp,  k, trange, NULL, NULL);
+ */
         stat = EG_setSeq<T>(j, ncp, 12, trange, NULL, NULL);
       } else if (mtype == ELLIPSE) {
+/*      This fixes windtunnel6 and rule8 for OCC 7.4
+        k = 36.*(value(trange[1])-value(trange[0]))/PI;
+        if (k < 4) k = 4;
+        stat = EG_setSeq<T>(j, ncp,  k, trange, NULL, NULL);
+*/
         stat = EG_setSeq<T>(j, ncp, 12, trange, NULL, NULL);
       } else if (mtype == PARABOLA) {
         stat = EG_setSeq<T>(j, ncp, 12, trange, NULL, NULL);
@@ -4436,13 +4439,22 @@ EG_blend(int nsex, const ego *secs, /*@null@*/ double *rc1,
 
           /* make PCurves for the loop */
           for (j = 0; j < nstripe; j++) {
-            /* get the construct pcurves on the surface */
-            stat = EG_otherCurve(ref, cedges[j], 1.e-7, &cedges[j+nstripe]);
-            if (stat != EGADS_SUCCESS) {
-              if (outLevel > 0)
-                printf(" EGADS Error: %d otherCurve First = %d (EG_blend)!\n",
-                       j, stat);
-              goto cleanup;
+            /* construct pcurves on the surface */
+            double eps = 1.e-7;
+            EG_tolerance(cedges[j], &eps);
+            if (eps < 1.e-7) eps = 1.e-7;
+            for (int jj = 0; jj < 2; jj++) {
+              stat = EG_otherCurve(ref, cedges[j], eps, &cedges[j+nstripe]);
+              if (stat != EGADS_SUCCESS) {
+                if (jj == 0) {
+                  eps *= 100.0;
+                  continue;
+                }
+                if (outLevel > 0)
+                  printf(" EGADS Error: %d otherCurve First = %d (EG_blend)!\n",
+                         j, stat);
+                goto cleanup;
+              }
             }
             stat = EG_stackPush(&stack, cedges[j+nstripe]);
             if (stat != EGADS_SUCCESS) goto cleanup;
@@ -5967,12 +5979,21 @@ EG_ruled(int nsec, const ego *secs, ego *result)
           /* make PCurves for the loop */
           for (j = 0; j < nstripe; j++) {
             /* construct pcurves on the surface */
-             stat = EG_otherCurve(ref, cedges[j], 1.e-7, &cedges[j+nstripe]);
-            if (stat != EGADS_SUCCESS) {
-              if (outLevel > 0)
-                printf(" EGADS Error: %d otherCurve First = %d (EG_ruled)!\n",
-                       j, stat);
-               goto cleanup;
+            double eps = 1.e-7;
+            EG_tolerance(cedges[j], &eps);
+            if (eps < 1.e-7) eps = 1.e-7;
+            for (int jj = 0; jj < 2; jj++) {
+              stat = EG_otherCurve(ref, cedges[j], eps, &cedges[j+nstripe]);
+              if (stat != EGADS_SUCCESS) {
+                if (jj == 0) {
+                  eps *= 100.0;
+                  continue;
+                }
+                if (outLevel > 0)
+                  printf(" EGADS Error: %d otherCurve First = %d (EG_ruled)!\n",
+                         j, stat);
+                 goto cleanup;
+              }
             }
             stat = EG_stackPush(&stack, cedges[j+nstripe]);
             if (stat != EGADS_SUCCESS) goto cleanup;
@@ -6864,6 +6885,12 @@ int EG_blend_vels( int nsex, const ego *secs,
     }
   }
 
+  /* remove any temporary sensitivities from the sections */
+  for (i = 0; i < nsec; i++) {
+    stat = EG_setGeometry_dot(secs[i], 0, 0, NULL, NULL);
+    if (stat != EGADS_SUCCESS) goto cleanup;
+  }
+
   stat = EGADS_SUCCESS;
 
 cleanup:
@@ -7093,6 +7120,12 @@ int EG_ruled_vels(int nsec, const ego *secs, egadsSplineVels *vels_in, ego body)
 
       cap++;
     }
+  }
+
+  /* remove any temporary sensitivities from the sections */
+  for (i = 0; i < nsec; i++) {
+    stat = EG_setGeometry_dot(secs[i], 0, 0, NULL, NULL);
+    if (stat != EGADS_SUCCESS) goto cleanup;
   }
 
   stat = EGADS_SUCCESS;

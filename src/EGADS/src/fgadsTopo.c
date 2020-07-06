@@ -47,7 +47,7 @@
   extern int EG_makeSolidBody(egObject *context, int stype, const double *data,
                               egObject **body);
   extern int EG_getBoundingBox(const egObject *topo, double *box);
-  extern int EG_getMassProperties(const egObject *topo, double *box);
+  extern int EG_getMassProperties(const egObject *topo, /*@null@*/ double *dat);
   extern int EG_isEquivalent(const egObject *topo1, const egObject *topo2);
   extern int EG_loadModel(egObject *context, int bflg, const char *name, 
                           egObject **model);

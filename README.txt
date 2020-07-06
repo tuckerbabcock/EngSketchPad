@@ -1,20 +1,19 @@
                         ESP: The Engineering Sketch Pad
-                         Rev 1.18 Beta -- March 2020
+                             Rev 1.18 -- June 2020
 
 
 0. Warnings!
 
-    Windows 7 & 8 are no longer supported, only Windows 10 will be tested. 
+    Windows 7 & 8 are no longer supported, only Windows 10 is tested. 
     This also means that older versions of MS Visual Studio are no longer 
-    being tested either. Only MSVS versions 2015 and up are supported.
+    being tested either. Only MSVS versions 2015 and up are fully supported.
 
-    This may be the last ESP release that supports Python 2.7.
-
-    From Rev 1.18 (and on) only 7.3.1 and 7.4.1 will be the OpenCASCADE 
-    releases that we test against. And again, these are the versions that 
-    should be taken from the ESP website (and not from elsewhere). Until 
-    this release if final you can find OpenCASCADE 7.4.1 in the subdirectory 
-    "otherOCCs".
+    This ESP release no longer tests against Python 2.7. It should still
+    work, but we strongly advise going to at least Python 3.7. Also, we
+    now only support OpenCASCADE at Rev 7.3 or higher. And these must be
+    the versions taken from the ESP website (and not from elsewhere). At
+    this point we recommend 7.3.1 and are testing 7.4.1, which you can find 
+    currently in the ESP website subdirectory "otherOCCs".
 
     Apple's OSX Catalina (10.15) is a REAL problem. You cannot download the
     distributions using a browser. For instructions on how to get ESP see 
@@ -45,7 +44,7 @@
 
 1.1 Source Distribution Layout
 
-    In the discussions that follow, $DISROOT will be used as the name of the 
+    In the discussions that follow, $ESP_ROOT will be used as the name of the 
     directory that contains:
 
     README.txt        - this file
@@ -67,16 +66,77 @@
 
 1.2 Release Notes
 
+1.2.0 UDUNITS & Windows
+
+    There appears to be a fundamental flaw with the package "expat" (the XML 
+    parser) used by UDUNITS (a CAPS dependency) and Windows' use of drive 
+    letters. "expat" uses the current drive to look for the files to be 
+    included in the unit definitions. This only works if ESP and the place 
+    where you are running a CAPS app are on the same drive. Note: this may be
+    fixed in a future release.
+
 1.2.1 EGADS
 
+    There has been 2 significant updates made to EGADS from Rev 1.17:
+
+    1) EGADSlite has been refactored in order to support CUDA and GPUs
+    2) The tessellator has been improved in both quality and robustness
 
 1.2.2 ESP
 
+    In addition to many big fixes (see $ESP_ROOT/src/OpenCSMnotes.txt
+    for a full list), the significant upgrades are:
 
+    1) New/updated commands/statements and functions
+     a) Node, Edges, and Faces can now be SELECTed by bounding boxes
+     b) SUBTRACT can now be applied to coplanar SheetBodys
+     c) SCALE can now scale about a scaling center
+     d) SELECT ADD can now add Faces, Edges, or Nodes by index
+     e) SELECT SUB can now subtract entities by index
+     f) GROUP with a negative argument ungroups
+     g) CONNECT generates degenerate Faces when edgeList* contains a zero
+     h) SWEEP can be applied to a FaceBody
+     i) new SSLOPE allows a user to specify the slope at the beginning
+        or end of a SPLINE in a sketch
+     j) COMBINE command now returns a SheetBody if the Shell created is
+        not closed
+     k) SELECTing via attributes has been extended to have attribute
+        values that are strings, integer(s), or real(s)
+   2) New command line arguments
+     a) -skipTess allows a user to skip the tessellation on the Bodys on
+        the stack at the end
+     b) -printStack allows a user to print the constants of the stack
+        after every Branch
+     c) -batch is automatically selected when -skipTess is specified
+   3) New/updated UDPs, UDCs, or UDFs
+     a) applyTparams.udc puts .tParams on Body based upon its size
+     b) calcCG.udc computes the CG of all Bodys on the stack
+     c) dpEllipse is modified to have nedge and thbeg input parameters
+     d) editAttrUdf now allows PATBEG/PATEND statements
+   4) OpenCSM updates
+     a) update default tessellation parameters
+     b) allow UDFs to receive any number of input Bodys (back to Mark
+        or beginning of stack)
+     c) add ocsmUpdateDespmtrs to allow a user to update the DESPMTR
+        values from a file
+     d) add __filename__ to files processed by -loadEgads and -dumpEgads
+     e) remove tmp_OpenCSM files at beginning of ocsmLoad
+     f) Edges that come from Booleans no longer have the Attributes
+        of possibly-coincident Edges in one of the parents
+     g) significantly speed up finishing all Bodys
+   5) ESP updates
+     a) allow user to add an EVALUATE statement from ESP interface
+     b) add CFGPMTR highlighting and hints in ESP
+     c) unpost File or Tool menu if File, Tool, StepThur, Help,
+        UpToDate, or Undo button is pressed
+     d) make groups for at- and at-at-parameters in ESP
+     e) in serveCSM -sensTess, show Face tufts in blue and Edge tufts in red
+     f) add option to ESP to turn on/off all Nodes, Edges, Faces, or Csystems
+     g) allow plotfile to contain triangles (if jmax==-2)
 
 1.2.3 Known issues in v1.18:
 
-    None.
+    Sensitivities for BLENDS with C0 are done by finite differences.
 
 
 2. Building the Software
@@ -96,7 +156,7 @@
     the name of your architecture) directory.  Once that is found, execute 
     the commands:
 
-        % cd $DISROOT/config
+        % cd $ESP_ROOT/config
         % ./makeEnv **name_of_OpenCASCADE_directory_containing_inc_and_lib**
 
     An optional second argument to makeEnv is required if the distribution 
@@ -111,12 +171,12 @@
     building and/or running the software. For example, if using the csh or 
     tcsh:
 
-        % cd $DISROOT
+        % cd $ESP_ROOT
         % source ESPenv.csh
 
     or if using bash:
 
-        $ cd $DISROOT
+        $ cd $ESP_ROOT
         $ source ESPenv.sh
 
     Skip to section 2.3.
@@ -124,17 +184,17 @@
 2.2 Windows Configuration
 
     IMPORTANT: The ESP distribution and OpenCASCADE MUST be unpackaged 
-               into a location ($DISROOT) that has NO spaces in the path!
+               into a location ($ESP_ROOT) that has NO spaces in the path!
 
     The configuration is built from the path where the OpenCASCADE runtime 
     distribution can be found. MS Visual Studio is required and a command 
     shell where the 64bit C/C++ compiler should be opened and the following 
-    executed in that window (note that MS VS 2012, 2013, 2015, 2017 and 2019
-    are all supported). The Windows environment is built simply by going to 
+    executed in that window (note that MS VS 2015, 2017 and 2019 are all 
+    fully supported). The Windows environment is built simply by going to 
     the config subdirectory and executing the script "winEnv" in a bash 
     shell (run from the command window):
 
-        C:\> cd $DISROOT\config
+        C:\> cd %ESP_ROOT%\config
         C:\> bash winEnv D:\OpenCASCADE7.3.1
 
     winEnv (like makeEnv) has an optional second argument that is only 
@@ -146,14 +206,14 @@
     This file needs to be executed before either building and/or running 
     the software. This is done with:
 
-        C:\> cd $DISROOT
+        C:\> cd %ESP_ROOT%
         C:\> ESPenv
 
     Check that the method that you used to unzip the distribution created 
-    directories named $DISTROOT\bin and $DISTROOT\lib. If it did not, create 
-    them using the commands:
+    directories named %ESP_ROOT%\bin and %ESP_ROOT%\lib. If it did not, 
+    create them using the commands:
 
-        C:\> cd $DISTROOT
+        C:\> cd %ESP_ROOT%
         C:\> mkdir bin
         C:\> mkdir lib
 
@@ -164,11 +224,10 @@
     MAC and Windows, the CAPS build procedure copies prebuilt DLL/DyLibs 
     to the lib directory of ESP. Because most Linux distributions contain 
     a UDUNITS2 package, another procedure is used. If the UDUNITS2 
-    development package is loaded in the OS then nothing is done. If not 
-    loaded, then a static library is moved to the ESP lib directory. The 
-    use of a static library is to avoid having two differing versions of 
-    a shared object on the same system if installed later (which would 
-    only cause problems).
+    development package is loaded in the OS, then nothing is done. If not 
+    loaded, then a pre-built shared object is moved to the ESP lib directory.
+    Be careful if you install UDUNITS2 from your OS package manager at some
+    later time.
 
 2.3.1 Python with CAPS (pyCAPS)
 
@@ -184,7 +243,7 @@
     The execution of pyCAPS requires a single environment variable:
 
     PYTHONPATH is a Python environment variable that needs to have the path
-               $DISROOT/lib included.
+               $ESP_ROOT/lib included.
 
     For MACs and LINUX the configuration procedure inserts these environment 
     variables with the locations it finds by executing the version of Python 
@@ -192,14 +251,16 @@
     related to Python, the resultant environment file(s) will need to be 
     updated in order to use Python (the automatic procedure has failed).
 
-    For Windows ESPenv.bat must be edited, the "rem" removed and the 
-    appropriate information set (if Python exists on the machine). Also note 
-    that the bit size (32 or 64) of Python that gets used on Windows must be 
-    consistent with the build of ESP, which is now only 64bit.
+    For Windows ESPenv.bat must be edited (unless configured from a command 
+    prompt that has both the MSVS and Python environments), the "rem" 
+    removed and the appropriate information set (if Python exists on the 
+    machine). Also note that the bit size (32 or 64) of Python that gets 
+    used on Windows must be consistent with the build of ESP, which is 
+    64bit.
 
-    For Example on Windows (after downloading and installing Python on D:):
-      set PYTHONINC=D:\Python27\include
-      set PYTHONLIB=D:\Python27\Libs\python27.lib
+    For Example on Windows (after downloading and installing Python on C:):
+      set PYTHONINC=C:\Python37\include
+      set PYTHONLIB=C:\Python37\Libs\python37.lib
 
 2.3.2 3rd Party Environment Variables
 
@@ -230,19 +291,19 @@
 2.3.4 CAPS AIM Documentation
 
     The CAPS documentation can be seen in PDF form from within the directory
-    $DISROOT/doc/CAPSdoc. Or in html by $DISROOT/doc/CAPSdoc/html/index.html.
+    $ESP_ROOT/doc/CAPSdoc. Or in html by $ESP_ROOT/doc/CAPSdoc/html/index.html.
 
 2.4 The Build
 
     For any of the operating systems, after properly setting the environment 
     in the command window (or shell), follow this simple procedure:
 
-        % cd $DISROOT/src
+        % cd $ESP_ROOT/src
         % make
 
     or
 
-        C:\> cd $DISROOT\src
+        C:\> cd $ESP_ROOT\src
         C:\> make
 
     You can use "make clean" which will clean up all object modules or 
@@ -279,7 +340,7 @@
 
     To run the program, use:
 
-         % cd $DISROOT/bin
+         % cd $ESP_ROOT/bin
          % ./serveCSM ../data/tutorial1
 
 3.1.2 Procedure 2: start the browser manually
@@ -287,7 +348,7 @@
     If the ESP_START environment variable does not exist, issuing the
     commands:
 
-        % cd $DISROOT/bin
+        % cd $ESP_ROOT/bin
         % ./serveCSM ../data/tutorial1
 
     will start the server.  The last lines of output from serveCSM tells 
@@ -295,7 +356,7 @@
     This can be done by starting a browser (FireFox and GoogleChrome have 
     been tested) and loading the file:
 
-        $DISROOT/ESP/ESP.html
+        $ESP_ROOT/ESP/ESP.html
 
     Whether you used procedure 1 or 2, as long as the browser stays connected 
     to serveCSM, serveCSM will stay alive and handle requests sent to it from 
@@ -305,7 +366,7 @@
     Note that the default "port" used by serveCSM is 7681. One can change 
     the port in the call to serveCSM with a command such as:
 
-        % cd $DISROOT/bin
+        % cd $ESP_ROOT/bin
         % ./serveCSM ../data/tutorial1 -port 7788
 
     Once the browser starts, you will be prompted for a "hostname:port".  
@@ -319,7 +380,7 @@
     file. The acceptable input is STEP, EGADS or OpenCASCADE BRep files 
     (which can all be generated from an OpenCSM "dump" command).
 
-        % cd $DISROOT/bin
+        % cd $ESP_ROOT/bin
         % ./egads2cart geomFilePath [angle relSide relSag]
 
 3.3 vTess and wvClient
@@ -329,17 +390,17 @@
     EGADS or OpenCASCADE BRep files. vTess acts like serveCSM and wvClient 
     should be used like ESP in the discussion in Section 3.1 above.
 
-        % cd $DISROOT/bin
+        % cd $ESP_ROOT/bin
         % ./vTess geomFilePath [angle maxlen sag]
 
 3.4 Executing CAPS through Python
 
     % python pyCAPSscript.py  (Note: many example Python scripts can be 
-                                     found in $DISROOT/CAPSexamples/pyCAPS)
+                                     found in $ESP_ROOT/CAPSexamples/pyCAPS)
 
-3.5 CAPS Training
+3.5 CAPS Portion of the Training
 
-    The examples and exercises in the $DISROOT/training rely on 3rd party 
+    The examples and exercises in the $ESP_ROOT/training rely on 3rd party 
     software. The PreBuilt distributions contain all executables needed to
     run the CAPS part of the training except for ParaView (which is freely
     available on the web) and Pointwise. 
@@ -350,19 +411,19 @@
 4.1 The AFLR suite
 
     Building the AFLR AIMs (AFLR2, AFLR3 and AFLR4) requires AFLR_LIB at
-    16.30.1 or higher. Note that built versions of the so/DLLs can be 
+    10.4.2 or higher. Note that built versions of the so/DLLs can be 
     found in the PreBuilt distributions and should be able to be used with 
-    ESP that you build by placing them in the $DISROOT/lib directory.
+    ESP that you build by placing them in the $ESP_ROOT/lib directory.
 
 4.2 Athena Vortex Lattice
 
     The interface to AVL is designed for V3.36, and the avl executable
-    is provided in $DISROOT/bin.
+    is provided in $ESP_ROOT/bin.
     
 4.3 Astros and mAstros
 
     Both Astros and a limited version (microAstros or more simply) mAstros
-    can be run with the Astros AIM. A mAstros executable is part of this
+    can be run with the Astros AIM. An mAstros executable is part of this
     distribution and is used with the CAPS training material. The pyCAPS 
     Astros examples use the environment variable ASTROS_ROOT (set to the 
     path where Astros can be found) to locate Astros and it's runtime files.
@@ -393,11 +454,11 @@
 
 4.8 Pointwise
 
-    The CAPS connection to Pointwise is now handled internally but requires 
-    Pointwise V18.2 R2. This performs automatic unstructured meshing. Note
-    that the environment variable CAPS_GLYPH is set by the ESP configure
-    script and points to the Glyph scripts that should be used with CAPS and
-    the current release of Pointwise.
+    The CAPS connection to Pointwise is now handled internally but requires,
+    at a minimum Pointwise V18.2 R2, but V18.3 R1 is recommended. This setup
+    performs automatic unstructured meshing. Note that the environment variable 
+    CAPS_GLYPH is set by the ESP configure script and points to the Glyph 
+    scripts that should be used with CAPS and the current release of Pointwise.
 
 4.9 SU2
 
@@ -408,5 +469,5 @@
 4.10 xfoil
 
     The interface to xfoil is designed for V6.99, and the xfoil executable
-    is provided in $DISROOT/bin. Note that multiple 'versions' of xfoil
+    is provided in $ESP_ROOT/bin. Note that multiple 'versions' of xfoil
     6.99 have been released with differing output file formats.

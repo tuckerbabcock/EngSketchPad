@@ -26,7 +26,8 @@ workDir = os.path.join(str(args.workDir[0]), "AVLAnalysisSweep")
 myProblem = capsProblem()
 
 # Load CSM file
-myProblem.loadCAPS("../csmData/avlWingTail.csm", verbosity=args.verbosity)
+geometryScript = os.path.join("..","csmData","avlWingTail.csm")
+myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 
 machNumber = [0.05*i for i in range(1, 20)] # Build Mach sweep with a list comprehension
 
@@ -97,7 +98,7 @@ if (args.noPlotData == False):
     try:
         from matplotlib import pyplot as plt
     except:
-        print ("Unable to import matplotlib.pyplot module. Drag polar will not be ploted")
+        print ("Unable to import matplotlib.pyplot module. Drag polar will not be plotted")
         plt = None
 
     # Plot data
@@ -130,4 +131,3 @@ if (args.noPlotData == False):
 print( "Cl[0] = ", Cl[0] )
 print( "Cd[0] = ", Cd[0] )
 assert abs(Cl[0]-0.20094) <= 1E-4 and abs(Cd[0]-0.00257) <= 1E-4
-

@@ -269,13 +269,12 @@ APPLYCSYS $csysName ibody=0
 
 ARC       xend yend zend dist $plane=xy
           use:    create a new circular arc to the new point, with a
-                     specified offset distance
+                     specified distance between the mid-chord and mid-arc
           pops:   -
           pushes: -
           notes:  Sketch must be open
                   Solver may not be open
                   $plane must be xy, yz, or zx
-                  point on circle is dist from midpoint in plane specified
                   if dist>0, sweep is counterclockwise
                   sensitivity computed w.r.t. xend, yend, zend, dist
                   signals that may be thrown/caught:
@@ -502,13 +501,13 @@ COMBINE   toler=0
                   Solver may not be open
                   Mark must be set
                   if all Bodys since Mark are SheetBodys
-                     create SolidBody from closed Shell
+                     create either a SolidBody from closed Shell or an
+                     (open) SheetBody
                   elseif all Bodys since Mark are WireBodys and are co-planar
                      create SheetBody from closed Loop
                   endif
                   if maxtol>0, then tolerance can be relaxed until successful
                   sets up @-parameters
-                  new Faces all receive the Branch's Attributes
                   signals that may be thrown/caught:
                      $did_not_create_body
                      $insufficient_bodys_on_stack
@@ -941,6 +940,7 @@ GROUP     nbody=0
           notes:  Sketch may not be open
                   Solver may not be open
                   if nbody>0,   then nbody Bodys on stack are in Group
+                  if nbody<0,   then Bodys are ungrouped
                   if no Mark on stack, all Bodys on stack are in Group
                   the Mark is removed from the stack
                   Attributes are set on all Bodys in Group
@@ -1144,7 +1144,7 @@ JOIN      toler=0 toMark=0
                      $wrong_types_on_stack
 
 LBOUND    $pmtrName bounds
-          use:    defines a lower bound for a design Parameter
+          use:    defines a lower bound for a design or configuration Parameter
           pops:   -
           pushes: -
           notes:  Sketch may not be open
@@ -1465,9 +1465,9 @@ SELECT    $type arg1 ...
                      sets @seltype to -1
                      sets @selbody to the nth from the top of the stack
                      sets @sellist to -1
-                  elseif arguments are: "body $attrName1   $attrValue1
-                                              $attrName2=* $attrValue2=*
-                                              $attrName3=* $attrValue3=*"
+                  elseif arguments are: "body attrName1    attrValue1
+                                              attrName2=$* attrValue2=$*
+                                              attrName3=$* attrValue3=$*"
                      sets @seltype to -1
                      uses @selbody to Body that match all Attributes
                      sets @sellist to -1
@@ -1493,9 +1493,9 @@ SELECT    $type arg1 ...
                      sets @seltype to 2
                      uses @selbody
                      sets @sellist to Faces whose bboxs are in given range
-                  elseif arguments are: "face $attrName1   $attrValue1
-                                              $attrName2=* $attrValue2=*
-                                              $attrName3=* $attrValue3=*"
+                  elseif arguments are: "face attrName1    attrValue1
+                                              attrName2=$* attrValue2=$*
+                                              attrName3=$* attrValue3=$*"
                      sets @seltype to 2
                      uses @selbody
                      sets @sellist to Faces in @selbody that match all Attributes
@@ -1525,9 +1525,9 @@ SELECT    $type arg1 ...
                      sets @seltype to 1
                      uses @selbody
                      sets @sellist to Edges whose bboxs are in given range
-                  elseif arguments are: "edge $attrName1   $attrValue1
-                                              $attrName2=* $attrValue2=*
-                                              $attrName3=* $attrValue3=*"
+                  elseif arguments are: "edge attrName1    attrValue1
+                                              attrName2=$* attrValue2=$*
+                                              attrName3=$* attrValue3=$*"
                      sets @seltype to 1
                      uses @selbody
                      sets @sellist to Edges in @selbody that match all Attributes
@@ -1551,15 +1551,15 @@ SELECT    $type arg1 ...
                      sets @seltype to 0
                      uses @selbody
                      sets @sellist to Nodes whose bboxs are in given range
-                  elseif arguments are: "node $attrName1   $attrValue1
-                                              $attrName2=* $attrValue2=*
-                                              $attrName3=* $attrValue3=*"
+                  elseif arguments are: "node attrName1    attrValue1
+                                              attrName2=$* attrValue2=$*
+                                              attrName3=$* attrValue3=$*"
                      sets @seltype to 0
                      uses @selbody
                      sets sellist to Nodes in @selbody that match all Attributes
-                  elseif arguments are: "add $attrName1   $attrValue1
-                                             $attrName2=* $attrValue2=*
-                                             $attrName3=* $attrValue3=*"
+                  elseif arguments are: "add attrName1    attrValue1
+                                             attrName2=$* attrValue2=$*
+                                             attrName3=$* attrValue3=$*"
                      uses @seltype
                      uses @selbody
                      appends to @selList the Nodes/Edges/Faces that match all Attributes
@@ -1569,9 +1569,18 @@ SELECT    $type arg1 ...
                   elseif arguments are: "add ibody1 iford1 ibody2 iford2 iseq=1" and @seltype is 1
                      uses @selbody
                      appends to @sellist the Edge in @selbody that adjoins Faces
-                  elseif arguments are: "sub $attrName1   $attrValue1
-                                             $attrName2=* $attrValue2=*
-                                             $attrName3=* $attrValue3=*"
+                  elseif arguments are: "add iface" and @seltype is 2
+                     uses @selbody
+                     appends to @sellist Face iface in @selbody
+                  elseif arguments are: "add iedge" and @seltype is 1
+                     uses @selbody
+                     appends to @sellist Edge iedge in @selbody
+                  elseif arguments are: "add inode" and @seltype is 0
+                     uses @selbody
+                     appends to @sellist Node inode in @selbody
+                  elseif arguments are: "sub attrName1    attrValue1
+                                             attrName2=$* attrValue2=$*
+                                             attrName3=$* attrValue3=$*"
                      uses @seltype
                      uses @selbody
                      removes from @sellist the Nodes/Edges/Faces that match all Attributes
@@ -1581,6 +1590,8 @@ SELECT    $type arg1 ...
                   elseif arguments are: "sub ibody1 iford1 ibody2 iford2 iseq=1" and @seltype is 1
                      uses @selbody
                      removes from @sellist the Edge in @selbody that adjoins Faces
+                  elseif arguments are: "sub ient" and ient is in @sellist
+                     removes from @sellist ient
                   elseif arguments are: "sort $key"
                      sorts @sellist based upon $key which can be: $xmin, $ymin, $zmin,
                         $xmax, $ymax, $zmax, $xcg, $ycg, $zcg, $area, or $length
@@ -1791,7 +1802,7 @@ SSLOPE    dx dy dz
                   for definiing slope at end:
                       must      follow a SPLINE statement
                       must not precede a SPLINE statement
-                  dx, dy, and dz must not be zero
+                  dx, dy, and dz must not all be zero
                   sensitivity computed w.r.t. x, y, z
                   signals that may be thrown/caught:
                      $illegal_value
@@ -1919,7 +1930,7 @@ TRANSLATE dx dy dz
                      $insufficient_bodys_on_stack
 
 UBOUND    $pmtrName bounds
-          use:    defines an upper bound for a design Parameter
+          use:    defines an upper bound for a design or configuration Parameter
           pops:   -
           pushes: -
           notes:  Sketch may not be open
@@ -2380,7 +2391,7 @@ Valid function calls:
  */
 
 /*
-EGADS Attributes assigned to Bodys:
+Attributes assigned to Bodys:
 
     _body       Body index (bias-1)
 
@@ -2395,9 +2406,6 @@ EGADS Attributes assigned to Bodys:
     <any>       all Attributes associated with Branch that created Body
 
     <any>       all Attributes associated with "SELECT $body" statement
-
-                Note: if the Attribute name is "_name" then its
-                      corresponding value is used as its name in ESP
 
                 Note: if the Attribute name is ".tParams", then its
                       corresponding values are:
@@ -2419,7 +2427,15 @@ EGADS Attributes assigned to Bodys:
                                     count to allow
                       .qParams[3] = number of smoothing iterations
 
-EGADS Attributes assigned to Faces:
+Special User-defined Attributes for Bodys:
+
+    _makeQuds   to make quads on all Faces in Body
+
+    _name       string used in ESP interface for a Body
+
+    _stlColor   color to use for all Faces in an .stl file
+
+Attributes assigned to Faces:
 
     _body       non-unique 2-tuple associated with first Face creation
         [0]     Body index in which Face first existed (bias-1)
@@ -2468,29 +2484,24 @@ EGADS Attributes assigned to Faces:
     <any>       all Attributes associated with Branch if a RESTORE
                     statement
 
-    <any>       all Attributes associated with "SELECT $face" statement
+    <any>       all Attributes associated with "SELECT FACE" statement
 
-                Note: if the Attribute name is "_color" then the Face is
-                      colored in ESP if the Attribute value is "red",
-                      "green", "blue", "yellow", "magenta", "cyan",
-                      "white", "black" or a 3-tuple that contains values
-                      between 0 and 1 for the rgb components
+Special User-defined Attributes for Faces:
 
-                Note: if the Attribute name is "_bcolor" then the back
-                      of the Face is colored in ESP if the Attribute
-                      value is "red", "green", "blue", "yellow",
-                      "magenta", "cyan", "white", "black" or a 3-tuple
-                      that contains values between 0 and 1 for the rgb
-                      components
+    _color      color of front of Face in ESP
+                either R,G,B in three 0-1 reals
+                or $red, $green, $blue, $yellow, $magenta,
+                $cyan, $white, or $black
 
-                Note: if the Attribute name is "_gcolor" then the grid
-                      lines on the Face are colored in ESP if the
-                      Attribute value is "red", "green", "blue",
-                      "yellow", "magenta", "cyan", "white", "black" or
-                      a 3-tuple that contains values between 0 and 1
-                      for the rgb components
+    _bcolor     color of back of Face in ESP (see _color)
 
-EGADS Attributes assigned to Edges:
+    _gcolor     color of grid of Face in ESP (see _color)
+
+    _makeQuds   to make quads for this Face
+
+    _stlColor   color to use for this Face in an .stl file
+
+Attributes assigned to Edges:
 
     _body       non-unique 2-tuple associated with first Edge creation
         [0]     Body index in which Edge first existed (bias-1)
@@ -2517,35 +2528,31 @@ EGADS Attributes assigned to Edges:
 
     _nface      number of incident Faces
 
-    <any>       all Attributes associated with "SELECT $edge" statement
+    <any>       all Attributes associated with "SELECT EDGE" statement
 
-                Note: if the Attribute name is "_color" then the Edge is
-                      colored in ESP if the Attribute value is "red",
-                      "green", "blue", "yellow", "magenta", "cyan",
-                      "white", "black" or a 3-tuple that contains values
-                      between 0 and 1 for the rgb components
+Special User-defined Attributes for Edges:
 
-                Note: if the Attribute name is "_gcolor" then the grid
-                      points on the Edge are colored in ESP if the
-                      Attribute value is "red", "green", "blue",
-                      "yellow", "magenta", "cyan", "white", "black" or
-                      a 3-tuple that contains values between 0 and 1
-                      for the rgb components
+    _color      color of front of Edge in ESP
+                either R,G,B in three 0-1 reals
+                or $red, $green, $blue, $yellow, $magenta,
+                $cyan, $white, or $black
 
-EGADS Attributes assigned to Nodes:
+    _gcolor     color of grid of Edge in ESP (see _color)
+
+Attributes assigned to Nodes:
 
     _nodeID     unique integer that is assigned automatically
 
     _nedge      number of incident Edges
 
-    <any>       all Attributes associated with "SELECT $node" statement
+    <any>       all Attributes associated with "SELECT FACE" statement
 
-                Note: if the Attribute name is "_color" then the Node is
-                      colored in ESP if the Attribute value is "red",
-                      "green", "blue", "yellow", "magenta", "cyan",
-                      "white", "black" or a 3-tuple that contains values
-                      between 0 and 1 for the rgb components
+Special User-defined Attributes for Nodes:
 
+    _color      color of Node in ESP
+                either R,G,B in three 0-1 reals
+                or $red, $green, $blue, $yellow, $magenta,
+                $cyan, $white, or $black
 */
 
 /*
@@ -2744,8 +2751,10 @@ typedef struct modl_T {
     int           cleanup;              /* =1 if unattaned egos are auto cleaned up */
     int           dumpEgads;            /* =1 if Bodys are dumped during build */
     int           loadEgads;            /* =1 if Bodys are loaded during build */
+    int           printStack;           /* =1 to print stack after every command */
     int           tessAtEnd;            /* =1 to tessellate Bodys on stack at end of ocsmBuild */
     int           bodyLoaded;           /* Body index of last Body loaded */
+    int           hasC0blend;           /* =1 if there is a BLEND with a C0 */
     int           seltype;              /* selection type: 0=Node, 1=Edge, 2=Face, or -1 */
     int           selbody;              /* Body selected (or -1)  (bias-1) */
     int           selsize;              /* number of selected entities */

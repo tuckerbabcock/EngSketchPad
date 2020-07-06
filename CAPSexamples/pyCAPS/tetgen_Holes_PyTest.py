@@ -23,8 +23,9 @@ workDir = os.path.join(str(args.workDir[0]), "TetgenHolesTest")
 # Initialize capsProblem object
 problem = pyCAPS.capsProblem()
 
-# Load CSM file 
-geometry = problem.loadCAPS(os.path.join('..','csmData','regions.csm'), verbosity=args.verbosity)
+# Load CSM file
+geometryScript = os.path.join("..","csmData","regions.csm")
+geometry = problem.loadCAPS(geometryScript, verbosity=args.verbosity)
 
 # Use egads for surface tessellation
 surface = problem.loadAIM(aim='egadsTessAIM', altName='S')

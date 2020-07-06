@@ -33,7 +33,8 @@ projectName = "pyCAPS_SU2_Pointwise"
 myProblem = capsProblem()
 
 # Load CSM file
-myProblem.loadCAPS("../csmData/cfdMultiBody.csm", verbosity=args.verbosity)
+geometryScript = os.path.join("..","csmData","cfdMultiBody.csm")
+myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 
 # Load pointwise aim
 pointwise = myProblem.loadAIM(aim = "pointwiseAIM",

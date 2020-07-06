@@ -66,6 +66,7 @@ typedef unsigned __int64 u_int64_t;
 
 #include <string.h>
 
+
 struct sha1_ctxt {
 	union {
 		unsigned char		b8[20];
@@ -73,7 +74,11 @@ struct sha1_ctxt {
 	} h;
 	union {
 		unsigned char		b8[8];
+#ifdef S_SPLINT_S
+		unsigned long           b64[1];
+#else
 		u_int64_t		b64[1];
+#endif
 	} c;
 	union {
 		unsigned char		b8[64];

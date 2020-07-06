@@ -6957,18 +6957,261 @@
 23mar20  fix bug that does not re-set at-at-paraneters when UDP is
             called from UDC from File->Edit
 
-         fix sketcher bug (R Gomez)
+24mar20  add INFO to sensCSM if maximum error decreased relative to
+             value in .csen or .tsen file
+
+27mar20  put a lower level on errors reported in sensCSM based upon
+             values in .csen or .tsen files
+
+27mar20  update sketch solver to use damped-Newton first
+
+27mar20  change ERROR:: statement in sensCSM to only report an error
+             if it is greater than an acceptable error (1e-7)
+
+28mar20  implement SSLOPE statement and associated test cases
+
+28mar20  incorporate EDGE_HIST_TRANSFORM test harness
+
+30mar20  try Netwon before Levenberg-Marquardt in SOLEND statement
+
+31mar20  fix bug that cause undefined behavior if a .csm file was
+             edited in ESP and the new file became much shorter
+
+ 2apr20  add ability to only test sensitivities of only one element of
+             a DESPMTR array in sensCSM
+
+ 2apr20  update some .csen files
+
+ 2apr20  relax tolerance in sensCSM for reporting errors
+
+ 3apr20  fix bug in sensCSM if .csen file did not exist and is not
+             being added via the -addData flag
+
+ 3apr20  remove .tParams prescription in orbiter1
+
+ 4apr20  fix bug that did not add all Bodys to the stack that were
+             recycled in a RESTORE command
+
+ 4apr20  test recycling for all data/basic test cases
+
+ 5apr20  fix bug that sometimes seg faulted when recycling after a
+             CATBEG
+
+ 5apr20  fix bug that caused an error when recycling a case with a UDC
+             that had a string-valued output paremeter
+
+ 7apr20  add (undocumented) recycle command to return an error if an
+             error is encountered during a recycling test
+
+ 8apr20  fix bug that did not reinitialize the size of INTERNAL and
+              OUTPUT Paremeters at the beginning of ocsmBuild
+
+ 8apr20  update serveCSM so that the -loadEgads flag can only be
+             active on the first build
+
+ 8apr20  fix memory leak when EXTRACT detected an error
+
+ 9apr20  never recycle UDPARG statements
+
+11apr20  avoid divide by zero while setting up at-parameters if no
+             entities are selected
+
+14apr20  update sensCSM to check for NaN being returned from analytic
+             sensitivities
+
+15apr20  improve internal documentation in udfTile.c
+
+16apr20  modify script used to test ESPbeta.tgz releases
+
+17apr20  modify sensCSM -tessel tests, including default dtime
+
+18apr20  fix bugs in RBF interpolation
+
+19apr20  update design7 test case so that shafts Edge is not
+             coincident with a fin
+
+20apr20  upgrade designH3 and designH4 test cases to convert some
+             DESPMTRs to CFGPMTRs
+
+20apr20  modify design0w to not use TFI interpolation in elliptic
+             Faces
+
+21apr20  maintain Edge attributes when IMPORTing .egads file
+
+21apr20  add importAttr test case
+
+22apr20  update .csen files for designH3 and designH4 to match current
+             DESPMTRs
+
+22apr20  improve documentation of ARC command
+
+22apr20  add timing info to sensCSM
+
+22apr20  fix memory leaks in sensCSM associated with suppressed tests
+
+22apr20  in serveCSM -sensTess, show Face tufts in blue and Edge tufts
+             in red
+
+22feb20  in serveCSM -sensTess, allow use to change visibility of
+             tufts
+
+23apr20  extend COMBINE command to return a SheetBody if the Shell
+             created is not closed
+
+23apr20  add sew1 test case
+
+24apr20  preserve Edge attributes when subtracting an in-plane
+             FaceBody for a SheetBody
+
+24apr20  add subtract6g, subtract6h, and subtract6i test cases
+
+25apr20  fix bug associated with recycling when IMPORT or UDPRIM
+             returns multiple Bodys
+
+25apr20  fix bug that did not clear Bodys from stack when recycling in
+             a JOIN
+
+25apr20  add sew2 test case
+
+26apr20  initial version of udfTile2
+
+27apr20  add -printStack command line option to serveCSM
+
+27apr20  remove Mark from stack when a UDPRIM that uses all Bodys to
+             the Mark is recycled
+
+27apr20  remove STOREage when ocsmBuild starts
+
+27apr20  make variable names more expicit in udfTile2
+
+30apr20  fix memory leak associated with clearing storage at the
+             beginning of ocsmBuild
+
+30apr20  fix bug when there is a sketch and the user SELECTs a Body
+             via attributes
+
+30apr20  persist Node attributes when IMPORTing; update importAttr.csm
+
+30apr20  modify SELECT ADD so that Faces, Edges, or Nodes can be added
+             by index
+
+30apr20  modify SELECT SUB so that entities can be subtracted by index
+
+30apr20  update udfTile2
+
+30apr20  add option to ESP to turn on/off all Nodes, Edges, Faces, or
+             Csystems
+
+ 1may20  fix bug that incorrectly identified a Body made by a REVOLVE
+             as a Body made by an EXTRUDE
+
+ 1may20  when SELECTing via attributes, match if attribute values are
+             a single integer or real
+
+ 1may20  modify GROUP statement to ungroup Bodys if ibody is negative
+
+ 4may20  fix bug associated with SELECTing via attributes
+
+ 5may20  add PRINT_FAULTS define to OpenCSM.c so that number of major
+             and minor page faults associated with each Branch is
+             printed
+
+ 6may20  add PRINT_PROGRESS define to OpenCSM.c so that progress of
+             processes associated with finishing a Body can be viewed
+
+ 9may20  significatly speed up finishing all Bodys
+
+ 9may20  remove DPRINT macros
+
+10may20  in serveCSM automatically select -batch if -skipTess is
+             specified
+
+11may20  reorganize Plugs data so that it can be tested by Jenkins
+
+13may20  fix bug that did not sort the @sellist properly when Nodes
+             are selected and the sort key is xcg, ycg, or zcg
+
+13may20  fix bug that did not properly process tessellations for
+             perturbed Body (for finite differences)
+
+13may20  fix bug that did not skip degenerate Edges in createTessVels
+
+13may20  add more plugs test cases
+
+14may20  fix bug that did not close a -jrnl if an error was detected
+             while the jrnl was being processed
+
+14may20  return EXIT_FAILURE from plugs if verification test fails
+
+16may20  add SSLOPE to ESP
+
+16may20  add pictures from studentGallery to ESP-help
+
+16may20  update ESP-help to be consistent with OpenCSM.h, etc.
+
+17may20  add studentGallery pictures to ESP-help
+
+17may20  add ToDo.txt information to ESP-help
+
+17may20  make sure that all Bodys on stack get tessellations when
+             requesting sensitivities, even when -skipTess flag is
+             given
+
+19may20  allow plotfile to contain triangles (if jmax==-2)
+
+19may20  in sensCSM, write bad.triangles file with folded-over
+             triangles
+
+21may20 fix bug associated with tessellation sensitivities for an
+             EXTRUDE, RULE, or BLEND when applied to a planar sketch
+             that was scaled
+
+22may20  add winding3 test case
+
+23may20  add .tsen files for design*
+
+23may20  force tessellation sensitivities to be computed via finite
+             differences if a BLEND contains a C0
+
+24may20  fix bug that hangs ESP if File->Open does not work
+
+24may20  fix bug after File->Edit when one of the skteches in a RULE
+             or BLEND could not be recycled
+
+27may20  reorganize the way RULE/BLEND sensitivity caches are handled
+
+27may20  first cut at 2020 ESP training material
+
+29may20  finish 2020 ESP training material
+
+29may20  add missing file in training_2020/data/session10
+
+29may20  add verification data for data/training_2020/*/*/*.csm
+
+29may20  reorganize data/training files
+
+31may20  update ESP_QuickReference
+
+31may20  update training/session01
+
+31may20  add quick reference in ESP-help
+
+ 1jun20  update ESP-help and its pictures
+
+ 1jun20  update training materials
+
+ 1jun20  fix a few comments in OpenCSM.h to be consistent with
+             training
+
+         fix bug that did not generate correct sensitivities for
+             scribed Edges
 
          add mass property sensitivity tests to sensCSM
 
-         implement SSLOPE statement and assictaed test cases
-
-         reorganize Plugs data so that it can be tested by Jenkins
+         add ability to specify SSLOPE in ESP sketcher
 
          migrate from EG_solidBoolean and EG_fuseSheets to
              EG_generalBoolean
-
-         set up verification for Plugs
 
          same DESPMTR in multiple UDCs causes last one to be ignored
 
@@ -6978,8 +7221,6 @@
              fuselages with chines
 
          update GLOVES to build configurations
-
-         debug sensCSM -tessel
 
          modify udfFlend so that it can use the new offset curve
              feature
@@ -7004,8 +7245,6 @@
          label cases in data/basic that use legacy methods
 
          don't require defaults for UDC arguments
-
-         quick reference in ESP-help
 
          provide sensitivities of mass properties
 

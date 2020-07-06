@@ -243,6 +243,11 @@ caps_freeAttrs(egAttrs **attrx)
   
   *attrx = NULL;
   /* remove any attributes */
+  for (i = 0; i < attrs->nseqs; i++) {
+    EG_free(attrs->seqs[i].root);
+    EG_free(attrs->seqs[i].attrSeq);
+  }
+  if (attrs->seqs != NULL) EG_free(attrs->seqs);
   for (i = 0; i < attrs->nattrs; i++) {
     if (attrs->attrs[i].name != NULL) EG_free(attrs->attrs[i].name);
     if (attrs->attrs[i].type == ATTRINT) {

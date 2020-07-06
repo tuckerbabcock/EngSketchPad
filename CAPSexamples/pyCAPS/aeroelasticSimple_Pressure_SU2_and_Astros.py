@@ -44,7 +44,8 @@ workDir = os.path.join(str(args.workDir[0]), "AeroelasticSimple_Pressure")
 projectName = "aeroelasticSimple_Pressure_SA"
 
 # Load CSM file
-myProblem.loadCAPS("../csmData/aeroelasticDataTransferSimple.csm", verbosity=args.verbosity)
+geometryScript = os.path.join("..","csmData","aeroelasticDataTransferSimple.csm")
+myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 
 # Load AIMs
 myMesh = myProblem.loadAIM(aim = "tetgenAIM",

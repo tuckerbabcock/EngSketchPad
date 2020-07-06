@@ -38,7 +38,8 @@ myProblem = pyCAPS.capsProblem()
 # -----------------------------------------------------------------
 
 ## [geometry]
-myGeometry = myProblem.loadCAPS("../csmData/cfd_airfoilSection.csm", verbosity=args.verbosity)
+geometryScript = os.path.join("..","csmData","cfd_airfoilSection.csm")
+myGeometry = myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 ## [geometry]
 
 # -----------------------------------------------------------------

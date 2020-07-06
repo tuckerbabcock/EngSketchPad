@@ -89,6 +89,7 @@
 //       buildTo()
 //       editBrchOk()
 //       editBrchCancel()
+//    chgDisplay()
 //    showBodyAttrs(e)
 
 // interface functions for "main" mode
@@ -3916,6 +3917,103 @@ var editBrchCancel = function () {
 
 
 //
+// callback when "Display" is pressed in Tree
+//
+var chgDisplay = function () {
+    // alert("chgDislay()");
+
+    var change = prompt("Enter type of display change:\n"+
+                        "  +1 show Nodes\n"+
+                        "  -1 hide Nodes\n"+
+                        "  +2 show Edges\n"+
+                        "  -2 hide Edges\n"+
+                        "  +3 show Faces\n"+
+                        "  -3 hide Faces\n"+
+                        "  +4 show Csystems\n"+
+                        "  -4 hide Csystems", "0");
+
+    if (change == null) {
+        return;
+    } else if (isNaN(change)){
+        alert("Illegal number format, so no change");
+        return;
+    } else if (Number(change) == +1) {
+        for (var inode = 0; inode < myTree.parent.length; inode++) {
+            var name = myTree.name[myTree.parent[inode]];
+            if (name !== undefined && name.match(/\u00a0*Nodes/)) {
+                myTree.prop(inode, 1, "on");
+            }
+        }
+
+        myTree.update();
+    } else if (Number(change) == -1) {
+        for (var inode = 0; inode < myTree.parent.length; inode++) {
+            var name = myTree.name[myTree.parent[inode]];
+            if (name !== undefined && name.match(/\u00a0*Nodes/)) {
+                myTree.prop(inode, 1, "off");
+            }
+        }
+
+        myTree.update();
+    } else if (Number(change) == +2) {
+        for (var inode = 0; inode < myTree.parent.length; inode++) {
+            var name = myTree.name[myTree.parent[inode]];
+            if (name !== undefined && name.match(/\u00a0*Edges/)) {
+                myTree.prop(inode, 1, "on");
+            }
+        }
+
+        myTree.update();
+    } else if (Number(change) == -2) {
+        for (var inode = 0; inode < myTree.parent.length; inode++) {
+            var name = myTree.name[myTree.parent[inode]];
+            if (name !== undefined && name.match(/\u00a0*Edges/)) {
+                myTree.prop(inode, 1, "off");
+            }
+        }
+
+        myTree.update();
+    } else if (Number(change) == +3) {
+        for (var inode = 0; inode < myTree.parent.length; inode++) {
+            var name = myTree.name[myTree.parent[inode]];
+            if (name !== undefined && name.match(/\u00a0*Faces/)) {
+                myTree.prop(inode, 1, "on");
+            }
+        }
+
+        myTree.update();
+    } else if (Number(change) == -3) {
+        for (var inode = 0; inode < myTree.parent.length; inode++) {
+            var name = myTree.name[myTree.parent[inode]];
+            if (name !== undefined && name.match(/\u00a0*Faces/)) {
+                myTree.prop(inode, 1, "off");
+            }
+        }
+
+        myTree.update();
+    } else if (Number(change) == +4) {
+        for (var inode = 0; inode < myTree.parent.length; inode++) {
+            var name = myTree.name[myTree.parent[inode]];
+            if (name !== undefined && name.match(/\u00a0*Csystems/)) {
+                myTree.prop(inode, 1, "on");
+            }
+        }
+
+        myTree.update();
+    } else if (Number(change) == -4) {
+        for (var inode = 0; inode < myTree.parent.length; inode++) {
+            var name = myTree.name[myTree.parent[inode]];
+            if (name !== undefined && name.match(/\u00a0*Csystems/)) {
+                myTree.prop(inode, 1, "off");
+            }
+        }
+
+        myTree.update();
+    }
+}
+
+
+//
 // callback when Body name is pressed in Tree
 //
 var showBodyAttrs = function (e) {
@@ -4343,10 +4441,10 @@ var gotoCsmError = function (e) {
     var msgText = botm.innerText;
 
     // look for last error message
-    var beg = msgText.lastIndexOf("[");
-    var end = msgText.lastIndexOf("]");
+    var beg = msgText.lastIndexOf("[[");
+    var end = msgText.lastIndexOf("]]");
     if (beg >= 0 && end >= 0) {
-        var foo = msgText.slice(beg+1, end).split(":");
+        var foo = msgText.slice(beg+2, end).split(":");
         if (foo.length == 2) {
             var filelist = wv.filenames.split("|");
             for (var ielem = 0; ielem < filelist.length; ielem++) {
@@ -5900,7 +5998,7 @@ var rebuildTreeWindow = function () {
     myTree.addNode(0, "Local Variables",   "",                  "", null   );    // 2
     myTree.addNode(0, "Branches",          "Add Branch at end", "", addBrch);    // 3
     if (wv.curStep == 0) {
-        myTree.addNode(0, "Display",       "",                  "", null,        // 4
+        myTree.addNode(0, "Display",       "Change display",    "", chgDisplay,  // 4
                        "Viz", toggleViz,
                        "Grd", toggleGrd);
     } else {
@@ -6116,6 +6214,12 @@ var rebuildTreeWindow = function () {
         } else if (matches[0] == "PlotLine:") {
             myTree.addNode(4, "\u00a0\u00a0"+matches[1], "", gprim, null,
                           "Viz", toggleViz);
+            continue;  // no further processing for this gprim
+
+        // processing for plotdata: "PlotTris: name"
+        } else if (matches[0] == "PlotTris:") {
+            myTree.addNode(4, "\u00a0\u00a0"+matches[1], "", gprim, null,
+                          "Viz", toggleViz, "Grd", toggleGrd);
             continue;  // no further processing for this gprim
 
         // processing for plotdata: "PlotGrid: name"
@@ -6543,6 +6647,9 @@ var setupEditBrchForm = function () {
         argList  = ["x", "y", "z"];
         defValue = ["",  "",  "" ];
         document.getElementById("EnterSketcher").style.display = "inline";
+    } else if (type == "sslope") {
+        argList  = ["dx", "dy", "dz"];
+        defValue = ["",  "",  "" ];
     } else if (type == "store") {
         argList  = ["$name", "index", "keep"];
         defValue = ["",      "0" ,    "0"   ];
@@ -7350,6 +7457,8 @@ var cmdEditHint = function () {
         hintText =        "hint:: SPHERE    xcent ycent zcent radius";
     } else if (curLine.match(/^\s*spline/i) !== null) {
         hintText =        "hint:: SPLINE    x y z";
+    } else if (curLine.match(/^\s*sslope/i) !== null) {
+        hintText =        "hint:: SSLOPE    dx dy dz";
     } else if (curLine.match(/^\s*store/i) !== null) {
         hintText =        "hint:: STORE     $name index=0 keep=0";
     } else if (curLine.match(/^\s*subtract/i) !== null) {
@@ -7524,6 +7633,7 @@ CodeMirror.defineSimpleMode("csm_mode", {
     {token: "keyword", regex: /\s*(solend|SOLEND)\b/,       sol: true,               dedent: true},
     {token: "keyword", regex: /\s*(sphere|SPHERE)\b/,       sol: true},
     {token: "keyword", regex: /\s*(spline|SPLINE)\b/,       sol: true},
+    {token: "keyword", regex: /\s*(sslope|SSLOPE)\b/,       sol: true},
     {token: "keyword", regex: /\s*(store|STORE)\b/,         sol: true},
     {token: "keyword", regex: /\s*(subtract|SUBTRACT)\b/,   sol: true},
     {token: "keyword", regex: /\s*(sweep|SWEEP)\b/,         sol: true},

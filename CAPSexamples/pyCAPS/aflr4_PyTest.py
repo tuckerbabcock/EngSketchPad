@@ -26,7 +26,9 @@ workDir = os.path.join(str(args.workDir[0]), "AFLR4AnalysisTest")
 myProblem = capsProblem()
 
 # Load CSM file and build the geometry explicitly
-myGeometry = myProblem.loadCAPS("../csmData/cfdMultiBody.csm", verbosity=args.verbosity)
+geometryScript = os.path.join("..","csmData","cfdMultiBody.csm")
+myGeometry = myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
+
 myGeometry.setGeometryVal("sharpte", 1)
 myGeometry.buildGeometry()
 
@@ -43,8 +45,8 @@ myAnalysis.setAnalysisVal("Mesh_Quiet_Flag", True if args.verbosity == 0 else Fa
 # Set output grid format since a project name is being supplied - Tecplot  file
 myAnalysis.setAnalysisVal("Mesh_Format", "Tecplot")
 
-# Use 5 segments on farfield faces
-myAnalysis.setAnalysisVal("ff_nseg", 5)
+# Farfield growth factor
+myAnalysis.setAnalysisVal("ff_cdfr", 1.4)
 
 # Generate quads and tris
 # myAnalysis.setAnalysisVal("Mesh_Gen_Input_String", "mquad=1 mpp=3")
@@ -65,4 +67,3 @@ myAnalysis.postAnalysis()
 
 # Close CAPS
 myProblem.closeCAPS()
-

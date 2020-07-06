@@ -483,6 +483,36 @@ aim_getName(void *aimStruc, int index, enum capssType subtype,
 }
 
 
+int
+aim_getGeomInType(void *aimStruc, int index)
+{
+  int         stat, nrow, ncol, type;
+  char        name[MAX_NAME_LEN];
+  aimInfo     *aInfo;
+  capsObject  *vobj;
+  capsValue   *value;
+  capsProblem *problem;
+
+  aInfo = (aimInfo *) aimStruc;
+  if (aInfo == NULL)                   return CAPS_NULLOBJ;
+  if (aInfo->magicnumber != CAPSMAGIC) return CAPS_BADOBJECT;
+  if (index <= 0)                      return CAPS_BADINDEX;
+  problem = aInfo->problem;
+  if (index > problem->nGeomIn)        return CAPS_BADINDEX;
+  vobj = problem->geomIn[index-1];
+  if (vobj->magicnumber != CAPSMAGIC)  return CAPS_BADOBJECT;
+  if (vobj->type        != VALUE)      return CAPS_BADTYPE;
+  if (vobj->blind       == NULL)       return CAPS_NULLBLIND;
+  value = (capsValue *) vobj->blind;
+
+  stat  = ocsmGetPmtr(problem->modl, value->pIndex, &type, &nrow, &ncol, name);
+  if (stat != SUCCESS) return stat;
+  
+  if (type == OCSM_EXTERNAL) return CAPS_SUCCESS;
+  return EGADS_OUTSIDE;
+}
+
+
 static int
 aim_analyScan(capsProblem  *problem, capsAnalysis *analysis, const char *name,
               enum capsvType *vtype, int *rank, int *nrow, int *ncol,

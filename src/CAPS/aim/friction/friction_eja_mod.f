@@ -227,8 +227,9 @@ c     compute the skin friction
       sum3      = sum3 + CDCOMP
       WRITE(iwrit,160) (COMP(I,J),J=1,4),R(I),
      1                  CFI(I),CFSW(I),CFSWFF(I),CDCOMP
-  150	WRITE(ifile,160) (COMP(I,J),J=1,4),R(I),
+      WRITE(ifile,160) (COMP(I,J),J=1,4),R(I),
      1                  CFI(I),CFSW(I),CFSWFF(I),CDCOMP
+  150 CONTINUE 
 
       WRITE(iwrit,180) sum,sum2,sum3
 	WRITE(ifile,180) sum,sum2,sum3
@@ -301,9 +302,9 @@ C	Pause 'Press ENTER key to terminate'
    60 FORMAT(4X,4A4,1X,F11.4,1x,f8.3,F8.3,2X,I2,2X,F7.4,2x,f7.4)
    70 FORMAT(4f10.3)
    80 format(/4x,'bad return from stdatm - check data'/)
-  120 FORMAT(/5X,'REYNOLDS NO./FT =',E9.3,3x,'Altitude = ',f9.2,
+  120 FORMAT(/5X,'REYNOLDS NO./FT =',E10.3,2x,'Altitude = ',f9.2,
      1 3x,'XME =',f7.3/)
-  122 FORMAT(/5X,'REYNOLDS NO./FT =',E9.3,3x,'XME =',f7.3/)
+  122 FORMAT(/5X,'REYNOLDS NO./FT =',E10.3,2x,'XME =',f7.3/)
   125 FORMAT(7X,'COMPONENT',8X,'RN',6X,'  CF ',4X,
      1          'CF*SWET',3X,'CF*SWET*FF',3X,'CDCOMP')
   160 FORMAT(4X,4A4,E10.3,2X,F7.5,F9.5,2X,F10.5,F10.5)

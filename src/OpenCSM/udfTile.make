@@ -21,12 +21,10 @@ IRITLIB = -lIritExtLib  -lIritGrapLib -lIritUserLib -lIritRndrLib \
 $(LDIR)/tile.so:	$(ODIR)/udfTile.o
 	touch $(LDIR)/tile.so
 	rm $(LDIR)/tile.so
-	$(CC) $(SOFLGS) -o $(LDIR)/tile.so $(ODIR)/udfTile.o \
-		-L$(LDIR) -legads -locsm -L$(IRIT_LIB) $(IRITLIB) $(IRITLIB) $(RPATH) -lm
+	$(CC) $(SOFLGS) -o $(LDIR)/tile.so $(ODIR)/udfTile.o -L$(LDIR) -legads -locsm -L$(IRIT_LIB) $(IRITLIB) $(IRITLIB) $(RPATH) -lm
 
 $(ODIR)/udfTile.o:	udfTile.c udpUtilities.c udpUtilities.h OpenCSM.h
-	$(CC) -c $(COPTS) $(DEFINE) $(IRITDEF) -I$(IDIR) -I. -I$(IRIT_INC) \
-		udfTile.c -o $(ODIR)/udfTile.o
+	$(CC) -c $(COPTS) $(DEFINE) $(IRITDEF) -I$(IDIR) -I. -I$(IRIT_INC) udfTile.c -o $(ODIR)/udfTile.o
 
 clean:
 	(cd $(ODIR); rm -f udfTile.o )

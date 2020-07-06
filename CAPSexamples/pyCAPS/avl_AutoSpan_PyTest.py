@@ -28,13 +28,14 @@ myProblem = pyCAPS.capsProblem()
 ## [initateProblem]
 
 # -----------------------------------------------------------------
-# Load CSM file and Change a design parameter - area in the geometry 
+# Load CSM file and Change a design parameter - area in the geometry
 # Any despmtr from the avlWing.csm file are available inside the pyCAPS script
 # They are: thick, camber, area, aspect, taper, sweep, washout, dihedral
 # -----------------------------------------------------------------
 
 ## [geometry]
-myGeometry = myProblem.loadCAPS(os.path.join("..","csmData","avlWings.csm"), verbosity=args.verbosity)
+geometryScript = os.path.join("..","csmData","avlWings.csm")
+myGeometry = myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 ## [geometry]
 
 # Create working directory variable
@@ -44,11 +45,11 @@ workDir = "AVLAutoSpanAnalysisTest"
 workDir = os.path.join(str(args.workDir[0]), workDir)
 
 # -----------------------------------------------------------------
-# Load desired aim 
+# Load desired aim
 # -----------------------------------------------------------------
 print ("Loading AIM")
 ## [loadAIM]
-myAnalysis = myProblem.loadAIM(aim = "avlAIM", 
+myAnalysis = myProblem.loadAIM(aim = "avlAIM",
                                analysisDir = workDir)
 ## [loadAIM]
 # -----------------------------------------------------------------
@@ -63,12 +64,12 @@ myAnalysis.setAnalysisVal("Beta", 0.0)
 
 AVL_Surface = []
 for i in range(1,4):
-    wing = {"groupName"    : "Wing"+str(i), # Notice Wing is the value for the capsGroup attribute 
-            "numChord"     : 12, 
-            "spaceChord"   : 1.0, 
-            "numSpanTotal" : 40, 
+    wing = {"groupName"    : "Wing"+str(i), # Notice Wing is the value for the capsGroup attribute
+            "numChord"     : 12,
+            "spaceChord"   : 1.0,
+            "numSpanTotal" : 40,
             "spaceSpan"    : 1.0}
-    
+
     AVL_Surface.append( ("Wing"+str(i), wing) )
 
 myAnalysis.setAnalysisVal("AVL_Surface", AVL_Surface)
@@ -86,12 +87,12 @@ myAnalysis.preAnalysis()
 # -----------------------------------------------------------------
 ## [runAVL]
 print ("Running AVL")
-currentDirectory = os.getcwd() # Get our current working directory 
+currentDirectory = os.getcwd() # Get our current working directory
 os.chdir(myAnalysis.analysisDir) # Move into test directory
 
 os.system("avl caps < avlInput.txt > avlOutput.txt");
 
-os.chdir(currentDirectory) # Move back to working directory 
+os.chdir(currentDirectory) # Move back to working directory
 ## [runAVL]
 
 # -----------------------------------------------------------------
@@ -127,11 +128,11 @@ print ("e      ", myAnalysis.getAnalysisOutVal("e"))
 Cl = myAnalysis.getAnalysisOutVal("CLtot")
 Cd = myAnalysis.getAnalysisOutVal("CDtot")
 
-## [sensitivity]    
+## [sensitivity]
 sensitivity = myAnalysis.getSensitivity("Alpha", "CLtot")
 ## [sensitivity]
 
 # -----------------------------------------------------------------
-# Close CAPS 
+# Close CAPS
 # -----------------------------------------------------------------
 myProblem.closeCAPS()

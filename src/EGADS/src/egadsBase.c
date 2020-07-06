@@ -1592,7 +1592,7 @@ EG_isSame(const egObject *obj1, const egObject *obj2)
     if (stat != EGADS_SUCCESS) return stat;
     stat = EG_getTolerance(obj2, &toler);
     if (stat != EGADS_SUCCESS) return stat;
-    if (toler > tol) toler = tol;
+    if (toler < tol) toler = tol;
     stat = EG_getTopology(obj1, &geom1, &oclass1, &mtype1, xyz1,
                           &nc, &children, &senses);
     if (stat != EGADS_SUCCESS) return stat;

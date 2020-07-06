@@ -2009,12 +2009,12 @@ EG_splitBody(const egObject *body, int nseg, const egObject **facEdg,
   /* make the split edges -- ordered by t! */
   EG_splitInit(nedges, &sEdges);
   if (sEdges == NULL) goto cleanup;
-  dum = (egObject **) EG_alloc((nseg+1)*sizeof(egObject *));
+  dum = (egObject **) EG_alloc((2*nseg+1)*sizeof(egObject *));
   if (dum == NULL) {
     status = EGADS_MALLOC;
     goto cleanup;
   }
-  ts = (double *) EG_alloc((nseg+1)*sizeof(double));
+  ts = (double *) EG_alloc((2*nseg+1)*sizeof(double));
   if (ts == NULL) {
     EG_free(dum);
     status = EGADS_MALLOC;

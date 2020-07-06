@@ -30,7 +30,8 @@ myProblem = capsProblem()
 
 ## [geometry]
 # Load CSM file
-myProblem.loadCAPS("../csmData/compositeWing.csm", verbosity=args.verbosity)
+geometryScript = os.path.join("..","csmData","compositeWing.csm")
+myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 ## [geometry]
 
 ## [loadAIM]

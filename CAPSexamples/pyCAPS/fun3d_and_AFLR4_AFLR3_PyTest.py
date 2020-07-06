@@ -29,7 +29,8 @@ workDir = os.path.join(str(args.workDir[0]), "FUN3DandAFRLMeshTest")
 
 
 # Load CSM file and build the geometry explicitly
-myGeometry = myProblem.loadCAPS("../csmData/cfdMultiBody.csm", verbosity=args.verbosity)
+geometryScript = os.path.join("..","csmData","cfdMultiBody.csm")
+myGeometry = myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 myGeometry.buildGeometry()
 
 # Load AFLR4 aim
@@ -45,8 +46,8 @@ aflr4.setAnalysisVal("Mesh_Quiet_Flag", True if args.verbosity == 0 else False)
 # Set output grid format since a project name is being supplied - Tecplot  file
 aflr4.setAnalysisVal("Mesh_Format", "Tecplot")
 
-# Use 5 segements on farfield faces
-aflr4.setAnalysisVal("ff_nseg", 5)
+# Farfield growth factor
+aflr4.setAnalysisVal("ff_cdfr", 1.4)
 
 # Set maximum and minimum edge lengths relative to capsMeshLength
 aflr4.setAnalysisVal("max_scale", 0.2)

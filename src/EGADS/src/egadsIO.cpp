@@ -23,12 +23,16 @@
 #endif
 
 
-#define INTERIM
+/* #define INTERIM  */
+
+#define UVTOL    1.e-4
 
 
   extern "C" void EG_revision( int *major, int *minor, char **OCCrev );
   extern "C" void EG_initOCC( );
   extern "C" int  EG_destroyTopology( egObject *topo );
+  extern "C" int  EG_fullAttrs( const egObject *obj );
+  extern "C" void EG_attrBuildSeq( egAttrs *attrs );
 
   extern "C" int  EG_loadModel( egObject *context, int bflg, const char *name, 
                                 egObject **model );
@@ -53,6 +57,9 @@
   extern "C" int  EG_setTessFace( const egObject *tess, int index, int len,
                                   const double *xyz, const double *uv,
                                   int ntri, const int *tris );
+  extern "C" int  EG_isSame ( const egObject *obj1, const egObject *obj2 );
+  extern "C" int  EG_invEvaluate( const egObject *obj, double *xyz,
+                                  double *param, double *results );
 
   extern     void EG_splitPeriodics( egadsBody *body );
   extern     void EG_splitMultiplicity( egadsBody *body, int outLevel );
@@ -136,8 +143,9 @@ EG_attriBodyTrav(const egObject *obj, egadsBody *pbody)
 int
 EG_attriBodyDup(const egObject *src, egObject *dst)
 {
-  int          i, j, stat, nents, nattr;
-  egObject     *aobj, *dobj;
+  int          i, j, n, stat, nents, nattr;
+  double       tmin, tmax, trange[2], xyz[3];
+  egObject     *aobj, *dobj, *geom;
   egAttrs      *attrs;
   TopoDS_Shape shape;
   
@@ -146,6 +154,7 @@ EG_attriBodyDup(const egObject *src, egObject *dst)
   if  (src->oclass < NODE)            return EGADS_NOTTOPO;
   if  (src->blind == NULL)            return EGADS_NODATA;
   int outLevel = EG_outLevel(src);
+  int fullAttr = EG_fullAttrs(src);
   
   if (src->oclass == MODEL) {
     egadsModel *pmdl = (egadsModel *) src->blind;
@@ -230,9 +239,37 @@ EG_attriBodyDup(const egObject *src, egObject *dst)
       if (nattr <= 0) continue;
       shape = pbods->edges.map(i+1);
       j     = pbody->edges.map.FindIndex(shape);
-      if (j == 0) continue;                     // not in the dst body
-      dobj = pbody->edges.objs[j-1];
-      EG_attributeDup(aobj, dobj);
+      if (j == 0) {
+        if (fullAttr == 0) continue;
+        if (aobj->mtype == DEGENERATE) continue;
+        egadsEdge *pedge = (egadsEdge *) aobj->blind;
+        trange[0] = pedge->trange[0];
+        trange[1] = pedge->trange[1];
+        geom      = pedge->curve;
+        n = pbody->edges.map.Extent();
+        for (j = 1; j <= n; j++) {
+          dobj = pbody->edges.objs[j-1];
+          if (dobj->mtype == DEGENERATE) continue;
+          if (EG_isSame(aobj, dobj) == 0) {
+            if (dobj->mtype == ONENODE) {
+              if (aobj->mtype == ONENODE) EG_attributeDup(aobj, dobj);
+              continue;
+            }
+            egadsEdge *pedgd = (egadsEdge *) dobj->blind;
+            egadsNode *pnod0 = (egadsNode *) pedgd->nodes[0]->blind;
+            egadsNode *pnod1 = (egadsNode *) pedgd->nodes[1]->blind;
+            stat = EG_invEvaluate(geom, pnod0->xyz, &tmin, xyz);
+            if (stat != EGADS_SUCCESS) continue;
+            stat = EG_invEvaluate(geom, pnod1->xyz, &tmax, xyz);
+            if (stat != EGADS_SUCCESS) continue;
+            if ((tmin+UVTOL < trange[0]) || (tmax-UVTOL > trange[1])) continue;
+            EG_attributeDup(aobj, dobj);
+          }
+        }
+      } else {
+        dobj = pbody->edges.objs[j-1];
+        EG_attributeDup(aobj, dobj);
+      }
     }
   
     nents = pbods->nodes.map.Extent();
@@ -244,9 +281,20 @@ EG_attriBodyDup(const egObject *src, egObject *dst)
       if (nattr <= 0) continue;
       shape = pbods->nodes.map(i+1);
       j     = pbody->nodes.map.FindIndex(shape);
-      if (j == 0) continue;                     // not in the dst body
-      dobj = pbody->nodes.objs[j-1];
-      EG_attributeDup(aobj, dobj);
+      if (j == 0) {
+        if (fullAttr == 0) continue;
+        n = pbody->nodes.map.Extent();
+        for (j = 1; j <= n; j++) {
+          dobj = pbody->nodes.objs[j-1];
+          if (EG_isSame(aobj, dobj) == 0) {
+            EG_attributeDup(aobj, dobj);
+            break;
+          }
+        }
+      } else {
+        dobj = pbody->nodes.objs[j-1];
+        EG_attributeDup(aobj, dobj);
+      }
     }
 
   } else {
@@ -369,7 +417,7 @@ EG_attriBodyCopy(const egObject *src, /*@null@*/ double *xform, egObject *dst)
 static void
 EG_readAttrs(egObject *obj, int nattr, FILE *fp)
 {
-  int     i, j, n, type, namlen, len, ival, *ivec = NULL;
+  int     i, j, n, type, namlen, len, ival, nseq, *ivec = NULL;
   char    *name, cval, *string = NULL;
   double  rval, *rvec = NULL;
   egAttrs *attrs = NULL;
@@ -384,7 +432,7 @@ EG_readAttrs(egObject *obj, int nattr, FILE *fp)
     }
   }
   
-  for (n = i = 0; i < nattr; i++) {
+  for (nseq = n = i = 0; i < nattr; i++) {
     j = fscanf(fp, "%d %d %d", &type, &namlen, &len);
     if (j != 3) break;
     name = NULL;
@@ -392,6 +440,12 @@ EG_readAttrs(egObject *obj, int nattr, FILE *fp)
       name = (char *) EG_alloc((namlen+1)*sizeof(char));
     if (name != NULL) {
       fscanf(fp, "%s", name);
+      for (j = 0; j < namlen; j++)
+        if (name[j] == 127) {
+          nseq++;
+          name[j] = 32;
+          break;
+        }
     } else {
       for (j = 0; j < namlen; j++) fscanf(fp, "%c", &cval);
     }
@@ -475,6 +529,9 @@ EG_readAttrs(egObject *obj, int nattr, FILE *fp)
   if (attrs != NULL) {
     attrs->nattrs = n;
     attrs->attrs  = attr;
+    attrs->nseqs  = 0;
+    attrs->seqs   = NULL;
+    if (nseq != 0) EG_attrBuildSeq(attrs);
     obj->attrs    = attrs;
   }
 }
@@ -634,7 +691,18 @@ EG_loadModel(egObject *context, int bflg, const char *name, egObject **model)
         uShape.Build();
         aShape = uShape.Shape();
       }
-      if (scale != 1.0) aShape = ShapeCustom::ScaleShape(aShape, scale);
+      if (scale != 1.0) {
+        gp_Trsf form = gp_Trsf();
+        form.SetValues(scale, 0.0,   0.0,   0.0,
+                       0.0,   scale, 0.0,   0.0,
+                       0.0,   0.0,   scale, 0.0);
+        BRepBuilderAPI_Transform xForm(aShape, form, Standard_True);
+        if (!xForm.IsDone()) {
+          printf(" EGADS Warning: Can't scale Body %d (EG_loadModel)!\n", i);
+        } else {
+          aShape = xForm.ModifiedShape(aShape);
+        }
+      }
       builder3D.Add(compound, aShape);
     }
     source = compound;
@@ -1171,7 +1239,8 @@ EG_loadModel(egObject *context, int bflg, const char *name, egObject **model)
 static void
 EG_writeAttr(egAttrs *attrs, FILE *fp)
 {
-  int namln;
+  char c;
+  int  namln;
   
   int    nattr = attrs->nattrs;
   egAttr *attr = attrs->attrs;
@@ -1180,7 +1249,14 @@ EG_writeAttr(egAttrs *attrs, FILE *fp)
     namln = 0;
     if (attr[i].name != NULL) namln = strlen(attr[i].name);
     fprintf(fp, "%d %d %d\n", attr[i].type, namln, attr[i].length);
-    if (namln != 0) fprintf(fp, "%s\n", attr[i].name);
+    if (namln != 0) {
+      for (int j = 0; j < namln; j++) {
+        c = attr[i].name[j];
+        if (c == 32) c = 127;
+        fprintf(fp, "%c", c);
+      }
+      fprintf(fp, "\n");
+    }
     if (attr[i].type == ATTRINT) {
       if (attr[i].length == 1) {
         fprintf(fp, "%d\n", attr[i].vals.integer);

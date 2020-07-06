@@ -1527,7 +1527,7 @@ int mesh_modifyBodyTess(int numMeshProp,
 
                       if (meshProp[i].attrIndex == attrIndex) {
                           if (meshProp[i].numEdgePoints >= 2) {
-                            numEdgePoint = meshProp[i].numEdgePoints;
+                            numEdgePoint = meshProp[i].numEdgePoints-2;
                             userSet[edgeIndex+1] = 1;
 
                             // halve the specified count if regularized quads
@@ -1584,7 +1584,8 @@ int mesh_modifyBodyTess(int numMeshProp,
             if (edgeDistribution == UnknownDistribution || edgeDistribution == EvenDistribution) {
                 if (quadMesh >= REGULARIZED_QUAD ||
                     numEdgePoint == minEdgePointGlobal ||
-                    numEdgePoint == maxEdgePointGlobal ) {
+                    numEdgePoint == maxEdgePointGlobal ||
+                    userSet[edgeIndex+1] == 1 ) {
                     // only set the point count for quading if no distribution is provided
                     // this is equivalent to the even distribution using .rPos
                     status = EG_attributeAdd(edges[edgeIndex], ".nPos", ATTRINT, 1, &numEdgePoint, NULL, NULL);
@@ -2389,8 +2390,7 @@ int initiate_meshSizingStruct (meshSizingStruct *meshProp) {
 // Destroy (0 out all values and NULL all pointers) a meshProp in the meshSizingStruct structure format
 int destroy_meshSizingStruct (meshSizingStruct *meshProp) {
 
-    if (meshProp->name != NULL) EG_free(meshProp->name);
-
+    EG_free(meshProp->name);
     meshProp->name = NULL; // Attribute name
     meshProp->attrIndex = 0;  // Attribute index
 
@@ -2422,7 +2422,7 @@ int destroy_meshSizingStruct (meshSizingStruct *meshProp) {
     meshProp->boundaryLayerFullLayers = 0;    // Number of complete layers
     meshProp->boundaryLayerGrowthRate = 0.0;  // Growth rate of the boundary layer
 
-    if ( meshProp->bcType == NULL) EG_free(meshProp->bcType);
+    EG_free(meshProp->bcType);
     meshProp->bcType = NULL;     // Name of the meshing boundary condition type
     meshProp->scaleFactor = 0.0; // Scaling factor applied generating face meshes
     meshProp->edgeWeight  =  -1; // Interpolation weight on edge mesh size between faces with large angles

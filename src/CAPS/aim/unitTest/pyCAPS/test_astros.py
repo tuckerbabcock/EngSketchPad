@@ -92,8 +92,8 @@ class TestAstros(unittest.TestCase):
 
     def test_Plate(self):
 
-        file = os.path.join("..","csmData","feaSimplePlate.csm")
-        myGeometry = self.myProblem.loadCAPS(file, verbosity=0)
+        filename = os.path.join("..","csmData","feaSimplePlate.csm")
+        myGeometry = self.myProblem.loadCAPS(filename, verbosity=0)
 
         astros = self.myProblem.loadAIM(aim = "astrosAIM",
                                         analysisDir = "workDir_astrosPlate")
@@ -164,8 +164,8 @@ class TestAstros(unittest.TestCase):
 
     def test_Aeroelastic(self):
 
-        file = os.path.join("..","csmData","feaWingOMLAero.csm")
-        myGeometry = self.myProblem.loadCAPS(file)
+        filename = os.path.join("..","csmData","feaWingOMLAero.csm")
+        myGeometry = self.myProblem.loadCAPS(filename)
 
         astros = self.myProblem.loadAIM(aim = "astrosAIM",
                                         analysisDir = "workDir_astrosAero")

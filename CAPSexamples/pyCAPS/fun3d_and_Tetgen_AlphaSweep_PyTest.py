@@ -26,7 +26,8 @@ myProblem = capsProblem()
 workDir = os.path.join(str(args.workDir[0]), "FUN3DTetgenAlphaSweep")
 
 # Load CSM file
-myProblem.loadCAPS("../csmData/cfdMultiBody.csm", verbosity=args.verbosity)
+geometryScript = os.path.join("..","csmData","cfdMultiBody.csm")
+myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 
 # Load Tetgen aim
 myProblem.loadAIM(aim = "tetgenAIM", analysisDir = workDir)

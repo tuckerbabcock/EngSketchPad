@@ -134,8 +134,6 @@ main(int       argc,                /* (in)  number of arguments */
 
     /* --------------------------------------------------------------- */
 
-    DPRINT0("starting FitTest");
-
     MALLOC(casename, char, 257);
     MALLOC(filename, char, 257);
 

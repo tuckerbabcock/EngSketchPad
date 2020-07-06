@@ -26,7 +26,8 @@ myProblem = capsProblem()
 workDir = os.path.join(str(args.workDir[0]), "FUN3DegadsTessAnalysisTest")
 
 # Load CSM file
-myProblem.loadCAPS("../csmData/cfd2D.csm", verbosity=args.verbosity)
+geometryScript = os.path.join("..","csmData","cfd2D.csm")
+myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 
 # Load egadsTess aim
 myProblem.loadAIM(aim = "egadsTessAIM", analysisDir = workDir)

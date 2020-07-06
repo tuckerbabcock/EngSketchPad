@@ -59,7 +59,7 @@ ocsmSetVelD
 ocsmSolveSketch
 ocsmUpdateDespmtrs
 ocsmVersion
-removeTessVels
+removeVels
 velocityOfEdge
 velocityOfFace
 velocityOfNode

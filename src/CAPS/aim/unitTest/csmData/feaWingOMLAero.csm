@@ -61,16 +61,19 @@ SELECT FACE 4
        node adj2face capsGroup=Rib_Root
        set  capsConnectLink=Rib_Root
 >>
+SELECT body
+   ATTRIBUTE _name           $WingOml
 
 STORE     WingOml
 
 # Point Connecting to Rib_Root to apply boundary conditions too
-point  croot/4 0 0
-attribute capsDiscipline    $Structure
-attribute capsGroup         $Rib_Root
-attribute capsConnect       $Rib_Root
-attribute capsConstraint    $Rib_Root_Point
-attribute capsAIM $astrosAIM;egadsTessAIM
+POINT  croot/4 0 0
+ATTRIBUTE capsDiscipline    $Structure
+ATTRIBUTE capsGroup         $Rib_Root
+ATTRIBUTE capsConnect       $Rib_Root
+ATTRIBUTE capsConstraint    $Rib_Root_Point
+ATTRIBUTE capsAIM           $astrosAIM;egadsTessAIM
+ATTRIBUTE _name             $Rib_Root
 
 # Aero
 
@@ -83,28 +86,51 @@ SET       ymax     @ymax-0.001
 SET       zmin     @zmin-1
 SET       zmax     @zmax+1
 
-# create a group of arfoil sections
+# arfoil sections
 # the order of the sections does not matter 
 # as they are sorted in the AIM
-MARK
-    # make left tip, root, rite tip
-    PATBEG    icut  WingVlmNcut
-        SET       y  ymin+(ymax-ymin)*(icut-1)/(WingVlmNcut-1)
-        BOX       xmin  y  zmin  xmax-xmin  0  zmax-zmin
-        RESTORE   WingOml
-        INTERSECT
-            ATTRIBUTE capsAIM            $astrosAIM
-            ATTRIBUTE capsReferenceArea  area
-            ATTRIBUTE capsReferenceSpan  span
-            ATTRIBUTE capsReferenceChord cmean
-            ATTRIBUTE capsReferenceX     cmean/4
-            ATTRIBUTE capsGroup          $Wing
-            ATTRIBUTE capsDiscipline     $Aerodynamic
-            ATTRIBUTE _name             !$Wing_+icut
-        SELECT FACE 1
-            ATTRIBUTE capsGroup          $Wing
-            ATTRIBUTE _bcolor            $yellow
-    PATEND
-GROUP
+
+# make left tip, root, rite tip
+PATBEG    icut  WingVlmNcut
+    SET       y  ymin+(ymax-ymin)*(icut-1)/(WingVlmNcut-1)
+    BOX       xmin  y  zmin  xmax-xmin  0  zmax-zmin
+    RESTORE   WingOml
+    INTERSECT
+        ATTRIBUTE capsAIM            $astrosAIM
+        ATTRIBUTE capsReferenceArea  area
+        ATTRIBUTE capsReferenceSpan  span
+        ATTRIBUTE capsReferenceChord cmean
+        ATTRIBUTE capsReferenceX     cmean/4
+        ATTRIBUTE capsGroup          $Wing
+        ATTRIBUTE capsDiscipline     $Aerodynamic
+        ATTRIBUTE _name             !$Wing_+icut
+    STORE Wing icut
+PATEND
+
+# slice up the root airfoil to stress the arifoil section writer
+RESTORE Wing 1
+
+BOX       0.1*croot    -0.05        0      0   0.1  1
+SUBTRACT
+BOX       0.5*croot    -0.05        0      0   0.1 -1
+SUBTRACT
+
+# extrude and intersect the arifoil again to jumble the edge ordering
+TRANSLATE 0  -0.1   0
+EXTRUDE   0   0.2   0
+BOX      -1*croot    0   -1    4  0  2
+ROTATEX   180.  0.   0.  
+INTERSECT
+
+SELECT body
+    ATTRIBUTE capsAIM            $astrosAIM
+    ATTRIBUTE capsGroup          $Wing
+    ATTRIBUTE capsDiscipline     $Aerodynamic
+    ATTRIBUTE _name              $Wing_1
+
+# Add back remaining sections
+RESTORE Wing 2
+RESTORE Wing 3
+
 
 END

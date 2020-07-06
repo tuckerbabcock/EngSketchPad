@@ -51,8 +51,8 @@
  * on drag, and a composite formula is used to include the effect of a partial run of
  * laminar flow."
  *
- * An outline of the AIM's inputs, outputs and attributes are provided in \ref aimInputsFRICTION and
- * \ref aimOutputsFRICTION and \ref attributeFRICTION, respectively.
+ * An outline of the AIM's inputs, outputs and attributes are provided in \ref aimInputsFRICTION,
+ * \ref aimOutputsFRICTION, and \ref attributeFRICTION, respectively.
  *
  *
  * Upon running preAnalysis the AIM generates a single file, "frictionInput.txt" which contains the input
@@ -86,7 +86,7 @@
  *
  *  - <b> capsType</b> This string attribute labels the <em> FaceBody</em> as to which type the section
  *  is assigned. This information is also used to logically group sections together by type to create wings, tails, stores, etc. Because
- *  AWAVE is relatively rigid, the <b> capsType </b> attributes must use the following names:
+ *  Friction is relatively rigid, the <b> capsType </b> attributes must use the following names:
  *
  *    <em> Lifting Surfaces: </em> Wing, Tail, HTail, VTail, Horizontal_Tail, Vertical_Tail, Canard
  *
@@ -184,7 +184,7 @@ calculate_distance(double *x1, double *x2, double *x0, double* D)
 
 // ********************** AIM Function Break *****************************
 static int findSectionData(ego body,
-                           int *nle, double *xle,
+                           int *nle, double *xyzLE,
                            int *nte, double *xyzTE,
                            double *chordLength, double *arcLength, double *thickOverChord)
 {
@@ -196,59 +196,32 @@ static int findSectionData(ego body,
     //      a cross section || to the yplane is entered
     //Find arc length around the body
 
-    int    i, n, stat, nNode, nEdge, oclass, mtype, *sens,index;
-    double xmin=1E6, xyzLE[3], xmax=-1E6, box[6], data[4];
+    int    i, n, status, nNode, nEdge, oclass, mtype, *sens,index;
+    double xmin=1E300, xyz[3], xmax=-1E300, box[6], data[4];
     double massData[14];
-    // double xyzLEm1[3], xyzLE0[3];
     double thickness;
-    ego    ref, *nodes, *objs, *edges;
+    ego    ref, *objs, *nodes=NULL, *edges=NULL;
 
     *nle = 0;
     *nte = 0;
     *arcLength = 0.0;
 
     // check body type, looking for a NODE
-    stat = aim_isNodeBody(body, data);
-    if (stat < EGADS_SUCCESS) {
-        printf(" FRICTION AIM Warning: EG_getTopology Failure in findSectionData Code :: %d\n", stat);
+    status = aim_isNodeBody(body, data);
+    if (status < EGADS_SUCCESS) {
+        printf(" FRICTION AIM Error: aim_isNodeBody Failure in findSectionData Code :: %d\n", status);
         return CAPS_IOERR;
     }
 
-    /*
-	printf(" EGADS Body EG_getTopology Class :: %d :: ",oclass);
-	switch (oclass) {
-		case NODE:
-			printf("NODE\n");
-			break;
-		case EDGE:
-			printf("EDGE\n");
-			break;
-		case LOOP:
-			printf("LOOP\n");
-			break;
-		case FACE:
-			printf("FACE\n");
-			break;
-		case SHELL:
-			printf("SHELL\n");
-			break;
-		case BODY:
-			printf("BODY\n");
-			break;
-		default:
-			break;
-	}
-     */
-
-    if (stat == EGADS_SUCCESS) {
+    if (status == EGADS_SUCCESS) {
         *nle = 0;
         *nte = 0;
         *chordLength = 0.0;
         *arcLength = 0.0;
         *thickOverChord = 0.0;
-        xle[0] = xyzTE[0] = data[0];
-        xle[1] = xyzTE[1] = data[1];
-        xle[2] = xyzTE[2] = data[2];
+        xyzLE[0] = xyzTE[0] = data[0];
+        xyzLE[1] = xyzTE[1] = data[1];
+        xyzLE[2] = xyzTE[2] = data[2];
         return CAPS_SUCCESS;
     }
 
@@ -256,67 +229,76 @@ static int findSectionData(ego body,
     // assume the TE position is the most rearward Node in X
 
     // Get Nodes from EGADS body, input to this function
-    stat = EG_getBodyTopos(body, NULL, NODE, &nNode, &nodes);
-    if (stat != EGADS_SUCCESS) {
-        printf(" FRICTION AIM Warning: LE getBodyTopos Nodes = %d\n", stat);
-        return CAPS_IOERR;
+    status = EG_getBodyTopos(body, NULL, NODE, &nNode, &nodes);
+    if (status != EGADS_SUCCESS) {
+        printf(" FRICTION AIM Error: getBodyTopos Nodes = %d\n", status);
+        status = CAPS_IOERR;
+        goto cleanup;
     }
 
-    stat = EG_getBoundingBox(body, box);
-    if (stat != EGADS_SUCCESS) {
-        printf(" FRICTION AIM Warning: LE getBoundingBox Nodes = %d\n", stat);
-        EG_free(nodes);
-        return CAPS_IOERR;
+    if (nNode < 2) {
+        printf(" FRICTION AIM Error: Section must have at least 2 nodes!\n");
+        status = CAPS_IOERR;
+        goto cleanup;
+    }
+
+    status = EG_getBoundingBox(body, box);
+    if (status != EGADS_SUCCESS) {
+        printf(" FRICTION AIM Error: getBoundingBox = %d\n", status);
+        status = CAPS_IOERR;
+        goto cleanup;
     }
     // Estimate thickness value
+    // TODO: This is a terrible estimate that is highly incorrect for cambered airfoils
     thickness = sqrt((box[1]-box[4])*(box[1]-box[4]) + (box[2]-box[5])*(box[2]-box[5]));
-    // Sort throught the list of nodes to determine the LE and TE nodes
-    //printf("Nodes %d\n",nNode);
-    index = 0;
 
+    // Sort through the list of nodes to determine the LE and TE nodes
+    // TOOD: This assumes a sharp trailing edge
+
+    index = 0;
     for (i = 0; i < nNode; i++) {
-        stat = EG_getTopology(nodes[i], &ref, &oclass, &mtype, xyzLE,
+        status = EG_getTopology(nodes[i], &ref, &oclass, &mtype, xyz,
                 &n, &objs, &sens);
-        if (stat != EGADS_SUCCESS) continue;
+        if (status != EGADS_SUCCESS) continue;
 
         // LE search
         if (*nle == 0) {
             *nle = i+1;
-            xmin = xyzLE[index];
+            xmin = xyz[index];
         } else {
-            if (xyzLE[index] < xmin) {
+            if (xyz[index] < xmin) {
                 *nle = i+1;
-                xmin = xyzLE[index];
+                xmin = xyz[index];
             }
         }
         // TE search
         if (*nte == 0) {
             *nte = i+1;
-            xmax = xyzLE[index];
+            xmax = xyz[index];
         } else {
-            if (xyzLE[index] > xmax) {
+            if (xyz[index] > xmax) {
                 *nte = i+1;
-                xmax = xyzLE[index];
+                xmax = xyz[index];
             }
         }
     }
 
-    if (*nle == 0) {
-        EG_free(nodes);
-        return CAPS_IOERR;
-    }
-    if (*nte == 0) {
-        EG_free(nodes);
-        return CAPS_IOERR;
+    if (*nle == 0 || *nte == 0) {
+        printf(" FRICTION AIM Error: Cannot located leading/trailing node!\n");
+        status = CAPS_IOERR;
+        goto cleanup;
     }
 
     // assign xyzLE location variables xle and xyzTE
-    EG_getTopology(nodes[*nle-1], &ref, &oclass, &mtype, xle, &n, &objs, &sens);
-    EG_getTopology(nodes[*nte-1], &ref, &oclass, &mtype, xyzTE, &n, &objs, &sens);
+    status = EG_getTopology(nodes[*nle-1], &ref, &oclass, &mtype, xyzLE, &n, &objs, &sens);
+    if (status != EGADS_SUCCESS) goto cleanup;
+    status = EG_getTopology(nodes[*nte-1], &ref, &oclass, &mtype, xyzTE, &n, &objs, &sens);
+    if (status != EGADS_SUCCESS) goto cleanup;
+
     // determine distance between LT and TE points
-    *chordLength = sqrt((xle[0]-xyzTE[0])*(xle[0]-xyzTE[0]) +
-                        (xle[1]-xyzTE[1])*(xle[1]-xyzTE[1]) +
-                        (xle[2]-xyzTE[2])*(xle[2]-xyzTE[2]));
+    *chordLength = sqrt((xyzLE[0]-xyzTE[0])*(xyzLE[0]-xyzTE[0]) +
+                        (xyzLE[1]-xyzTE[1])*(xyzLE[1]-xyzTE[1]) +
+                        (xyzLE[2]-xyzTE[2])*(xyzLE[2]-xyzTE[2]));
 
     if ( fabs(*chordLength) < 1.0e-8 ) {
         *chordLength = box[3] - box[0];
@@ -327,30 +309,32 @@ static int findSectionData(ego body,
     }
 
     *thickOverChord = thickness / *chordLength;
-    EG_free(nodes);
 
     // determine the arc length around the body
-    stat = EG_getBodyTopos(body, NULL, EDGE, &nEdge, &edges);
-    if (stat != EGADS_SUCCESS) {
-        printf(" FRICTION AIM Warning: LE getBodyTopos Edges = %d\n", stat);
-        return CAPS_IOERR;
+    status = EG_getBodyTopos(body, NULL, EDGE, &nEdge, &edges);
+    if (status != EGADS_SUCCESS) {
+        printf(" FRICTION AIM Error: LE getBodyTopos Edges = %d\n", status);
+        goto cleanup;
     }
 
     for (i = 0; i < nEdge; i++) {
 
-        stat = EG_getMassProperties(edges[i], massData);
+        status = EG_getMassProperties(edges[i], massData);
 
-        if (stat != EGADS_SUCCESS) continue;
+        if (status != EGADS_SUCCESS) continue;
         // massData array population
         // volume, surface area (length), cg(3), iniria(9)
         *arcLength = *arcLength + massData[1];
         // printf("EDGE %d :: %8.6f Length\n",i,massData[1]);
 
     }
+
+cleanup:
+
+    EG_free(nodes);
     EG_free(edges);
 
     return CAPS_SUCCESS;
-
 }
 
 /* ********************** Exposed AIM Functions ***************************** */
@@ -428,7 +412,7 @@ int aimInputs(/*@unused@*/ int inst, /*@unused@*/ void *aimInfo, int index,
         /*! \page aimInputsFRICTION
          * - <B> Altitude = double </B> <br> OR
          * - <B> Altitude = [double, ... , double] </B> <br>
-         *  Altitude in units of kft number.
+         *  Altitude in units of kft.
          */
 
     } else if (index == 3) {
@@ -440,7 +424,7 @@ int aimInputs(/*@unused@*/ int inst, /*@unused@*/ void *aimInfo, int index,
         defval->ncol          = 1;
         defval->units         = NULL;
         defval->lfixed        = Fixed;
-        defval->vals.real 	  = 0.10;
+        defval->vals.real     = 0.10;
         defval->limits.dlims[0] = 0.0; // Limit of accepted values
         defval->limits.dlims[1] = 1.0;
 
@@ -636,16 +620,16 @@ int aimPreAnalysis(/*@unused@*/ int inst, void *aimInfo,
             }
         }
 
-        // Wing, Tail, VTail, HTail, Cannard are all lifting surfaces
+        // Wing, Tail, VTail, HTail, Canard are all lifting surfaces
         // Fuse, Fuselage, Store are all bodies of revolution
 
         if ((strcmp(surfaces[i].attribute,"Wing")            == 0) ||
-                (strcmp(surfaces[i].attribute,"Tail")   		 == 0) ||
-                (strcmp(surfaces[i].attribute,"HTail")   		 == 0) ||
-                (strcmp(surfaces[i].attribute,"VTail")   		 == 0) ||
-                (strcmp(surfaces[i].attribute,"Horizontal_Tail") == 0) ||
-                (strcmp(surfaces[i].attribute,"Vertical_Tail")   == 0) ||
-                (strcmp(surfaces[i].attribute,"Cannard") == 0)           ) {
+            (strcmp(surfaces[i].attribute,"Tail")            == 0) ||
+            (strcmp(surfaces[i].attribute,"HTail")           == 0) ||
+            (strcmp(surfaces[i].attribute,"VTail")           == 0) ||
+            (strcmp(surfaces[i].attribute,"Horizontal_Tail") == 0) ||
+            (strcmp(surfaces[i].attribute,"Vertical_Tail")   == 0) ||
+            (strcmp(surfaces[i].attribute,"Canard")          == 0)) {
 
             surfaces[i].type = 0;
 
@@ -704,7 +688,7 @@ int aimPreAnalysis(/*@unused@*/ int inst, void *aimInfo,
         } else {
 
             printf(" *** WARNING: frictionAIM: capsType attribute not recognized for body %d\n", i+1);
-            printf("\tOptions: Wing, Tail, VTail, HTail, Cannard, Vertical_Tail, Horizontal_Tail are all lifting surfaces\n");
+            printf("\tOptions: Wing, Tail, VTail, HTail, Canard, Vertical_Tail, Horizontal_Tail are all lifting surfaces\n");
             printf("\t Fuse, Fuselage, Store are all bodies of revolution\n");
         }
 
@@ -935,27 +919,27 @@ int aimPreAnalysis(/*@unused@*/ int inst, void *aimInfo,
         // SWET spaces 21-30
         tempString = convert_doubleToString(secLift[i].swet,8,0); // 8 spaces, left justified (0)
         fprintf(fp,"%s  ",tempString);
-        if(tempString != NULL) EG_free(tempString);
+        EG_free(tempString); tempString = NULL;
 
         // RefL spaces 31-40
         tempString = convert_doubleToString(secLift[i].refLength,8,0);
         fprintf(fp,"%s  ",tempString);
-        if(tempString != NULL) EG_free(tempString);
+        EG_free(tempString); tempString = NULL;
 
         // ToC spaces 41-50
         tempString = convert_doubleToString(secLift[i].thickOverChord,8,0);
         fprintf(fp,"%s  ",tempString);
-        if(tempString != NULL) EG_free(tempString);
+        EG_free(tempString); tempString = NULL;
 
         // Component type 51-60
         tempString = convert_doubleToString(secLift[i].type,8,0);
         fprintf(fp,"%s  ",tempString);
-        if(tempString != NULL) EG_free(tempString);
+        EG_free(tempString); tempString = NULL;
 
         // FTrans 61-70
         tempString = convert_doubleToString(secLift[i].turbTrans,8,0);
         fprintf(fp,"%s  ",tempString);
-        if(tempString != NULL) EG_free(tempString);
+        EG_free(tempString); tempString = NULL;
 
         //
         fprintf(fp,"\n");
@@ -974,27 +958,27 @@ int aimPreAnalysis(/*@unused@*/ int inst, void *aimInfo,
             // SWET spaces 21-30
             tempString = convert_doubleToString(secBody[i].swet,8,0);
             fprintf(fp,"%s  ",tempString);
-            if(tempString != NULL) EG_free(tempString);
+            EG_free(tempString); tempString = NULL;
 
             // RefL spaces 31-40
             tempString = convert_doubleToString(secBody[i].refLength,8,0);
             fprintf(fp,"%s  ",tempString);
-            if(tempString != NULL) EG_free(tempString);
+            EG_free(tempString); tempString = NULL;
 
             // ToC spaces 41-50
             tempString = convert_doubleToString(secBody[i].thickOverChord,8,0);
             fprintf(fp,"%s  ",tempString);
-            if(tempString != NULL) EG_free(tempString);
+            EG_free(tempString); tempString = NULL;
 
             // Component type 51-60
             tempString = convert_doubleToString(secBody[i].type,8,0);
             fprintf(fp,"%s  ",tempString);
-            if(tempString != NULL) EG_free(tempString);
+            EG_free(tempString); tempString = NULL;
 
             // FTrans 61-70
             tempString = convert_doubleToString(secBody[i].turbTrans,8,0);
             fprintf(fp,"%s  ",tempString);
-            if(tempString != NULL) EG_free(tempString);
+            EG_free(tempString); tempString = NULL;
 
             //
             fprintf(fp,"\n");
@@ -1007,12 +991,12 @@ int aimPreAnalysis(/*@unused@*/ int inst, void *aimInfo,
         // MACH
         tempString = convert_doubleToString(inputs[aim_getIndex(aimInfo, "Mach", ANALYSISIN)-1].vals.real, 8, 0);
         fprintf(fp,"%s  ",tempString);
-        if(tempString != NULL) EG_free(tempString);
+        EG_free(tempString); tempString = NULL;
 
         // ALTITUDE
         tempString = convert_doubleToString(inputs[aim_getIndex(aimInfo, "Altitude", ANALYSISIN)-1].vals.real, 8, 0);
         fprintf(fp,"%s\n",tempString);
-        if(tempString != NULL) EG_free(tempString);
+        EG_free(tempString); tempString = NULL;
 
     } else {
 
@@ -1021,12 +1005,12 @@ int aimPreAnalysis(/*@unused@*/ int inst, void *aimInfo,
             // MACH
             tempString = convert_doubleToString(inputs[aim_getIndex(aimInfo, "Mach", ANALYSISIN)-1].vals.reals[i], 8, 0);
             fprintf(fp,"%s  ",tempString);
-            if(tempString != NULL) EG_free(tempString);
+            EG_free(tempString); tempString = NULL;
 
             // ALTITUDE
             tempString = convert_doubleToString(inputs[aim_getIndex(aimInfo, "Altitude", ANALYSISIN)-1].vals.reals[i], 8, 0);
             fprintf(fp,"%s\n",tempString);
-            if(tempString != NULL) EG_free(tempString);
+            EG_free(tempString); tempString = NULL;
         }
     }
 
@@ -1035,9 +1019,7 @@ int aimPreAnalysis(/*@unused@*/ int inst, void *aimInfo,
 
     status = CAPS_SUCCESS;
 
-    goto cleanup;
-
-    cleanup:
+cleanup:
 
     if (status != CAPS_SUCCESS) printf("Premature exit in frictionAIM preAnalysis status = %d\n", status);
 
@@ -1045,14 +1027,15 @@ int aimPreAnalysis(/*@unused@*/ int inst, void *aimInfo,
 
     if (fp != NULL) fclose(fp);
 
-    if (nsecrevidreal != NULL) EG_free(nsecrevidreal);
-    if (nsecrevNewSec != NULL) EG_free(nsecrevNewSec);
-    if (nsecrevid     != NULL) EG_free(nsecrevid);
+    EG_free(nsecrevidreal);
+    EG_free(nsecrevNewSec);
+    EG_free(nsecrevid);
 
-    if (secLift   != NULL) EG_free(secLift);
-    if (secBody   != NULL) EG_free(secBody);
+    EG_free(secLift);
+    EG_free(secBody);
 
-    if (surfaces  != NULL) EG_free(surfaces);
+    EG_free(surfaces);
+    EG_free(tempString);
 
     return status;
 }

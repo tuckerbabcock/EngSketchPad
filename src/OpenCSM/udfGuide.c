@@ -186,7 +186,7 @@ udpExecute(ego  emodel,                 /* (in)  input model */
     status = EG_getContext(emodel, &context);
     if (status < EGADS_SUCCESS) goto cleanup;
 
-    /* get an arry to hold the cross-sections */
+    /* get an array to hold the cross-sections */
     exsects = (ego *) malloc(NXSECT(numUdp)*sizeof(ego));
     if (exsects == NULL) {
         status = EGADS_MALLOC;

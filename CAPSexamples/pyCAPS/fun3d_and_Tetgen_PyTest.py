@@ -36,7 +36,8 @@ workDir = os.path.join(str(args.workDir[0]), "FUN3DTetgenAnalysisTest")
 
 # Load CSM file
 ## [loadGeom]
-myGeometry = myProblem.loadCAPS("../csmData/cfdMultiBody.csm", verbosity=args.verbosity)
+geometryScript = os.path.join("..","csmData","cfdMultiBody.csm")
+myGeometry = myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 ## [loadGeom]
 
 # Change a design parameter - area in the geometry

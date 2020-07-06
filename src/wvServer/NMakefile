@@ -16,7 +16,7 @@ DEFINE = $(DEFINE) /D_UNICODE /DUNICODE
 OBJS = gettimeofday.obj websock-w32.obj base64-decode.obj handshake.obj \
        client-handshake.obj libwebsockets.obj extension-deflate-stream.obj \
        md5.obj extension-x-google-mux.obj parsers.obj extension.obj sha-1.obj \
-       server.obj wv.obj fwv.obj
+       browserMessage.obj server.obj wv.obj fwv.obj
 
 !IFDEF ESP_BLOC
 default:	start $(TDIR)\server.exe end

@@ -34,7 +34,8 @@ projectName = "pyCAPS_SU2_AFLR3"
 myProblem = capsProblem()
 
 # Load CSM file
-myProblem.loadCAPS("../csmData/cfdMultiBody.csm", verbosity=args.verbosity)
+geometryScript = os.path.join("..","csmData","cfdMultiBody.csm")
+myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 
 # Load AFLR3 aim
 myAnalysis = myProblem.loadAIM(aim = "aflr3AIM",

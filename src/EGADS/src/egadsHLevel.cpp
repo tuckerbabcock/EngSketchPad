@@ -1752,8 +1752,6 @@ EG_modelBoolean(const egObject *src, const egObject *tool, int oper,
             int ind = pbods->edges.map.FindIndex(smape(index));
             if (ind == 0) continue;
             EG_attributeDup(pbods->edges.objs[ind-1], pbody->edges.objs[j]);
-/*          printf(" %d:  Edge mapping[%d] = %d\n", i, j, index);
-            EG_attributePrint(pbody->edges.objs[j]);  */
             break;
           }
         } else {
@@ -1761,8 +1759,6 @@ EG_modelBoolean(const egObject *src, const egObject *tool, int oper,
             /* only from Body tools */
             egadsBody *pbodt = (egadsBody *) tool->blind;
             EG_attributeDup(pbodt->edges.objs[-index-1], pbody->edges.objs[j]);
-/*          printf(" %d:  Edge mapping[%d] = %d\n", i, j, index);
-            EG_attributePrint(pbody->edges.objs[j]);  */
           }
         }
       }
@@ -1784,16 +1780,12 @@ EG_modelBoolean(const egObject *src, const egObject *tool, int oper,
             int ind = pbods->faces.map.FindIndex(smap(index));
             if (ind == 0) continue;
             EG_attributeDup(pbods->faces.objs[ind-1], pbody->faces.objs[j]);
-/*          printf(" %d:  Face mapping[%d] = %d\n", i, j, index);
-            EG_attributePrint(pbody->faces.objs[j]);  */
             break;
           }
         } else {
           if (iface == 0) {
             egadsBody *pbodt = (egadsBody *) tool->blind;
             EG_attributeDup(pbodt->faces.objs[-index-1], pbody->faces.objs[j]);
-/*          printf(" %d:  Face mapping[%d] = %d\n", i, j, index);
-            EG_attributePrint(pbody->faces.objs[j]);  */
           } else {
             EG_attributeDup(face, pbody->faces.objs[j]);
           }
@@ -1982,17 +1974,20 @@ EG_unionMatch(const egObject *src, const egObject *tool, egObject **model)
 
 
 int
-EG_fuseSheets(const egObject *src, const egObject *tool, egObject **sheet)
+EG_fuseSheets(const egObject *srcx, const egObject *toolx, egObject **sheet)
 {
-  int          j, index, stat, outLevel, nShell, nerr, oclass, mtype, eei = 0;
-  int          *senses, **emap = NULL, **fmap = NULL;
-  egObject     *context, *obj, *newSrc, *model, *newModel, **bodies;
-  TopoDS_Shape result;
+  int            j, index, stat, outLevel, nShell, nerr, oclass, mtype, eei = 0;
+  int            *senses, **emap = NULL, **fmap = NULL;
+  egObject       *context, *obj, *newSrc, *model, *newModel, **bodies;
+  TopoDS_Shape   result;
+  const egObject *src, *tool;
 /*
-  double       tol, toler;
+  double         tol, toler;
 */
 
   *sheet = NULL;
+  src    = srcx;
+  tool   = toolx;
   if  (src == NULL)                 return EGADS_NULLOBJ;
   if  (src->magicnumber != MAGIC)   return EGADS_NOTOBJ;
   if  (src->oclass != BODY)         return EGADS_NOTBODY;
@@ -2013,7 +2008,14 @@ EG_fuseSheets(const egObject *src, const egObject *tool, egObject **sheet)
 
   egadsBody *pbods = (egadsBody *) src->blind;
   egadsBody *pbodt = (egadsBody *) tool->blind;
-  int nft          = pbodt->faces.map.Extent();
+  if (pbods->faces.map.Extent() == 1) {
+    /* swap source and tool so tool will be the single Face */
+    src   = toolx;
+    tool  = srcx;
+    pbods = (egadsBody *) src->blind;
+    pbodt = (egadsBody *) tool->blind;
+  }
+  int nft = pbodt->faces.map.Extent();
 /*
   stat = EG_tolerance(src, &toler);
   if (stat != EGADS_SUCCESS) {
@@ -6402,17 +6404,17 @@ EG_hollowBody(const egObject *src, int nface, const egObject **faces,
   if  (src->oclass == FACE)
     return EG_hollowFace(src, nface, faces, offset, joined, result, faceMap);
   if  (src->oclass != BODY)        return EGADS_NOTBODY;
-  if ((src->mtype != SOLIDBODY) &&
+  if ((src->mtype != SOLIDBODY) && (src->mtype != SHEETBODY) &&
       (src->mtype != FACEBODY))    return EGADS_NOTTOPO;
   if  (src->blind == NULL)         return EGADS_NODATA;
   outLevel  = EG_outLevel(src);
   context   = EG_context(src);
   fullAttrs = EG_fullAttrs(src);
 
-  if (src->mtype == FACEBODY) {
+  if (src->mtype != SOLIDBODY) {
     if (nface != 0) {
       if (outLevel > 0)
-        printf(" EGADS Error: Removing Faces on a FaceBody (EG_hollowBody)!\n");
+        printf(" EGADS Error: Removing Faces on a nonSolid (EG_hollowBody)!\n");
       return EGADS_NODATA;
     }
   }
@@ -6472,7 +6474,7 @@ EG_hollowBody(const egObject *src, int nface, const egObject **faces,
   GeomAbs_JoinType join = GeomAbs_Arc;
   if (joined == 1) join = GeomAbs_Intersection;
 
-  if (nface == 0) {
+  if ((nface == 0) && (src->mtype != SHEETBODY)) {
     // offset the body
     TopoDS_Shape newShape;
     try {
@@ -6539,12 +6541,14 @@ EG_hollowBody(const egObject *src, int nface, const egObject **faces,
               printf("              Type = COMPOUND; nSolid = %d\n", nsolid);
               if (nsolid == 0) {
                 TopExp_Explorer Exp;
-                for (Exp.Init(newShape, TopAbs_SHELL); Exp.More(); Exp.Next()) nsolid++;
+                for (Exp.Init(newShape, TopAbs_SHELL); Exp.More(); Exp.Next())
+                  nsolid++;
                 printf("                               nShell = %d\n", nsolid);
               }
               if (nsolid == 0) {
                 TopExp_Explorer Exp;
-                for (Exp.Init(newShape, TopAbs_FACE); Exp.More(); Exp.Next()) nsolid++;
+                for (Exp.Init(newShape, TopAbs_FACE); Exp.More(); Exp.Next())
+                  nsolid++;
                 printf("                               nFace  = %d\n", nsolid);
               }
             }
@@ -6714,20 +6718,31 @@ EG_hollowBody(const egObject *src, int nface, const egObject **faces,
     return EGADS_SUCCESS;
   }
 
-  // hollow the body
+  // hollow the solid body / "solidize" the sheet body
   try {
 #if CASVER >= 720
     BRepOffsetAPI_MakeThickSolid hollow;
-    hollow.MakeThickSolidByJoin(pbody->shape, aList, -offset, tol,
-                                BRepOffset_Skin, Standard_False,
-                                Standard_False, join);
+    if (src->mtype == SHEETBODY) {
+      hollow.MakeThickSolidBySimple(pbody->shape, -offset);
+    } else {
+      hollow.MakeThickSolidByJoin(pbody->shape, aList, -offset, tol,
+                                  BRepOffset_Skin, Standard_False,
+                                  Standard_False, join);
+    }
 #else
+    if (src->mtype == SHEETBODY) return EGADS_NOTTOPO;
     BRepOffsetAPI_MakeThickSolid hollow(pbody->shape, aList, -offset, tol,
                                         BRepOffset_Skin, Standard_False,
                                         Standard_False, join);
 #endif
     hollow.Build();
     TopoDS_Shape newShape = hollow.Shape();
+    if (src->mtype == SHEETBODY) {
+      BRepGProp    BProps;
+      GProp_GProps VProps;
+      BProps.VolumeProperties(newShape, VProps);
+      if (VProps.Mass() < 0.0) newShape.Reverse();
+    }
     BRepCheck_Analyzer fCheck(newShape);
     if (!fCheck.IsValid()) {
       Handle_ShapeFix_Shape sfs = new ShapeFix_Shape(newShape);

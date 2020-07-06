@@ -3,7 +3,7 @@ from __future__ import print_function
 # Import pyCAPS class file
 from pyCAPS import capsProblem
 
-# Import os module   
+# Import os module
 import os
 import argparse
 
@@ -19,26 +19,27 @@ parser.add_argument("-verbosity", default = 1, type=int, choices=[0, 1, 2], help
 args = parser.parse_args()
 
 
-# Initialize capsProblem object 
+# Initialize capsProblem object
 myProblem = capsProblem()
 
-# Load CSM file 
-myProblem.loadCAPS("../csmData/feaAGARD445.csm", verbosity=args.verbosity)
+# Load CSM file
+geometryScript = os.path.join("..","csmData","feaAGARD445.csm")
+myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 
-# Create project name 
+# Create project name
 projectName = "NastranModalAGARD445"
 
-# Change the sweepAngle and span of the Geometry - Demo purposes 
-#myProblem.geometry.setGeometryVal("sweepAngle", 5) # From 45 to 5 degrees 
+# Change the sweepAngle and span of the Geometry - Demo purposes
+#myProblem.geometry.setGeometryVal("sweepAngle", 5) # From 45 to 5 degrees
 #myProblem.geometry.setGeometryVal("semiSpan", 5)   # From 2.5 ft to 5 ft
 
-# Load nastran aim 
-myAnalysis = myProblem.loadAIM(aim = "nastranAIM", 
-                               altName = "nastran", 
+# Load nastran aim
+myAnalysis = myProblem.loadAIM(aim = "nastranAIM",
+                               altName = "nastran",
                                analysisDir = os.path.join(str(args.workDir[0]), projectName) )
 
-# Set project name so a mesh file is generated 
-myAnalysis.setAnalysisVal("Proj_Name", projectName) 
+# Set project name so a mesh file is generated
+myAnalysis.setAnalysisVal("Proj_Name", projectName)
 
 # Set meshing parameters
 myAnalysis.setAnalysisVal("Edge_Point_Max", 10)
@@ -52,21 +53,21 @@ myAnalysis.setAnalysisVal("Tess_Params", [.25,.01,15])
 myAnalysis.setAnalysisVal("Analysis_Type", "Modal");
 
 # Set analysis inputs
-eigen = { "extractionMethod"     : "MGIV", # "Lanczos",   
-          "frequencyRange"       : [0.1, 200], 
+eigen = { "extractionMethod"     : "MGIV", # "Lanczos",
+          "frequencyRange"       : [0.1, 200],
           "numEstEigenvalue"     : 1,
-          "numDesiredEigenvalue" : 2, 
-          "eigenNormaliztion"    : "MASS", 
+          "numDesiredEigenvalue" : 2,
+          "eigenNormaliztion"    : "MASS",
           "lanczosMode"          : 2,  # Default - not necesssary
           "lanczosType"          : "DPB"} # Default - not necesssary
 
 myAnalysis.setAnalysisVal("Analysis", ("EigenAnalysis", eigen))
 
-# Set materials 
-mahogany    = {"materialType"        : "orthotropic", 
+# Set materials
+mahogany    = {"materialType"        : "orthotropic",
                "youngModulus"        : 0.457E6 ,
                "youngModulusLateral" : 0.0636E6,
-               "poissonRatio"        : 0.31,                
+               "poissonRatio"        : 0.31,
                "shearModulus"        : 0.0637E6,
                "shearModulusTrans1Z" : 0.00227E6,
                "shearModulusTrans2Z" : 0.00227E6,
@@ -75,11 +76,11 @@ mahogany    = {"materialType"        : "orthotropic",
 myAnalysis.setAnalysisVal("Material", ("Mahogany", mahogany))
 
 # Set properties
-shell  = {"propertyType" : "Shell", 
-          "membraneThickness" : 0.82, 
-          "material"        : "mahogany", 
-          "bendingInertiaRatio" : 1.0, # Default - not necesssary           
-          "shearMembraneRatio"  : 5.0/6.0} # Default - not necesssary 
+shell  = {"propertyType" : "Shell",
+          "membraneThickness" : 0.82,
+          "material"        : "mahogany",
+          "bendingInertiaRatio" : 1.0, # Default - not necesssary
+          "shearMembraneRatio"  : 5.0/6.0} # Default - not necesssary
 
 myAnalysis.setAnalysisVal("Property", ("yatesPlate", shell))
 
@@ -93,15 +94,15 @@ myAnalysis.setAnalysisVal("Constraint", ("edgeConstraint", constraint))
 myAnalysis.preAnalysis()
 
 ####### Run Nastran ####################
-print ("\n\nRunning Nastran......")  
-currentDirectory = os.getcwd() # Get our current working directory 
+print ("\n\nRunning Nastran......")
+currentDirectory = os.getcwd() # Get our current working directory
 
 os.chdir(myAnalysis.analysisDir) # Move into test directory
 
 if (args.noAnalysis == False):
     os.system("nastran old=no notify=no batch=no scr=yes sdirectory=./ " + projectName +  ".dat"); # Run Nastran via system call
 
-os.chdir(currentDirectory) # Move back to working directory 
+os.chdir(currentDirectory) # Move back to working directory
 
 print ("Done running Nastran!")
 ########################################
@@ -116,7 +117,7 @@ natrualFreq = myAnalysis.getAnalysisOutVal("EigenFrequency")
 mode = 1
 for i in natrualFreq:
     print ("Natural freq (Mode {:d}) = ".format(mode) + '{:.2f} '.format(i) + "(Hz)")
-    mode += 1                 
-                           
-# Close CAPS 
+    mode += 1
+
+# Close CAPS
 myProblem.closeCAPS()

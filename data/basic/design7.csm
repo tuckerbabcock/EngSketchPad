@@ -71,6 +71,7 @@ revolve   0         0            0         1         0         0          360
 
 # shaft (with fillet at head)
 cylinder  x2        0         0         overallLen 0        0         shaftDiam
+rotatex  -30        0         0         # avoid nearly coincident Edges with fin
 union
 fillet    filRad
 

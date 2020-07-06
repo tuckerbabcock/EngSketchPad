@@ -17,6 +17,10 @@
 #include "egadsTypes.h"
 #include "egadsInternals.h"
 
+#ifdef WIN32
+#define snprintf _snprintf
+#endif
+
 
 #define CROSS(a,b,c)      a[0] = (b[1]*c[2]) - (b[2]*c[1]);\
                           a[1] = (b[2]*c[0]) - (b[0]*c[2]);\
@@ -25,6 +29,7 @@
 
 
 
+extern int EG_fullAttrs( const egObject *obj );
 extern int EG_evaluate( const egObject *geom, /*@null@*/ const double *param,
                         double *results );
 extern int EG_getTopology( const egObject *topo, egObject **geom, int *oclass,
@@ -80,6 +85,165 @@ EG_attributePrint(const egObject *obj)
   }
 
   return EGADS_SUCCESS;
+}
+
+
+void
+EG_attrBuildSeq(egAttrs *attrs)
+{
+  int       i, j, l, n, snum, *hit, nospace = 0, nseqs = 0;
+  char      *root, *newname;
+  egAttr    *attr;
+  egAttrSeq *seqs = NULL, *tmp;
+  
+  /* cleanup what might have been attached */
+  for (i = 0; i < attrs->nseqs; i++) {
+    EG_free(attrs->seqs[i].root);
+    EG_free(attrs->seqs[i].attrSeq);
+  }
+  if (attrs->seqs != NULL) EG_free(attrs->seqs);
+  attrs->seqs  = NULL;
+  attrs->nseqs = 0;
+  if (attrs->nattrs == 0) return;
+  
+  hit = (int *) EG_alloc(attrs->nattrs*sizeof(int));
+  if (hit == NULL) {
+    printf(" EGADS Internal: Malloc on %d attributes!\n", attrs->nattrs);
+    return;
+  }
+  for (i = 0; i < attrs->nattrs; i++) hit[i] = 0;
+  
+  /* build the sequence structure */
+  for (i = 0; i < attrs->nattrs; i++) {
+    if (hit[i] != 0) continue;
+    if (attrs->attrs[i].name == NULL) continue;
+    l = strlen(attrs->attrs[i].name);
+    for (n = j = 0; j < l; j++)
+      if (attrs->attrs[i].name[j] == 32) n++;
+    if (n == 0) {
+      /* only the first can have no space */
+      nospace = 1;
+    } else if (n >  1) {
+      printf(" EGADS Internal: More than a single space (%d) in an Attr name!\n",
+             n);
+      continue;
+    }
+    /* make the root name */
+    n    = l;
+    root = attrs->attrs[i].name;
+    if (nospace == 0) {
+      root = EG_strdup(attrs->attrs[i].name);
+      if (root == NULL) {
+        printf(" EGADS Internal: Null root on %s!\n", attrs->attrs[i].name);
+        EG_free(hit);
+        return;
+      }
+      for (n = 0; n < l; n++)
+        if (root[n] == 32) {
+          root[n] = 0;
+          break;
+        }
+    }
+    
+    /* count the members */
+    snum = hit[i] = 1;
+    for (j = i+1; j < attrs->nattrs; j++) {
+      if (hit[j] != 0) continue;
+      if (attrs->attrs[j].name == NULL) continue;
+      if (strlen(attrs->attrs[j].name) < n) continue;
+      if (attrs->attrs[j].name[n] == 32)
+        if (strncmp(attrs->attrs[i].name, attrs->attrs[j].name, n-1) == 0)
+          snum++;
+    }
+    
+    /* only a single member */
+    if (snum == 1) {
+      if (nospace == 1) continue;
+      /* remove existing seq number */
+      EG_free(attrs->attrs[i].name);
+      attrs->attrs[i].name = root;
+      continue;
+    }
+    
+    /* build the sequence */
+    if (nseqs == 0) {
+      seqs = (egAttrSeq *) EG_alloc(sizeof(egAttrSeq));
+      if (seqs == NULL) {
+        EG_free(root);
+        printf(" EGADS Internal: Malloc on Base Sequence!\n");
+        continue;
+      }
+    } else {
+      tmp = (egAttrSeq *) EG_reall(seqs, (nseqs+1)*sizeof(egAttrSeq));
+      if (tmp == NULL) {
+        EG_free(root);
+        printf(" EGADS Internal: Malloc on %d Sequence!\n", nseqs+1);
+        continue;
+      }
+      seqs = tmp;
+    }
+    seqs[nseqs].attrSeq = (int *) EG_alloc(snum*sizeof(int));
+    if (seqs[nseqs].attrSeq == NULL) {
+      EG_free(root);
+      printf(" EGADS Internal: Malloc on %d Attr Seq Pointers!\n", snum);
+      continue;
+    }
+    if (nospace == 1) root = EG_strdup(attrs->attrs[i].name);
+    seqs[nseqs].nSeq = snum;
+    seqs[nseqs].root = root;
+
+    /* load the sequence */
+    seqs[nseqs].attrSeq[0] = i;
+    snum = 1;
+    for (j = i+1; j < attrs->nattrs; j++) {
+      if (hit[j] != 0) continue;
+      if (attrs->attrs[j].name == NULL) continue;
+      if (strlen(attrs->attrs[j].name) < n) continue;
+      if (attrs->attrs[j].name[n] == 32)
+        if (strncmp(attrs->attrs[i].name, attrs->attrs[j].name, n-1) == 0) {
+          seqs[nseqs].attrSeq[snum] = j;
+          snum++;
+          hit[j] = 1;
+        }
+    }
+    
+    /* check/correct the sequence numbers */
+    for (j = 0; j < snum; j++) {
+      attr = &attrs->attrs[seqs[nseqs].attrSeq[j]];
+      if ((j != 0) || (nospace == 0)) {
+        l    = 0;
+        sscanf(&attr->name[n], "%d", &l);
+#ifdef DEBUG
+        if (l == j+1) printf(" seq = %d, oldname = %s\n", j+1, attr->name);
+#endif
+        if (l == j+1) continue;
+      }
+      newname = (char *) EG_alloc((n+8)*sizeof(char));
+      if (newname == NULL) {
+        printf(" EGADS Internal: Malloc on name %s!\n", root);
+        continue;
+      }
+      snprintf(newname, n+8, "%s %d", root, j+1);
+      EG_free(attr->name);
+      attr->name = newname;
+#ifdef DEBUG
+      printf(" seq = %d, newname = %s\n", j+1, newname);
+#endif
+    }
+#ifdef DEBUG
+    printf(" seq %d: root = %s,  snum = %d\n",
+           nseqs, seqs[nseqs].root, seqs[nseqs].nSeq);
+    for (j = 0; j < seqs[nseqs].nSeq; j++) {
+      attr = &attrs->attrs[seqs[nseqs].attrSeq[j]];
+      printf(" %d: %d  %s\n", j+1, seqs[nseqs].attrSeq[j], attr->name);
+    }
+#endif
+    nseqs++;
+  }
+  EG_free(hit);
+
+  attrs->nseqs = nseqs;
+  attrs->seqs  = seqs;
 }
 
 
@@ -335,11 +499,44 @@ EG_adjustCSys(egObject *obj, int len, const double *xform, double *data)
 
 
 int
-EG_attributeAdd(egObject *obj, const char *name, int atype, int len,
-                /*@null@*/ const int  *ints, /*@null@*/ const double *reals,
-                /*@null@*/ const char *str)
+EG_attributeNumSeq(const egObject *obj, const char *name, int *num)
 {
-  int     i, stat, length, outLevel, find = -1;
+  int     i, length, find = -1;
+  egAttrs *attrs;
+
+  *num = 0;
+  if (obj == NULL)               return EGADS_NULLOBJ;
+  if (obj->magicnumber != MAGIC) return EGADS_NOTOBJ;
+  if (obj->oclass == EMPTY)      return EGADS_EMPTY;
+  if (obj->oclass == NIL)        return EGADS_EMPTY;
+  if (obj->oclass == REFERENCE)  return EGADS_REFERCE;
+  if (name == NULL)              return EGADS_NONAME;
+
+  attrs = (egAttrs *) obj->attrs;
+  if (attrs == NULL) return EGADS_SUCCESS;
+  
+  length = strlen(name);
+  for (i = 0; i < length; i++)
+    if (name[i] == ' ') return EGADS_SEQUERR;
+  
+  for (i = 0; i < attrs->nseqs; i++)
+    if (strcmp(attrs->seqs[i].root,name) == 0) {
+      find = i;
+      break;
+    }
+  if (find == -1) return EGADS_SUCCESS;
+
+  *num = attrs->seqs[find].nSeq;
+  return EGADS_SUCCESS;
+}
+
+
+static int
+EG_attributeMerge(int flg, egObject *obj, const char *name, int atype, int lenx,
+                  /*@null@*/ const int  *ints, /*@null@*/ const double *reals,
+                  /*@null@*/ const char *str)
+{
+  int     i, stat, len, length, outLevel, find = -1;
   double  csys[12];
   egAttr  *attr;
   egAttrs *attrs;
@@ -352,17 +549,22 @@ EG_attributeAdd(egObject *obj, const char *name, int atype, int len,
   if (EG_sameThread(obj))        return EGADS_CNTXTHRD;
   outLevel = EG_outLevel(obj);
 
+  /* special CSYS copy flag */
+  len = lenx;
+  if ((atype == ATTRCSYS) && (lenx < 0)) len = -lenx;
+
   if (name == NULL) {
     if (outLevel > 0) 
       printf(" EGADS Error: NULL Name (EG_attributeAdd)!\n");
     return EGADS_NONAME;
   }
   length = strlen(name);
-  for (i = 0; i < length; i++)
-    if (name[i] <= ' ') {
-      length = 0;
-      break;
-    }
+  if (flg == 0)
+    for (i = 0; i < length; i++)
+      if (name[i] <= ' ') {
+        length = 0;
+        break;
+      }
   if (length == 0) {
     if (outLevel > 0) 
       printf(" EGADS Error: BAD Name (EG_attributeAdd)!\n");
@@ -390,12 +592,27 @@ EG_attributeAdd(egObject *obj, const char *name, int atype, int len,
              len, name);
     return EGADS_INDEXERR;
   }
+  
+  attrs = (egAttrs *) obj->attrs;
+  if ((attrs != NULL) && (flg == 0)) {
+    for (i = 0; i < attrs->nseqs; i++)
+      if (strcmp(attrs->seqs[i].root,name) == 0) {
+        find = i;
+        break;
+      }
+    if (find != -1) {
+      if (outLevel > 0)
+        printf(" EGADS Error: Sequenced Attribute for %s (EG_attributeAdd)!\n",
+               name);
+      return EGADS_SEQUERR;
+    }
+  }
+  
   /* get the CSys */
-  if ((atype == ATTRCSYS) && (reals != NULL)) {
+  if ((atype == ATTRCSYS) && (reals != NULL) && (lenx > 0)) {
     stat = EG_constructCSys(obj, outLevel, len, reals, csys);
     if (stat != EGADS_SUCCESS) return stat;
   }
-  attrs = (egAttrs *) obj->attrs;
 
   if (attrs != NULL)
     for (i = 0; i < attrs->nattrs; i++)
@@ -432,6 +649,8 @@ EG_attributeAdd(egObject *obj, const char *name, int atype, int len,
       }
       attrs->nattrs = 0;
       attrs->attrs  = NULL;
+      attrs->nseqs  = 0;
+      attrs->seqs   = NULL;
       obj->attrs    = attrs;
     }
     if (attrs->attrs == NULL) {
@@ -484,16 +703,26 @@ EG_attributeAdd(egObject *obj, const char *name, int atype, int len,
       }
   } else if (atype == ATTRCSYS) {
     if (reals != NULL) {
-      attrs->attrs[find].length += 12;
-      attrs->attrs[find].vals.reals = (double *) EG_alloc((len+12)*sizeof(double));
-      if (attrs->attrs[find].vals.reals == NULL) {
-        attrs->attrs[find].length = 0;
+      if (lenx < 0) {
+        attrs->attrs[find].vals.reals = (double *) EG_alloc(len*sizeof(double));
+        if (attrs->attrs[find].vals.reals == NULL) {
+          attrs->attrs[find].length = 0;
+        } else {
+          for (i = 0; i < len; i++)
+            attrs->attrs[find].vals.reals[i] = reals[i];
+        }
       } else {
-        for (i = 0; i < len; i++)
-          attrs->attrs[find].vals.reals[i] = reals[i];
-        /* fill in the actual CSys */
-        for (i = 0; i < 12; i++)
-          attrs->attrs[find].vals.reals[len+i] = csys[i];
+        attrs->attrs[find].length += 12;
+        attrs->attrs[find].vals.reals = (double *) EG_alloc((len+12)*sizeof(double));
+        if (attrs->attrs[find].vals.reals == NULL) {
+          attrs->attrs[find].length = 0;
+        } else {
+          for (i = 0; i < len; i++)
+            attrs->attrs[find].vals.reals[i] = reals[i];
+          /* fill in the actual CSys */
+          for (i = 0; i < 12; i++)
+            attrs->attrs[find].vals.reals[len+i] = csys[i];
+        }
       }
     }
   } else if (atype == ATTRPTR) {
@@ -515,9 +744,174 @@ EG_attributeAdd(egObject *obj, const char *name, int atype, int len,
 
 
 int
+EG_attributeAdd(egObject *obj, const char *name, int atype, int len,
+                /*@null@*/ const int  *ints, /*@null@*/ const double *reals,
+                /*@null@*/ const char *str)
+{
+  return EG_attributeMerge(0, obj, name, atype, len, ints, reals, str);
+}
+
+
+static int
+EG_attrSameValue(egAttr *attr, int atype, int len, /*@null@*/ const int  *ints,
+                 /*@null@*/ const double *reals, /*@null@*/ const char *str)
+{
+  int i;
+
+  if (attr->type != atype) return EGADS_OUTSIDE;
+  
+  if (atype == ATTRINT) {
+    if (len != attr->length) return EGADS_OUTSIDE;
+    if (ints == NULL) return EGADS_OUTSIDE;
+    if (len == 1) {
+      if (attr->vals.integer != *ints) return EGADS_OUTSIDE;
+    } else {
+      for (i = 0; i < len; i++)
+        if (attr->vals.integers[i] != ints[i]) return EGADS_OUTSIDE;
+    }
+
+  } else if (atype == ATTRREAL) {
+    if (len != attr->length) return EGADS_OUTSIDE;
+    if (reals == NULL) return EGADS_OUTSIDE;
+    if (len == 1) {
+      if (attr->vals.real != *reals) return EGADS_OUTSIDE;
+    } else {
+      for (i = 0; i < len; i++)
+        if (attr->vals.reals[i] != reals[i]) return EGADS_OUTSIDE;
+    }
+  } else if (atype == ATTRCSYS) {
+    if (len != attr->length-12) return EGADS_OUTSIDE;
+    if (reals == NULL) return EGADS_OUTSIDE;
+    for (i = 0; i < len; i++)
+      if (attr->vals.reals[i] != reals[i]) return EGADS_OUTSIDE;
+  } else if (atype == ATTRPTR) {
+    if (str == NULL) return EGADS_OUTSIDE;
+    if (attr->vals.string != (char *) str) return EGADS_OUTSIDE;
+  } else {
+    if (str == NULL) return EGADS_OUTSIDE;
+    if (attr->vals.string == NULL) return EGADS_OUTSIDE;
+    if (strcmp(attr->vals.string,str) != 0) return EGADS_OUTSIDE;
+  }
+  
+  return EGADS_SUCCESS;
+}
+
+
+int
+EG_attributeAddSeq(egObject *obj, const char *name, int atype, int len,
+                   /*@null@*/ const int  *ints, /*@null@*/ const double *reals,
+                   /*@null@*/ const char *str)
+{
+  int     i, stat, length, outLevel, seq, find = -1;
+  char    *newname;
+  egAttrs *attrs;
+
+  if (obj == NULL)               return EGADS_NULLOBJ;
+  if (obj->magicnumber != MAGIC) return EGADS_NOTOBJ;
+  if (obj->oclass == EMPTY)      return EGADS_EMPTY;
+  if (obj->oclass == NIL)        return EGADS_EMPTY;
+  if (obj->oclass == REFERENCE)  return EGADS_REFERCE;
+  if (EG_sameThread(obj))        return EGADS_CNTXTHRD;
+  outLevel = EG_outLevel(obj);
+
+  if (name == NULL) {
+    if (outLevel > 0)
+      printf(" EGADS Error: NULL Name (EG_attributeAddSeq)!\n");
+    return EGADS_NONAME;
+  }
+  length = strlen(name);
+  for (i = 0; i < length; i++)
+    if (name[i] <= ' ') {
+      length = 0;
+      break;
+    }
+  if (length == 0) {
+    if (outLevel > 0)
+      printf(" EGADS Error: BAD Name (EG_attributeAddSeq)!\n");
+    return EGADS_INDEXERR;
+  }
+  if ((atype != ATTRINT)  && (atype != ATTRREAL) && (atype != ATTRSTRING) &&
+      (atype != ATTRCSYS) && (atype != ATTRPTR)) {
+    if (outLevel > 0)
+      printf(" EGADS Error: Bad Attr Type (%d) for %s (EG_attributeAddSeq)!\n",
+             atype, name);
+    return EGADS_INDEXERR;
+  }
+  if (((atype == ATTRINT)    && (ints  == NULL)) ||
+      ((atype == ATTRREAL)   && (reals == NULL)) ||
+      ((atype == ATTRCSYS)   && (reals == NULL)) ||
+      ((atype == ATTRSTRING) && (str   == NULL))) {
+    if (outLevel > 0)
+      printf(" EGADS Error: NULL data for %s  type = %d (EG_attributeAddSeq)!\n",
+             name, atype);
+    return EGADS_NODATA;
+  }
+  if ((len <= 0) && ((atype == ATTRINT) || (atype == ATTRREAL))) {
+    if (outLevel > 0)
+      printf(" EGADS Error: Bad Attr Length (%d) for %s (EG_attributeAddSeq)!\n",
+             len, name);
+    return EGADS_INDEXERR;
+  }
+  attrs = (egAttrs *) obj->attrs;
+  
+  /* what is the sequence status? */
+  for (i = 0; i < attrs->nseqs; i++)
+    if (strcmp(attrs->seqs[i].root,name) == 0) {
+      find = i;
+      break;
+    }
+  
+  if (find == -1) {
+    /* no sequence */
+    for (i = 0; i < attrs->nattrs; i++)
+      if (strcmp(attrs->attrs[i].name,name) == 0) {
+        find = i;
+        break;
+      }
+    if (find == -1)
+      return EG_attributeMerge(1, obj, name, atype, len, ints, reals, str);
+  
+    /* do we have the same value? */
+    stat = EG_attrSameValue(&attrs->attrs[find], atype, len, ints, reals, str);
+    if (stat == 0) return EGADS_SUCCESS;
+    newname = (char *) EG_alloc((length+8)*sizeof(char));
+    if (newname == NULL) return EGADS_MALLOC;
+    seq = 2;
+    snprintf(newname, length+8, "%s %d", name, seq);
+    stat = EG_attributeMerge(1, obj, newname, atype, len, ints, reals, str);
+    EG_free(newname);
+    if (stat != EGADS_SUCCESS) return stat;
+    
+    EG_attrBuildSeq(obj->attrs);
+    return seq;
+  }
+  
+  /* same values as something in the sequence? */
+  for (i = 0; i < attrs->seqs[find].nSeq; i++) {
+    stat = EG_attrSameValue(&attrs->attrs[attrs->seqs[find].attrSeq[i]],
+                            atype, len, ints, reals, str);
+    if (stat == 0) return EGADS_SUCCESS;
+  }
+  
+  /* add to an existing sequence */
+  newname = (char *) EG_alloc((length+8)*sizeof(char));
+  if (newname == NULL) return EGADS_MALLOC;
+  seq = attrs->seqs[find].nSeq+1;
+  snprintf(newname, length+8, "%s %d", name, seq);
+  stat = EG_attributeMerge(1, obj, newname, atype, len, ints, reals, str);
+  EG_free(newname);
+  if (stat != EGADS_SUCCESS) return stat;
+  
+  EG_attrBuildSeq(obj->attrs);
+  return seq;
+}
+
+
+int
 EG_attributeDel(egObject *obj, /*@null@*/ const char *name)
 {
-  int     i, outLevel, find = -1;
+  int     i, j, k, outLevel, find = -1;
+  char    *cptr;
   egAttrs *attrs;
 
   if (obj == NULL)               return EGADS_NULLOBJ;
@@ -535,6 +929,11 @@ EG_attributeDel(egObject *obj, /*@null@*/ const char *name)
 
     /* delete all attributes associated with the object */
     obj->attrs = NULL;
+    for (i = 0; i < attrs->nseqs; i++) {
+      EG_free(attrs->seqs[i].root);
+      EG_free(attrs->seqs[i].attrSeq);
+    }
+    if (attrs->seqs != NULL) EG_free(attrs->seqs);
     for (i = 0; i < attrs->nattrs; i++) {
       EG_free(attrs->attrs[i].name);
       if (attrs->attrs[i].type == ATTRINT) {
@@ -551,20 +950,49 @@ EG_attributeDel(egObject *obj, /*@null@*/ const char *name)
 
   } else {
 
+    /* are we sequenced? */
+    
+    for (i = 0; i < attrs->nseqs; i++)
+      if (strcmp(attrs->seqs[i].root,name) == 0) {
+        find = i;
+        break;
+      }
+    if (find != -1) {
+      /* delete all attribues in the sequence */
+      for (i = attrs->seqs[find].nSeq-1; i >= 0; i--) {
+        j = attrs->seqs[find].attrSeq[i];
+        EG_free(attrs->attrs[j].name);
+        if (attrs->attrs[j].type == ATTRINT) {
+          if (attrs->attrs[j].length > 1)
+            EG_free(attrs->attrs[j].vals.integers);
+        } else if ((attrs->attrs[j].type == ATTRREAL) ||
+                   (attrs->attrs[j].type == ATTRCSYS)) {
+          if (attrs->attrs[j].length > 1)
+            EG_free(attrs->attrs[j].vals.reals);
+        } else if (attrs->attrs[j].type == ATTRSTRING) {
+          EG_free(attrs->attrs[j].vals.string);
+        }
+        for (k = j+1; k < attrs->nattrs; k++)
+          attrs->attrs[k-1] = attrs->attrs[k];
+        attrs->nattrs -= 1;
+      }
+      EG_attrBuildSeq(attrs);
+      return EGADS_SUCCESS;
+    }
+    
     /* delete the named attribute */
     for (i = 0; i < attrs->nattrs; i++)
       if (strcmp(attrs->attrs[i].name,name) == 0) {
         find = i;
         break;
       }
-
     if (find == -1) {
       if (outLevel > 0) 
         printf(" EGADS Error: No Attribute -> %s (EG_attributeDel)!\n",
                name);
       return EGADS_NOTFOUND;
     }
-    EG_free(attrs->attrs[find].name);
+    cptr = attrs->attrs[find].name;
     if (attrs->attrs[find].type == ATTRINT) {
       if (attrs->attrs[find].length > 1) 
         EG_free(attrs->attrs[find].vals.integers);
@@ -579,6 +1007,14 @@ EG_attributeDel(egObject *obj, /*@null@*/ const char *name)
       attrs->attrs[i-1] = attrs->attrs[i];
     attrs->nattrs -= 1;
 
+    /* are we sequenced? */
+    j = strlen(name);
+    for (i = 0; i < j; i++)
+      if (name[i] == 32) {
+        EG_attrBuildSeq(attrs);
+        break;
+      }
+    EG_free(cptr);
   }
 
   return EGADS_SUCCESS;
@@ -733,10 +1169,62 @@ EG_attributeRet(const egObject *obj, const char *name, int *atype,
 
 
 int
+EG_attributeRetSeq(const egObject *obj, const char *name, int index, int *atype,
+                   int *len, /*@null@*/ const int **ints,
+                             /*@null@*/ const double **reals,
+                             /*@null@*/ const char **str)
+{
+  int     i, length, stat, find = -1;
+  char    *fullname;
+  egAttrs *attrs;
+
+  if (obj == NULL)               return EGADS_NULLOBJ;
+  if (obj->magicnumber != MAGIC) return EGADS_NOTOBJ;
+  if (obj->oclass == EMPTY)      return EGADS_EMPTY;
+  if (obj->oclass == NIL)        return EGADS_EMPTY;
+  if (obj->oclass == REFERENCE)  return EGADS_REFERCE;
+  if (name == NULL)              return EGADS_NONAME;
+  if (index <= 0)                return EGADS_INDEXERR;
+
+  attrs = (egAttrs *) obj->attrs;
+  if (attrs == NULL) return EGADS_NOTFOUND;
+  
+  length = strlen(name);
+  for (i = 0; i < length; i++)
+    if (name[i] == ' ') return EGADS_SEQUERR;
+  
+  for (i = 0; i < attrs->nseqs; i++)
+    if (strcmp(attrs->seqs[i].root,name) == 0) {
+      find = i;
+      break;
+    }
+  if (find == -1) {
+    if (index != 1) return EGADS_INDEXERR;
+    return EG_attributeRet(obj, name, atype, len, ints, reals, str);
+  }
+  if (index > attrs->seqs[find].nSeq) {
+    printf(" EGADS Error: Index %d [1-%d] (EG_attributeRetSeq)!\n",
+           index, attrs->seqs[find].nSeq);
+    return EGADS_INDEXERR;
+  }
+  
+  fullname = (char *) EG_alloc((length+8)*sizeof(char));
+  if (fullname == NULL) return EGADS_MALLOC;
+  snprintf(fullname, length+8, "%s %d", name, index);
+  stat = EG_attributeRet(obj, fullname, atype, len, ints, reals, str);
+  EG_free(fullname);
+  
+  return stat;
+}
+
+
+int
 EG_attributeXDup(const egObject *src, /*@null@*/ const double *xform,
                        egObject *dst)
 {
-  int     i, j, k, n, outLevel;
+  int     i, j, k, l, n, stat, len, outLevel, fullAttr, freer, *ints;
+  double  *reals;
+  char    *str, *name;
   egAttr  *attr;
   egAttrs *sattrs, *dattrs;
   
@@ -745,8 +1233,9 @@ EG_attributeXDup(const egObject *src, /*@null@*/ const double *xform,
   if (src->oclass == EMPTY)      return EGADS_EMPTY;
   if (src->oclass == NIL)        return EGADS_EMPTY;
   if (src->oclass == REFERENCE)  return EGADS_REFERCE;
-  
   outLevel = EG_outLevel(src);
+  fullAttr = EG_fullAttrs(src);
+  
   if (dst == NULL) {
     if (outLevel > 0)
       printf(" EGADS Error: NULL dst (EG_attributeDup)!\n");
@@ -759,91 +1248,174 @@ EG_attributeXDup(const egObject *src, /*@null@*/ const double *xform,
   }
   
   /* remove any current attributes */
-  dattrs = (egAttrs *) dst->attrs;
-  if (dattrs != NULL) {
-    dst->attrs = NULL;
-    for (i = 0; i < dattrs->nattrs; i++) {
-      EG_free(dattrs->attrs[i].name);
-      if (dattrs->attrs[i].type == ATTRINT) {
-        if (dattrs->attrs[i].length > 1) EG_free(dattrs->attrs[i].vals.integers);
-      } else if ((dattrs->attrs[i].type == ATTRREAL) ||
-                 (dattrs->attrs[i].type == ATTRCSYS)) {
-        if (dattrs->attrs[i].length > 1) EG_free(dattrs->attrs[i].vals.reals);
-      } else if (dattrs->attrs[i].type == ATTRSTRING) {
-        EG_free(dattrs->attrs[i].vals.string);
+  if (fullAttr == 0) {
+    dattrs = dst->attrs;
+    if (dattrs != NULL) {
+      dst->attrs = NULL;
+      for (i = 0; i < dattrs->nseqs; i++) {
+        EG_free(dattrs->seqs[i].root);
+        EG_free(dattrs->seqs[i].attrSeq);
       }
+      if (dattrs->seqs != NULL) EG_free(dattrs->seqs);
+      dattrs->nseqs = 0;
+      dattrs->seqs  = NULL;
+      for (i = 0; i < dattrs->nattrs; i++) {
+        EG_free(dattrs->attrs[i].name);
+        if (dattrs->attrs[i].type == ATTRINT) {
+          if (dattrs->attrs[i].length > 1) EG_free(dattrs->attrs[i].vals.integers);
+        } else if ((dattrs->attrs[i].type == ATTRREAL) ||
+                   (dattrs->attrs[i].type == ATTRCSYS)) {
+          if (dattrs->attrs[i].length > 1) EG_free(dattrs->attrs[i].vals.reals);
+        } else if (dattrs->attrs[i].type == ATTRSTRING) {
+          EG_free(dattrs->attrs[i].vals.string);
+        }
+      }
+      EG_free(dattrs->attrs);
+      EG_free(dattrs);
     }
-    EG_free(dattrs->attrs);
-    EG_free(dattrs);
   }
+  
   sattrs = src->attrs;
   if (sattrs == NULL) return EGADS_SUCCESS;
   for (n = i = 0; i < sattrs->nattrs; i++)
     if (sattrs->attrs[i].type != ATTRPTR) n++;
   if (n == 0) return EGADS_SUCCESS;
   
-  /* copy the attributes */
-  dattrs = (egAttrs *) EG_alloc(sizeof(egAttrs));
+  dattrs = dst->attrs;
   if (dattrs == NULL) {
-    if (outLevel > 0)
-      printf(" EGADS Error: dst Malloc (EG_attributeDup)!\n");
-    return EGADS_MALLOC;
-  }
-  dattrs->nattrs = 0;
-  dattrs->attrs  = NULL;
-  dst->attrs     = dattrs;
-  attr           = (egAttr *) EG_alloc(n*sizeof(egAttr));
-  if (attr == NULL) {
-    if (outLevel > 0)
-      printf(" EGADS Error: dst attr Malloc (EG_attributeDup)!\n");
-    return EGADS_MALLOC;
-  }
-  for (k = i = 0; i < sattrs->nattrs; i++) {
-    if (sattrs->attrs[i].type == ATTRPTR) continue;
-    attr[k].name   = EG_strdup(sattrs->attrs[i].name);
-    attr[k].length = sattrs->attrs[i].length;
-    attr[k].type   = sattrs->attrs[i].type;
-    if (attr[k].type == ATTRINT) {
-      if (attr[k].length <= 1) {
-        attr[k].vals.integer = sattrs->attrs[i].vals.integer;
-      } else {
-        attr[k].vals.integers = (int *) EG_alloc(attr[k].length*sizeof(int));
-        if (attr[k].vals.integers == NULL) {
-          attr[k].length = 0;
+
+    /* copy the attributes */
+    dattrs = (egAttrs *) EG_alloc(sizeof(egAttrs));
+    if (dattrs == NULL) {
+      if (outLevel > 0)
+        printf(" EGADS Error: dst Malloc (EG_attributeDup)!\n");
+      return EGADS_MALLOC;
+    }
+    dattrs->nattrs = 0;
+    dattrs->attrs  = NULL;
+    dattrs->nseqs  = 0;
+    dattrs->seqs   = NULL;
+    dst->attrs     = dattrs;
+    attr           = (egAttr *) EG_alloc(n*sizeof(egAttr));
+    if (attr == NULL) {
+      if (outLevel > 0)
+        printf(" EGADS Error: dst attr Malloc (EG_attributeDup)!\n");
+      return EGADS_MALLOC;
+    }
+    for (k = i = 0; i < sattrs->nattrs; i++) {
+      if (sattrs->attrs[i].type == ATTRPTR) continue;
+      attr[k].name   = EG_strdup(sattrs->attrs[i].name);
+      attr[k].length = sattrs->attrs[i].length;
+      attr[k].type   = sattrs->attrs[i].type;
+      if (attr[k].type == ATTRINT) {
+        if (attr[k].length <= 1) {
+          attr[k].vals.integer = sattrs->attrs[i].vals.integer;
         } else {
-          for (j = 0; j < attr[k].length; j++)
-            attr[k].vals.integers[j] = sattrs->attrs[i].vals.integers[j];
+          attr[k].vals.integers = (int *) EG_alloc(attr[k].length*sizeof(int));
+          if (attr[k].vals.integers == NULL) {
+            attr[k].length = 0;
+          } else {
+            for (j = 0; j < attr[k].length; j++)
+              attr[k].vals.integers[j] = sattrs->attrs[i].vals.integers[j];
+          }
         }
-      }
-    } else if (attr[k].type == ATTRREAL) {
-      if (attr[k].length <= 1) {
-        attr[k].vals.real = sattrs->attrs[i].vals.real;
-      } else {
+      } else if (attr[k].type == ATTRREAL) {
+        if (attr[k].length <= 1) {
+          attr[k].vals.real = sattrs->attrs[i].vals.real;
+        } else {
+          attr[k].vals.reals = (double *) EG_alloc(attr[k].length*sizeof(double));
+          if (attr[k].vals.reals == NULL) {
+            attr[k].length = 0;
+          } else {
+            for (j = 0; j < attr[i].length; j++)
+              attr[k].vals.reals[j] = sattrs->attrs[i].vals.reals[j];
+          }
+        }
+      } else if (attr[k].type == ATTRCSYS) {
         attr[k].vals.reals = (double *) EG_alloc(attr[k].length*sizeof(double));
         if (attr[k].vals.reals == NULL) {
           attr[k].length = 0;
         } else {
-          for (j = 0; j < attr[i].length; j++)
+          for (j = 0; j < attr[k].length; j++)
             attr[k].vals.reals[j] = sattrs->attrs[i].vals.reals[j];
+          if (xform != NULL)
+            EG_adjustCSys(dst, attr[k].length-12, xform, attr[k].vals.reals);
         }
-      }
-    } else if (attr[k].type == ATTRCSYS) {
-      attr[k].vals.reals = (double *) EG_alloc(attr[k].length*sizeof(double));
-      if (attr[k].vals.reals == NULL) {
-        attr[k].length = 0;
       } else {
-        for (j = 0; j < attr[k].length; j++)
-          attr[k].vals.reals[j] = sattrs->attrs[i].vals.reals[j];
-        if (xform != NULL)
-          EG_adjustCSys(dst, attr[k].length-12, xform, attr[k].vals.reals);
+        attr[k].vals.string = EG_strdup(sattrs->attrs[i].vals.string);
       }
-    } else {
-      attr[k].vals.string = EG_strdup(sattrs->attrs[i].vals.string);
+      k++;
     }
-    k++;
+    dattrs->nattrs = n;
+    dattrs->attrs  = attr;
+    
+  } else {
+    
+    /* merge the attributes */
+    for (i = 0; i < sattrs->nattrs; i++) {
+      if (sattrs->attrs[i].type == ATTRPTR) continue;
+      freer = 0;
+      len   = sattrs->attrs[i].length;
+      ints  = NULL;
+      reals = NULL;
+      str   = NULL;
+      if (sattrs->attrs[i].type == ATTRINT) {
+        if (len <= 1) {
+          ints = &sattrs->attrs[i].vals.integer;
+        } else {
+          ints = sattrs->attrs[i].vals.integers;
+        }
+      } else if (sattrs->attrs[i].type == ATTRREAL) {
+        if (len <= 1) {
+          reals = &sattrs->attrs[i].vals.real;
+        } else {
+          reals = sattrs->attrs[i].vals.reals;
+        }
+      } else if (sattrs->attrs[i].type == ATTRCSYS) {
+        reals = sattrs->attrs[i].vals.reals;
+        if (xform != NULL) {
+          reals = (double *) EG_alloc(len*sizeof(double));
+          if (reals == NULL) {
+            if (outLevel > 0)
+              printf(" EGADS Warning: Malloc of = %d CSYS (EG_attributeDup)!\n",
+                     len);
+            continue;
+          }
+          for (j = 0; j < len; j++) reals[j] = sattrs->attrs[i].vals.reals[j];
+          EG_adjustCSys(dst, len-12, xform, reals);
+          freer = 1;
+        }
+        /* flag an ATTRCSYS copy */
+        len = -len;
+      } else {
+        str = sattrs->attrs[i].vals.string;
+      }
+      name = sattrs->attrs[i].name;
+      l    = strlen(name);
+      for (j = 0; j < l; j++)
+        if (name[j] == 32) break;
+      if (j != l) {
+        name    = EG_strdup(sattrs->attrs[i].name);
+        if (name == NULL)  {
+          if (outLevel > 0)
+            printf(" EGADS Warning: Malloc of = %s (EG_attributeDup)!\n",
+                   sattrs->attrs[i].name);
+          if (freer == 1) EG_free(reals);
+          continue;
+        }
+        name[j] = 0;
+      }
+      stat = EG_attributeAddSeq(dst, name, sattrs->attrs[i].type, len,
+                                ints, reals, str);
+      if (stat < EGADS_SUCCESS)
+        if (outLevel > 0)
+          printf(" EGADS Warning: EG_attributeAddSeq = %d (EG_attributeDup)!\n",
+                 stat);
+      if (name != sattrs->attrs[i].name) EG_free(name);
+      if (freer == 1) EG_free(reals);
+    }
   }
-  dattrs->nattrs = n;
-  dattrs->attrs  = attr;
+  EG_attrBuildSeq(dattrs);
   
   return EGADS_SUCCESS;
 }

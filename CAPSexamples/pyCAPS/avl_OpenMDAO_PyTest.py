@@ -12,7 +12,8 @@ myProblem = pyCAPS.capsProblem()
 
 # Load a *.csm file "../csmData/cfdMultiBody.csm" into our newly created problem.
 print("Loading file into our capsProblem")
-myGeometry = myProblem.loadCAPS("../csmData/avlWing.csm")
+geometryScript = os.path.join("..","csmData","avlWing.csm")
+myGeometry = myProblem.loadCAPS(geometryScript)
 
 # Load AVL aim
 myAnalysis = myProblem.loadAIM(aim = "avlAIM",

@@ -6163,7 +6163,5 @@ mark
      linseg       2.20379   0.00000   0.85470
   skend
 loft 1
-# this is needed to get a valid tessellation on the blunt end
-attribute .tParams  "0.02; 0.001; 15.000"
 
 end

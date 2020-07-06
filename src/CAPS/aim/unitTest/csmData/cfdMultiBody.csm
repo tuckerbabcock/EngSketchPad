@@ -1,17 +1,17 @@
-# CSM file example of two wings with an outer bounding box 
+# CSM file example of two wings with an outer bounding sphere 
 
 # Design Parameters:
-despmtr   area[1,1]         40.00000
-despmtr   aspect[1,1]       5.00000
-despmtr   taper[1,1]        0.50000
-despmtr   twist[1,1]        15.00000
-despmtr   lesweep[1,1]      30.00000
-despmtr   dihedral[1,1]     1.00000
+despmtr   area         40.00000
+despmtr   aspect       5.00000
+despmtr   taper        0.50000
+despmtr   twist        15.00000
+despmtr   lesweep      30.00000
+despmtr   dihedral     1.00000
 
-# Integer design parameters
-despmtr   series            8412
-despmtr   series2           0020
-despmtr   sharpte           0
+# Integer configuration parameters
+cfgpmtr   series            8412
+cfgpmtr   series2           0020
+cfgpmtr   sharpte           0
 
 # Output Parameters:
 outpmtr  cmean

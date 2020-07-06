@@ -41,7 +41,6 @@
     printf( "ERROR:: BAD STATUS = %d from %s (called from %s:%d)\n", status, #X, routine, __LINE__); \
     goto cleanup;
 #define MALLOC(PTR,TYPE,SIZE)                                           \
-    DPRINT3("mallocing %s in routine %s (size=%d)", #PTR, routine, (int)(SIZE)); \
     if (PTR != NULL) {                                                  \
         printf("ERROR:: MALLOC overwrites for %s=%llx (called from %s:%d)\n", #PTR, (long long)PTR, routine, __LINE__); \
         status = BAD_MALLOC;                                            \
@@ -54,7 +53,6 @@
         goto cleanup;                                                   \
     }
 #define RALLOC(PTR,TYPE,SIZE)                                           \
-    DPRINT3("rallocing %s in routine %s (size=%d)", #PTR, routine, (int)(SIZE)); \
     if (PTR == NULL) {                                                  \
         MALLOC(PTR,TYPE,SIZE);                                          \
     } else {                                                            \
@@ -69,194 +67,96 @@
     }
 #define FREE(PTR)                                               \
     if (PTR != NULL) {                                          \
-        DPRINT2("freeing %s in routine %s", #PTR, routine);     \
         free(PTR);                                              \
     }                                                           \
     PTR = NULL;
 #define STRLEN(A)   (int)strlen(A)
-
-/* macros for debug printing */
-#ifdef   DEBUG
-   #define DFLUSH \
-           {fprintf(dbg_fp, "\n"); fflush(dbg_fp);}
-   #define DPRINT0(FORMAT) \
-           {DOPEN; fprintf(dbg_fp, FORMAT); DFLUSH;}
-   #define DPRINT0x(FORMAT) \
-           {DOPEN; fprintf(dbg_fp, FORMAT);}
-   #define DPRINT1(FORMAT,A) \
-           {DOPEN; fprintf(dbg_fp, FORMAT, A); DFLUSH;}
-   #define DPRINT1x(FORMAT,A) \
-           {DOPEN; fprintf(dbg_fp, FORMAT, A);}
-   #define DPRINT2(FORMAT,A,B) \
-           {DOPEN; fprintf(dbg_fp, FORMAT, A, B); DFLUSH;}
-   #define DPRINT2x(FORMAT,A,B) \
-           {DOPEN; fprintf(dbg_fp, FORMAT, A, B);}
-   #define DPRINT3(FORMAT,A,B,C) \
-           {DOPEN; fprintf(dbg_fp, FORMAT, A, B, C); DFLUSH;}
-   #define DPRINT3x(FORMAT,A,B,C) \
-           {DOPEN; fprintf(dbg_fp, FORMAT, A, B, C);}
-   #define DPRINT4(FORMAT,A,B,C,D) \
-           {DOPEN; fprintf(dbg_fp, FORMAT, A, B, C, D);}
-   #define DPRINT4x(FORMAT,A,B,C,D) \
-           {DOPEN; fprintf(dbg_fp, FORMAT, A, B, C, D); DFLUSH;}
-   #define DPRINT5(FORMAT,A,B,C,D,E) \
-           {DOPEN; fprintf(dbg_fp, FORMAT, A, B, C, D, E); DFLUSH;}
-   #define DPRINT6(FORMAT,A,B,C,D,E,F) \
-           {DOPEN; fprintf(dbg_fp, FORMAT, A, B, C, D, E, F); DFLUSH;}
-   #define DPRINT7(FORMAT,A,B,C,D,E,F,G) \
-           {DOPEN; fprintf(dbg_fp, FORMAT, A, B, C, D, E, F, G); DFLUSH;}
-   #define DPRINT7x(FORMAT,A,B,C,D,E,F,G) \
-           {DOPEN; fprintf(dbg_fp, FORMAT, A, B, C, D, E, F, G);}
-   #define DPRINT8(FORMAT,A,B,C,D,E,F,G,H) \
-           {DOPEN; fprintf(dbg_fp, FORMAT, A, B, C, D, E, F, G, H); DFLUSH;}
-   #define DPRINT9(FORMAT,A,B,C,D,E,F,G,H,I) \
-           {DOPEN; fprintf(dbg_fp, FORMAT, A, B, C, D, E, F, G, H, I); DFLUSH;}
-   #define DPRINT10(FORMAT,A,B,C,D,E,F,G,H,I,J) \
-           {DOPEN; fprintf(dbg_fp, FORMAT, A, B, C, D, E, F, G, H, I, J); DFLUSH;}
-   #define DPRINT11(FORMAT,A,B,C,D,E,F,G,H,I,J,K) \
-           {DOPEN; fprintf(dbg_fp, FORMAT, A, B, C, D, E, F, G, H, I, J, K); DFLUSH;}
-   #define DPRINT12(FORMAT,A,B,C,D,E,F,G,H,I,J,K,L) \
-           {DOPEN; fprintf(dbg_fp, FORMAT, A, B, C, D, E, F, G, H, I, J, K, L); DFLUSH;}
-   #define DPRINT13(FORMAT,A,B,C,D,E,F,G,H,I,J,K,L,M) \
-           {DOPEN; fprintf(dbg_fp, FORMAT, A, B, C, D, E, F, G, H, I, J, K, L, M); DFLUSH;}
-   #define DPRINT14(FORMAT,A,B,C,D,E,F,G,H,I,J,K,L,M,N) \
-           {DOPEN; fprintf(dbg_fp, FORMAT, A, B, C, D, E, F, G, H, I, J, K, L, M, N); DFLUSH;}
-   #define DPRINT15(FORMAT,A,B,C,D,E,F,G,H,I,J,K,L,M,N,O) \
-           {DOPEN; fprintf(dbg_fp, FORMAT, A, B, C, D, E, F, G, H, I, J, K, L, M, N, O); DFLUSH;}
-   #define DCLOSE \
-           {if (dbg_fp != NULL) fclose(dbg_fp); dbg_fp = NULL;}
-#else
-   #define DPRINT0(FORMAT)
-   #define DPRINT0x(FORMAT)
-   #define DPRINT1(FORMAT,A)
-   #define DPRINT1x(FORMAT,A)
-   #define DPRINT2(FORMAT,A,B)
-   #define DPRINT2x(FORMAT,A,B)
-   #define DPRINT3(FORMAT,A,B,C)
-   #define DPRINT3x(FORMAT,A,B,C)
-   #define DPRINT4(FORMAT,A,B,C,D)
-   #define DPRINT4x(FORMAT,A,B,C,D)
-   #define DPRINT5(FORMAT,A,B,C,D,E)
-   #define DPRINT6(FORMAT,A,B,C,D,E,F)
-   #define DPRINT7(FORMAT,A,B,C,D,E,F,G)
-   #define DPRINT7x(FORMAT,A,B,C,D,E,F,G)
-   #define DPRINT8(FORMAT,A,B,C,D,E,F,G,H)
-   #define DPRINT9(FORMAT,A,B,C,D,E,F,G,H,I)
-   #define DPRINT10(FORMAT,A,B,C,D,E,F,G,H,I,J)
-   #define DPRINT11(FORMAT,A,B,C,D,E,F,G,H,I,J,K)
-   #define DPRINT12(FORMAT,A,B,C,D,E,F,G,H,I,J,K,L)
-   #define DPRINT13(FORMAT,A,B,C,D,E,F,G,H,I,J,K,L,M)
-   #define DPRINT14(FORMAT,A,B,C,D,E,F,G,H,I,J,K,L,M,N)
-   #define DPRINT15(FORMAT,A,B,C,D,E,F,G,H,I,J,K,L,M,N,O)
-   #define DCLOSE
-#endif
 
 #define ROUTINE(NAME) char routine[] = #NAME ;\
     if (routine[0] == '\0') printf("bad routine(%s)\n", routine);
 
 /* macros for status printing */
 #define SPRINT0(OL,FORMAT)                                   \
-    DPRINT0(FORMAT);                                         \
     if (outLevel >= OL) {                                    \
         printf(FORMAT); printf("\n");                        \
     }
 #define SPRINT0x(OL,FORMAT)                                  \
-    DPRINT0x(FORMAT);                                        \
     if (outLevel >= OL) {                                    \
         printf(FORMAT); fflush(stdout);                      \
     }
 #define SPRINT1(OL,FORMAT,A)                                 \
-    DPRINT1(FORMAT,A);                                       \
     if (outLevel >= OL) {                                    \
         printf(FORMAT,A); printf("\n");                      \
     }
 #define SPRINT1x(OL,FORMAT,A)                                \
-    DPRINT1x(FORMAT,A);                                      \
     if (outLevel >= OL) {                                    \
         printf(FORMAT,A); fflush(stdout);                    \
     }
 #define SPRINT2(OL,FORMAT,A,B)                               \
-    DPRINT2(FORMAT,A,B);                                     \
     if (outLevel >= OL) {                                    \
         printf(FORMAT,A,B); printf("\n");                    \
     }
 #define SPRINT2x(OL,FORMAT,A,B)                              \
-    DPRINT2x(FORMAT,A,B);                                    \
     if (outLevel >= OL) {                                    \
         printf(FORMAT,A,B); fflush(stdout);                  \
     }
 #define SPRINT3(OL,FORMAT,A,B,C)                             \
-    DPRINT3(FORMAT,A,B,C);                                   \
     if (outLevel >= OL) {                                    \
         printf(FORMAT,A,B,C); printf("\n");                  \
     }
 #define SPRINT3x(OL,FORMAT,A,B,C)                            \
-    DPRINT3x(FORMAT,A,B,C);                                  \
     if (outLevel >= OL) {                                    \
         printf(FORMAT,A,B,C); fflush(stdout);                \
     }
 #define SPRINT4(OL,FORMAT,A,B,C,D)                           \
-    DPRINT4(FORMAT,A,B,C,D);                                 \
     if (outLevel >= OL) {                                    \
         printf(FORMAT,A,B,C,D); printf("\n");                \
     }
 #define SPRINT4x(OL,FORMAT,A,B,C,D)                          \
-    DPRINT4x(FORMAT,A,B,C,D);                                \
     if (outLevel >= OL) {                                    \
         printf(FORMAT,A,B,C,D); fflush(stdout);              \
     }
 #define SPRINT5(OL,FORMAT,A,B,C,D,E)                         \
-    DPRINT5(FORMAT,A,B,C,D,E);                               \
     if (outLevel >= OL) {                                    \
         printf(FORMAT,A,B,C,D,E); printf("\n");              \
     }
 #define SPRINT6(OL,FORMAT,A,B,C,D,E,F)                       \
-    DPRINT6(FORMAT,A,B,C,D,E,F);                             \
     if (outLevel >= OL) {                                    \
         printf(FORMAT,A,B,C,D,E,F); printf("\n");            \
     }
 #define SPRINT7(OL,FORMAT,A,B,C,D,E,F,G)                     \
-    DPRINT7(FORMAT,A,B,C,D,E,F,G);                           \
     if (outLevel >= OL) {                                    \
         printf(FORMAT,A,B,C,D,E,F,G); printf("\n");          \
     }
 #define SPRINT8(OL,FORMAT,A,B,C,D,E,F,G,H)                   \
-    DPRINT8(FORMAT,A,B,C,D,E,F,G,H);                         \
     if (outLevel >= OL) {                                    \
         printf(FORMAT,A,B,C,D,E,F,G,H); printf("\n");        \
     }
 #define SPRINT9(OL,FORMAT,A,B,C,D,E,F,G,H,I)                 \
-    DPRINT9(FORMAT,A,B,C,D,E,F,G,H,I);                       \
     if (outLevel >= OL) {                                    \
         printf(FORMAT,A,B,C,D,E,F,G,H,I); printf("\n");      \
     }
 #define SPRINT10(OL,FORMAT,A,B,C,D,E,F,G,H,I,J)              \
-    DPRINT10(FORMAT,A,B,C,D,E,F,G,H,I,J);                    \
     if (outLevel >= OL) {                                    \
         printf(FORMAT,A,B,C,D,E,F,G,H,I,J); printf("\n");    \
     }
 #define SPRINT11(OL,FORMAT,A,B,C,D,E,F,G,H,I,J,K)            \
-    DPRINT11(FORMAT,A,B,C,D,E,F,G,H,I,J,K);                  \
     if (outLevel >= OL) {                                    \
         printf(FORMAT,A,B,C,D,E,F,G,H,I,J,K); printf("\n");  \
     }
 #define SPRINT12(OL,FORMAT,A,B,C,D,E,F,G,H,I,J,K,L)          \
-    DPRINT12(FORMAT,A,B,C,D,E,F,G,H,I,J,K,L);                \
     if (outLevel >= OL) {                                    \
         printf(FORMAT,A,B,C,D,E,F,G,H,I,J,K,L); printf("\n"); \
     }
 #define SPRINT13(OL,FORMAT,A,B,C,D,E,F,G,H,I,J,K,L,M)        \
-    DPRINT13(FORMAT,A,B,C,D,E,F,G,H,I,J,K,L,M);              \
     if (outLevel >= OL) {                                    \
         printf(FORMAT,A,B,C,D,E,F,G,H,I,J,K,L,M); printf("\n");  \
     }
 #define SPRINT14(OL,FORMAT,A,B,C,D,E,F,G,H,I,J,K,L,M,N)      \
-    DPRINT14(FORMAT,A,B,C,D,E,F,G,H,I,J,K,L,M,N);            \
     if (outLevel >= OL) {                                    \
         printf(FORMAT,A,B,C,D,E,F,G,H,I,J,K,L,M,N); printf("\n");  \
     }
 #define SPRINT15(OL,FORMAT,A,B,C,D,E,F,G,H,I,J,K,L,M,N,O)    \
-    DPRINT15(FORMAT,A,B,C,D,E,F,G,H,I,J,K,L,M,N,O);          \
     if (outLevel >= OL) {                                    \
         printf(FORMAT,A,B,C,D,E,F,G,H,I,J,K,L,M,N,O); printf("\n");  \
     }

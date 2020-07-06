@@ -836,43 +836,14 @@ int astros_checkAirfoil(void *aimInfo, feaAeroStruct *feaAero) {
 
     int status; // Function return status
 
-    int i, j;
-
-    // EGADS bodies
-    const char *intents;
-    int numBody;
-    ego body, *bodies;
-
-    int numNode, numEdge;
-    ego *nodes = NULL, *edges = NULL;
+    int i;
 
     if (aimInfo == NULL) return CAPS_NULLVALUE;
     if (feaAero == NULL) return CAPS_NULLVALUE;
 
-    // Get AIM bodies
-    status = aim_getBodies(aimInfo, &intents, &numBody, &bodies);
-    if (status != CAPS_SUCCESS) return status;
-
     // Loop through sections in surface
     for (i = 0; i < feaAero->vlmSurface.numSection; i++) {
-
-        j = feaAero->vlmSurface.vlmSection[i].bodyIndex;
-        if (j+1 > numBody) {
-            printf("Error in astros_checkAirfoil Body index %d greater than the number of bodies %d\n", j+1, numBody);
-            status = CAPS_MISMATCH;
-            goto cleanup;
-
-        }
-
-        body = bodies[j];
-
-        status = EG_getBodyTopos(body, NULL, NODE, &numNode, &nodes);
-        if (status != EGADS_SUCCESS) goto cleanup;
-
-        status = EG_getBodyTopos(body, NULL, EDGE, &numEdge, &edges);
-        if (status != EGADS_SUCCESS) goto cleanup;
-
-        if ((numEdge != numNode) || (numEdge > 3) || (numEdge < 2) ) {
+        if ( feaAero->vlmSurface.vlmSection[i].teClass != NODE ) {
             //printf("\tError in astros_checkAirfoil, body has %d nodes and %d edges!\n", numNode, numEdge);
             status = CAPS_SOURCEERR;
             goto cleanup;
@@ -880,15 +851,11 @@ int astros_checkAirfoil(void *aimInfo, feaAeroStruct *feaAero) {
     }
 
     status = CAPS_SUCCESS;
-    goto cleanup;
 
-    cleanup:
-        if (status != CAPS_SUCCESS && status != CAPS_SOURCEERR) printf("\tError: Premature exit in astros_checkAirfoil, status = %d\n", status);
+cleanup:
+    if (status != CAPS_SUCCESS && status != CAPS_SOURCEERR) printf("\tError: Premature exit in astros_checkAirfoil, status = %d\n", status);
 
-        if (nodes != NULL) EG_free(nodes);
-        if (edges != NULL) EG_free(edges);
-
-        return status;
+    return status;
 }
 
 // Write out all the Aero cards necessary to define the VLM surface
@@ -900,203 +867,75 @@ int astros_writeAeroData(void *aimInfo,
 
     int status; // Function return status
 
-    int i, j, edgeIndex; // Indexing
-
-    // EGADS bodies
-    const char *intents;
-    int numBody;
-    ego body, *bodies;
-
-    int numNode, numEdge;
-    ego *nodes = NULL, *edges = NULL;
-
-    ego teObj = NULL;
-
-    int nodeIndexTE, nodeIndexLE;
-    double chord, xyzLE[3]; //, xyzTE[3];
-
-    double xdot[3], ydot[3], xmin, trange[2], result[9];
-
-    //EGADS returns
-    int oclass, mtype, *sens = NULL, numChildren, sense;
-    ego ref, *children = NULL;
+    int i, j; // Indexing
 
     int numPoint = 30;
-    double surfaceRange[30], chordRange[30];
+    double *xCoord=NULL, *yUpper=NULL, *yLower=NULL;
 
     if (aimInfo == NULL) return CAPS_NULLVALUE;
     if (fp == NULL) return CAPS_IOERR;
     if (feaAero == NULL) return CAPS_NULLVALUE;
     if (feaFileFormat == NULL) return CAPS_NULLVALUE;
 
-
-    // Get AIM bodies
-    status = aim_getBodies(aimInfo, &intents, &numBody, &bodies);
-    if (status != CAPS_SUCCESS) return status;
-
     // Loop through sections in surface
     for (i = 0; i < feaAero->vlmSurface.numSection; i++) {
 
         if (useAirfoilShape == (int) true) { // Using the airfoil upper and lower surfaces or panels?
 
-            j = feaAero->vlmSurface.vlmSection[i].bodyIndex;
-            if (j+1 > numBody) {
-                printf("Error in astros_writeAero Body index %d greater than the number of bodies %d\n", j+1, numBody);
-                status = CAPS_SOURCEERR;
-                goto cleanup;
+          status = vlm_getSectionCoordX(&feaAero->vlmSurface.vlmSection[i],
+                                        1.0, // Cosine distribution
+                                        (int) true, numPoint,
+                                        &xCoord, &yUpper, &yLower);
+          if (status != CAPS_SUCCESS) return status;
 
-            }
+          for (j = 0; j < numPoint; j++) {
+              xCoord[j] *= 100.0;
+              yUpper[j] *= 100.0;
+              yLower[j] *= 100.0;
+          }
 
-            body = bodies[j];
+           fprintf(fp, "$ Upper surface - Airfoil %d (of %d) \n",i+1, feaAero->vlmSurface.numSection);
+           status = astros_writeAEFactCard(fp, feaFileFormat, feaAero->surfaceID + 100*(feaAero->vlmSurface.vlmSection[i].sectionIndex+1) + 1, numPoint, yUpper);
+           if (status != CAPS_SUCCESS) goto cleanup;
 
-            nodeIndexLE = feaAero->vlmSurface.vlmSection[i].nodeIndexLE;
-            nodeIndexTE = feaAero->vlmSurface.vlmSection[i].nodeIndexTE;
-            chord = feaAero->vlmSurface.vlmSection[i].chord;
-
-            for (j = 0; j < 3;j++){
-                xyzLE[j] = feaAero->vlmSurface.vlmSection[i].xyzLE[j];
-                //xyzTE[j] = feaAero->vlmSurface.vlmSection[i].xyzTE[j];
-            }
-
-            status = EG_getBodyTopos(body, NULL, NODE, &numNode, &nodes);
-            if (status != EGADS_SUCCESS) {
-                printf("\tError in astros_writeAero, getBodyTopos Nodes = %d\n", status);
-                goto cleanup;
-            }
-
-            status = EG_getBodyTopos(body, NULL, EDGE, &numEdge, &edges);
-            if (status != EGADS_SUCCESS) {
-                printf("\tError in astros_writeAero, getBodyTopos Edges = %d\n", status);
-                goto cleanup;
-            }
-
-            if ((numEdge != numNode) || (numEdge > 3) || (numEdge < 2) ) {
-                printf("\tError in astros_writeAero, body has %d nodes and %d edges!\n", numNode, numEdge);
-                status = CAPS_SOURCEERR;
-                goto cleanup;
-            }
-
-            status = vlm_findTEObj(body, &teObj);
-            if (status != CAPS_SUCCESS) goto cleanup;
-
-            if (teObj == NULL) {
-
-                status = EG_getTopology(nodes[nodeIndexTE-1], &ref, &oclass, &mtype, result, &numChildren, &children, &sens);
-                if (status != EGADS_SUCCESS) goto cleanup;
-
-            } else {
-
-                status = EG_getTopology(teObj, &ref, &oclass, &mtype, trange, &numChildren, &children, &sens);
-                if (status != EGADS_SUCCESS) goto cleanup;
-
-                xmin = 0.5*(trange[0]+trange[1]);
-
-                status = EG_evaluate(teObj, &xmin, result);
-                if (status != EGADS_SUCCESS) {
-                    printf("\tError in astros_writeAero, evaluate = %d!\n", status);
-                    goto cleanup;
-                }
-            }
-
-            xdot[0]  =  result[0] - xyzLE[0];
-            xdot[1]  =  result[1] - xyzLE[1];
-            xdot[2]  =  result[2] - xyzLE[2];
-
-            xdot[0] /=  chord;
-            xdot[1] /=  chord;
-            xdot[2] /=  chord;
-
-            ydot[0]  = -xdot[2];
-            ydot[1]  =  xdot[1];
-            ydot[2]  =  xdot[0];
-
-            if (fabs(xdot[1]) > 1.e-5){
-                printf("\tWarning: Section not in Y-plane!\n");
-            }
-
-            for (edgeIndex = 0; edgeIndex < numEdge; edgeIndex++) {
-
-                if (edges[edgeIndex] == teObj) continue;
-
-                // Get t- range for edge
-                status = EG_getTopology(edges[edgeIndex], &ref, &oclass, &mtype, trange, &numChildren, &children, &sens);
-                if (status != EGADS_SUCCESS) goto cleanup;
-
-                if (children[0] == nodes[nodeIndexLE-1]) {
-                    sense = 1;
-                } else {
-                    sense = -1;
-                }
-
-                // Write out in points along edge
-                for (j = 0; j < numPoint; j++) {
-                    if (sense == 1) {
-                        xmin = trange[0] + j*(trange[1]-trange[0])/(numPoint-1);
-                    } else {
-                        xmin = trange[1] - j*(trange[1]-trange[0])/(numPoint-1);
-                    }
-
-                    status = EG_evaluate(edges[edgeIndex], &xmin, result);
-                    if (status != EGADS_SUCCESS) goto cleanup;
-
-                    result[0] -= xyzLE[0];
-                    result[1] -= xyzLE[1];
-                    result[2] -= xyzLE[2];
-
-                    if (sense == 1) {
-                        chordRange[j]  = (xdot[0]*result[0]+xdot[1]*result[1]+xdot[2]*result[2])/chord *100;
-                    } else {
-                        chordRange[numPoint-(j+1)]  = (xdot[0]*result[0]+xdot[1]*result[1]+xdot[2]*result[2])/chord *100;
-                    }
-                    surfaceRange[j] = (ydot[0]*result[0]+ydot[1]*result[1]+ydot[2]*result[2])/chord *100;
-                }
-
-                if (sense == -1) { // Upper surface
-                    fprintf(fp, "$ Upper surface - Airfoil %d (of %d) \n",i+1, feaAero->vlmSurface.numSection);
-                    status = astros_writeAEFactCard(fp, feaFileFormat, feaAero->surfaceID + 100*(feaAero->vlmSurface.vlmSection[i].sectionIndex+1) + 1, numPoint, surfaceRange);
-                    if (status != CAPS_SUCCESS) goto cleanup;
-
-                } else { // Lower surface
-                    fprintf(fp, "$ Lower surface - Airfoil %d (of %d) \n",i+1, feaAero->vlmSurface.numSection);
-                    status = astros_writeAEFactCard(fp, feaFileFormat, feaAero->surfaceID + 100*(feaAero->vlmSurface.vlmSection[i].sectionIndex+1) + 2, numPoint, surfaceRange);
-                    if (status != CAPS_SUCCESS) goto cleanup;
-                }
-            }
-
-            // Free up memory
-            if (nodes != NULL) EG_free(nodes);
-            nodes = NULL;
-            if (edges != NULL) EG_free(edges);
-            edges = NULL;
+           fprintf(fp, "$ Lower surface - Airfoil %d (of %d) \n",i+1, feaAero->vlmSurface.numSection);
+           status = astros_writeAEFactCard(fp, feaFileFormat, feaAero->surfaceID + 100*(feaAero->vlmSurface.vlmSection[i].sectionIndex+1) + 2, numPoint, yLower);
+           if (status != CAPS_SUCCESS) goto cleanup;
 
         } else {
 
-            for (j = 0; j < numPoint; j++) {
-                chordRange[j] = ( (double) j / ( (double) numPoint - 1.0 ) ) * 100.0;
+            xCoord = (double*)EG_alloc(numPoint*sizeof(double));
+            if (xCoord == NULL) { status = EGADS_MALLOC; goto cleanup; }
 
+            for (j = 0; j < numPoint; j++) {
+                xCoord[j] = ( (double) j / ( (double) numPoint - 1.0 ) ) * 100.0;
             }
         }
 
         // Write chord range
-        chordRange[0] = 0.0;
-        chordRange[numPoint-1] = 100.0;
+        xCoord[0] = 0.0;
+        xCoord[numPoint-1] = 100.0;
 
         fprintf(fp, "$ Chord - Airfoil %d (of %d) \n",i+1, feaAero->vlmSurface.numSection);
-        status = astros_writeAEFactCard(fp, feaFileFormat, feaAero->surfaceID + 100*(feaAero->vlmSurface.vlmSection[i].sectionIndex+1), numPoint, chordRange);
+        status = astros_writeAEFactCard(fp, feaFileFormat, feaAero->surfaceID + 100*(feaAero->vlmSurface.vlmSection[i].sectionIndex+1), numPoint, xCoord);
         if (status != CAPS_SUCCESS) goto cleanup;
+
+        EG_free(xCoord); xCoord = NULL;
+        EG_free(yUpper); yUpper = NULL;
+        EG_free(yLower); yLower = NULL;
     }
 
     status = CAPS_SUCCESS;
-    goto cleanup;
 
-    cleanup:
+cleanup:
 
-        if (status != CAPS_SUCCESS) printf("\tError: Premature exit in astros_writeAero, status = %d\n", status);
+    if (status != CAPS_SUCCESS) printf("Error: Premature exit in astros_writeAero, status = %d\n", status);
 
-        if (nodes != NULL) EG_free(nodes);
-        if (edges != NULL) EG_free(edges);
+    EG_free(xCoord);
+    EG_free(yUpper);
+    EG_free(yLower);
 
-        return status;
+    return status;
 }
 
 // Write Astros CAERO6 cards from a feaAeroStruct
@@ -1242,13 +1081,12 @@ int astros_writeCAeroCard(FILE *fp, feaAeroStruct *feaAero, feaFileFormatStruct 
     if (status != CAPS_SUCCESS) goto cleanup;
 
     status = CAPS_SUCCESS;
-    goto cleanup;
 
-    cleanup:
+cleanup:
 
-        if (temp != NULL) EG_free(temp);
+    EG_free(temp);
 
-        return status;
+    return status;
 
 }
 
@@ -4274,6 +4112,12 @@ static int astros_getConfigurationSens(FILE *fp,
         // If name is found in Geometry inputs skip design variables
         if (j >= numGeomIn) continue;
 
+        if(aim_getGeomInType(aimInfo, j+1) == EGADS_OUTSIDE) {
+            printf("Error: Geometric sensitivity not available for CFGPMTR = %s\n", geomInName);
+            status = CAPS_NOSENSITVTY;
+            goto cleanup;
+        }
+
         //printf("Geometric sensitivity name = %s\n", feaDesignVariable[j].name);
 
         if (dxyz) EG_free(dxyz);
@@ -4703,7 +4547,13 @@ int astros_writeGeomParametrization(FILE *fp,
             // If name isn't found in Geometry inputs skip design variables
             if (k >= numGeomIn) continue;
 
-            printf("Geometric sensitivity name = %s\n", feaDesignVariable[j].name);
+            if(aim_getGeomInType(aimInfo, k+1) == EGADS_OUTSIDE) {
+                printf("Error: Geometric sensitivity not available for CFGPMTR = %s\n", geomInName);
+                status = CAPS_NOSENSITVTY;
+                goto cleanup;
+            }
+
+            printf("Geometric sensitivity name = %s\n", geomInName);
 
             if (xyz != NULL) EG_free(xyz);
             xyz = NULL;

@@ -75,7 +75,7 @@ set       ztip_v    zroot_v+span_v/2
 mark
    point     0  0  0
 
-   patbeg    i  15
+   patbeg    i  fuse.nrow
       udprim ellipse   ry  abs(fuse[i,2])  rz  (fuse[i,4]-fuse[i,3])/2
       translate        fuse[i,1]  0            (fuse[i,4]+fuse[i,3])/2
    patend

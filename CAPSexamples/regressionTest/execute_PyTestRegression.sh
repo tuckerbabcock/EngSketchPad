@@ -225,6 +225,8 @@ if [[ "$TYPE" == "MESH" || "$TYPE" == "ALL" ]]; then
         expectPythonSuccess "aflr3_PyTest.py" $capsPythonRegDir
         expectPythonSuccess "aflr4_PyTest.py" $capsPythonRegDir
         expectPythonSuccess "aflr4_PyTest.py" $capsPythonRegDir
+        expectPythonSuccess "aflr4_Symmetry_PyTest.py" $capsPythonRegDir
+        expectPythonSuccess "aflr4_Generic_Missile.py" $capsPythonRegDir
         expectPythonSuccess "aflr4_TipTreat_PyTest.py" $capsPythonRegDir -noPlotData
     
         if [ -f $ESP_ROOT/lib/tetgenAIM.$EXT ]; then
@@ -255,13 +257,13 @@ if [[ "$TYPE" == "MESH" || "$TYPE" == "ALL" ]]; then
         notRun="$notRun\ndelaundo"
     fi
 
-    
     # pointwise
-    #if [[ "`which pointwise`" != "" && "$VALGRIND_COMMAND" == "" && -f $ESP_ROOT/lib/pointwiseAIM.$EXT ]]; then
-        #expectPythonSuccess "pointwise_PyTest.py" $capsPythonRegDir
-    #else
+    if [[ "`which pointwise`" != "" && -f $ESP_ROOT/lib/pointwiseAIM.$EXT ]]; then
+        expectPythonSuccess "pointwise_PyTest.py" $capsPythonRegDir
+        expectPythonSuccess "pointwise_Symmetry_PyTest.py" $capsPythonRegDir
+    else
         notRun="$notRun\nPointwise"
-    #fi
+    fi
 
     testsRan=1
 fi

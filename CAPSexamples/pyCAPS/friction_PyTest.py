@@ -31,7 +31,8 @@ myProblem = capsProblem()
 # Load CSM file
 # -----------------------------------------------------------------
 ## [geometry]
-myGeometry = myProblem.loadCAPS("../csmData/frictionWingTailFuselage.csm", verbosity=args.verbosity)
+geometryScript = os.path.join("..","csmData","frictionWingTailFuselage.csm")
+myGeometry = myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 myGeometry.setGeometryVal("area", 10.0)
 ## [geometry]
 

@@ -32,7 +32,8 @@ workDir = os.path.join(str(args.workDir[0]), "SU2DelaundoAnalysisTest")
 myProblem = capsProblem()
 
 # Load CSM file
-myProblem.loadCAPS("../csmData/cfd2D.csm", verbosity=args.verbosity)
+geometryScript = os.path.join("..","csmData","cfd2D.csm")
+myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 
 # Load delaundo aim
 myProblem.loadAIM(aim = "delaundoAIM", analysisDir = workDir)

@@ -153,8 +153,8 @@ EG_saveTess(ego tess, const char *name); // super secret experimental EGADS tess
 #include <ug/UG_LIB.h>
 #include <aflr4/AFLR4_LIB.h> // Bring in AFLR4 API library
 
-#define NUMINPUT  18      // Number of mesh inputs
-#define NUMOUT    1       // Number of outputs
+#define NUMINPUT  19      // Number of mesh inputs
+#define NUMOUT    3       // Number of outputs
 
 //#define DEBUG
 
@@ -367,6 +367,7 @@ int aimInputs(/*@unused@*/ int iIndex, void *aimInfo, int index, char **ainame,
               capsValue *defval)
 {
 
+    int input = 0;
     /*! \page aimInputsAFLR4 AIM Inputs
      * The following list outlines the AFLR4 meshing options along with their default value available
      * through the AIM interface.
@@ -377,10 +378,10 @@ int aimInputs(/*@unused@*/ int iIndex, void *aimInfo, int index, char **ainame,
     int status; // error code
     UG_Param_Struct *AFLR4_Param_Struct_Ptr = NULL; // AFRL4 input structure used to get default values
 
-    int ff_nseg, min_ncell, mer_all;
+    int min_ncell, mer_all;
     CHAR_UG_MAX no_prox;
 
-    double abs_min_scale, BL_thickness, curv_factor,
+    double ff_cdfr, abs_min_scale, BL_thickness, Re_l, curv_factor,
            max_scale, min_scale, erw_all; //, ref_len;
 
 
@@ -407,7 +408,7 @@ int aimInputs(/*@unused@*/ int iIndex, void *aimInfo, int index, char **ainame,
     #endif
 
     // Meshing Inputs
-    if (index == 1) {
+    if (index == ++input) {
         *ainame              = EG_strdup("Proj_Name"); // If NULL a volume grid won't be written by the AIM
         defval->type         = String;
         defval->nullVal      = IsNull;
@@ -420,7 +421,7 @@ int aimInputs(/*@unused@*/ int iIndex, void *aimInfo, int index, char **ainame,
          * This corresponds to the output name of the mesh. If left NULL, the mesh is not written to a file.
          */
 
-    } else if (index == 2) {
+    } if (index == ++input) {
         *ainame               = EG_strdup("Mesh_Quiet_Flag");
         defval->type          = Boolean;
         defval->vals.integer  = false;
@@ -430,7 +431,7 @@ int aimInputs(/*@unused@*/ int iIndex, void *aimInfo, int index, char **ainame,
          * Complete suppression of mesh generator (not including errors)
          */
 
-    } else if (index == 3) {
+    } if (index == ++input) {
         *ainame               = EG_strdup("Mesh_Format");
         defval->type          = String;
         defval->vals.string   = EG_strdup("AFLR3"); // TECPLOT, VTK, AFLR3, STL, FAST
@@ -442,7 +443,7 @@ int aimInputs(/*@unused@*/ int iIndex, void *aimInfo, int index, char **ainame,
          * split into triangles), "FAST".
          */
 
-    } else if (index == 4) {
+    } if (index == ++input) {
         *ainame               = EG_strdup("Mesh_ASCII_Flag");
         defval->type          = Boolean;
         defval->vals.integer  = true;
@@ -452,7 +453,7 @@ int aimInputs(/*@unused@*/ int iIndex, void *aimInfo, int index, char **ainame,
          * Output mesh in ASCII format, otherwise write a binary file if applicable.
          */
 
-    } else if (index == 5) {
+    } if (index == ++input) {
         *ainame               = EG_strdup("Mesh_Gen_Input_String");
         defval->type          = String;
         defval->nullVal       = IsNull;
@@ -467,31 +468,32 @@ int aimInputs(/*@unused@*/ int iIndex, void *aimInfo, int index, char **ainame,
          * of the relevant AIM input variables.
          */
 
-    } else if (index == 6) {
+    } if (index == ++input) {
 
-        status = ug_get_int_param ((char*)"ff_nseg", &ff_nseg, AFLR4_Param_Struct_Ptr);
+        status = ug_get_double_param ((char*)"ff_cdfr", &ff_cdfr, AFLR4_Param_Struct_Ptr);
         if (status == 1) status = CAPS_SUCCESS;
         if (status != CAPS_SUCCESS) {
-            printf("Failed to retrieve default value for 'ff_nseg'\n");
+            printf("Failed to retrieve default value for 'ff_cdfr'\n");
             status = CAPS_NOTFOUND;
             goto cleanup;
         }
 
-        *ainame              = EG_strdup("ff_nseg");
-        defval->type         = Integer;
+        *ainame              = EG_strdup("ff_cdfr");
+        defval->type         = Double;
         defval->dim          = Scalar;
-        defval->vals.integer  = ff_nseg;
+        defval->vals.real    = ff_cdfr;
 
         /*! \page aimInputsAFLR4
-         * - <B>ff_nseg</B> <br>
-         * Number of edges or segments on the longest<br>
-         * farfield bounding box side.<br>
-         * If the longest farfield bounding box side is<br>
-         * less then the farfield spacing is set to a<br>
-         * uniform value of ff_spacing=L/ff_nseg.
+         * - <B>ff_cdfr</B> <br>
+         * Farfield growth rate for field point spacing.<br>
+         * The farfield spacing is set to a uniform value dependent upon the maximum size <br>
+         * of the domain, maximum size of inner bodies, max and min body spacing, and <br>
+         * farfield growth rate. ; <br>
+         * ff_spacing = (ff_cdfr-1)*L+(min_spacing+max_spacing)/2 ; <br>
+         * where L is the approximate distance between inner bodies and farfield. <br>
          */
 
-    } else if (index == 7) {
+    } if (index == ++input) {
 
         status = ug_get_int_param ((char*)"min_ncell", &min_ncell, AFLR4_Param_Struct_Ptr);
         if (status == 1) status = CAPS_SUCCESS;
@@ -521,7 +523,7 @@ int aimInputs(/*@unused@*/ int iIndex, void *aimInfo, int index, char **ainame,
          * there is only one component/body defined.
          */
 
-    } else if (index == 8) {
+    } if (index == ++input) {
 
         status = ug_get_int_param ((char*)"mer_all", &mer_all, AFLR4_Param_Struct_Ptr);
         if (status == 1) status = CAPS_SUCCESS;
@@ -549,7 +551,7 @@ int aimInputs(/*@unused@*/ int iIndex, void *aimInfo, int index, char **ainame,
          * grid BC of farfield (ff_ids) or BL intersecting (int_ids).
          */
 
-    } else if (index == 9) {
+    } if (index == ++input) {
 
         status = ug_get_char_param ((char*)"-no_prox", no_prox, AFLR4_Param_Struct_Ptr);
         if (status == 1) status = CAPS_SUCCESS;
@@ -574,7 +576,7 @@ int aimInputs(/*@unused@*/ int iIndex, void *aimInfo, int index, char **ainame,
          *
          */
 
-    } else if (index == 10) {
+    } if (index == ++input) {
 
         status = ug_get_double_param ((char*)"abs_min_scale", &abs_min_scale, AFLR4_Param_Struct_Ptr);
         if (status == 1) status = CAPS_SUCCESS;
@@ -601,7 +603,7 @@ int aimInputs(/*@unused@*/ int iIndex, void *aimInfo, int index, char **ainame,
          * than or equal to min_scale.
          */
 
-    } else if (index == 11) {
+    } if (index == ++input) {
 
         status = ug_get_double_param ((char*)"BL_thickness", &BL_thickness, AFLR4_Param_Struct_Ptr);
         if (status == 1) status = CAPS_SUCCESS;
@@ -618,16 +620,40 @@ int aimInputs(/*@unused@*/ int iIndex, void *aimInfo, int index, char **ainame,
 
         /*! \page aimInputsAFLR4
          * - <B>BL_thickness</B> <br>
-         * Boundary layer thickness for proximity<br>
-         * checking. Proximity of components/bodies to<br>
-         * each other is estimated and surface spacing<br>
-         * is locally reduced if needed. If<br>
-         * BL_thickness>0 then the boundary layer<br>
-         * thickness is included in the calculation for<br>
-         * the required surface spacing.
+         * Boundary layer thickness for proximity checking. <br>
+         * Proximity of components/bodies to each other is estimated and surface spacing <br>
+         * is locally reduced if needed. Note that if the Reynolds Number, Re_l, is set <br>
+         * then the BL_thickness value is set to an estimate for turbulent flow. If the <br>
+         * set or calculated value of BL_thickness>0 then the boundary layer thickness is <br>
+         * included in the calculation for the required surface spacing during proximity <br>
+         * checking.
          */
 
-    } else if (index == 12) {
+    } if (index == ++input) {
+
+        status = ug_get_double_param ((char*)"Re_l", &Re_l, AFLR4_Param_Struct_Ptr);
+        if (status == 1) status = CAPS_SUCCESS;
+        if (status != CAPS_SUCCESS) {
+            printf("Failed to retrieve default value for 'Re_l'\n");
+            status = CAPS_NOTFOUND;
+            goto cleanup;
+        }
+
+        *ainame           = EG_strdup("Re_l");
+        defval->type      = Double;
+        defval->dim       = Scalar;
+        defval->vals.real = Re_l;
+
+        /*! \page aimInputsAFLR4
+         * - <B>BL_thickness</B> <br>
+         * Reynolds Number for estimating BL thickness.<br>
+         * The Reynolds Number based on reference length, Re_l, (if set) along with <br>
+         * reference length, ref_len, are used to estimate the BL thickness, BL_thickness, <br>
+         * for turbulent flow. If Re_l>0 then this estimated value is used to set <br>
+         * BL_thickness.
+         */
+
+    } if (index == ++input) {
 
         status = ug_get_double_param ((char*)"curv_factor", &curv_factor, AFLR4_Param_Struct_Ptr);
         if (status == 1) status = CAPS_SUCCESS;
@@ -654,7 +680,7 @@ int aimInputs(/*@unused@*/ int iIndex, void *aimInfo, int index, char **ainame,
          * adjustment is not used.
          */
 
-    } else if (index == 13) {
+    } if (index == ++input) {
 
         status = ug_get_double_param ((char*)"erw_all", &erw_all, AFLR4_Param_Struct_Ptr);
         if (status == 1) status = CAPS_SUCCESS;
@@ -687,7 +713,7 @@ int aimInputs(/*@unused@*/ int iIndex, void *aimInfo, int index, char **ainame,
          * applicable if mer_all=0.
          */
 
-    } else if (index == 14) {
+    } if (index == ++input) {
 
         status = ug_get_double_param ((char*)"max_scale", &max_scale, AFLR4_Param_Struct_Ptr);
         if (status == 1) status = CAPS_SUCCESS;
@@ -711,7 +737,7 @@ int aimInputs(/*@unused@*/ int iIndex, void *aimInfo, int index, char **ainame,
          * on any component/body surface.
          */
 
-    } else if (index == 15) {
+    } if (index == ++input) {
 
         status = ug_get_double_param ((char*)"min_scale", &min_scale, AFLR4_Param_Struct_Ptr);
         if (status == 1) status = CAPS_SUCCESS;
@@ -735,7 +761,7 @@ int aimInputs(/*@unused@*/ int iIndex, void *aimInfo, int index, char **ainame,
          * on any component/body surface.
          */
 
-    } else if (index == 16) {
+    } if (index == ++input) {
 
       /* There is no reasonable default for the ref_len parameter,
        * the user must always set it via capsMeshLength andd Mesh_Length_Factor
@@ -778,7 +804,7 @@ int aimInputs(/*@unused@*/ int iIndex, void *aimInfo, int index, char **ainame,
          * abs_min_spacing = abs_min_scale * ref_len<br>
          */
 
-    } else if (index == 17) {
+    } if (index == ++input) {
         *ainame              = EG_strdup("Mesh_Sizing");
         defval->type         = Tuple;
         defval->nullVal      = IsNull;
@@ -792,7 +818,7 @@ int aimInputs(/*@unused@*/ int iIndex, void *aimInfo, int index, char **ainame,
          * See \ref meshSizingProp for additional details.
          */
 
-    } else if (index == 18) {
+    } if (index == ++input) {
         *ainame              = EG_strdup("EGADS_Quad");
         defval->type         = Boolean;
         defval->vals.integer  = false;
@@ -803,18 +829,19 @@ int aimInputs(/*@unused@*/ int iIndex, void *aimInfo, int index, char **ainame,
          */
     }
 
-#if NUMINPUT != 18
-#error "NUMINPUTS is inconsistent with the list of inputs"
-#endif
+    if (input != NUMINPUT) {
+        printf("DEVELOPER ERROR: NUMINPUTS %d != %d\n", NUMINPUT, input);
+        return CAPS_BADINDEX;
+    }
 
-    status = CAPS_SUCCESS;
-    cleanup:
-        ug_free_param(AFLR4_Param_Struct_Ptr);
+status = CAPS_SUCCESS;
+cleanup:
+    ug_free_param(AFLR4_Param_Struct_Ptr);
 
-        if (status != CAPS_SUCCESS) {
-            printf("An error occurred creating aimInputs\n");
-        }
-        return status;
+    if (status != CAPS_SUCCESS) {
+        printf("An error occurred creating aimInputs\n");
+    }
+    return status;
 }
 
 int aimData(int iIndex, const char *name, enum capsvType *vtype,
@@ -862,7 +889,7 @@ int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValu
 {
     int status; // Status return
 
-    int bodyIndex; // Indexing
+    int i, bodyIndex; // Indexing
 
     // Body parameters
     const char *intents;
@@ -1092,12 +1119,20 @@ int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValu
     status = CAPS_SUCCESS;
     goto cleanup;
 
-    cleanup:
+cleanup:
 
-        if (status != CAPS_SUCCESS) printf("Error: aflr4AIM (instance = %d) status %d\n", iIndex, status);
+    // Clean up meshProps
+    if (meshProp != NULL) {
+        for (i = 0; i < numMeshProp; i++) {
+            (void) destroy_meshSizingStruct(&meshProp[i]);
+        }
+        EG_free(meshProp); meshProp = NULL;
+    }
 
-        if (filename != NULL) EG_free(filename);
-        return status;
+    if (status != CAPS_SUCCESS) printf("Error: aflr4AIM (instance = %d) status %d\n", iIndex, status);
+
+    if (filename != NULL) EG_free(filename);
+    return status;
 }
 
 
@@ -1106,17 +1141,50 @@ int aimOutputs(/*@unused@*/ int iIndex, /*@unused@*/ void *aimStruc,
 {
     /*! \page aimOutputsAFLR4 AIM Outputs
      * The following list outlines the AFLR4 AIM outputs available through the AIM interface.
-     *
-     * - <B>Done</B> = True if a surface mesh was created on all surfaces, False if not.
      */
 
-    #ifdef DEBUG
-        printf(" aflr4AIM/aimOutputs instance = %d  index = %d!\n", inst, index);
-    #endif
+#ifdef DEBUG
+    printf(" aflr4AIM/aimOutputs instance = %d  index = %d!\n", inst, index);
+#endif
 
-    *aoname = EG_strdup("Done");
-    form->type = Boolean;
-    form->vals.integer = (int) false;
+    int output = 0;
+
+    if (index == ++output) {
+        *aoname = EG_strdup("Done");
+        form->type = Boolean;
+        form->vals.integer = (int) false;
+
+        /*! \page aimOutputsAFLR4
+         * - <B> Done </B> <br>
+         * True if a surface mesh was created on all surfaces, False if not.
+         */
+
+    } if (index == ++output) {
+        *aoname = EG_strdup("NumberOfElement");
+        form->type = Integer;
+        form->vals.integer = 0;
+
+        /*! \page aimOutputsAFLR4
+         * - <B> NumberOfElement </B> <br>
+         * Number of elements in the surface mesh
+         */
+
+    } if (index == ++output) {
+        *aoname = EG_strdup("NumberOfNode");
+        form->type = Integer;
+        form->vals.integer = 0;
+
+        /*! \page aimOutputsAFLR4
+         * - <B> NumberOfNode </B> <br>
+         * Number of vertices in the surface mesh
+         */
+    }
+
+
+    if (output != NUMOUT) {
+        printf("DEVELOPER ERROR: NUMOUT %d != %d\n", NUMOUT, output);
+        return CAPS_BADINDEX;
+    }
 
     return CAPS_SUCCESS;
 }
@@ -1126,31 +1194,75 @@ int aimCalcOutput(int iIndex, void *aimInfo,
                   const char *apath, int index,
                   capsValue *val, capsErrs **errors)
 {
+    int status = CAPS_SUCCESS;
     int surf; // Indexing
+    int numElement, numNodes, nElem;
 
     #ifdef DEBUG
         printf(" aflr4AIM/aimCalcOutput instance = %d  index = %d!\n", inst, index);
     #endif
 
-    *errors           = NULL;
-    val->vals.integer = (int) false;
+    *errors = NULL;
 
-    // Check to see if surface meshes was generated
-    for (surf = 0; surf < aflr4Instance[iIndex].numSurface; surf++ ) {
+    if (aim_getIndex(aimInfo, "Done", ANALYSISOUT) == index) {
 
-        if (aflr4Instance[iIndex].surfaceMesh[surf].numElement != 0) {
+        val->vals.integer = (int) false;
 
-            val->vals.integer = (int) true;
+        // Check to see if surface meshes was generated
+        for (surf = 0; surf < aflr4Instance[iIndex].numSurface; surf++ ) {
 
-        } else {
+            if (aflr4Instance[iIndex].surfaceMesh[surf].numElement != 0) {
 
-            val->vals.integer = (int) false;
-            printf("No surface Tris and/or Quads were generated for surface - %d\n", surf);
-            return CAPS_SUCCESS;
+                val->vals.integer = (int) true;
+
+            } else {
+
+                val->vals.integer = (int) false;
+                printf("No surface Tris and/or Quads were generated for surface - %d\n", surf);
+                return CAPS_SUCCESS;
+            }
         }
+
+    } else if (aim_getIndex(aimInfo, "NumberOfElement", ANALYSISOUT) == index) {
+
+        // Count the total number of surface elements
+        numElement = 0;
+        for (surf = 0; surf < aflr4Instance[iIndex].numSurface; surf++ ) {
+
+            status = mesh_retrieveNumMeshElements(aflr4Instance[iIndex].surfaceMesh[surf].numElement,
+                                                  aflr4Instance[iIndex].surfaceMesh[surf].element,
+                                                  Triangle,
+                                                  &nElem);
+            if (status != CAPS_SUCCESS) goto cleanup;
+            numElement += nElem;
+
+            status = mesh_retrieveNumMeshElements(aflr4Instance[iIndex].surfaceMesh[surf].numElement,
+                                                  aflr4Instance[iIndex].surfaceMesh[surf].element,
+                                                  Quadrilateral,
+                                                  &nElem);
+            if (status != CAPS_SUCCESS) goto cleanup;
+            numElement += nElem;
+        }
+
+        val->vals.integer = numElement;
+
+    } else if (aim_getIndex(aimInfo, "NumberOfNode", ANALYSISOUT) == index) {
+
+        // Count the total number of surface vertices
+        numNodes = 0;
+        for (surf = 0; surf < aflr4Instance[iIndex].numSurface; surf++ ) {
+            numNodes += aflr4Instance[iIndex].surfaceMesh[surf].numNode;
+        }
+
+        val->vals.integer = numNodes;
+    } else {
+        printf("DEVELOPER ERROR: Unknown output index %d\n", index);
+        return CAPS_BADINDEX;
     }
 
-    return CAPS_SUCCESS;
+cleanup:
+
+    return status;
 }
 
 /************************************************************************/

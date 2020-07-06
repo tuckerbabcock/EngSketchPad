@@ -305,7 +305,8 @@ aimPreAnalysis(int inst, void *aimInfo, /*@unused@*/ const char *apath,
 /* aimPostAnalysis: Perform any processing after the Analysis is run – Optional */
 int
 aimPostAnalysis(/*@unused@*/ int iIndex, /*@unused@*/ void *aimInfo,
-                const char *analysisPath, capsErrs **errs)
+                /*@unused@*/ const char *analysisPath,
+                /*@unused@*/ capsErrs **errs)
 {
   int status = CAPS_SUCCESS;
 
@@ -653,8 +654,9 @@ cleanup:
 }
 
 /* aimUsesDataSet: Is the DataSet required by aimPreAnalysis -- Optional */
-int aimUsesDataSet(int inst, void *aimInfo, const char *bname,
-                   const char *dname, enum capsdMethod dMethod)
+int aimUsesDataSet(/*@unused@*/ int inst, /*@unused@*/ void *aimInfo,
+                   /*@unused@*/ const char *bname,
+                   const char *dname, /*@unused@*/ enum capsdMethod dMethod)
 {
   /* This function checks if a data set name can be consumed by this aim.
    *
@@ -662,9 +664,11 @@ int aimUsesDataSet(int inst, void *aimInfo, const char *bname,
    * return CAPS_NOTNEEDED
    */
 
+/*@-unrecog@*/
   if (strcasecmp(dname, "scalar") == 0) {
       return CAPS_SUCCESS;
   }
+/*@+unrecog@*/
 
   return CAPS_NOTNEEDED;
 }

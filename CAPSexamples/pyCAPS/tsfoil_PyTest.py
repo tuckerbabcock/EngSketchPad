@@ -34,18 +34,14 @@ workDir = os.path.join(str(args.workDir[0]), "tsFoilAnalysisTest")
 
 # Load CSM file
 ## [loadGeom]
-myGeometry = myProblem.loadCAPS("../csmData/airfoilSection.csm")
+geometryScript = os.path.join("..","csmData","airfoilSection.csm")
+myGeometry = myProblem.loadCAPS(geometryScript)
 ## [loadGeom]
 
 # Change a design parameter - area in the geometry
 ## [setGeom]
 myGeometry.setGeometryVal("camber", 0.05)
 ## [setGeom]
-
-# Set intention - could also be set during .loadAIM
-## [setFidelity]
-myProblem.capsIntent = "LINEARAERO"
-## [setFidelity]
 
 # Load tsfoil aim
 ## [loadTSFOIL]

@@ -44,6 +44,9 @@ EG_attributeNum
 EG_attributeGet
 EG_attributeRet
 EG_attributeDup
+EG_attributeAddSeq
+EG_attributeNumSeq
+EG_attributeRetSeq
 EG_getGeometry
 EG_setGeometry_dot
 EG_getGeometry_dot

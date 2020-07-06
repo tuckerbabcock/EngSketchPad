@@ -88,7 +88,11 @@ int main(int argc, char *argv[])
   startapp = getenv("WV_START");
 
   if ((argc != 2) && (argc != 5)) {
+#ifdef LITE
+    printf("\n Usage: liteVTess filename [angle maxlen sag]\n\n");
+#else
     printf("\n Usage: vTess filename [angle maxlen sag]\n\n");
+#endif
     return 1;
   }
 

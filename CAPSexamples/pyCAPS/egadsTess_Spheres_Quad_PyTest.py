@@ -26,7 +26,8 @@ workDir = os.path.join(str(args.workDir[0]), "egadsTessSpheresAnalysisTest")
 myProblem = capsProblem()
 
 # Load CSM file and build the geometry explicitly
-myGeometry = myProblem.loadCAPS("../csmData/spheres.csm", verbosity=args.verbosity)
+geometryScript = os.path.join("..","csmData","spheres.csm")
+myGeometry = myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 
 # Load AFLR4 aim
 myAnalysis = myProblem.loadAIM(aim = "egadsTessAIM",
@@ -61,4 +62,3 @@ myAnalysis.postAnalysis()
 
 # Close CAPS
 myProblem.closeCAPS()
-

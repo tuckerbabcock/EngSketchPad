@@ -43,7 +43,8 @@ myProblem = pyCAPS.capsProblem()
 # -----------------------------------------------------------------
 # Load CSM file
 ## [geometry]
-myProblem.loadCAPS("../csmData/cfdMultiBody.csm", verbosity=args.verbosity)
+geometryScript = os.path.join("..","csmData","cfdMultiBody.csm")
+myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 ## [geometry]
 
 ## [capsDespmtrs]
@@ -164,5 +165,3 @@ print("Cx = " , myAnalysis.getAnalysisOutVal("CXtot"), \
 ## [closeCAPS]
 myProblem.closeCAPS()
 ## [closeCAPS]
-
-

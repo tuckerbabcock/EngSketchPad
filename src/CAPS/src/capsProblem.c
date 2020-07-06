@@ -253,6 +253,8 @@ caps_readAttrs(FILE *fp, egAttrs **attrx)
   }
   attrs->nattrs = nattr;
   attrs->attrs  = attr;
+  attrs->nseqs  = 0;
+  attrs->seqs   = NULL;
   for (i = 0; i < nattr; i++) {
     attr[i].name   = NULL;
     attr[i].length = 1;
@@ -1346,6 +1348,7 @@ caps_readAnalysis(FILE *fp, capsObject **lookup, capsProblem *problem,
 
   stat = caps_readString(fp, &analysis->loadName);
   if (stat != CAPS_SUCCESS) return stat;
+  if (analysis->loadName == NULL) return CAPS_NULLNAME;
   stat = caps_readString(fp, &analysis->path);
   if (stat != CAPS_SUCCESS) {
     caps_freeAnalysis(1, analysis);
@@ -1400,15 +1403,19 @@ caps_readAnalysis(FILE *fp, capsObject **lookup, capsProblem *problem,
                           geomIn, &eFlag, analysis->unitSys, &nIn, &nOut,
                           &nField, &fields, &ranks);
   if (stat < CAPS_SUCCESS) {
-    for (i = 0; i < nField; i++) EG_free(fields[i]);
-    EG_free(fields);
+    if (fields != NULL) {
+      for (i = 0; i < nField; i++) EG_free(fields[i]);
+      EG_free(fields);
+    }
     EG_free(ranks);
     caps_freeAnalysis(1, analysis);
     return stat;
   }
   if (nIn <= 0) {
-    for (i = 0; i < nField; i++) EG_free(fields[i]);
-    EG_free(fields);
+    if (fields != NULL) {
+      for (i = 0; i < nField; i++) EG_free(fields[i]);
+      EG_free(fields);
+    }
     EG_free(ranks);
     caps_freeAnalysis(1, analysis);
     return CAPS_BADINIT;
@@ -1455,15 +1462,14 @@ caps_readAnalysis(FILE *fp, capsObject **lookup, capsProblem *problem,
       n = fread(&oIndex, sizeof(int), 1, fp);
       if (n != 1) {
         for (j = 0; j < i; j++) caps_freeValue(analysis->analysisIn[j]->blind);
-/*@-kepttrans@*/
         EG_free(valueI);
-/*@+kepttrans@*/
         caps_freeAnalysis(1, analysis);
         return CAPS_IOERR;
       }
 /*@-immediatetrans@*/
-      analysis->analysisIn[i]        = lookup[oIndex];
-      analysis->analysisIn[i]->blind = &valueI[i];
+      if (i == 0) lookup[oIndex]->blind = valueI;
+      analysis->analysisIn[i]           = lookup[oIndex];
+      analysis->analysisIn[i]->blind    = &valueI[i];
 /*@+immediatetrans@*/
       stat = caps_readValue(fp, lookup, analysis->analysisIn[i]->blind);
       if (stat != CAPS_SUCCESS) {
@@ -1482,8 +1488,9 @@ caps_readAnalysis(FILE *fp, capsObject **lookup, capsProblem *problem,
                             EG_alloc(analysis->nAnalysisOut*sizeof(capsObject *));
     if (analysis->analysisOut == NULL) {
       if (valueI != NULL) {
-        for (j = 0; j < analysis->nAnalysisIn; j++)
-          caps_freeValue(analysis->analysisIn[j]->blind);
+        if (analysis->analysisIn != NULL)
+          for (j = 0; j < analysis->nAnalysisIn; j++)
+            caps_freeValue(analysis->analysisIn[j]->blind);
 /*@-kepttrans@*/
         EG_free(valueI);
 /*@+kepttrans@*/
@@ -1495,8 +1502,9 @@ caps_readAnalysis(FILE *fp, capsObject **lookup, capsProblem *problem,
     valueO = (capsValue *) EG_alloc(analysis->nAnalysisOut*sizeof(capsValue));
     if (valueO == NULL) {
       if (valueI != NULL) {
-        for (j = 0; j < analysis->nAnalysisIn; j++)
-          caps_freeValue(analysis->analysisIn[j]->blind);
+        if (analysis->analysisIn != NULL)
+          for (j = 0; j < analysis->nAnalysisIn; j++)
+            caps_freeValue(analysis->analysisIn[j]->blind);
 /*@-kepttrans@*/
         EG_free(valueI);
 /*@+kepttrans@*/
@@ -1510,15 +1518,14 @@ caps_readAnalysis(FILE *fp, capsObject **lookup, capsProblem *problem,
         for (j = 0; j < i; j++)
           caps_freeValue(analysis->analysisOut[j]->blind);
         if (valueI != NULL) {
-          for (j = 0; j < analysis->nAnalysisIn; j++)
-            caps_freeValue(analysis->analysisIn[j]->blind);
+          if (analysis->analysisIn != NULL)
+            for (j = 0; j < analysis->nAnalysisIn; j++)
+              caps_freeValue(analysis->analysisIn[j]->blind);
 /*@-kepttrans@*/
           EG_free(valueI);
 /*@+kepttrans@*/
         }
-/*@-kepttrans@*/
         EG_free(valueO);
-/*@+kepttrans@*/
         caps_freeAnalysis(1, analysis);
         return CAPS_IOERR;
       }
@@ -1532,8 +1539,9 @@ caps_readAnalysis(FILE *fp, capsObject **lookup, capsProblem *problem,
         for (j = 0; j < i; j++)
           caps_freeValue(analysis->analysisOut[j]->blind);
         if (valueI != NULL) {
-          for (j = 0; j < analysis->nAnalysisIn; j++)
-            caps_freeValue(analysis->analysisIn[j]->blind);
+          if (analysis->analysisIn != NULL)
+            for (j = 0; j < analysis->nAnalysisIn; j++)
+              caps_freeValue(analysis->analysisIn[j]->blind);
 /*@-kepttrans@*/
           EG_free(valueI);
 /*@+kepttrans@*/
@@ -1551,6 +1559,14 @@ caps_readAnalysis(FILE *fp, capsObject **lookup, capsProblem *problem,
     analysis->parents = (capsObject **)
                         EG_alloc(analysis->nParent*sizeof(capsObject *));
     if (analysis->parents == NULL) {
+      if (valueI != NULL) {
+        if (analysis->analysisIn != NULL)
+          for (j = 0; j < analysis->nAnalysisIn; j++)
+            caps_freeValue(analysis->analysisIn[j]->blind);
+/*@-kepttrans@*/
+        EG_free(valueI);
+/*@+kepttrans@*/
+      }
       caps_freeAnalysis(1, analysis);
       return EGADS_MALLOC;
     }
@@ -1559,6 +1575,14 @@ caps_readAnalysis(FILE *fp, capsObject **lookup, capsProblem *problem,
     for (i = 0; i < analysis->nParent; i++) {
       n = fread(&oIndex, sizeof(int), 1, fp);
       if (n != 1) {
+        if (valueI != NULL) {
+          if (analysis->analysisIn != NULL)
+            for (j = 0; j < analysis->nAnalysisIn; j++)
+              caps_freeValue(analysis->analysisIn[j]->blind);
+/*@-kepttrans@*/
+          EG_free(valueI);
+/*@+kepttrans@*/
+        }
         caps_freeAnalysis(1, analysis);
         return CAPS_IOERR;
       }
@@ -2442,6 +2466,7 @@ caps_readFile(capsObject *pobject)
   }
   n = fread(&problem->nBound,    sizeof(int), 1, fp);
   if (n != 1) {
+    EG_free(asizes);
     fclose(fp);
     return CAPS_IOERR;
   }
@@ -2734,7 +2759,9 @@ caps_open(const char *filename, const char *pname, capsObject **pobject)
   object->type  = PROBLEM;
   object->blind = problem;
 
+/*@-nullpass@*/
   problem->utsystem = ut_read_xml(NULL);
+/*@+nullpass@*/
   if (problem->utsystem == NULL) {
     caps_close(object);
     return CAPS_UNITERR;
@@ -2746,12 +2773,17 @@ caps_open(const char *filename, const char *pname, capsObject **pobject)
     caps_close(object);
     return status;
   }
+  if (problem->context == NULL) {
+    caps_close(object);
+    return EGADS_NOTCNTX;
+  }
 
   /* load the file */
   if (strcasecmp(&filename[idot],".caps") == 0) {
     problem->pfile = EG_strdup(filename);
     status = caps_readFile(object);
     if (status < SUCCESS) return status;
+    if (problem->file == NULL) return CAPS_NULLNAME;
 
     /* reload the Geometry */
     if (object->subtype == PARAMETRIC) {
@@ -2785,6 +2817,11 @@ caps_open(const char *filename, const char *pname, capsObject **pobject)
         return status;
       }
       MODL = (modl_T *) problem->modl;
+      if (MODL == NULL) {
+        printf(" CAPS Error: Cannot get OpenCSM MODL (caps_open)!\n");
+        caps_close(object);
+        return CAPS_NOTFOUND;
+      }
       MODL->context   = problem->context;
       MODL->tessAtEnd = 0;
       /* check that Branches are properly ordered */
@@ -2795,50 +2832,53 @@ caps_open(const char *filename, const char *pname, capsObject **pobject)
         return status;
       }
       /* reset the GeomIns & Branchs */
-      for (i = 0; i < problem->nBranch; i++) {
-        if (problem->branchs[i] == NULL) continue;
-        value  = (capsValue *) problem->branchs[i]->blind;
-        status = ocsmSetBrch(problem->modl, i+1, value->vals.integer);
-        if ((status != SUCCESS) && (status != OCSM_CANNOT_BE_SUPPRESSED)) {
-          caps_close(object);
-          printf(" caps_open Error: ocsmSetBrch[%d] fails with %d!", i, status);
-          return status;
-        }
-      }
-      for (i = 0; i < problem->nGeomIn; i++) {
-        if (problem->geomIn[i] == NULL) continue;
-        value = (capsValue *) problem->geomIn[i]->blind;
-        reals = value->vals.reals;
-        if (value->length == 1) reals = &value->vals.real;
-        status = ocsmGetPmtr(problem->modl, value->pIndex, &type,
-                             &nrow, &ncol, name);
-        if (status != SUCCESS) {
-          caps_close(object);
-          printf(" caps_open Error: ocsmGetPmtr %d fails with %d!",
-                 value->pIndex, status);
-          return status;
-        }
-        if ((ncol != value->ncol) || (nrow != value->nrow)) {
-          caps_close(object);
-          printf(" caps_open Error: %s ncol = %d %d, nrow = %d %d!",
-                 name, ncol, value->ncol, nrow, value->nrow);
-          return CAPS_MISMATCH;
-        }
-        /* flip storage
-        for (n = j = 0; j < ncol; j++)
-          for (k = 0; k < nrow; k++, n++) {  */
-        for (n = k = 0; k < nrow; k++)
-          for (j = 0; j < ncol; j++, n++) {
-            status = ocsmSetValuD(problem->modl, value->pIndex,
-                                  k+1, j+1, reals[n]);
-            if (status != SUCCESS) {
-              caps_close(object);
-              printf(" caps_open Error: %d ocsmSetValuD[%d,%d] fails with %d!",
-                     value->pIndex, k+1, j+1, status);
-              return status;
-            }
+      if (problem->branchs != NULL)
+        for (i = 0; i < problem->nBranch; i++) {
+          if (problem->branchs[i] == NULL) continue;
+          value  = (capsValue *) problem->branchs[i]->blind;
+          status = ocsmSetBrch(problem->modl, i+1, value->vals.integer);
+          if ((status != SUCCESS) && (status != OCSM_CANNOT_BE_SUPPRESSED)) {
+            caps_close(object);
+            printf(" caps_open Error: ocsmSetBrch[%d] fails with %d!",
+                   i, status);
+            return status;
           }
-      }
+        }
+      if (problem->geomIn != NULL)
+        for (i = 0; i < problem->nGeomIn; i++) {
+          if (problem->geomIn[i] == NULL) continue;
+          value = (capsValue *) problem->geomIn[i]->blind;
+          reals = value->vals.reals;
+          if (value->length == 1) reals = &value->vals.real;
+          status = ocsmGetPmtr(problem->modl, value->pIndex, &type,
+                               &nrow, &ncol, name);
+          if (status != SUCCESS) {
+            caps_close(object);
+            printf(" caps_open Error: ocsmGetPmtr %d fails with %d!",
+                   value->pIndex, status);
+            return status;
+          }
+          if ((ncol != value->ncol) || (nrow != value->nrow)) {
+            caps_close(object);
+            printf(" caps_open Error: %s ncol = %d %d, nrow = %d %d!",
+                   name, ncol, value->ncol, nrow, value->nrow);
+            return CAPS_MISMATCH;
+          }
+          /* flip storage
+          for (n = j = 0; j < ncol; j++)
+            for (k = 0; k < nrow; k++, n++) {  */
+          for (n = k = 0; k < nrow; k++)
+            for (j = 0; j < ncol; j++, n++) {
+              status = ocsmSetValuD(problem->modl, value->pIndex,
+                                    k+1, j+1, reals[n]);
+              if (status != SUCCESS) {
+                caps_close(object);
+                printf(" caps_open Error: %d ocsmSetValuD[%d,%d] fails with %d!",
+                       value->pIndex, k+1, j+1, status);
+                return status;
+              }
+            }
+        }
 
       buildTo = 0;                          /* all */
       nbody   = 0;
@@ -2916,20 +2956,22 @@ caps_open(const char *filename, const char *pname, capsObject **pobject)
         return CAPS_MISMATCH;
       }
       /* check geomOuts */
-      for (i = j = 0; j < npmtr; j++) {
-        ocsmGetPmtr(problem->modl, j+1, &type, &nrow, &ncol, name);
-        if (type != OCSM_OUTPUT) continue;
-        if (strcmp(name, problem->geomOut[i]->name) != 0) {
-          printf(" CAPS Error: %d Geometry Outs %s != %s (caps_open)!\n",
-                 i+1, name, problem->geomOut[i]->name);
-          caps_close(object);
-          return CAPS_MISMATCH;
+      if (problem->geomOut != NULL)
+        for (i = j = 0; j < npmtr; j++) {
+          ocsmGetPmtr(problem->modl, j+1, &type, &nrow, &ncol, name);
+          if (type != OCSM_OUTPUT) continue;
+          if (strcmp(name, problem->geomOut[i]->name) != 0) {
+            printf(" CAPS Error: %d Geometry Outs %s != %s (caps_open)!\n",
+                   i+1, name, problem->geomOut[i]->name);
+            caps_close(object);
+            return CAPS_MISMATCH;
+          }
+          i++;
         }
-        i++;
-      }
 
       /* set the bodies for the AIMs */
-      if ((nbody > 0) && (problem->bodies != NULL))
+      if ((nbody > 0) && (problem->bodies != NULL) &&
+          (problem->analysis != NULL))
         for (i = 0; i < problem->nAnalysis; i++) {
           analysis = (capsAnalysis *) problem->analysis[i]->blind;
           if (analysis == NULL) continue;
@@ -2940,47 +2982,49 @@ caps_open(const char *filename, const char *pname, capsObject **pobject)
         }
 
       /* get the capsDiscr structures */
-      for (i = 0; i < problem->nBound; i++) {
-        if (problem->bounds[i]              == NULL)      continue;
-        if (problem->bounds[i]->magicnumber != CAPSMAGIC) continue;
-        if (problem->bounds[i]->type        != BOUND)     continue;
-        if (problem->bounds[i]->blind       == NULL)      continue;
-        bound = (capsBound *) problem->bounds[i]->blind;
-        for (j = 0; j < bound->nVertexSet; j++) {
-          if (bound->vertexSet[j]              == NULL)      continue;
-          if (bound->vertexSet[j]->magicnumber != CAPSMAGIC) continue;
-          if (bound->vertexSet[j]->type        != VERTEXSET) continue;
-          if (bound->vertexSet[j]->blind       == NULL)      continue;
-          vertexset = (capsVertexSet *) bound->vertexSet[j]->blind;
-          if (vertexset->analysis != NULL)
-            if (vertexset->analysis->blind != NULL) {
-              analysis = (capsAnalysis *) vertexset->analysis->blind;
-              vertexset->discr->dim      = bound->dim;
-              vertexset->discr->instance = analysis->instance;
-              status  = aim_Discr(problem->aimFPTR, analysis->loadName,
-                                  problem->bounds[i]->name, vertexset->discr);
-              if (status != CAPS_SUCCESS) {
-                printf(" CAPS Error: Bound = %s, Analysis = %s aimDiscr = %d\n",
-                       problem->bounds[i]->name, analysis->loadName, status);
-                caps_close(object);
-                return status;
-              } else {
-                /* check the validity of the discretization just returned */
-                status = caps_checkDiscr(vertexset->discr, 129, line);
+      if (problem->bounds != NULL)
+        for (i = 0; i < problem->nBound; i++) {
+          if (problem->bounds[i]              == NULL)      continue;
+          if (problem->bounds[i]->magicnumber != CAPSMAGIC) continue;
+          if (problem->bounds[i]->type        != BOUND)     continue;
+          if (problem->bounds[i]->blind       == NULL)      continue;
+          bound = (capsBound *) problem->bounds[i]->blind;
+          for (j = 0; j < bound->nVertexSet; j++) {
+            if (bound->vertexSet[j]              == NULL)      continue;
+            if (bound->vertexSet[j]->magicnumber != CAPSMAGIC) continue;
+            if (bound->vertexSet[j]->type        != VERTEXSET) continue;
+            if (bound->vertexSet[j]->blind       == NULL)      continue;
+            vertexset = (capsVertexSet *) bound->vertexSet[j]->blind;
+            if (vertexset->analysis != NULL)
+              if (vertexset->analysis->blind != NULL) {
+                analysis = (capsAnalysis *) vertexset->analysis->blind;
+                vertexset->discr->dim      = bound->dim;
+                vertexset->discr->instance = analysis->instance;
+                status  = aim_Discr(problem->aimFPTR, analysis->loadName,
+                                    problem->bounds[i]->name, vertexset->discr);
                 if (status != CAPS_SUCCESS) {
-                  printf(" CAPS Error: Bound = %s, Analysis = %s chkDiscr=%d\n",
+                  printf(" CAPS Error: Bound = %s, Analysis = %s aimDiscr = %d\n",
                          problem->bounds[i]->name, analysis->loadName, status);
-                  printf("             %s\n", line);
-                  aim_FreeDiscr(problem->aimFPTR, analysis->loadName,
-                                vertexset->discr);
                   caps_close(object);
                   return status;
+                } else {
+                  /* check the validity of the discretization just returned */
+                  status = caps_checkDiscr(vertexset->discr, 129, line);
+                  if (status != CAPS_SUCCESS) {
+                    printf(" CAPS Error: Bound = %s, Analysis = %s chkDiscr=%d\n",
+                           problem->bounds[i]->name, analysis->loadName, status);
+                    printf("             %s\n", line);
+                    aim_FreeDiscr(problem->aimFPTR, analysis->loadName,
+                                  vertexset->discr);
+                    caps_close(object);
+                    return status;
+                  }
                 }
               }
-            }
+          }
         }
-      }
     } else {
+      /* Problem is static */
       if (problem->outLevel != 1)
         EG_setOutLevel(problem->context, problem->outLevel);
     }
@@ -3004,6 +3048,11 @@ caps_open(const char *filename, const char *pname, capsObject **pobject)
       return status;
     }
     MODL = (modl_T *) problem->modl;
+    if (MODL == NULL) {
+      printf(" CAPS Error: Cannot get OpenCSM MODL (caps_open)!\n");
+      caps_close(object);
+      return CAPS_NOTFOUND;
+    }
     MODL->context   = problem->context;
     MODL->tessAtEnd = 0;
 
@@ -3417,7 +3466,7 @@ caps_open(const char *filename, const char *pname, capsObject **pobject)
     /* get length units if exist */
     if (problem->nBodies > 0) {
       problem->lunits = (char **) EG_alloc(problem->nBodies*sizeof(char *));
-      if (problem->lunits != NULL)
+      if ((problem->lunits != NULL) && (problem->bodies != NULL))
         for (i = 0; i < problem->nBodies; i++)
           caps_fillLengthUnits(problem, problem->bodies[i],
                                &problem->lunits[i]);
@@ -3709,8 +3758,10 @@ caps_start(ego model, const char *pname, capsObject **pobject)
   }
   object->type  = PROBLEM;
   object->blind = problem;
-  
+ 
+/*@-nullpass@*/
   problem->utsystem = ut_read_xml(NULL);
+/*@+nullpass@*/
   if (problem->utsystem == NULL) {
     caps_close(object);
     return CAPS_UNITERR;
@@ -3739,7 +3790,7 @@ caps_start(ego model, const char *pname, capsObject **pobject)
   /* get length units if exist */
   if (problem->nBodies > 0) {
     problem->lunits = (char **) EG_alloc(problem->nBodies*sizeof(char *));
-    if (problem->lunits != NULL)
+    if ((problem->lunits != NULL) && (problem->bodies != NULL))
       for (i = 0; i < problem->nBodies; i++)
         caps_fillLengthUnits(problem, problem->bodies[i], &problem->lunits[i]);
   }

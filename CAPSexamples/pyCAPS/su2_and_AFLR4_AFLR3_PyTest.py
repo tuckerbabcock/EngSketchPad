@@ -26,7 +26,8 @@ args = parser.parse_args()
 myProblem = capsProblem()
 
 # Load CSM file
-myGeometry = myProblem.loadCAPS("../csmData/cfdMultiBody.csm", verbosity=args.verbosity)
+geometryScript = os.path.join("..","csmData","cfdMultiBody.csm")
+myGeometry = myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 
 # Change a design parameter - area in the geometry
 myProblem.geometry.setGeometryVal("area", 50)
@@ -54,8 +55,8 @@ aflr4.setAnalysisVal("Mesh_Format", "Tecplot")
 # Set AIM verbosity
 aflr4.setAnalysisVal("Mesh_Quiet_Flag", True if args.verbosity == 0 else False)
 
-# Use 5 segements on farfield faces
-aflr4.setAnalysisVal("ff_nseg", 5)
+# Farfield growth factor
+aflr4.setAnalysisVal("ff_cdfr", 1.4)
 
 # Set maximum and minimum edge lengths relative to capsMeshLength
 aflr4.setAnalysisVal("max_scale", 0.5)

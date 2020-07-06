@@ -3,7 +3,7 @@ from __future__ import print_function
 # Import pyCAPS class file
 from pyCAPS import capsProblem
 
-# Import os module   
+# Import os module
 import os
 
 # Import shutil module
@@ -26,7 +26,7 @@ args = parser.parse_args()
 # Initialize capsProblem object
 myProblem = capsProblem()
 
-# Create working directory variable 
+# Create working directory variable
 workDir = os.path.join(str(args.workDir[0]), "AeroelasticSimple_Iterative")
 
 # Create projectName vairbale
@@ -35,24 +35,25 @@ projectName = "aeroelasticSimple_Iterative"
 # Set the number of transfer iterations
 numTransferIteration = 2
 
-# Load CSM file 
-myProblem.loadCAPS("../csmData/aeroelasticDataTransferSimple.csm", verbosity=args.verbosity)
+# Load CSM file
+geometryScript = os.path.join("..","csmData","aeroelasticDataTransferSimple.csm")
+myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 
-# Load AIMs 
-myProblem.loadAIM(aim = "tetgenAIM", 
+# Load AIMs
+myProblem.loadAIM(aim = "tetgenAIM",
                   altName= "tetgen",
                   analysisDir = workDir + "_FUN3D",
                   capsIntent = "CFD")
 
-  
-myProblem.loadAIM(aim = "fun3dAIM", 
-                  altName = "fun3d", 
-                  analysisDir = workDir + "_FUN3D", 
+
+myProblem.loadAIM(aim = "fun3dAIM",
+                  altName = "fun3d",
+                  analysisDir = workDir + "_FUN3D",
                   parents = ["tetgen"],
                   capsIntent = "CFD")
 
-myProblem.loadAIM(aim = "mystranAIM", 
-                  altName = "mystran", 
+myProblem.loadAIM(aim = "mystranAIM",
+                  altName = "mystran",
                   analysisDir = workDir + "_MYSTRAN",
                   capsIntent = "STRUCTURE")
 
@@ -65,7 +66,7 @@ for i in transfers:
                                  initValueDest  = [None, (0,0,0)],
                                  capsBound      = i )
 
-# Set inputs for tetgen 
+# Set inputs for tetgen
 myProblem.analysis["tetgen"].setAnalysisVal("Tess_Params", [.05, 0.01, 20.0])
 myProblem.analysis["tetgen"].setAnalysisVal("Preserve_Surf_Mesh", True)
 
@@ -103,28 +104,28 @@ myProblem.analysis["mystran"].setAnalysisVal("Analysis_Type", "Static");
 load = {"loadType" : "PressureExternal"}
 myProblem.analysis["mystran"].setAnalysisVal("Load", ("pressureAero", load ))
 
-madeupium    = {"materialType" : "isotropic", 
-                "youngModulus" : 72.0E9 , 
-                "poissonRatio": 0.33, 
+madeupium    = {"materialType" : "isotropic",
+                "youngModulus" : 72.0E9 ,
+                "poissonRatio": 0.33,
                 "density" : 2.8E3}
 myProblem.analysis["mystran"].setAnalysisVal("Material", ("Madeupium", madeupium))
 
-skin  = {"propertyType" : "Shell", 
+skin  = {"propertyType" : "Shell",
          "membraneThickness" : 0.06,
-         "material"        : "madeupium", 
-         "bendingInertiaRatio" : 1.0, # Default           
-         "shearMembraneRatio"  : 5.0/6.0} # Default 
+         "material"        : "madeupium",
+         "bendingInertiaRatio" : 1.0, # Default
+         "shearMembraneRatio"  : 5.0/6.0} # Default
 
-ribSpar  = {"propertyType" : "Shell", 
+ribSpar  = {"propertyType" : "Shell",
             "membraneThickness" : 0.6,
-            "material"        : "madeupium", 
-            "bendingInertiaRatio" : 1.0, # Default           
-            "shearMembraneRatio"  : 5.0/6.0} # Default 
+            "material"        : "madeupium",
+            "bendingInertiaRatio" : 1.0, # Default
+            "shearMembraneRatio"  : 5.0/6.0} # Default
 
 myProblem.analysis["mystran"].setAnalysisVal("Property", [("Skin", skin),
                                                           ("Rib_Root", ribSpar)])
 
-constraint = {"groupName" : "Rib_Root", 
+constraint = {"groupName" : "Rib_Root",
               "dofConstraint" : 123456}
 myProblem.analysis["mystran"].setAnalysisVal("Constraint", ("edgeConstraint", constraint))
 
@@ -144,35 +145,35 @@ for j in transfers:
 
 # Aeroelastic iteration loop
 for iter in range(numTransferIteration):
-    
+
     #Execute the dataTransfer of displacements to su2
     #initValueDest is used on the first iteration
     print ("\n\nExecuting dataTransfer \"Displacement\"......")
     for j in transfers:
         myProblem.dataBound[j].executeTransfer("Displacement")
-    
+
     ####### FUN3D ###########################
     print ("\nRunning PreAnalysis ......", "fun3d")
     myProblem.analysis["fun3d"].preAnalysis()
 
     #------------------------------
-    print ("\n\nRunning FUN3D......")  
-    currentDirectory = os.getcwd() # Get our current working directory 
+    print ("\n\nRunning FUN3D......")
+    currentDirectory = os.getcwd() # Get our current working directory
 
     os.chdir(myProblem.analysis[i].analysisDir) # Move into test directory
 
-    #--write_aero_loads_to_file --aeroelastic_external 
+    #--write_aero_loads_to_file --aeroelastic_external
     cmdLineOpt = "--write_aero_loads_to_file --animation_freq -1"
     if iter != 0:
         cmdLineOpt = cmdLineOpt + " --read_surface_from_file"
 
     os.system("mpirun -np 10 nodet_mpi " + cmdLineOpt + " > Info.out"); # Run fun3d via system call
 
-    if os.path.getsize("Info.out") == 0: # 
+    if os.path.getsize("Info.out") == 0: #
         print ("FUN3D excution failed\n")
         myProblem.closeCAPS()
         raise SystemError
-    
+
     shutil.copy(projectName + "_tec_boundary.plt", projectName + "_tec_boundary" + "_Iteration_" + str(iter) + ".plt")
     os.chdir(currentDirectory) # Move back to top directory
     #------------------------------
@@ -180,19 +181,19 @@ for iter in range(numTransferIteration):
     print ("\nRunning PostAnalysis ......", "fun3d")
     myProblem.analysis["fun3d"].postAnalysis()
     #######################################
-    
+
     #Execute the dataTransfer of Pressure to mystran
     print ("\n\nExecuting dataTransfer \"Pressure\"......")
-    for j in transfers: 
+    for j in transfers:
         myProblem.dataBound[j].executeTransfer("Pressure")
-    
+
     ####### Mystran #######################
     print ("\nRunning PreAnalysis ......", "mystran")
     myProblem.analysis["mystran"].preAnalysis()
 
     #------------------------------
-    print ("\n\nRunning Mystran......")  
-    currentDirectory = os.getcwd() # Get our current working directory 
+    print ("\n\nRunning Mystran......")
+    currentDirectory = os.getcwd() # Get our current working directory
 
     os.chdir(myProblem.analysis["mystran"].analysisDir) # Move into test directory
 
@@ -203,12 +204,12 @@ for iter in range(numTransferIteration):
         myProblem.closeCAPS()
         raise SystemError
 
-    os.chdir(currentDirectory) # Move back to top directory 
+    os.chdir(currentDirectory) # Move back to top directory
     #------------------------------
 
     print ("\nRunning PostAnalysis ......", "mystran")
     myProblem.analysis["mystran"].postAnalysis()
     #######################################
 
-# Close CAPS 
+# Close CAPS
 myProblem.closeCAPS()

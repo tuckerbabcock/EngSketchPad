@@ -345,14 +345,14 @@ static int         numInstance  = 0;
 
 
 /* ********************** AVL AIM Helper Functions ************************** */
-static int writeSection(FILE *fp, ego body,
-                        int nodeIndexLE, double *xyzLE,
-                        int nodeIndexTE, double *xyzTE,
-                        int Nspan, double Sspace)
+static int writeSection(FILE *fp, vlmSectionStruct *vlmSection)
 {
     int status; // Function return status
 
-    double       chord, ainc;
+    ego body;
+    double *xyzLE;
+    int Nspan;
+    double chord, ainc, Sspace;
 
     // Attribute variables
     int          atype, alen;
@@ -360,13 +360,14 @@ static int writeSection(FILE *fp, ego body,
     const char   *string;
     const double *reals;
 
-    int numSpan = 0;
+    // Get data from the section
+    body  = vlmSection->ebody;
+    xyzLE = vlmSection->xyzLE;
+    chord = vlmSection->chord;
+    ainc  = vlmSection->ainc;
+    Nspan = vlmSection->Nspan;
+    Sspace = vlmSection->Sspace;
 
-    // Find the chord of an body and inclination angle
-    status = vlm_getChordandAinc(body, &chord, &ainc);
-    if (status != CAPS_SUCCESS) goto cleanup;
-
-    numSpan = Nspan;
     status = EG_attributeRet(body, "avlNumSpan", &atype, &alen, &ints, &reals, &string);
     if (status == EGADS_SUCCESS) {
         printf("*************************************************************\n");
@@ -379,20 +380,21 @@ static int writeSection(FILE *fp, ego body,
         }
 
         if (atype == ATTRINT) {
-            numSpan = ints[0];
+            Nspan = ints[0];
         }
 
         if (atype == ATTRREAL) {
-            numSpan = (int) reals[0];
+            Nspan = (int) reals[0];
         }
     }
 
+    fprintf(fp, "#Xle     Yls       Zle       Chord    Ainc  Nspan  Sspace\n");
     fprintf(fp, "SECTION\n%lf %lf %lf  %lf %lf  %d %lf\n\n",
-            xyzLE[0], xyzLE[1], xyzLE[2], chord, ainc, numSpan, Sspace);
+            xyzLE[0], xyzLE[1], xyzLE[2], chord, ainc, Nspan, Sspace);
     fprintf(fp, "AIRFOIL\n");
 
     status = vlm_writeSection(fp,
-                              body,
+                              vlmSection,
                               (int) true, // Normalize by chord (true/false)
                               (int) MAXPOINT);
     if (status != CAPS_SUCCESS) goto cleanup;
@@ -622,6 +624,7 @@ static int writeMassFile(void *aimInfo, capsValue *aimInputs, const char *length
                status = aim_convert(aimInfo, units, I[j], Iunits, &inertia[j]); if (status != CAPS_SUCCESS) { errUnits = Iunits; goto cleanup; }
            }
 
+           EG_free(I); I = NULL;
            EG_free(keyValue); keyValue = NULL;
            (void) string_freeArray(numString, &stringArray);
            units = NULL;
@@ -786,7 +789,9 @@ cleanup:
   if (fp != NULL) fclose(fp);
   fp = NULL;
 
+  EG_free(I);
   EG_free(value);
+  EG_free(Funits);
   EG_free(Dunits);
   EG_free(Iunits);
   EG_free(tmpUnits);
@@ -1771,6 +1776,7 @@ int aimPreAnalysis(int iIndex, /*@unused@*/ void *aimInfo,
         status = get_vlmSurface(aimInputs[aim_getIndex(aimInfo, "AVL_Surface", ANALYSISIN)-1].length,
                                 aimInputs[aim_getIndex(aimInfo, "AVL_Surface", ANALYSISIN)-1].vals.tuple,
                                 &attrMap,
+                                1.0, // default Cspace
                                 &numAVLSurface,
                                 &avlSurface);
 
@@ -1792,7 +1798,7 @@ int aimPreAnalysis(int iIndex, /*@unused@*/ void *aimInfo,
     }
 
     // Accumulate section data
-    status = vlm_getSection(numBody, bodies, NULL, attrMap, numAVLSurface, &avlSurface);
+    status = vlm_getSections(numBody, bodies, NULL, attrMap, vlmGENERIC, numAVLSurface, &avlSurface);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     // Loop through surfaces and transfer control surface data to sections
@@ -1802,12 +1808,6 @@ int aimPreAnalysis(int iIndex, /*@unused@*/ void *aimInfo,
                                     numAVLControl,
                                     avlControl,
                                     &avlSurface[surf]);
-        if (status != CAPS_SUCCESS) goto cleanup;
-    }
-
-    // Order cross sections for each surface
-    for (surf = 0; surf < numAVLSurface; surf++) {
-        status = vlm_orderSections(avlSurface[surf].numSection, avlSurface[surf].vlmSection);
         if (status != CAPS_SUCCESS) goto cleanup;
     }
 
@@ -2269,13 +2269,7 @@ int aimPreAnalysis(int iIndex, /*@unused@*/ void *aimInfo,
             printf("\tSection %d of %d (ID = %d)\n", i+1, avlSurface[surf].numSection, section);
 
             // Write section data
-            status = writeSection(fp, bodies[avlSurface[surf].vlmSection[section].bodyIndex],
-                                             avlSurface[surf].vlmSection[section].nodeIndexLE,
-                                             avlSurface[surf].vlmSection[section].xyzLE,
-                                             avlSurface[surf].vlmSection[section].nodeIndexTE,
-                                             avlSurface[surf].vlmSection[section].xyzTE,
-                                             avlSurface[surf].vlmSection[section].Nspan,
-                                             avlSurface[surf].vlmSection[section].Sspace);
+            status = writeSection(fp, &avlSurface[surf].vlmSection[section]);
             if (status != CAPS_SUCCESS) goto cleanup;
 
             // Write control information for each section

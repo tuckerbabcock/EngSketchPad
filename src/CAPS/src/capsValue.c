@@ -689,7 +689,8 @@ caps_dupValues(capsValue *val1, capsValue *val2)
       if (val1->vals.tuple == NULL)
     	  break;
       status = caps_makeTuple(val1->length, &val2->vals.tuple);
-      if (status != CAPS_SUCCESS) return status;
+      if (status != CAPS_SUCCESS)   return status;
+      if (val2->vals.tuple == NULL) return EGADS_MALLOC;        /* for splint */
       for (i = 0; i < val1->length; i++) {
         val2->vals.tuple[i].name  = EG_strdup(val1->vals.tuple[i].name);
         val2->vals.tuple[i].value = EG_strdup(val1->vals.tuple[i].value);

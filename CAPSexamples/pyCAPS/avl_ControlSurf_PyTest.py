@@ -25,7 +25,8 @@ workDir = os.path.join(str(args.workDir[0]), "AVLControlAnalsyisTest")
 myProblem = capsProblem()
 
 # Load CSM file
-myProblem.loadCAPS("../csmData/avlWingTail.csm", verbosity=args.verbosity)
+geometryScript = os.path.join("..","csmData","avlWingTail.csm")
+myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 
 # Change a design parameter - area in the geometry
 myProblem.geometry.setGeometryVal("area", 10.0)

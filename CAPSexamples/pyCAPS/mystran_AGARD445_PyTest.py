@@ -28,7 +28,8 @@ workDir = os.path.join(str(args.workDir[0]), projectName)
 myProblem = capsProblem()
 
 # Load CSM file
-myProblem.loadCAPS("../csmData/feaAGARD445.csm", verbosity=args.verbosity)
+geometryScript = os.path.join("..","csmData","feaAGARD445.csm")
+myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 
 # Change the sweepAngle and span of the Geometry - Demo purposes
 #myProblem.geometry.setGeometryVal("sweepAngle", 5) # From 45 to 5 degrees

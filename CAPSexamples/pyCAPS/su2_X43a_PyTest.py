@@ -30,7 +30,8 @@ workDir = os.path.join(str(args.workDir[0]), "SU2X43aAnalysisTest")
 myProblem = capsProblem()
 
 # Load CSM file
-myProblem.loadCAPS("../csmData/cfdX43a.csm", verbosity=args.verbosity)
+geometryScript = os.path.join("..","csmData","cfdX43a.csm")
+myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 
 # Set intention - could also be set during .loadAIM
 myProblem.capsIntent = "CFD"

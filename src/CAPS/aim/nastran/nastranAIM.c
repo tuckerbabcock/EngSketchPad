@@ -421,6 +421,7 @@ static int createVLMMesh(int iIndex, void *aimInfo, capsValue *aimInputs) {
         status = get_vlmSurface(aimInputs[aim_getIndex(aimInfo, "VLM_Surface", ANALYSISIN)-1].length,
                                 aimInputs[aim_getIndex(aimInfo, "VLM_Surface", ANALYSISIN)-1].vals.tuple,
                                 &nastranInstance[iIndex].attrMap,
+                                0.0, // default Cspace
                                 &numVLMSurface,
                                 &vlmSurface);
         if (status != CAPS_SUCCESS) goto cleanup;
@@ -433,20 +434,18 @@ static int createVLMMesh(int iIndex, void *aimInfo, capsValue *aimInputs) {
 
     printf("\nGetting FEA vortex lattice mesh\n");
 
-    status = vlm_getSection(numBody,
-                            bodies,
-                            "Aerodynamic",
-                            nastranInstance[iIndex].attrMap,
-                            numVLMSurface,
-                            &vlmSurface);
+    status = vlm_getSections(numBody,
+                             bodies,
+                             "Aerodynamic",
+                             nastranInstance[iIndex].attrMap,
+                             vlmGENERIC,
+                             numVLMSurface,
+                             &vlmSurface);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     for (i = 0; i < numVLMSurface; i++) {
-        // Order cross sections for each surface
-        status = vlm_orderSections(vlmSurface[i].numSection, vlmSurface[i].vlmSection);
-        if (status != CAPS_SUCCESS) goto cleanup;
 
-        // Compute auto spacing
+        // Compute equal spacing
         if (vlmSurface[i].NspanTotal > 0)
             numSpanWise = vlmSurface[i].NspanTotal;
         else if (vlmSurface[i].NspanSection > 0)
@@ -520,7 +519,7 @@ static int createVLMMesh(int iIndex, void *aimInfo, capsValue *aimInputs) {
 
             // ADD something for coordinate systems
 
-            // Sections aren't necessarily stored in order coming out of vlm_GetSection, however sectionIndex is!
+            // Sections aren't necessarily stored in order coming out of vlm_getSections, however sectionIndex is!
             sectionIndex = vlmSurface[i].vlmSection[j].sectionIndex;
 
             // Populate vmlSurface structure
@@ -544,7 +543,7 @@ static int createVLMMesh(int iIndex, void *aimInfo, capsValue *aimInputs) {
 
                 // Add k to section indexing variable j to get j and j+1 during iterations
 
-                // Sections aren't necessarily stored in order coming out of vlm_GetSection, however sectionIndex is!
+                // Sections aren't necessarily stored in order coming out of vlm_getSections, however sectionIndex is!
                 sectionIndex = vlmSurface[i].vlmSection[j+k].sectionIndex;
 
                 status = initiate_vlmSectionStruct(&nastranInstance[iIndex].feaProblem.feaAero[surfaceIndex].vlmSurface.vlmSection[k]);

@@ -34,7 +34,8 @@ myProblem = pyCAPS.capsProblem()
 # -----------------------------------------------------------------
 
 ## [geometry]
-myGeometry = myProblem.loadCAPS("../csmData/avlWing.csm", verbosity=args.verbosity)
+geometryScript = os.path.join("..","csmData","avlWing.csm")
+myGeometry = myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 
 myGeometry.setGeometryVal("area", 10.0)
 ## [geometry]
@@ -72,14 +73,14 @@ wing = {"groupName"    : "Wing", # Notice Wing is the value for the capsGroup at
 myAnalysis.setAnalysisVal("AVL_Surface", [("Wing", wing)])
 
 mass = 0.1773
-x    =  0.02463 
+x    =  0.02463
 y    = 0.
 z    = 0.2239
 Ixx  = 1.350
 Iyy  = 0.7509
 Izz  = 2.095
 
-myAnalysis.setAnalysisVal("Lunit", 1, units="m") 
+myAnalysis.setAnalysisVal("Lunit", 1, units="m")
 myAnalysis.setAnalysisVal("MassProp", ("Aircraft",{"mass":[mass,"kg"], "CG":[[x,y,z],"m"], "massInertia":[[Ixx, Iyy, Izz], "kg*m^2"]}))
 myAnalysis.setAnalysisVal("Gravity", 32.18, units="ft/s^2")
 myAnalysis.setAnalysisVal("Density", 0.002378, units="slug/ft^3")

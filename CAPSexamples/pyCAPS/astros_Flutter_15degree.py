@@ -10,10 +10,10 @@ import shutil
 import argparse
 
 # ASTROS_ROOT should be the path containing ASTRO.D01 and ASTRO.IDX
-try:  
+try:
    ASTROS_ROOT = os.environ["ASTROS_ROOT"]
    os.putenv("PATH", ASTROS_ROOT + os.pathsep + os.getenv("PATH"))
-except KeyError: 
+except KeyError:
    print("Please set the environment variable ASTROS_ROOT")
    sys.exit(1)
 
@@ -31,15 +31,16 @@ args = parser.parse_args()
 # Initialize capsProblem object
 myProblem = capsProblem()
 
-# Load CSM file 
-myProblem.loadCAPS("../csmData/15degreeWing.csm", verbosity=args.verbosity)
+# Load CSM file
+geometryScript = os.path.join("..","csmData","15degreeWing.csm")
+myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 
-# Load astros aim 
+# Load astros aim
 myAnalysis = myProblem.loadAIM(aim = "astrosAIM",
-                               altName = "astros", 
+                               altName = "astros",
                                analysisDir= os.path.join(str(args.workDir[0]), "AstrosFlutter15Deg") )
 
-# Set project name so a mesh file is generated 
+# Set project name so a mesh file is generated
 projectName = "astros_flutter_15degree"
 myAnalysis.setAnalysisVal("Proj_Name", projectName)
 
@@ -58,19 +59,19 @@ myAnalysis.setAnalysisVal("Analysis_Type", "AeroelasticFlutter")
 myAnalysis.setAnalysisVal("Parameter", [("CONVERT", "MASS,0.00259"),
                                         ("MFORM","COUPLED")])
 
-# Set analysis 
+# Set analysis
 flutter = { "analysisType" : "AeroelasticFlutter",
-            "extractionMethod"     : "FEER", # "Lanczos",   
-            "frequencyRange"       : [0.1, 300], 
+            "extractionMethod"     : "FEER", # "Lanczos",
+            "frequencyRange"       : [0.1, 300],
             "numEstEigenvalue"     : 4,
-            "numDesiredEigenvalue" : 4, 
-            "eigenNormaliztion"    : "MASS", 
+            "numDesiredEigenvalue" : 4,
+            "eigenNormaliztion"    : "MASS",
             "aeroSymmetryXY" : "SYM",
             "aeroSymmetryXZ" : "SYM",
             "analysisConstraint" : ["PointConstraint"],
             "machNumber"     : 0.45,
             "dynamicPressure": 1.9,
-            "density" : 0.967*1.1092e-7, 
+            "density" : 0.967*1.1092e-7,
             "reducedFreq" : [0.001, 0.1, 0.12, 0.14, 0.16, 0.2],
             }
 
@@ -84,7 +85,7 @@ aluminum  = { "youngModulus" : 9.2418E6 , #psi
 
 myAnalysis.setAnalysisVal("Material", ("aluminum", aluminum))
 
-# Set property 
+# Set property
 shell  = {"propertyType"        : "Shell",
           "material"            : "aluminum",
           "membraneThickness"   : 0.041 }
@@ -97,25 +98,25 @@ myAnalysis.setAnalysisVal("Property", [("Edge", shellEdge),
                                        ("Body", shell)])
 
 
-# Defined Connections 
-connection = { "dofDependent" : 123456, 
-               "connectionType" : "RigidBody"}	
+# Defined Connections
+connection = { "dofDependent" : 123456,
+               "connectionType" : "RigidBody"}
 
 myAnalysis.setAnalysisVal("Connect",("Root", connection))
 
-# Set constraints 
+# Set constraints
 constraint = {"groupName" : ["Root_Point"],
               "dofConstraint" : 123456}
 
 myAnalysis.setAnalysisVal("Constraint", ("PointConstraint", constraint))
 
 # Aero
-wing = {"groupName"    : "Wing", 
+wing = {"groupName"    : "Wing",
         "numChord"     : 4,
         "numSpanTotal" : 12}
 
-# Note the surface name corresponds to the capsBound found in the *.csm file. This links 
-# the spline for the aerodynamic surface to the structural model 
+# Note the surface name corresponds to the capsBound found in the *.csm file. This links
+# the spline for the aerodynamic surface to the structural model
 myAnalysis.setAnalysisVal("VLM_Surface", ("WingSurface", wing))
 
 # Run AIM pre-analysis
@@ -123,22 +124,22 @@ myAnalysis.preAnalysis()
 
 ####### Run astros####################
 print ("\n\nRunning Astros......")
-currentDirectory = os.getcwd() # Get our current working directory 
+currentDirectory = os.getcwd() # Get our current working directory
 
 os.chdir(myAnalysis.analysisDir) # Move into test directory
 
 # Copy files needed to run astros
 astros_files = ["ASTRO.D01",  # *.DO1 file
                 "ASTRO.IDX"]  # *.IDX file
-for file in astros_files: 
+for file in astros_files:
     if not os.path.isfile(file):
         shutil.copy(ASTROS_ROOT + os.sep + file, file)
 
 if (args.noAnalysis == False):
     # Run Astros via system call
-    os.system("astros.exe < " + projectName +  ".dat > " + projectName + ".out"); 
+    os.system("astros.exe < " + projectName +  ".dat > " + projectName + ".out");
 
-os.chdir(currentDirectory) # Move back to working directory 
+os.chdir(currentDirectory) # Move back to working directory
 
 print ("Done running Astros!")
 ########################################
@@ -146,5 +147,5 @@ print ("Done running Astros!")
 # Run AIM post-analysis
 myAnalysis.postAnalysis()
 
-# Close CAPS 
+# Close CAPS
 myProblem.closeCAPS()

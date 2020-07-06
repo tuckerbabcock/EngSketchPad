@@ -3,6 +3,9 @@ from __future__ import print_function
 # Import pyCAPS class file
 from pyCAPS import capsProblem
 
+# Import time to sleep in-between attempts to call pointwise
+import time
+
 # Import argparse module
 import os
 import argparse
@@ -25,33 +28,24 @@ workDir = os.path.join(str(args.workDir[0]), "PointwiseAnalysisTest")
 myProblem = capsProblem()
 
 # Load CSM file
-myProblem.loadCAPS("../csmData/cfdMultiBody.csm", verbosity=args.verbosity)
+geometryScript = os.path.join("..","csmData","cfdMultiBody.csm")
+myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 
 # Load AFLR4 aim
 pointwise = myProblem.loadAIM(aim = "pointwiseAIM",
                               analysisDir = workDir)
 
 # Set project name so a mesh file is generated
-# pointwise.setAnalysisVal("Proj_Name", "pyCAPS_Pointwise_Test")
-#
-# pointwise.setAnalysisVal("Mesh_ASCII_Flag", True)
-#
-# pointwise.setAnalysisVal("Mesh_Format", "AFLR3")
+pointwise.setAnalysisVal("Proj_Name", "pyCAPS_Pointwise_Test")
+pointwise.setAnalysisVal("Mesh_Format", "Tecplot")
 
-# useGlobal = False
-#
-# if useGlobal:
-#     pointwise.setAnalysisVal("BL_Initial_Spacing", 0.1)
-#     pointwise.setAnalysisVal("BL_Thickness", 1.0)
-#
-# else:
-#     inviscidBC = {"boundaryLayerThickness" : 0.0, "boundaryLayerSpacing" : 0.0}
-#     viscousBC  = {"boundaryLayerThickness" : 5.0, "boundaryLayerSpacing" : 0.05}
-#
-#     # Set mesh sizing parmeters
-#     pointwise.setAnalysisVal("Mesh_Sizing", [("Wing1", inviscidBC),
-#                                                                ("Wing2", viscousBC)])
+# Block level for viscous mesh
+pointwise.setAnalysisVal("Block_Full_Layers"         , 1)
+pointwise.setAnalysisVal("Block_Max_Layers"          , 100)
 
+# Set mesh sizing parmeters, only Wing2 is viscous
+viscousBC  = {"boundaryLayerSpacing" : 0.001}
+pointwise.setAnalysisVal("Mesh_Sizing", [("Wing2", viscousBC)])
 
 # Run AIM pre-analysis
 pointwise.preAnalysis()
@@ -62,19 +56,24 @@ pointwise.preAnalysis()
 # Linux/macOS (terminal) -
 #     PW_HOME/pointwise -b $CAPS_GLYPH/GeomToMesh.glf caps.egads capsUserDefaults.glf
 
-# Run pointwise
+# Attempt to run pointwise repeatedly in case a licensce is not readily available
 currentDir = os.getcwd()
 os.chdir(pointwise.analysisDir)
 
 CAPS_GLYPH = os.environ["CAPS_GLYPH"]
-if platform.system() == "Windows":
-    PW_HOME = os.environ["PW_HOME"]
-    os.system(PW_HOME + "\win64\bin\tclsh.exe " + CAPS_GLYPH + "\\GeomToMesh.glf caps.egads capsUserDefaults.glf")
-elif "CYGWIN" in platform.system():
-    PW_HOME = os.environ["PW_HOME"]
-    os.system(PW_HOME + "/win64/bin/tclsh.exe " + CAPS_GLYPH + "/GeomToMesh.glf caps.egads capsUserDefaults.glf")
-else:
-    os.system("pointwise -b " + CAPS_GLYPH + "/GeomToMesh.glf caps.egads capsUserDefaults.glf")
+for i in range(30):
+    if platform.system() == "Windows":
+        PW_HOME = os.environ["PW_HOME"]
+        os.system(PW_HOME + "\win64\bin\tclsh.exe " + CAPS_GLYPH + "\\GeomToMesh.glf caps.egads capsUserDefaults.glf")
+    elif "CYGWIN" in platform.system():
+        PW_HOME = os.environ["PW_HOME"]
+        os.system(PW_HOME + "/win64/bin/tclsh.exe " + CAPS_GLYPH + "/GeomToMesh.glf caps.egads capsUserDefaults.glf")
+    else:
+        os.system("pointwise -b " + CAPS_GLYPH + "/GeomToMesh.glf caps.egads capsUserDefaults.glf")
+    
+    time.sleep(1) # let the harddrive breathe
+    if os.path.isfile('caps.GeomToMesh.gma') and os.path.isfile('caps.GeomToMesh.ugrid'): break
+    time.sleep(10) # wait and try again
 
 os.chdir(currentDir)
 

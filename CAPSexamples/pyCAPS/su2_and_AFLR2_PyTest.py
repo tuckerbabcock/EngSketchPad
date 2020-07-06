@@ -103,7 +103,8 @@ for i in range(0, 200-len(S809)):
 myProblem = capsProblem()
 
 # Load CSM file
-myProblem.loadCAPS("../csmData/cfd2DArbShape.csm", verbosity=args.verbosity)
+geometryScript = os.path.join("..","csmData","cfd2DArbShape.csm")
+myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 
 # Create working directory variable
 workDir = os.path.join(str(args.workDir[0]), "SU2AFLR2ArbShapeAnalysisTest")

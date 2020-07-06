@@ -174,6 +174,13 @@ wv_createContext(int bias, float fov, float zNear, float zFar, float *eye,
 
 
 void
+wv_setCallBack(wvContext *cntxt, /*@null@*/ wvCB callback)
+{
+  cntxt->callback = callback;
+}
+
+
+void
 wv_removeAll(wvContext *cntxt)
 {
   int i;

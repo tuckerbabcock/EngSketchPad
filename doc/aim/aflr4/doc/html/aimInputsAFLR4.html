@@ -80,12 +80,14 @@ $(function() {
  variables. Note that this is the exact string that will be provided to the volume mesher; no<br />
  modifications will be made. If left NULL an input string will be created based on default values<br />
  of the relevant AIM input variables.</li>
-<li><b>ff_nseg</b> <br />
- Number of edges or segments on the longest<br />
- farfield bounding box side.<br />
- If the longest farfield bounding box side is<br />
- less then the farfield spacing is set to a<br />
- uniform value of ff_spacing=L/ff_nseg.</li>
+<li><b>ff_cdfr</b> <br />
+ Farfield growth rate for field point spacing.<br />
+ The farfield spacing is set to a uniform value dependent upon the maximum size <br />
+ of the domain, maximum size of inner bodies, max and min body spacing, and <br />
+ farfield growth rate. ; <br />
+ ff_spacing = (ff_cdfr-1)*L+(min_spacing+max_spacing)/2 ; <br />
+ where L is the approximate distance between inner bodies and farfield. <br />
+</li>
 <li><b>min_ncell</b> <br />
  Minimum number of cells between two components/bodies.<br />
  Proximity of components/bodies<br />
@@ -97,47 +99,47 @@ $(function() {
  less than the minimum number of cells<br />
  specified by min_ncell. Proximity checking is<br />
  automatically disabled if min_ncell=1 or if<br />
- nprox=0 or if there is only<br />
- one component/body defined.</li>
-<li><b>msfe_all</b> <br />
+ there is only one component/body defined.</li>
+<li><b>mer_all</b> <br />
  Global edge mesh spacing scale factor flag.<br />
  Edge mesh spacing can be scaled on all surfaces based on discontinuity level<br />
  between adjacent surfaces on both sides of the edge. For each surface the level<br />
- of discontinuity (as defined by angsfe1 and angsfe2) determines the edge<br />
- spacing scale factor for potentially reducing the edge spacing. See sfe_ids and<br />
- sfe_list. This option is equivalent to setting sfe_ids equal to the list of all<br />
- surface IDS and the edge mesh spacing scale factor weight in sfe_list equal to<br />
+ of discontinuity (as defined by angerw1 and angerw2) determines the edge<br />
+ spacing scale factor for potentially reducing the edge spacing. See erw_ids and<br />
+ erw_list. This option is equivalent to setting erw_ids equal to the list of all<br />
+ surface IDS and the edge mesh spacing scale factor weight in erw_list equal to<br />
  one. Note that no modification is done to edges that belong to surfaces with a<br />
  grid BC of farfield (ff_ids) or BL intersecting (int_ids).</li>
-<li><b>nprox</b> <br />
- Number of proximity check iterations.<br />
- Proximity check iterations are used as a<br />
- means to smooth the distribution of spacing<br />
- reductions due to proximity. Proximity of<br />
- components/bodies to each other is estimated<br />
- and surface spacing is locally reduced if<br />
- needed. Proximity checking is automatically<br />
- disabled if min_ncell=1 or if<br />
- nprox=0 or there is only one<br />
- component/body defined.</li>
+<li><b>no_prox</b> <br />
+ Disable proximity check flag.<br />
+ If no_prox=False then proximity of components/bodies to each other is estimated <br />
+ and surface spacing is locally reduced if needed. <br />
+ If no_prox=True or if there is only one component/body defined then proximity <br />
+ checking is disabled. <br />
+</li>
 <li><b>abs_min_scale</b> <br />
  Relative scale of absolute minimum spacing to<br />
  reference length. The relative scale of<br />
  absolute minimum spacing to reference length<br />
  (ref_len) controls the absolute minimum<br />
  spacing that can be set on any component/body<br />
- surface by proximity checking (see min_ncell<br />
- and nprox). Note that the<br />
- value of abs_min_scale is limited to be less<br />
+ surface by proximity checking (see min_ncell).<br />
+ Note that the value of abs_min_scale is limited to be less<br />
  than or equal to min_scale.</li>
 <li><b>BL_thickness</b> <br />
- Boundary layer thickness for proximity<br />
- checking. Proximity of components/bodies to<br />
- each other is estimated and surface spacing<br />
- is locally reduced if needed. If<br />
- BL_thickness&gt;0 then the boundary layer<br />
- thickness is included in the calculation for<br />
- the required surface spacing.</li>
+ Boundary layer thickness for proximity checking. <br />
+ Proximity of components/bodies to each other is estimated and surface spacing <br />
+ is locally reduced if needed. Note that if the Reynolds Number, Re_l, is set <br />
+ then the BL_thickness value is set to an estimate for turbulent flow. If the <br />
+ set or calculated value of BL_thickness&gt;0 then the boundary layer thickness is <br />
+ included in the calculation for the required surface spacing during proximity <br />
+ checking.</li>
+<li><b>BL_thickness</b> <br />
+ Reynolds Number for estimating BL thickness.<br />
+ The Reynolds Number based on reference length, Re_l, (if set) along with <br />
+ reference length, ref_len, are used to estimate the BL thickness, BL_thickness, <br />
+ for turbulent flow. If Re_l&gt;0 then this estimated value is used to set <br />
+ BL_thickness.</li>
 <li><b>curv_factor</b> <br />
  Curvature factor<br />
  For surface curvature the spacing is derived from the curvature factor divided<br />
@@ -147,21 +149,21 @@ $(function() {
  The resulting spacing between is limited by the minimum and maximum spacing set<br />
  by min_scale and max_scale. Note that if curv_factor=0 then surface curvature<br />
  adjustment is not used.</li>
-<li><b>sfe_all</b> <br />
- Global edge mesh spacing scale factor weight.<br />
- Edge mesh spacing can be scaled on all surfaces (if msfe_all=1) based on<br />
+<li><b>erw_all</b> <br />
+ Global edge mesh spacing refinement weight.<br />
+ Edge mesh spacing can be scaled on all surfaces (if mer_all=1) based on<br />
  discontinuity level between adjacent surfaces on both sides of the edge.<br />
- For each surface the level of discontinuity (as defined by angsfe1 and angsfe2)<br />
+ For each surface the level of discontinuity (as defined by angerw1 and angerw2)<br />
  determines the edge spacing scale factor for potentially reducing the edge<br />
  spacing. The edge mesh spacing scale factor weight is then used as an<br />
  interpolation weight between the unmodified spacing and the modified spacing.<br />
  A value of one applies the maximum modification and a value of zero applies no<br />
  change in edge spacing. If the global edge mesh spacing scale factor flag,<br />
- msfe_all, is set to 1 then that is equivalent to setting AFLR_Edge_Scale_Factor_Weight<br />
- on all FACEs to the value sfe_all. Note that no modification is<br />
+ mer_all, is set to 1 then that is equivalent to setting AFLR_Edge_Scale_Factor_Weight<br />
+ on all FACEs to the value erw_all. Note that no modification is<br />
  done to edges that belong to surfaces with a grid BC of farfield (FARFIELD_UG3_GBC) or BL<br />
- intersecting. Also, note that the global weight, sfe_all, is not<br />
- applicable if msfe_all=0.</li>
+ intersecting. Also, note that the global weight, erw_all, is not<br />
+ applicable if mer_all=0.</li>
 <li><b>max_scale</b> <br />
  Relative scale of maximum spacing to<br />
  reference length. The relative scale of<br />
@@ -203,7 +205,7 @@ $(function() {
 </div></div><!-- contents -->
 <!-- start footer part -->
 <hr class="footer"/><address class="footer"><small>
-Generated on Thu Jan 23 2020 10:30:27 for AFLR4 Analysis Interface Module (AIM) by &#160;<a href="http://www.doxygen.org/index.html">
+Generated on Thu May 28 2020 06:21:46 for AFLR4 Analysis Interface Module (AIM) by &#160;<a href="http://www.doxygen.org/index.html">
 <img class="footer" src="doxygen.png" alt="doxygen"/>
 </a> 1.8.13
 </small></address>
