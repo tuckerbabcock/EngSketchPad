@@ -27,7 +27,8 @@ workDir = os.path.join(str(args.workDir[0]), projectName)
 myProblem = capsProblem()
 
 # Load CSM file
-myGeometry = myProblem.loadCAPS("../csmData/feaSimplePlate.csm", verbosity=args.verbosity)
+geometryScript = os.path.join("..","csmData","feaSimplePlate.csm")
+myGeometry = myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 
 # Load mystran aim
 myAnalysis = myProblem.loadAIM(aim = "hsmAIM",

@@ -40,8 +40,8 @@ MACOSX=UNKNOWN
 
 if [ -n "$EFCOMP" ]; then
 	if [ "$EFCOMP" != ifort ] && [ "$EFCOMP" != gfortran ]; then
-		echo "ERROR - EFCOMP (set to '$EFCOMP') can only be set to 'ifort' or 'gfortran'!"
-		exit 1
+		echo "WARNING - ignoring EFCOMP (set to '$EFCOMP') not set to 'ifort' or 'gfortran'!"
+		EFCOMP=UNKNOWN
 	fi
 else
 	EFCOMP=UNKNOWN
@@ -311,6 +311,23 @@ if [ "$PYTH" != UNKNOWN ]; then
 	fi
 
 	if [ "$PYTHONLIB" == UNKNOWN ]; then
+		pscr="\"from __future__ import print_function; import distutils.sysconfig as sysconfig; print(sysconfig.get_config_var('LIBDIR'))\""
+		pcmd="python -c $pscr"
+		eval plp=\`$pcmd\`
+
+		if [ -f "$plp/$pso" ]; then
+			PYTHONLIB="-L$plp -l$pllb"
+			echo "Info: Python library $plp/$pso found!"
+		elif [ -f "$plp/$pdy" ]; then
+			PYTHONLIB="-L$plp -l$pllb"
+			echo "Info: Python library $plp/$pdy found!"
+		#elif [ -f "$plp/$plb" ]; then
+		#	PYTHONLIB="-L$plp -l$pllb"
+		#	echo "Info: Python library $plb found!"
+		fi
+	fi
+
+	if [ "$PYTHONLIB" == UNKNOWN ]; then
 		pscr="\"from __future__ import print_function; import distutils.sysconfig as sysconfig; print(sysconfig.get_path('platstdlib'))\""
 		pcmd="python -c $pscr"
 		eval plp=\`$pcmd\`
@@ -392,6 +409,7 @@ if [ "$PYTH" != UNKNOWN ]; then
 	fi
 
 	# Alternatively we could have just this one check that should work on all platforms
+	# https://github.com/JuliaPy/PyCall.jl/blob/master/deps/find_libpython.py
 	#if [ "$PYTHONLIB" == UNKNOWN ]; then
 		#plp=`python find_libpython.py`
 		#if [ -f "$plp" ]; then

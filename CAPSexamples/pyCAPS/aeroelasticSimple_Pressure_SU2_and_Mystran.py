@@ -27,14 +27,15 @@ args = parser.parse_args()
 # Initialize capsProblem object
 myProblem = capsProblem()
 
-# Create working directory variable 
+# Create working directory variable
 workDir = os.path.join(str(args.workDir[0]), "AeroelasticSimple_Pressure")
 
 # Create projectName vairbale
 projectName = "aeroelasticSimple_Pressure_SM"
 
 # Load CSM file
-myProblem.loadCAPS("../csmData/aeroelasticDataTransferSimple.csm", verbosity=args.verbosity)
+geometryScript = os.path.join("..","csmData","aeroelasticDataTransferSimple.csm")
+myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 
 # Load AIMs
 myMesh = myProblem.loadAIM(aim = "tetgenAIM",
@@ -49,8 +50,8 @@ su2 = myProblem.loadAIM(aim = "su2AIM",
                         parents = ["tetgen"],
                         capsIntent = "CFD")
 
-mystran = myProblem.loadAIM(aim = "mystranAIM", 
-                            altName = "mystran", 
+mystran = myProblem.loadAIM(aim = "mystranAIM",
+                            altName = "mystran",
                             analysisDir = workDir + "_MYSTRAN",
                             capsIntent = "STRUCTURE")
 
@@ -174,9 +175,9 @@ for j in transfers:
             myProblem.dataBound[j].dataSetSrc["Pressure"].viewData()
             print ("\tPlotting dataTransfer destination......")
             myProblem.dataBound[j].dataSetDest["Pressure"].viewData()
-            #myProblem.dataBound[j].viewData("Pressure", 
-            #                                filename = os.path.join(su2.analysisDir, j + "_Pressure"), 
-            #                                showImage=False, 
+            #myProblem.dataBound[j].viewData("Pressure",
+            #                                filename = os.path.join(su2.analysisDir, j + "_Pressure"),
+            #                                showImage=False,
             #                                colormap="Purples")
         except:
             print("Unable to plot data")

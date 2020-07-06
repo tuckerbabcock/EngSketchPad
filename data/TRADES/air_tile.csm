@@ -1,7 +1,0 @@
-# air_tile
-# written by John Dannenhoffer
-
-box       0.025  0.025  0.000   0.950  0.800  1.000
-   attribute _color $blue
-
-end

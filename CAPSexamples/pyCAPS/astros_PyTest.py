@@ -32,7 +32,8 @@ args = parser.parse_args()
 myProblem = capsProblem()
 
 # Load CSM file
-myProblem.loadCAPS("../csmData/feaWingBEM.csm", verbosity=args.verbosity)
+geometryScript = os.path.join("..","csmData","feaWingBEM.csm")
+myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 
 
 # Load egadsTess aim

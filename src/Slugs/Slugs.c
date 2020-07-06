@@ -431,8 +431,6 @@ main(int       argc,                /* (in)  number of arguments */
     MALLOC(tempname,    char, 257        );
     MALLOC(text,        char, MAX_STR_LEN);
 
-    DPRINT0("starting Slugs");
-
     /* get the flags and casename(s) from the command line */
     casename[0] = '\0';
     jrnlname[0] = '\0';

@@ -107,6 +107,7 @@ MARK
 
 # Wing 1 - Restore
 RESTORE   Wing 0
+    ATTRIBUTE _name $Wing1
     ATTRIBUTE capsGroup $Wing1
     ATTRIBUTE .tParam    "5.0; 5.0/15; 35"
                              #iface;ubar0;vbar0;du2;dv2
@@ -117,6 +118,7 @@ RESTORE   Wing 0
 ##[secondWing]
 # Wing 2 -  Restore and scale, translate
 RESTORE   Wing 0
+    ATTRIBUTE _name $Wing2
     ATTRIBUTE capsGroup $Wing2
     ATTRIBUTE .tParam    "5.0; 5.0/15; 35"
     
@@ -127,6 +129,7 @@ RESTORE   Wing 0
 # Create a bounding box as a farfied 
 ## [farfield]
 SPHERE    0   0   0   80
+    ATTRIBUTE _name $Farfield
     ATTRIBUTE capsGroup $Farfield
     ATTRIBUTE .tParam    "50; 50/15; 35"
 ## [farfield]

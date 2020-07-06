@@ -10,10 +10,10 @@ import shutil
 import argparse
 
 # ASTROS_ROOT should be the path containing ASTRO.D01 and ASTRO.IDX
-try:  
+try:
    ASTROS_ROOT = os.environ["ASTROS_ROOT"]
    os.putenv("PATH", ASTROS_ROOT + os.pathsep + os.getenv("PATH"))
-except KeyError: 
+except KeyError:
    print("Please set the environment variable ASTROS_ROOT")
    sys.exit(1)
 
@@ -28,26 +28,27 @@ parser.add_argument('-noAnalysis', action='store_true', default = False, help = 
 parser.add_argument("-verbosity", default = 1, type=int, choices=[0, 1, 2], help="Set output verbosity")
 args = parser.parse_args()
 
-# Initialize capsProblem object 
+# Initialize capsProblem object
 myProblem = capsProblem()
 
-# Load CSM file 
-myProblem.loadCAPS("../csmData/feaAGARD445.csm", verbosity=args.verbosity)
+# Load CSM file
+geometryScript = os.path.join("..","csmData","feaAGARD445.csm")
+myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 
-# Create project name 
+# Create project name
 projectName = "AstrosModalAGARD445"
 
-# Change the sweepAngle and span of the Geometry - Demo purposes 
-#myProblem.geometry.setGeometryVal("sweepAngle", 5) # From 45 to 5 degrees 
+# Change the sweepAngle and span of the Geometry - Demo purposes
+#myProblem.geometry.setGeometryVal("sweepAngle", 5) # From 45 to 5 degrees
 #myProblem.geometry.setGeometryVal("semiSpan", 5)   # From 2.5 ft to 5 ft
 
-# Load astros aim 
-myAnalysis = myProblem.loadAIM(aim = "astrosAIM", 
-                               altName = "astros", 
+# Load astros aim
+myAnalysis = myProblem.loadAIM(aim = "astrosAIM",
+                               altName = "astros",
                                analysisDir = str(args.workDir[0]) + os.sep + projectName)
 
 # Set project name
-myAnalysis.setAnalysisVal("Proj_Name", projectName) 
+myAnalysis.setAnalysisVal("Proj_Name", projectName)
 
 # Set meshing parameters
 myAnalysis.setAnalysisVal("Edge_Point_Max", 10)
@@ -61,21 +62,21 @@ myAnalysis.setAnalysisVal("Tess_Params", [.25,.01,15])
 myAnalysis.setAnalysisVal("Analysis_Type", "Modal");
 
 # Set analysis inputs
-eigen = { "extractionMethod"     : "MGIV", # "Lanczos",   
-          "frequencyRange"       : [0.1, 200], 
+eigen = { "extractionMethod"     : "MGIV", # "Lanczos",
+          "frequencyRange"       : [0.1, 200],
           "numEstEigenvalue"     : 1,
-          "numDesiredEigenvalue" : 2, 
-          "eigenNormaliztion"    : "MASS", 
+          "numDesiredEigenvalue" : 2,
+          "eigenNormaliztion"    : "MASS",
 	      "lanczosMode"          : 2,  # Default - not necesssary
           "lanczosType"          : "DPB"} # Default - not necesssary
 
 myAnalysis.setAnalysisVal("Analysis", ("EigenAnalysis", eigen))
 
-# Set materials 
-mahogany    = {"materialType"        : "orthotropic", 
+# Set materials
+mahogany    = {"materialType"        : "orthotropic",
                "youngModulus"        : 0.457E6 ,
                "youngModulusLateral" : 0.0636E6,
-               "poissonRatio"        : 0.31,                
+               "poissonRatio"        : 0.31,
                "shearModulus"        : 0.0637E6,
                "shearModulusTrans1Z" : 0.00227E6,
                "shearModulusTrans2Z" : 0.00227E6,
@@ -84,11 +85,11 @@ mahogany    = {"materialType"        : "orthotropic",
 myAnalysis.setAnalysisVal("Material", ("Mahogany", mahogany))
 
 # Set properties
-shell  = {"propertyType" : "Shell", 
-          "membraneThickness" : 0.82, 
-          "material"        : "mahogany", 
-          "bendingInertiaRatio" : 1.0, # Default - not necesssary           
-          "shearMembraneRatio"  : 5.0/6.0} # Default - not necesssary 
+shell  = {"propertyType" : "Shell",
+          "membraneThickness" : 0.82,
+          "material"        : "mahogany",
+          "bendingInertiaRatio" : 1.0, # Default - not necesssary
+          "shearMembraneRatio"  : 5.0/6.0} # Default - not necesssary
 
 myAnalysis.setAnalysisVal("Property", ("yatesPlate", shell))
 
@@ -102,23 +103,23 @@ myAnalysis.setAnalysisVal("Constraint", ("edgeConstraint", constraint))
 myAnalysis.preAnalysis()
 
 ####### Run Astros ####################
-print ("\n\nRunning Astros......")  
-currentDirectory = os.getcwd() # Get our current working directory 
+print ("\n\nRunning Astros......")
+currentDirectory = os.getcwd() # Get our current working directory
 
 os.chdir(myAnalysis.analysisDir) # Move into test directory
 
 # Copy files needed to run astros
 astros_files = ["ASTRO.D01",  # *.DO1 file
                 "ASTRO.IDX"]  # *.IDX file
-for file in astros_files: 
+for file in astros_files:
     if not os.path.isfile(file):
         shutil.copy(ASTROS_ROOT + os.sep + file, file)
 
 if (args.noAnalysis == False):
     # Run Astros via system call
-    os.system("astros.exe < " + projectName +  ".dat > " + projectName + ".out"); 
+    os.system("astros.exe < " + projectName +  ".dat > " + projectName + ".out");
 
-os.chdir(currentDirectory) # Move back to working directory 
+os.chdir(currentDirectory) # Move back to working directory
 
 print ("Done running Astros!")
 ########################################
@@ -133,7 +134,7 @@ natrualFreq = myAnalysis.getAnalysisOutVal("EigenFrequency")
 mode = 1
 for i in natrualFreq:
     print ("Natural freq (Mode {:d}) = ".format(mode) + '{:.2f} '.format(i) + "(Hz)")
-    mode += 1                 
+    mode += 1
 
-# Close CAPS 
+# Close CAPS
 myProblem.closeCAPS()

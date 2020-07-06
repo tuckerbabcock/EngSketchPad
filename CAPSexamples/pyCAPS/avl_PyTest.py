@@ -34,7 +34,8 @@ myProblem = pyCAPS.capsProblem()
 # -----------------------------------------------------------------
 
 ## [geometry]
-myGeometry = myProblem.loadCAPS("../csmData/avlWing.csm", verbosity=args.verbosity)
+geometryScript = os.path.join("..","csmData","avlWing.csm")
+myGeometry = myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 
 myGeometry.setGeometryVal("area", 10.0)
 ## [geometry]

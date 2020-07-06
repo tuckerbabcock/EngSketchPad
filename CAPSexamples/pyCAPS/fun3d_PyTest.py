@@ -3,7 +3,7 @@ from __future__ import print_function
 # Import pyCAPS class file
 from pyCAPS import capsProblem
 
-# Import os module   
+# Import os module
 import os
 import argparse
 
@@ -20,23 +20,24 @@ args = parser.parse_args()
 # Initialize capsProblem object
 myProblem = capsProblem()
 
-# Load CSM file 
-myProblem.loadCAPS("../csmData/cfdMultiBody.csm", verbosity=args.verbosity)
+# Load CSM file
+geometryScript = os.path.join("..","csmData","cfdMultiBody.csm")
+myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 
-# Load FUN3D aim 
-myProblem.loadAIM(aim = "fun3dAIM", 
-                  altName = "fun3d", 
+# Load FUN3D aim
+myProblem.loadAIM(aim = "fun3dAIM",
+                  altName = "fun3d",
                   analysisDir = os.path.join(str(args.workDir[0]), "FUN3DAnalysisTest"))
 
-# Set reference parameters 
+# Set reference parameters
 #myProblem.analysis["fun3d"].setAnalysisVal("Reference_Area",10) # Get value from capsReferenceArea instead
 #myProblem.analysis["fun3d"].setAnalysisVal("Moment_Length",[1.4, 4.0]) # Get values from capsReferenceChord/Span
 myProblem.analysis["fun3d"].setAnalysisVal("Moment_Center",[1.0, 0.0, 0.5])
 
-# Set AoA number 
-myProblem.analysis["fun3d"].setAnalysisVal("Alpha", 1.0) 
+# Set AoA number
+myProblem.analysis["fun3d"].setAnalysisVal("Alpha", 1.0)
 
-# Set Mach number 
+# Set Mach number
 myProblem.analysis["fun3d"].setAnalysisVal("Mach", 1.372)
 
 # Set equation type
@@ -51,7 +52,7 @@ myProblem.analysis["fun3d"].setAnalysisVal("CFL_Schedule",[0.5, 3.0])
 # Set CFL number iteration schedule
 myProblem.analysis["fun3d"].setAnalysisVal("CFL_Schedule_Iter", [1, 40])
 
-# Set boundary conditions 
+# Set boundary conditions
 viscousBC  = {"bcType" : "Viscous" , "wallTemperature" : 1}
 inviscidBC = {"bcType" : "Inviscid", "wallTemperature" : 1.2}
 myProblem.analysis["fun3d"].setAnalysisVal("Boundary_Condition", [("Wing1", inviscidBC),
@@ -63,17 +64,17 @@ myProblem.analysis["fun3d"].setAnalysisVal("Overwrite_NML", True)
 
 # Set use Python to write fun3d.nml if linking to Python library
 myProblem.analysis["fun3d"].setAnalysisVal("Use_Python_NML", True)
- 
+
 # Run AIM pre-analysis
 myProblem.analysis["fun3d"].preAnalysis()
 
 #######################################
-#### Run FUN3D - (via system call) #### 
+#### Run FUN3D - (via system call) ####
 #######################################
-# Not runnning fun3d - no mesh 
+# Not runnning fun3d - no mesh
 
 # Run AIM post-analysis
 myProblem.analysis["fun3d"].postAnalysis()
 
-# Close CAPS 
+# Close CAPS
 myProblem.closeCAPS()

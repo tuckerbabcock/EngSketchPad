@@ -237,6 +237,8 @@ caps_setAttr(capsObject *cobj, /*@null@*/ const char *aname, capsObject *aval)
       if (attrs == NULL) return EGADS_MALLOC;
       attrs->nattrs = 0;
       attrs->attrs  = NULL;
+      attrs->nseqs  = 0;
+      attrs->seqs   = NULL;
       cobj->attrs   = attrs;
     }
     if (attrs->attrs == NULL) {

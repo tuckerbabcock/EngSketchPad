@@ -16,12 +16,17 @@ endif
 
 
 ifdef PYTHONINC
+
+#Adding the rpath is needed when compiling with ESP_Python
+PYTHONLPATH=$(filter -L%,$(PYTHONLIB))
+PYTHONRPATH=$(PYTHONLPATH:-L%=-Wl,-rpath %)
+
 $(LDIR)/fun3dAIM.so:	$(ODIR)/fun3dAIM.o $(ODIR)/fun3dUtils.o $(ODIR)/fun3dNamelist.o \
 			$(LDIR)/libaimUtil.a $(LDIR)/libutils.a
 	echo "Building FUN3D with Python"
 	$(CC) $(SOFLGS) -o $(LDIR)/fun3dAIM.so $(ODIR)/fun3dAIM.o $(ODIR)/fun3dUtils.o \
 		$(ODIR)/fun3dNamelist.o -L$(LDIR) -lutils -laimUtil -locsm \
-		-legads -ludunits2 $(PYTHONLIB) -lm
+		-legads -ludunits2 $(PYTHONLIB) -lm $(PYTHONRPATH)
 else 
 $(LDIR)/fun3dAIM.so:	$(ODIR)/fun3dAIM.o $(ODIR)/fun3dUtils.o $(LDIR)/libaimUtil.a \
 			$(LDIR)/libutils.a

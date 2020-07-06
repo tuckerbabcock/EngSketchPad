@@ -190,7 +190,7 @@ $(LDIR)/csm.so:	$(ODIR)/udpCsm.o $(LDIR)/$(OSHLIB)
 	$(CC) $(SOFLGS) -o $(LDIR)/csm.so $(ODIR)/udpCsm.o -L$(LDIR) \
 		-locsm -legads -lm
 
-$(ODIR)/udpCsm.o:	udpCsm.c udpUtilities.c udpUtilities.h
+$(ODIR)/udpCsm.o:	udpCsm.c udpUtilities.c udpUtilities.h OpenCSM.h
 	$(CC) -c $(COPTS) $(DEFINE) -I$(IDIR) -I. udpCsm.c -o $(ODIR)/udpCsm.o
 
 $(LDIR)/droop.so:	$(ODIR)/udfDroop.o $(LDIR)/$(OSHLIB)

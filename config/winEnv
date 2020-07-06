@@ -76,11 +76,14 @@ fi
 #
 if [ -n "$EFCOMP" ]; then
 	if [ "$EFCOMP" != ifort ]; then
-		echo "ERROR - EFCOMP (set to '$EFCOMP') can only be set to 'ifort'!"
-		exit 1
+		echo "WARNING - ignoring EFCOMP (set to '$EFCOMP') not set to 'ifort'!"
+		EFCOMP=UNKNOWN
 	fi
 else
 	EFCOMP=UNKNOWN
+fi
+
+if [ "$EFCOMP" = UNKNOWN ]; then
 	type ifort >& tmp
 	read word0 word1 word2 word3 < tmp
 	rm tmp
@@ -88,7 +91,6 @@ else
 		EFCOMP=ifort
 	fi
 fi
-
 
 START=UNKNOWN
 if [ -f "C:\Program Files (x86)\Google\Chrome\Application\chrome.exe" ]; then
@@ -263,6 +265,16 @@ if [ "$PYTH" != UNKNOWN ]; then
 	fi
 
 	if [ "$PYTHONLIB" = UNKNOWN ]; then
+		pscr="from __future__ import print_function; import distutils.sysconfig as sysconfig; print(sysconfig.get_config_var('LIBDIR'))"
+		eval plp=\`python -c \"$pscr\"\`
+
+		if [ -f "$plp/$plb" ]; then
+			PYTHONLIB="$plp\\$plb"
+			echo "Info: Python library $PYTHONLIB found!"
+		fi
+	fi
+
+	if [ "$PYTHONLIB" = UNKNOWN ]; then
 		pscr="from __future__ import print_function; import sysconfig; print(sysconfig.get_path('platstdlib'))"
 		eval plp=\`python -c \"$pscr\"\`
 
@@ -293,6 +305,7 @@ if [ "$PYTH" != UNKNOWN ]; then
 	fi
 
 	# Alternatively we could have just this one check that should work on all platforms
+	# https://github.com/JuliaPy/PyCall.jl/blob/master/deps/find_libpython.py
 	#if [ "$PYTHONLIB" = UNKNOWN ]; then
 		#plp=`python find_libpython.py`
 		#if [ -f "$plp" ]; then
@@ -349,10 +362,10 @@ if [ "$PYTHONINC" != UNKNOWN ] && [ "$PYTHONLIB" != UNKNOWN ]; then
 	echo "set PYTHONLIB=$PYTHONLIB"                    >> tmp
 	echo "set PYTHONPATH="$BASE/lib                    >> tmp
 else
-	echo "rem set PYTHONINC=C:\Python27\include"               >> tmp
-	echo "rem set PYTHONLIB=C:\Python27\Libs\python27.lib"     >> tmp
+	echo "rem set PYTHONINC=C:\Python37\include"               >> tmp
+	echo "rem set PYTHONLIB=C:\Python37\Libs\python37.lib"     >> tmp
 	echo "rem set PYTHONPATH="$BASE/lib                        >> tmp
-	echo "rem set PATH=C:\Python27;%PATH%"                     >> tmp
+	echo "rem set PATH=C:\Python37;%PATH%"                     >> tmp
 fi
 if [ "$TETGEN" != UNKNOWN ]; then
 	echo "set TETGEN=$TETGEN"                          >> tmp

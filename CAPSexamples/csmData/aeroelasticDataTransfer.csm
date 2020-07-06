@@ -122,6 +122,8 @@ store     OML
     udprim editAttr filename <<
         edge adj2face capsGroup=Rib_Root
         set  capsConstraint=Rib_Root
+        node adj2face capsGroup=Rib_Root
+        set  capsConstraint=Rib_Root
 >>
 
 # CFD

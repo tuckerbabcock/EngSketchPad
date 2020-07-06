@@ -25,7 +25,8 @@ myProblem = capsProblem()
 workDir = str(args.workDir[0]) + "/DelaundoAnalysisTest"
 
 # Load CSM file
-myProblem.loadCAPS("../csmData/cfd2D.csm", verbosity=args.verbosity)
+geometryScript = os.path.join("..","csmData","cfd2D.csm")
+myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 
 # Set intention - could also be set during .loadAIM
 myProblem.capsIntent = "CFD"

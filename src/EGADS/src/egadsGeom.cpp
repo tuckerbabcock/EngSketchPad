@@ -99,7 +99,8 @@
                                       egObject *copy);
   extern "C" int  EG_hasGeometry_dot(const egObject *obj);
   extern "C" int  EG_getRange( const egObject *geom, double *range, int *pflg );
-  extern "C" int  EG_getRange_dot( const egObject *geom, double *range, double *range_dot, int *pflg );
+  extern "C" int  EG_getRange_dot( const egObject *geom, double *range,
+                                   double *range_dot, int *pflg );
   extern "C" int  EG_curvature( const egObject *geom, const double *param,
                                 double *result );
   extern "C" int  EG_evaluate( const egObject *geom, const double *param,
@@ -201,6 +202,8 @@ EG_addStrAttr(egObject *obj, const char *name, const char *str)
       }
       attrs->nattrs = 0;
       attrs->attrs  = NULL;
+      attrs->nseqs  = 0;
+      attrs->seqs   = NULL;
       obj->attrs    = attrs;
     }
     if (attrs->attrs == NULL) {
@@ -1452,9 +1455,9 @@ EG_setGeometry_dot(egObject *obj, int oclass, int mtype,
   if  (obj->magicnumber != MAGIC) return EGADS_NOTOBJ;
   if ((obj->oclass != PCURVE)  && (obj->oclass != CURVE) &&
       (obj->oclass != SURFACE) && (obj->oclass != EDGE)  &&
-      (obj->oclass != FACE)    && (obj->oclass != NODE)  &&
-      (obj->oclass != SHELL)   && (obj->oclass != BODY))
-                                  return EGADS_NOTGEOM;
+      (obj->oclass != LOOP)    && (obj->oclass != FACE)  &&
+      (obj->oclass != NODE)    && (obj->oclass != SHELL) &&
+      (obj->oclass != BODY))      return EGADS_NOTGEOM;
   if  (obj->blind == NULL)        return EGADS_NODATA;
   if  (EG_sameThread(obj))        return EGADS_CNTXTHRD;
 
@@ -1600,7 +1603,7 @@ EG_setGeometry_dot(egObject *obj, int oclass, int mtype,
 
       egadsEdge *pedge = (egadsEdge *) ploop->edges[i]->blind;
 
-      stat = EG_setGeometry_dot(pedge->curve, CURVE, 0, NULL, NULL, NULL);
+      stat = EG_setGeometry_dot(pedge->curve, CURVE, pedge->curve->mtype, NULL, NULL, NULL);
       if (stat != EGADS_SUCCESS) return stat;
 
       stat = EG_setGeometry_dot(pedge->nodes[0], NODE, 0, NULL, NULL, NULL);
@@ -2201,28 +2204,29 @@ EG_setGeometry_dot(egObject *geom, int oclass, int mtype,
                    /*@null@*/ const int *ivec, SurrealS<1> *data_dot)
 {
   int    stat, i, len;
-  double *rvec, *rvec_dot;
+  double *rvec=NULL, *rvec_dot=NULL;
 
   if (geom == NULL)               return EGADS_NULLOBJ;
   if (geom->magicnumber != MAGIC) return EGADS_NOTOBJ;
   if (geom->blind == NULL)        return EGADS_NODATA;
-  if (data_dot == NULL)           return EGADS_NODATA;
 
-  if (geom->oclass == NODE) {
-    len = 3;
-  } else if (geom->oclass == EDGE) {
-    len = 2;
-  } else {
-    EG_getGeometryLen(geom, &i, &len);
-    if (len == 0) return EGADS_GEOMERR;
-  }
+  if (data_dot != NULL) {
+    if (geom->oclass == NODE) {
+      len = 3;
+    } else if (geom->oclass == EDGE) {
+      len = 2;
+    } else {
+      EG_getGeometryLen(geom, &i, &len);
+      if (len == 0) return EGADS_GEOMERR;
+    }
 
-  rvec     = (double*)EG_alloc(len*sizeof(double));
-  rvec_dot = (double*)EG_alloc(len*sizeof(double));
+    rvec     = (double*)EG_alloc(len*sizeof(double));
+    rvec_dot = (double*)EG_alloc(len*sizeof(double));
 
-  for (i = 0; i < len; i++) {
-    rvec[i]     = data_dot[i].value();
-    rvec_dot[i] = data_dot[i].deriv();
+    for (i = 0; i < len; i++) {
+      rvec[i]     = data_dot[i].value();
+      rvec_dot[i] = data_dot[i].deriv();
+    }
   }
 
   stat = EG_setGeometry_dot(geom, oclass, mtype, ivec, rvec, rvec_dot);
@@ -5331,8 +5335,8 @@ EG_getRange(const egObject *geom, SurrealS<1> *range, int *periodic)
 
 
 int
-EG_getRange_dot(const egObject *geom,
-                double *range, double *range_dot, int *periodic)
+EG_getRange_dot(const egObject *geom, double *range, double *range_dot,
+                int *periodic)
 {
   int stat;
   SurrealS<1> rangeS[4];
@@ -5537,6 +5541,18 @@ EG_evaluate(const egObject *geom, /*@null@*/ const double *param, double *result
     }
   }
   if (ref->blind == NULL) return EGADS_NODATA;
+  while (ref->mtype == TRIMMED) {
+    if (ref->oclass == PCURVE) {
+      egadsPCurve *ppcurv = (egadsPCurve *) ref->blind;
+      ref = ppcurv->ref;
+    } else if (ref->oclass == CURVE) {
+      egadsCurve *pcurve = (egadsCurve *) ref->blind;
+      ref = pcurve->ref;
+    } else if (ref->oclass == SURFACE) {
+      egadsSurface *psurf = (egadsSurface *) ref->blind;
+      ref = psurf->ref;
+    }
+  }
   if (ref->oclass == PCURVE) {
     egadsPCurve *ppcurv = (egadsPCurve *) ref->blind;
     if (ppcurv->data == NULL) our = 0;
@@ -6263,6 +6279,18 @@ EG_invEvaluate(const egObject *geom, double *xyz, double *param, double *result)
     }
   }
   if (ref->blind == NULL) return EGADS_NODATA;
+  while (ref->mtype == TRIMMED) {
+    if (ref->oclass == PCURVE) {
+      egadsPCurve *ppcurv = (egadsPCurve *) ref->blind;
+      ref = ppcurv->ref;
+    } else if (ref->oclass == CURVE) {
+      egadsCurve *pcurve = (egadsCurve *) ref->blind;
+      ref = pcurve->ref;
+    } else if (ref->oclass == SURFACE) {
+      egadsSurface *psurf = (egadsSurface *) ref->blind;
+      ref = psurf->ref;
+    }
+  }
   if (ref->oclass == PCURVE) {
     egadsPCurve *ppcurv = (egadsPCurve *) ref->blind;
     if (ppcurv->data == NULL) our = 0;
@@ -6278,20 +6306,20 @@ EG_invEvaluate(const egObject *geom, double *xyz, double *param, double *result)
              ref->oclass);
     return EGADS_NOTGEOM;
   }
+  if (ref->mtype == BSPLINE) {
+    stat = EG_getRange(ref, srange, &per);
+    if (stat != EGADS_SUCCESS) {
+      if (outLevel > 0)
+        printf(" EGADS Warning: EG_getRange = %d (EG_invEvaluate)!\n", stat);
+      return stat;
+    }
+    if (per != 0) our = 0;
+  }
   stat = EG_getRange(geom, range, &per);
   if (stat != EGADS_SUCCESS) {
     if (outLevel > 0)
       printf(" EGADS Warning: getRange = %d (EG_invEvaluate)!\n", stat);
     return stat;
-  }
-  if (ref->mtype == BSPLINE) {
-    stat = EG_getRange(ref, srange, &per);
-    if (stat != EGADS_SUCCESS) {
-      if (outLevel > 0)
-        printf(" EGADS Warning: getRange Geom = %d (EG_invEvaluate)!\n", stat);
-      return stat;
-    }
-    if (per != 0) our = 0;
   }
   if (our == 1)
     if (ref->oclass == PCURVE) {
@@ -7739,8 +7767,14 @@ EG_convertToBSpline(egObject *object, egObject **bspline)
     geom = pface->surface;
     if (geom->blind == NULL) return EGADS_NODATA;
     if (geom->mtype == BSPLINE) {
-      *bspline = geom;
-      return EGADS_SUCCESS;
+      egadsSurface *psurface = (egadsSurface *) geom->blind;
+      if ((psurface->urange[0] == pface->urange[0]) &&
+          (psurface->urange[1] == pface->urange[1]) &&
+          (psurface->vrange[0] == pface->vrange[0]) &&
+          (psurface->vrange[1] == pface->vrange[1])) {
+        *bspline = geom;
+        return EGADS_SUCCESS;
+      }
     }
   } else {
     if (object->mtype == BSPLINE) {

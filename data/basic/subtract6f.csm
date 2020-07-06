@@ -13,6 +13,8 @@ SKBEG      router   0.0      0.0
    LINSEG  router  -router   0.0
    LINSEG  router   0.0      0.0
 SKEND
+SELECT    EDGE
+ATTRIBUTE bc_name $farfield
 
 # slat
 MARK
@@ -154,6 +156,8 @@ MARK
     0.2750000E-01  0.1998000E-01  0.00000000
 >>
 COMBINE
+SELECT    EDGE
+ATTRIBUTE bc_name $slat
 UDPRIM    $$/applyTparams   factor  5.0
 SUBTRACT
 CATBEG    $did_not_create_body
@@ -325,6 +329,8 @@ UDPRIM fitcurve filename << ncp 13
  0.1214770E+01 -0.1187100E+00  0.00000000
 >>
 UDPRIM    $$/applyTparams   factor  5.0
+SELECT    EDGE
+ATTRIBUTE bc_name $flap
 SUBTRACT
 CATBEG    $did_not_create_body
    SET    error 2
@@ -586,6 +592,8 @@ MARK
     0.8999000E+00  0.1790000E-01  0.00000000
 >>
 COMBINE
+SELECT    EDGE
+ATTRIBUTE bc_name $main
 UDPRIM    $$/applyTparams
 SUBTRACT
 CATBEG    $did_not_create_body

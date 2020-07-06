@@ -46,7 +46,7 @@ int main(int argc, char *argv[])
     // Input values
     capsTuple        *tupleVal = NULL;
     int               tupleSize = 3;
-    int               intVal;
+  //int               intVal;
     double            doubleVal;
     enum capsBoolean  boolVal;
 
@@ -103,11 +103,11 @@ int main(int argc, char *argv[])
 
 
     // Use 5 segments on farfield faces
-    status = caps_childByName(meshObj, VALUE, ANALYSISIN, "ff_nseg", &tempObj);
+    status = caps_childByName(meshObj, VALUE, ANALYSISIN, "ff_cdfr", &tempObj);
     if (status != CAPS_SUCCESS) goto cleanup;
 
-    intVal = 5;
-    status = caps_setValue(tempObj, 1, 1, (void *) &intVal);
+    doubleVal = 1.4;
+    status = caps_setValue(tempObj, 1, 1, (void *) &doubleVal);
     if (status != CAPS_SUCCESS) goto cleanup;
 
 

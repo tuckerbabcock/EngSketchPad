@@ -31,6 +31,8 @@ int aflr4_Surface_Mesh(int quiet,
 
     int faceIndex = 0, bodyIndex = 0;
 
+    int numNodeTotal = 0, numElemTotal = 0;
+
     const char *pstring = NULL;
     const int *pints = NULL;
     const double *preals = NULL;
@@ -40,10 +42,10 @@ int aflr4_Surface_Mesh(int quiet,
 
     ego *faces = NULL, *copy_bodies=NULL, context, tess, model=NULL;
 
-    int ff_nseg, min_ncell, mer_all, no_prox;
+    int min_ncell, mer_all, no_prox;
     int EGADS_Quad = (int)false;
 
-    double abs_min_scale, BL_thickness, curv_factor,
+    double ff_cdfr, abs_min_scale, BL_thickness, Re_l, curv_factor,
            max_scale, min_scale, ref_len, erw_all;
 
      // Commandline inputs
@@ -223,12 +225,13 @@ int aflr4_Surface_Mesh(int quiet,
 
     // get AFLR parameters from user inputs
 
-    ff_nseg       = aimInputs[aim_getIndex(aimInfo, "ff_nseg"           , ANALYSISIN)-1].vals.integer;
+    ff_cdfr       = aimInputs[aim_getIndex(aimInfo, "ff_cdfr"           , ANALYSISIN)-1].vals.real;
     min_ncell     = aimInputs[aim_getIndex(aimInfo, "min_ncell"         , ANALYSISIN)-1].vals.integer;
     mer_all       = aimInputs[aim_getIndex(aimInfo, "mer_all"           , ANALYSISIN)-1].vals.integer;
     no_prox       = aimInputs[aim_getIndex(aimInfo, "no_prox"           , ANALYSISIN)-1].vals.integer;
 
     BL_thickness  = aimInputs[aim_getIndex(aimInfo, "BL_thickness"      , ANALYSISIN)-1].vals.real;
+    Re_l          = aimInputs[aim_getIndex(aimInfo, "Re_l"              , ANALYSISIN)-1].vals.real;
     curv_factor   = aimInputs[aim_getIndex(aimInfo, "curv_factor"       , ANALYSISIN)-1].vals.real;
     abs_min_scale = aimInputs[aim_getIndex(aimInfo, "abs_min_scale"     , ANALYSISIN)-1].vals.real;
     max_scale     = aimInputs[aim_getIndex(aimInfo, "max_scale"         , ANALYSISIN)-1].vals.real;
@@ -271,12 +274,13 @@ int aflr4_Surface_Mesh(int quiet,
     ref_len = meshLenFac*capsMeshLength;
 
     /*
-    printf("ff_nseg               = %d\n", ff_nseg       );
+    printf("ff_cdfr               = %d\n", ff_cdfr       );
     printf("min_ncell             = %d\n", min_ncell     );
     printf("mer_all               = %d\n", mer_all       );
     printf("no_prox               = %d\n", no_prox       );
 
     printf("BL_thickness          = %f\n", BL_thickness  );
+    printf("Re_l                  = %f\n", Re_l          );
     printf("curv_factor           = %f\n", curv_factor   );
     printf("abs_min_scale         = %f\n", abs_min_scale );
     printf("max_scale             = %f\n", max_scale     );
@@ -292,17 +296,19 @@ int aflr4_Surface_Mesh(int quiet,
 
     // set AFLR4 input parameters
 
-    status = ug_add_flag_arg ("ff_nseg"  , &prog_argc, &prog_argv);
-    status = ug_add_int_arg (  ff_nseg   , &prog_argc, &prog_argv);
-    status = ug_add_flag_arg ("min_ncell", &prog_argc, &prog_argv);
-    status = ug_add_int_arg (  min_ncell , &prog_argc, &prog_argv);
-    status = ug_add_flag_arg ("mer_all" , &prog_argc, &prog_argv);
-    status = ug_add_int_arg (  mer_all  , &prog_argc, &prog_argv);
+    status = ug_add_flag_arg (  "ff_cdfr"  , &prog_argc, &prog_argv);
+    status = ug_add_double_arg ( ff_cdfr   , &prog_argc, &prog_argv);
+    status = ug_add_flag_arg (  "min_ncell", &prog_argc, &prog_argv);
+    status = ug_add_int_arg (    min_ncell , &prog_argc, &prog_argv);
+    status = ug_add_flag_arg (  "mer_all" , &prog_argc, &prog_argv);
+    status = ug_add_int_arg (    mer_all  , &prog_argc, &prog_argv);
     if (no_prox == True)
       status = ug_add_flag_arg ("-no_prox"    , &prog_argc, &prog_argv);
 
     status = ug_add_flag_arg ( "BL_thickness" , &prog_argc, &prog_argv);
     status = ug_add_double_arg (BL_thickness  , &prog_argc, &prog_argv);
+    status = ug_add_flag_arg ( "Re_l"         , &prog_argc, &prog_argv);
+    status = ug_add_double_arg (Re_l          , &prog_argc, &prog_argv);
     status = ug_add_flag_arg ( "curv_factor"  , &prog_argc, &prog_argv);
     status = ug_add_double_arg (curv_factor   , &prog_argc, &prog_argv);
     status = ug_add_flag_arg ( "abs_min_scale", &prog_argc, &prog_argv);
@@ -381,9 +387,12 @@ int aflr4_Surface_Mesh(int quiet,
     // Complete all tasks required for AFLR4 surface grid generation.
 
     status = aflr4_setup_and_grid_gen (prog_argc, prog_argv);
-    if (status != CAPS_SUCCESS) {
-      printf("AFLR4 mesh generation failed.\n");
-      printf("An EGADS file with all AFLR4 parameters has been written to 'aflr4_debug.egads'");
+    if (status != 0) {
+      printf("**********************************************************\n");
+      printf("AFLR4 mesh generation failed...\n");
+      printf("An EGADS file with all AFLR4 parameters\n");
+      printf("has been written to 'aflr4_debug.egads'\n");
+      printf("**********************************************************\n");
       remove("aflr4_debug.egads");
       EG_saveModel(model, "aflr4_debug.egads");
       goto cleanup;
@@ -410,7 +419,7 @@ int aflr4_Surface_Mesh(int quiet,
       // Get output id index (glue-only composite)
       status = aflr4_get_idef_output (&glueId);
 
-      FILE *fp = fopen("aflr4_debug.dat", "w");
+      FILE *fp = fopen("aflr4_debug.tec", "w");
       fprintf(fp, "VARIABLES = X, Y, Z, u, v\n");
 
       numSurface = dgeom_def_get_ndef(); // Get number of surfaces meshed
@@ -501,8 +510,15 @@ int aflr4_Surface_Mesh(int quiet,
                 printf("Number of quad = %d\n", surfaceMeshes[bodyIndex].meshQuickRef.numQuadrilateral);
             }
         }
-    }
 
+        numNodeTotal += surfaceMeshes[bodyIndex].numNode;
+        numElemTotal += surfaceMeshes[bodyIndex].numElement;
+    }
+    if (quiet == (int)false ) {
+        printf("----------------------------\n");
+        printf("Total number of nodes = %d\n", numNodeTotal);
+        printf("Total number of elements = %d\n", numElemTotal);
+    }
     status = CAPS_SUCCESS;
 
 cleanup:

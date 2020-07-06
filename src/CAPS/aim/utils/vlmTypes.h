@@ -4,9 +4,11 @@
 #define VLMTYPES_H
 
 
+typedef enum  {vlmGENERIC, vlmPLANEYZ, vlmRADIAL} vlmSystemEnum;
+
 typedef struct {
 
-	char *name; // Control surface name
+    char *name; // Control surface name
 
     double deflectionAngle; // Deflection angle of the control surface
     double controlGain; //Control deflection gain, units:  degrees deflection / control variable
@@ -23,19 +25,23 @@ typedef struct {
 } vlmControlStruct;
 
 typedef struct {
-	char *name; // Section Name
+    char *name; // Section Name
 
-    int bodyIndex; // Body index - 0 bias
+    ego ebody;       // Body of the section (might be flipped relative to original)
 
     int sectionIndex; // Section index - 0 bias
 
     double xyzLE[3]; // xyz coordinates for leading edge
     int nodeIndexLE; // Leading edge node (in geometry) index with reference to xyzLE - 1 bias
 
-    double xyzTE[3]; // xyz coordinates for trailing edge
-    int nodeIndexTE; // Trailing edge node (in geometry) index with reference to xyzTE - 1 bias
+    double xyzTE[3]; // xyz coordinates for trailing edge (Node or Edge mid point)
+    ego teObj;       // Trailing edge object in the body
+    int teClass;     // Trailing edge object class (NODE or EDGE)
 
-    double chord;
+    double chord;    // section chord length
+    double ainc;     // section incidence angle
+
+    double normal[3]; // planar normal for the section
 
     int    Nspan;   // number of spanwise vortices (elements)
     double Sspace;  // spanwise point distribution

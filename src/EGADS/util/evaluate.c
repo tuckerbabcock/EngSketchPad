@@ -898,7 +898,7 @@ EG_bezier2dDeriv(int *ivec, DOUBLE *data, const DOUBLE *uv, DOUBLE *deriv)
     for (    i = 0; i < ivec[4]; i++, n++) D[n] = 1.0;
     m = 3*ivec[2]*ivec[4];
     if ((ivec[0]&2) != 0) m += ivec[2]*ivec[4];
-    for (    i = 0; i < m; i++, n++) D[n] = data[i];
+    for (i = 0; i < m; i++, n++) D[n] = data[i];
     return EG_spline2dDeriv(header, D, uv, deriv);
     
   }
@@ -2399,16 +2399,6 @@ EG_invEvaGeomLimits(const egObject *geomx, /*@null@*/ const double *limits,
       result[0] = data[0];
       result[1] = data[1];
     }
-    /* this probably does nothing due to the range limiting */
-    if ((per&1) != 0) {
-      period = srange[1] - srange[0];
-      if ((*param+PARAMACC < srange[0]) || (*param-PARAMACC > srange[1]))
-        if (*param+PARAMACC < srange[0]) {
-          if (*param+period-PARAMACC < srange[1]) *param += period;
-        } else {
-          if (*param-period+PARAMACC > srange[0]) *param -= period;
-        }
-    }
     
   } else if (geom->oclass == CURVE) {
 
@@ -2559,16 +2549,6 @@ EG_invEvaGeomLimits(const egObject *geomx, /*@null@*/ const double *limits,
       result[0] = data[0];
       result[1] = data[1];
       result[2] = data[2];
-    }
-    /* this probably does nothing due to the range limiting */
-    if ((per&1) != 0) {
-      period = srange[1] - srange[0];
-      if ((*param+PARAMACC < srange[0]) || (*param-PARAMACC > srange[1]))
-        if (*param+PARAMACC < srange[0]) {
-          if (*param+period-PARAMACC < srange[1]) *param += period;
-        } else {
-          if (*param-period+PARAMACC > srange[0]) *param -= period;
-        }
     }
 
   } else {

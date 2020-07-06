@@ -193,7 +193,7 @@ $(LDIR)\csm.dll:	$(ODIR)\udpCsm.obj $(LDIR)\ocsm.dll
 	$(MCOMP) /manifest $(LDIR)\csm.dll.manifest \
 		/outputresource:$(LDIR)\csm.dll;2
 
-$(ODIR)\udpCsm.obj:	udpCsm.c udpUtilities.c udpUtilities.h
+$(ODIR)\udpCsm.obj:	udpCsm.c udpUtilities.c udpUtilities.h OpenCSM.h
 	cl /c $(COPTS) $(DEFINE) /I$(IDIR) udpCsm.c /Fo$(ODIR)\udpCsm.obj
 
 $(LDIR)\droop.dll:	$(ODIR)\udfDroop.obj $(LDIR)\ocsm.dll

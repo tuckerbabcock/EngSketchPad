@@ -11,6 +11,7 @@ extern "C" {
 int get_vlmSurface(int numTuple,
                    capsTuple surfaceTuple[],
                    mapAttrToIndexStruct *attrMap,
+                   double Cspace,
                    int *numVLMSurface,
                    vlmSurfaceStruct *vlmSurface[]);
 
@@ -61,21 +62,19 @@ int copy_vlmSectionStruct(vlmSectionStruct *sectionIn, vlmSectionStruct *section
 // Also the section in vlmSurface are reordered based on a vlm_orderSections() function call
 int copy_vlmSurfaceStruct(vlmSurfaceStruct *surfaceIn, vlmSurfaceStruct *surfaceOut);
 
-// Find the chord and inclination angle of an body
-int vlm_getChordandAinc(ego body, double *chord, double *ainc );
-
-// Find the EGO object pertaining the to trailing edge
-int vlm_findTEObj(ego body, ego *teObj);
+// Finalizes populating vlmSectionStruct member data after the ebody is set
+int finalize_vlmSectionStruct(vlmSectionStruct *vlmSection);
 
 // Accumulate VLM section data from a set of bodies.If disciplineFilter is not NULL
 // bodies not found with disciplineFilter (case insensitive) for a capsDiscipline attribute
 // will be ignored.
-int vlm_getSection(int numBody,
-                   ego bodies[],
-                   const char *disciplineFilter,
-                   mapAttrToIndexStruct attrMap,
-                   int numSurface,
-                   vlmSurfaceStruct *vlmSurface[]);
+int vlm_getSections(int numBody,
+                    ego bodies[],
+                    const char *disciplineFilter,
+                    mapAttrToIndexStruct attrMap,
+                    vlmSystemEnum sys,
+                    int numSurface,
+                    vlmSurfaceStruct *vlmSurface[]);
 
 // Order VLM sections increasing order
 int vlm_orderSections(int numSection, vlmSectionStruct section[]);
@@ -83,11 +82,29 @@ int vlm_orderSections(int numSection, vlmSectionStruct section[]);
 // Compute spanwise panel spacing with close to equal spacing on each pane
 int vlm_equalSpaceSpanPanels(int NspanTotal, int numSection, vlmSectionStruct vlmSection[]);
 
-// Write out the airfoil cross-section given an ego body
+// Get the airfoil cross-section given a vlmSectionStruct
+int vlm_getSectionCoord(vlmSectionStruct *vlmSection,
+                        int normalize, // Normalize by chord (true/false)
+                        int maxNumPoint,// Max number of points in airfoil
+                        double **xCoordOut, //[maxNumPoint]
+                        double **yCoordOut); //[maxNumPoint] for upper and lower surface
+
+// Write out the airfoil cross-section given a vlmSectionStruct
 int vlm_writeSection(FILE *fp,
-                     ego body,
+                     vlmSectionStruct *vlmSection,
                      int normalize, // Normalize by chord (true/false)
-                     int maxNumPoint);// Max number of points in airfoil
+                     int numPoint); // Number of points in airfoil
+
+// Get the airfoil cross-section given a vlmSectionStruct
+// where y-upper and y-lower correspond to the x-value
+// Only works for sharp trailing edges
+int vlm_getSectionCoordX(vlmSectionStruct *vlmSection,
+                         double Cspace,       // Chordwise spacing (see spacer)
+                         int normalize,       // Normalize by chord (true/false)
+                         int numPoint,        // Number of points in airfoil
+                         double **xCoordOut,  // [numPoint] increasing x values
+                         double **yUpperOut,  // [numPoint] for upper surface
+                         double **yLowerOut); // [numPoint] for lower surface
 
 #ifdef __cplusplus
 }

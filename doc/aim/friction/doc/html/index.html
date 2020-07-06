@@ -72,7 +72,7 @@ $(function() {
 <div class="textblock"><h1><a class="anchor" id="overviewFRICTION"></a>
 FRICTION AIM Overview</h1>
 <p>FRICTION provides an estimate of laminar and turbulent skin friction and form drag suitable for use in aircraft preliminary design <a class="el" href="citelist.html#CITEREF_Friction">[1]</a>. Taken from the FRICTION manual: "The program has its roots in a program by Ron Hendrickson at Grumman. It runs on any computer. The input requires geometric information and either the Mach and altitude combination, or the Mach and Reynolds number at which the results are desired. It uses standard flat plate skin friction formulas. The compressibility effects on skin friction are found using the Eckert Reference Temperature method for laminar flow and the van Driest II formula for turbulent flow. The basic formulas are valid from subsonic to hypersonic speeds, but the implementation makes assumptions that limit the validity to moderate supersonic speeds (about Mach 3). The key assumption is that the vehicle surface is at the adiabatic wall temperature (the user can easily modify this assumption). Form factors are used to estimate the effect of thickness on drag, and a composite formula is used to include the effect of a partial run of laminar flow."</p>
-<p>An outline of the AIM's inputs, outputs and attributes are provided in <a class="el" href="aimInputsFRICTION.html">AIM Inputs</a> and <a class="el" href="aimOutputsFRICTION.html">AIM Outputs</a> and <a class="el" href="attributeFRICTION.html">AIM Attributes</a>, respectively.</p>
+<p>An outline of the AIM's inputs, outputs and attributes are provided in <a class="el" href="aimInputsFRICTION.html">AIM Inputs</a>, <a class="el" href="aimOutputsFRICTION.html">AIM Outputs</a>, and <a class="el" href="attributeFRICTION.html">AIM Attributes</a>, respectively.</p>
 <p>Upon running preAnalysis the AIM generates a single file, "frictionInput.txt" which contains the input information and control sequence for FRICTION to execute. To populate output data the AIM expects a file, "frictionOutput.txt", to exist after running FRICTION. An example execution for FRICTION looks like (Linux and OSX executable being used - see <a class="el" href="index.html#frictionModification">FRICTION Modifications</a>):</p>
 <div class="fragment"><div class="line">friction frictionInput.txt frictionOutput.txt</div></div><!-- fragment --><h1><a class="anchor" id="frictionModification"></a>
 FRICTION Modifications</h1>
@@ -83,7 +83,7 @@ Examples</h1>
 </div></div><!-- contents -->
 <!-- start footer part -->
 <hr class="footer"/><address class="footer"><small>
-Generated on Thu Jan 23 2020 10:29:48 for FRICTION Analysis Interface Module (AIM) by &#160;<a href="http://www.doxygen.org/index.html">
+Generated on Thu May 28 2020 06:21:16 for FRICTION Analysis Interface Module (AIM) by &#160;<a href="http://www.doxygen.org/index.html">
 <img class="footer" src="doxygen.png" alt="doxygen"/>
 </a> 1.8.13
 </small></address>

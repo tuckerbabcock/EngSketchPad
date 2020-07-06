@@ -41,7 +41,8 @@ projectName = "aeroelasticSimple_Iterative_SM"
 numTransferIteration = 2
 
 # Load CSM file
-myProblem.loadCAPS("../csmData/aeroelasticDataTransferSimple.csm", verbosity=args.verbosity)
+geometryScript = os.path.join("..","csmData","aeroelasticDataTransferSimple.csm")
+myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 
 # Load AIMs
 myProblem.loadAIM(aim = "tetgenAIM",

@@ -24,6 +24,7 @@ typedef int bool;
 
 #include "egadsTypes.h"
 #include "egadsInternals.h"
+#include "liteString.h"
 #include "liteClasses.h"
 
 
@@ -43,38 +44,59 @@ typedef struct {
                            a[2] = (b[0]*c[1]) - (b[1]*c[0])
 #define DOT(a,b)         (a[0]*b[0] + a[1]*b[1] + a[2]*b[2])
 
+#ifdef __HOST_AND_DEVICE__
+#undef __HOST_AND_DEVICE__
+#endif
+#ifdef __PROTO_H_AND_D__
+#undef __PROTO_H_AND_D__
+#endif
 
-  extern void EG_EvaluateQuotientRule(  int dim, int der_count, int v_stride,
-                                        double *v );
-  extern void EG_EvaluateQuotientRule2( int dim, int der_count, int v_stride,
-                                        double *v );
-  extern bool EG_Bezier1DRat( int dim, int order, int cv_stride,
-                              const double *cv, double t0, double t1,
-                              int der_count, double t, int v_stride, double *v );
-
-  extern int  EG_attributeRet( const egObject *obj, const char *name, int *atype,
-                               int *len, /*@null@*/ const int **ints,
-                               /*@null@*/ const double **reals,
-                               /*@null@*/ const char **str );
-  extern int  EG_getRange( const egObject *geom, double *range, int *periodic );
-  extern int  EG_evaluate( const egObject *geom, const double *param,
-                           double *result );
-  extern int  EG_invEvaluate( const egObject *geom, double *xyz, double *param,
-                              double *result );
-  extern int  EG_getTopology( const egObject *topo, egObject **geom,
-                              int *oclass, int *mtype,
-                              /*@null@*/ double *limits, int *nChildren,
-                              egObject ***children, int **senses );
-  extern int  EG_getEdgeUV( const egObject *face, const egObject *edge,
-                            int sense, double t, double *result );
-  extern int  EG_getBodyTopos( const egObject *body, /*@null@*/ egObject *src,
-                               int oclass, int *ntopo,
-                               /*@null@*/ egObject ***topos );
-  extern int  EG_getBody( const egObject *object, egObject **body );
+#ifdef __CUDACC__
+#define __HOST_AND_DEVICE__ extern "C" __host__ __device__
+#define __PROTO_H_AND_D__   extern "C" __host__ __device__
+#else
+#define __HOST_AND_DEVICE__
+#define __PROTO_H_AND_D__ extern
+#endif
 
 
+__PROTO_H_AND_D__ void EG_EvaluateQuotientRule(  int dim, int der_count,
+                                                 int v_stride, double *v );
+__PROTO_H_AND_D__ void EG_EvaluateQuotientRule2( int dim, int der_count,
+                                                 int v_stride, double *v );
+__PROTO_H_AND_D__ bool EG_Bezier1DRat( int dim, int order, int cv_stride,
+                                       const double *cv, double t0, double t1,
+                                       int der_count, double t, int v_stride,
+                                       double *v );
 
-static int
+__PROTO_H_AND_D__ int  EG_attributeRet( const egObject *obj, const char *name,
+                                        int *atype, int *len,
+                                        /*@null@*/ const int **ints,
+                                        /*@null@*/ const double **reals,
+                                        /*@null@*/ const char **str );
+__PROTO_H_AND_D__ int  EG_getRange( const egObject *geom, double *range,
+                                    int *periodic );
+__PROTO_H_AND_D__ int  EG_evaluate( const egObject *geom, const double *param,
+                                    double *result );
+__PROTO_H_AND_D__ int  EG_invEvaluate( const egObject *geom, double *xyz,
+                                       double *param, double *result );
+__PROTO_H_AND_D__ int  EG_getTopology( const egObject *topo, egObject **geom,
+                                       int *oclass, int *mtype,
+                                       /*@null@*/ double *limits,
+                                       int *nChildren,
+                                       egObject ***children, int **senses );
+__PROTO_H_AND_D__ int  EG_getEdgeUV( const egObject *face,
+                                     const egObject *edge,
+                                     int sense, double t, double *result );
+__PROTO_H_AND_D__ int  EG_getBodyTopos( const egObject *body,
+                                        /*@null@*/ egObject *src,
+                                        int oclass, int *ntopo,
+                                        /*@null@*/ egObject ***topos );
+__PROTO_H_AND_D__ int  EG_getBody( const egObject *object, egObject **body );
+
+
+
+__HOST_AND_DEVICE__ static int
 FindSpan(int nKnots, int degree, double u, double *U)
 {
   int n, low, mid, high;
@@ -99,12 +121,47 @@ FindSpan(int nKnots, int degree, double u, double *U)
 }
 
 
-static void
+__HOST_AND_DEVICE__ static void
 DersBasisFuns(int i, int p, double u, double *knot, int der, double **ders)
 {
   int    j, k, j1, j2, r, s1, s2, rk, pk;
+#ifndef __CUDA_ARCH__
   double d, saved, temp, ndu[MAXDEG+1][MAXDEG+1];
   double a[2][MAXDEG+1], left[MAXDEG+1], right[MAXDEG+1];
+#else
+  double d, saved, temp, **ndu;
+  double *a[2], *left, *right;
+
+  ndu = (double **) malloc((MAXDEG+1)*sizeof(double *));
+  if (ndu == NULL) {
+    printf("Malloc error\n");
+    return;
+  }
+  for (j = 0; j < MAXDEG+1; ++j) {
+    ndu[j] = (double *) malloc((MAXDEG+1)*sizeof(double));
+    if (ndu[j] == NULL) {
+      printf("Malloc error %d\n",j);
+      return;
+    }
+  }
+  for (j = 0; j < 2; ++j) {
+    a[j] = (double*)malloc((MAXDEG+1)*sizeof(double));
+    if (a[j] == NULL) {
+      printf("Malloc error %d\n",j);
+      return;
+    }
+  }
+  left = (double *) malloc((MAXDEG+1)*sizeof(double));
+  if (left == NULL) {
+    printf("Malloc error\n");
+    return;
+  }
+  right = (double *) malloc((MAXDEG+1)*sizeof(double));
+  if (right == NULL) {
+    printf("Malloc error\n");
+    return;
+  }
+#endif
   
   ndu[0][0] = 1.0;
   for (j = 1; j <= p; j++) {
@@ -160,16 +217,46 @@ DersBasisFuns(int i, int p, double u, double *knot, int der, double **ders)
     r *= p - k;
   }
   
+#ifdef __CUDA_ARCH__
+  free(right);
+  free(left);
+  for (j = 0; j < 2;        ++j) free(a[j]);
+  for (j = 0; j < MAXDEG+1; ++j) free(ndu[j]);
+  free(ndu);
+#endif
+
 }
 
-
-static int
+ 
+__HOST_AND_DEVICE__ static int
 EG_splinePCDeriv(int *ivec, double *data, double t, double *deriv)
 {
   int    der = 2;
   int    i, j, k, degree, nKnots, span, dt;
-  double Nders[MAXDEG+1][MAXDEG+1], *Nder[MAXDEG+1], *CP, *w;
   double x, y, wsum, v[9];  /* note: v is sized for der <= 2! */
+#ifndef __CUDA_ARCH__
+  double Nders[MAXDEG+1][MAXDEG+1], *Nder[MAXDEG+1], *CP, *w;
+#else
+  double **Nders, **Nder, *CP, *w;
+
+  Nders = (double **) malloc((MAXDEG+1)*sizeof(double *));
+  if (Nders == NULL) {
+    printf("Malloc Nders error\n");
+    return EGADS_MALLOC;
+  }
+  for (j = 0; j < MAXDEG+1; ++j) {
+    Nders[j] = (double *) malloc((MAXDEG+1)*sizeof(double));
+    if (Nders[j] == NULL) {
+      printf("Malloc Nders[%d] error\n",j);
+      return EGADS_MALLOC;
+    }
+  }
+  Nder = (double **) malloc((MAXDEG+1)*sizeof(double *));
+  if (Nder == NULL) {
+    printf("Malloc Nder error\n");
+    return EGADS_MALLOC;
+  }
+#endif
   
   for (k = 0; k <= der; k++) deriv[2*k  ] = deriv[2*k+1] = 0.0;
   
@@ -221,17 +308,45 @@ EG_splinePCDeriv(int *ivec, double *data, double t, double *deriv)
     }
 
   }
+  
+#ifdef __CUDA_ARCH__
+  free(Nder);
+  for (j = 0; j < MAXDEG+1; ++j) free(Nders[j]);
+  free(Nders);
+#endif
   return EGADS_SUCCESS;
 }
 
 
-static int
+__HOST_AND_DEVICE__ static int
 EG_spline1dDeriv(int *ivec, double *data, double t, double *deriv)
 {
   int    der = 2;
   int    i, j, k, degree, nKnots, span, dt;
-  double Nders[MAXDEG+1][MAXDEG+1], *Nder[MAXDEG+1], *CP, *w;
   double x, y, z, wsum, v[12];  /* note: v is sized for der <= 2! */
+#ifndef __CUDA_ARCH__
+  double Nders[MAXDEG+1][MAXDEG+1], *Nder[MAXDEG+1], *CP, *w;
+#else
+  double **Nders, **Nder, *CP, *w;
+
+  Nders = (double **) malloc((MAXDEG+1)*sizeof(double *));
+  if (Nders == NULL) {
+    printf("Malloc Nders error\n");
+    return EGADS_MALLOC;
+  }
+  for (j = 0; j < MAXDEG+1; ++j) {
+    Nders[j] = (double *) malloc((MAXDEG+1)*sizeof(double));
+    if (Nders[j] == NULL) {
+      printf("Malloc Nders[%d] error\n",j);
+      return EGADS_MALLOC;
+    }
+  }
+  Nder = (double **) malloc((MAXDEG+1)*sizeof(double *));
+  if (Nder == NULL) {
+    printf("Malloc Nder error\n");
+    return EGADS_MALLOC;
+  }
+#endif
   
   for (k = 0; k <= der; k++) deriv[3*k  ] = deriv[3*k+1] = deriv[3*k+2] = 0.0;
   
@@ -287,18 +402,69 @@ EG_spline1dDeriv(int *ivec, double *data, double t, double *deriv)
     }
 
   }
+
+#ifdef __CUDA_ARCH__
+  free(Nder);
+  for (j = 0; j < MAXDEG+1; ++j) free(Nders[j]);
+  free(Nders);
+#endif
   return EGADS_SUCCESS;
 }
 
-
-static int
+ 
+__HOST_AND_DEVICE__ static int
 EG_spline2dDeriv(int *ivec, double *data, const double *uv, double *deriv)
 {
   int    der = 2;
   int    i, j, k, l, m, s, degu, degv, nKu, nKv, nCPu, spanu, spanv, du, dv;
+  double v[24];  /* note: v is sized for der <= 2! */
+#ifndef __CUDA_ARCH__
   double *Kv, *CP, *w, *NderU[MAXDEG+1], *NderV[MAXDEG+1];
   double Nu[MAXDEG+1][MAXDEG+1], Nv[MAXDEG+1][MAXDEG+1], temp[4*MAXDEG];
-  double v[24];  /* note: v is sized for der <= 2! */
+#else
+  double *Kv, *CP, *w, **NderU, **NderV;
+  double **Nu, **Nv, *temp;
+
+  NderU = (double **) malloc((MAXDEG+1)*sizeof(double *));
+  if (NderU == NULL) {
+    printf("Malloc NderU error\n");
+    return EGADS_MALLOC;
+  }
+  NderV = (double **) malloc((MAXDEG+1)*sizeof(double *));
+  if (NderV == NULL) {
+    printf("Malloc NderV error\n");
+    return EGADS_MALLOC;
+  }
+  Nu = (double **) malloc((MAXDEG+1)*sizeof(double *));
+  if (Nu == NULL) {
+    printf("Malloc Nu error\n");
+    return EGADS_MALLOC;
+  }
+  for (j = 0; j < MAXDEG+1; ++j) {
+    Nu[j] = (double *) malloc((MAXDEG+1)*sizeof(double));
+    if (Nu[j] == NULL) {
+      printf("Malloc Nu[%d] error\n",j);
+      return EGADS_MALLOC;
+    }
+  }
+  Nv = (double **) malloc((MAXDEG+1)*sizeof(double *));
+  if (Nv == NULL) {
+    printf("Malloc Nv error\n");
+    return EGADS_MALLOC;
+  }
+  for (j = 0; j < MAXDEG+1; ++j) {
+    Nv[j] = (double *) malloc((MAXDEG+1)*sizeof(double));
+    if (Nv[j] == NULL) {
+      printf("Malloc Nv[%d] error\n",j);
+      return EGADS_MALLOC;
+    }
+  }
+  temp = (double *) malloc(4*MAXDEG*sizeof(double));
+  if (temp == NULL) {
+    printf("Malloc temp error\n");
+    return EGADS_MALLOC;
+  }
+#endif
   
   degu = ivec[1];
   nCPu = ivec[2];
@@ -410,16 +576,51 @@ EG_spline2dDeriv(int *ivec, double *data, const double *uv, double *deriv)
       }
 
   }
+  
+#ifdef __CUDA_ARCH__
+  free(temp);
+  for (j = 0; j < MAXDEG+1; ++j) free(NderV[j]);
+  free(NderV);
+  for (j = 0; j < MAXDEG+1; ++j) free(NderU[j]);
+  free(NderU);
+  free(Nv);
+  free(Nu);
+#endif
   return EGADS_SUCCESS;
 }
 
 
-static int
+__HOST_AND_DEVICE__ static int
 EG_bezierPCDeriv(int *ivec, double *data, double t, double *deriv)
 {
   bool   stat;
   int    i, k, degree;
+#ifndef __CUDA_ARCH__
   double Q[2*MAXDEG+2], S[2*MAXDEG], T[2*MAXDEG-2], CP[3*MAXDEG+3], *w;
+#else
+  double *Q, *S, *T, *CP, *w;
+
+  Q = (double *) malloc((2*MAXDEG+2)*sizeof(double));
+  if (Q == NULL) {
+    printf("Malloc Q error\n");
+    return EGADS_MALLOC;
+  }
+  S = (double *) malloc(2*MAXDEG*sizeof(double));
+  if (S == NULL) {
+    printf("Malloc S error\n");
+    return EGADS_MALLOC;
+  }
+  T = (double *) malloc((2*MAXDEG-2)*sizeof(double));
+  if (T == NULL) {
+    printf("Malloc T error\n");
+    return EGADS_MALLOC;
+  }
+  CP = (double *) malloc((3*MAXDEG+3)*sizeof(double));
+  if (CP == NULL) {
+    printf("Malloc CP error\n");
+    return EGADS_MALLOC;
+  }
+#endif
   
   for (k = 0; k < 6; k++) deriv[k] = 0.0;
   
@@ -505,15 +706,32 @@ EG_bezierPCDeriv(int *ivec, double *data, double t, double *deriv)
     if (!stat) return EGADS_GEOMERR;
     
   }
+  
+#ifdef __CUDA_ARCH__
+  free(CP);
+  free(T);
+  free(S);
+  free(Q);
+#endif
   return EGADS_SUCCESS;
 }
 
 
-static void
+__HOST_AND_DEVICE__ static void
 deCasteljau(double *P, int n, double u, double *C)
 {
   int    i, k;
+#ifndef __CUDA_ARCH__
   double Q[3*MAXDEG+3];
+#else
+  double *Q;
+
+  Q = (double *) malloc((3*MAXDEG+3)*sizeof(double));
+  if (Q == NULL) {
+    printf("Malloc Q error\n");
+    return;
+  }
+#endif
   
   Q[0] = Q[1] = Q[2] = 0.0;
   for (i = 0; i <= n; i++) {
@@ -532,14 +750,33 @@ deCasteljau(double *P, int n, double u, double *C)
   C[0] = Q[0];
   C[1] = Q[1];
   C[2] = Q[2];
+
+#ifdef __CUDA_ARCH__
+  free(Q);
+#endif
 }
 
 
-static void
+__HOST_AND_DEVICE__ static void
 deCasteljauD1(double *P, int n, double u, double *C)
 {
   int    i, k;
+#ifndef __CUDA_ARCH__
   double Q[3*MAXDEG], S[3*MAXDEG];
+#else
+  double *Q, *S;
+
+  Q = (double *) malloc((3*MAXDEG)*sizeof(double));
+  if (Q == NULL) {
+    printf("Malloc Q error\n");
+    return;
+  }
+  S = (double *) malloc((3*MAXDEG)*sizeof(double));
+  if (S == NULL) {
+    printf("Malloc S error\n");
+    return;
+  }
+#endif
   
   Q[0] = Q[1] = Q[2] = 0.0;
   S[0] = S[1] = S[2] = 0.0;
@@ -565,14 +802,39 @@ deCasteljauD1(double *P, int n, double u, double *C)
   C[0] = n*(S[0] - Q[0]);
   C[1] = n*(S[1] - Q[1]);
   C[2] = n*(S[2] - Q[2]);
+
+#ifdef __CUDA_ARCH__
+  free(S);
+  free(Q);
+#endif
 }
 
 
-static void
+__HOST_AND_DEVICE__ static void
 deCasteljauD2(double *P, int n, double u, double *C)
 {
   int    i, k;
+#ifndef __CUDA_ARCH__
   double Q[3*MAXDEG-3], S[3*MAXDEG-3], T[3*MAXDEG-3];
+#else
+  double *Q, *S, *T;
+
+  Q = (double *) malloc((3*MAXDEG-3)*sizeof(double));
+  if (Q == NULL) {
+    printf("Malloc Q error\n");
+    return;
+  }
+  S = (double *) malloc((3*MAXDEG-3)*sizeof(double));
+  if (S == NULL) {
+    printf("Malloc S error\n");
+    return;
+  }
+  T = (double *) malloc((3*MAXDEG-3)*sizeof(double));
+  if (T == NULL) {
+    printf("Malloc T error\n");
+    return;
+  }
+#endif
   
   C[0] = C[1] = C[2] = 0.0;
   if (n <= 1) return;
@@ -605,15 +867,46 @@ deCasteljauD2(double *P, int n, double u, double *C)
   C[0] = n*(n-1)*(T[0] - 2.0*S[0] + Q[0]);
   C[1] = n*(n-1)*(T[1] - 2.0*S[1] + Q[1]);
   C[2] = n*(n-1)*(T[2] - 2.0*S[2] + Q[2]);
+
+#ifdef __CUDA_ARCH__
+  free(T);
+  free(S);
+  free(Q);
+#endif
 }
 
 
-static int
+__HOST_AND_DEVICE__ static int
 EG_bezier1dDeriv(int *ivec, double *data, double t, double *deriv)
 {
   bool   stat;
   int    i, k, degree;
+#ifndef __CUDA_ARCH__
   double Q[3*MAXDEG+3], S[3*MAXDEG], T[3*MAXDEG-3], CP[4*MAXDEG+4], *w;
+#else
+  double *Q, *S, *T, *CP, *w;
+
+  Q = (double *) malloc((3*MAXDEG+3)*sizeof(double));
+  if (Q == NULL) {
+    printf("Malloc Q error\n");
+    return EGADS_MALLOC;
+  }
+  S = (double *) malloc((3*MAXDEG)*sizeof(double));
+  if (S == NULL) {
+    printf("Malloc S error\n");
+    return EGADS_MALLOC;
+  }
+  T = (double *) malloc((3*MAXDEG-3)*sizeof(double));
+  if (T == NULL) {
+    printf("Malloc T error\n");
+    return EGADS_MALLOC;
+  }
+  CP = (double *) malloc((4*MAXDEG+4)*sizeof(double));
+  if (CP == NULL) {
+    printf("Malloc CP error\n");
+    return EGADS_MALLOC;
+  }
+#endif
   
   for (k = 0; k < 9; k++) deriv[k] = 0.0;
   
@@ -714,15 +1007,42 @@ EG_bezier1dDeriv(int *ivec, double *data, double t, double *deriv)
     if (!stat) return EGADS_GEOMERR;
 
   }
+  
+#ifdef __CUDA_ARCH__
+  free(CP);
+  free(T);
+  free(S);
+  free(Q);
+#endif
   return EGADS_SUCCESS;
 }
 
 
-static int
+__HOST_AND_DEVICE__ static int
 EG_bezier2dDeriv(int *ivec, double *data, const double *uv, double *deriv)
 {
   int    i, j, n, m, header[7];
+#ifndef __CUDA_ARCH__
   double Q[3*MAXDEG+3], P[3*MAXDEG+3], D[2*MAXDEG+4+4*(MAXDEG+1)*(MAXDEG+1)];
+#else
+  double *Q, *P, *D;
+
+  Q = (double *) malloc((3*MAXDEG+3)*sizeof(double));
+  if (Q == NULL) {
+    printf("Malloc Q error\n");
+    return EGADS_MALLOC;
+  }
+  P = (double *) malloc((3*MAXDEG+3)*sizeof(double));
+  if (P == NULL) {
+    printf("Malloc P error\n");
+    return EGADS_MALLOC;
+  }
+  D = (double *) malloc((2*MAXDEG+4+4*(MAXDEG+1)*(MAXDEG+1))*sizeof(double));
+  if (D == NULL) {
+    printf("Malloc D error\n");
+    return EGADS_MALLOC;
+  }
+#endif
   
   for (j = 0; j < 18; j++) deriv[j] = 0.0;
   
@@ -849,11 +1169,16 @@ EG_bezier2dDeriv(int *ivec, double *data, const double *uv, double *deriv)
     
   }
   
+#ifdef __CUDA_ARCH__
+  free(D);
+  free(P);
+  free(P);
+#endif
   return EGADS_SUCCESS;
 }
 
 
-static void
+__HOST_AND_DEVICE__ static void
 EG_rotatePC(double *axes, double *data, double *result)
 {
   result[0] = data[0]*axes[2] + data[1]*axes[4] + axes[0];
@@ -865,7 +1190,7 @@ EG_rotatePC(double *axes, double *data, double *result)
 }
 
 
-static void
+__HOST_AND_DEVICE__ static void
 EG_rotate2D(double *axes, double *data, double *result)
 {
   double zaxis[3], *xaxis, *yaxis;
@@ -885,7 +1210,7 @@ EG_rotate2D(double *axes, double *data, double *result)
 }
 
 
-static void
+__HOST_AND_DEVICE__ static void
 EG_rotate3D(double *axes, double *data, double *result)
 {
   result[ 0] = data[ 0]*axes[3] + data[ 1]*axes[6] + data[ 2]*axes[ 9] + axes[0];
@@ -909,7 +1234,7 @@ EG_rotate3D(double *axes, double *data, double *result)
 }
 
 
-static int
+__HOST_AND_DEVICE__ static int
 EG_evaluateGeomX(const egObject *geomx, const double *param, double *result)
 {
   int            i, stat;
@@ -1261,7 +1586,7 @@ recurse:
  *     used by EG_eval3deriv to avoid recursion
  */
 
-static int
+__HOST_AND_DEVICE__ static int
 EG_eval3derivZ(const egObject *geom, const double *param, double *result)
 {
   int    stat;
@@ -1334,7 +1659,7 @@ EG_eval3derivZ(const egObject *geom, const double *param, double *result)
 }
 
 
-static int
+__HOST_AND_DEVICE__ static int
 EG_evaluateGeomZ(const egObject *geom, const double *param, double *result)
 {
   int          stat;
@@ -1690,7 +2015,7 @@ EG_evaluateGeomZ(const egObject *geom, const double *param, double *result)
  *     for now use finite differences -- later should be made analytic!
  */
 
-static int
+__HOST_AND_DEVICE__ static int
 EG_eval3deriv(const egObject *geom, const double *param, double *result)
 {
   int    stat;
@@ -1763,7 +2088,7 @@ EG_eval3deriv(const egObject *geom, const double *param, double *result)
 }
 
 
-int
+__HOST_AND_DEVICE__ int
 EG_evaluateGeom(const egObject *geom, const double *param, double *result)
 {
   int          stat;
@@ -2114,7 +2439,7 @@ EG_evaluateGeom(const egObject *geom, const double *param, double *result)
 }
 
 
-static int
+__HOST_AND_DEVICE__ static int
 EG_nearestOnPCurve(const egObject *geom, const double *coor, double *range,
                    double *t, double *uv)
 {
@@ -2170,7 +2495,7 @@ EG_nearestOnPCurve(const egObject *geom, const double *coor, double *range,
 }
 
 
-static int
+__HOST_AND_DEVICE__ static int
 EG_nearestOnCurve(const egObject *geom, const double *coor, double *range,
                   double *t, double *xyz)
 {
@@ -2228,7 +2553,7 @@ EG_nearestOnCurve(const egObject *geom, const double *coor, double *range,
 }
 
 
-static int
+__HOST_AND_DEVICE__ static int
 EG_nearestOnSurface(const egObject *geom, const double *point, double *uv,
                     double *coor)
 {
@@ -2319,7 +2644,7 @@ EG_nearestOnSurface(const egObject *geom, const double *point, double *uv,
 }
 
 
-static int
+__HOST_AND_DEVICE__ static int
 EG_nearestOnPCurveLM(const egObject *geom, const double *point, double *range,
                      double *t, double *coor)
 {
@@ -2387,7 +2712,7 @@ EG_nearestOnPCurveLM(const egObject *geom, const double *point, double *range,
 }
 
 
-static int
+__HOST_AND_DEVICE__ static int
 EG_nearestOnCurveLM(const egObject *geom, const double *point, double *range,
                     double *t, double *coor)
 {
@@ -2461,7 +2786,7 @@ EG_nearestOnCurveLM(const egObject *geom, const double *point, double *range,
 }
 
 
-static int
+__HOST_AND_DEVICE__ static int
 EG_nearestOnSurfaceLM(const egObject *geom, const double *point, double *uv,
                       double *coor)
 {
@@ -2551,7 +2876,7 @@ EG_nearestOnSurfaceLM(const egObject *geom, const double *point, double *uv,
 }
 
 
-static void
+__HOST_AND_DEVICE__ static void
 EG_orderCandidates(liteIndex *cand, double dist2, double *uv, int i, int j)
 {
   if (dist2 >= cand[3].dist2) return;
@@ -2590,7 +2915,7 @@ EG_orderCandidates(liteIndex *cand, double dist2, double *uv, int i, int j)
 }
 
 
-int
+__HOST_AND_DEVICE__ int
 EG_invEvaGeomLimits(const egObject *geomx, /*@null@*/ const double *limits,
                     const double *xyz, double *param, double toler,
                     double *result)
@@ -2678,7 +3003,7 @@ EG_invEvaGeomLimits(const egObject *geomx, /*@null@*/ const double *limits,
       k    = lgeom->header[1];
       stat = EG_attributeRet(geom, ".Bad", &atype, &ulen, &ints, &reals, &str);
       if ((stat == EGADS_SUCCESS) && (atype == ATTRSTRING))
-        if (strcmp(str, "fold") == 0) k *= 2;
+        if (EG_strncmp(str, "fold", 4) == 0) k *= 2;
       for (j = i = 1; i < lgeom->header[3]; i++) {
         if (lgeom->data[i-1] <  range[0])       continue;
         if (lgeom->data[i-1] == lgeom->data[i]) continue;
@@ -2793,16 +3118,6 @@ EG_invEvaGeomLimits(const egObject *geomx, /*@null@*/ const double *limits,
       *param    = tx;
       result[0] = data[0];
       result[1] = data[1];
-    }
-    /* this probably does nothing due to the range limiting */
-    if ((per&1) != 0) {
-      period = srange[1] - srange[0];
-      if ((*param+PARAMACC < srange[0]) || (*param-PARAMACC > srange[1]))
-        if (*param+PARAMACC < srange[0]) {
-          if (*param+period-PARAMACC < srange[1]) *param += period;
-        } else {
-          if (*param-period+PARAMACC > srange[0]) *param -= period;
-        }
     }
     
   } else if (geom->oclass == CURVE) {
@@ -2946,16 +3261,6 @@ EG_invEvaGeomLimits(const egObject *geomx, /*@null@*/ const double *limits,
       result[0] = data[0];
       result[1] = data[1];
       result[2] = data[2];
-    }
-    /* this probably does nothing due to the range limiting */
-    if ((per&1) != 0) {
-      period = srange[1] - srange[0];
-      if ((*param+PARAMACC < srange[0]) || (*param-PARAMACC > srange[1]))
-        if (*param+PARAMACC < srange[0]) {
-          if (*param+period-PARAMACC < srange[1]) *param += period;
-        } else {
-          if (*param-period+PARAMACC > srange[0]) *param -= period;
-        }
     }
 
   } else {
@@ -3313,7 +3618,7 @@ EG_invEvaGeomLimits(const egObject *geomx, /*@null@*/ const double *limits,
 }
 
 
-int
+__HOST_AND_DEVICE__ int
 EG_invEvaluateGeomGuess(const egObject *geom, /*@null@*/ const double *limits,
                         double *xyz, double *param, double *result)
 {
@@ -3355,7 +3660,7 @@ EG_invEvaluateGeomGuess(const egObject *geom, /*@null@*/ const double *limits,
 }
 
 
-static int
+__HOST_AND_DEVICE__ static int
 EG_inFace3D(const egObject *face, const double *uv, /*@null@*/ double *p,
             /*@null@*/ double *uvx)
 {
@@ -3535,7 +3840,7 @@ EG_inFace3D(const egObject *face, const double *uv, /*@null@*/ double *p,
 }
 
 
-int
+__HOST_AND_DEVICE__ int
 EG_inFaceX(const egObject *face, const double *uva, /*@null@*/ double *pt,
            /*@null@*/ double *uvx)
 {
@@ -3858,7 +4163,7 @@ EG_inFaceX(const egObject *face, const double *uva, /*@null@*/ double *pt,
 }
 
 
-static int
+__HOST_AND_DEVICE__ static int
 EG_getPerpDir(double *norm, egObject *edge, int sense, double t, double *dir)
 {
   int    stat;
@@ -3880,7 +4185,7 @@ EG_getPerpDir(double *norm, egObject *edge, int sense, double t, double *dir)
 }
 
 
-int
+__HOST_AND_DEVICE__ int
 EG_getWindingAngle(egObject *edge, double t, double *angle)
 {
   int      i, j, k, n, stat, cx, nface, oclass, mtype, nloop, sense, *senses;

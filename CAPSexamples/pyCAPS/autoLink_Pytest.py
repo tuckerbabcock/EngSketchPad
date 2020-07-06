@@ -72,7 +72,8 @@ def combineDrag(myProblem):
 myProblem = pyCAPS.capsProblem()
 
 # Load geometry
-myGeometry = myProblem.loadCAPS("../csmData/linearAero.csm", verbosity=args.verbosity)
+geometryScript = os.path.join("..","csmData","linearAero.csm")
+myGeometry = myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 
 # Set verbosity to minimal
 myProblem.setVerbosity("minimal")

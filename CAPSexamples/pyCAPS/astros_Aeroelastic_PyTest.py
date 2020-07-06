@@ -33,7 +33,8 @@ args = parser.parse_args()
 myProblem = capsProblem()
 
 # Load CSM file
-myProblem.loadCAPS("../csmData/feaWingBEMAero.csm", verbosity=args.verbosity)
+geometryScript = os.path.join("..","csmData","feaWingBEMAero.csm")
+myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 
 # Load astros aim
 myProblem.loadAIM(aim = "astrosAIM",

@@ -1273,6 +1273,7 @@ int  fun3d_writeParameterization(void *aimInfo,
 
     // Determine number of geometry input variables
     for (i = 0; i < numGeomIn; i++) {
+        if(aim_getGeomInType(aimInfo, i+1) == EGADS_OUTSIDE) continue;
 
         numOutVariable += 3*geomInVal[i].length; // xD1, yD1, zD1, ...
     }
@@ -1430,6 +1431,7 @@ int  fun3d_writeParameterization(void *aimInfo,
         // Loop over the geometry in values
         m = 4;
         for (j = 0; j < numGeomIn; j++) {
+            if(aim_getGeomInType(aimInfo, j+1) == EGADS_OUTSIDE) continue;
 
             status = aim_getName(aimInfo, j+1, GEOMETRYIN, &geomInName);
             if (status != CAPS_SUCCESS) goto cleanup;
@@ -1508,7 +1510,7 @@ int  fun3d_writeParameterization(void *aimInfo,
 
                             for (k = 0; k < 3*numPoint; k++) xyz[k] = 0.0;
 
-                            printf("Warning: Sensitivity not found %s, defaulting to 0.0s\n", geomInName);
+                            printf("Warning: Sensitivity not found for %s, defaulting to 0.0s\n", geomInName);
 
                         } else if (status != CAPS_SUCCESS) {
 
@@ -1657,6 +1659,7 @@ int fun3d_writeRubber(void *aimInfo,
 
     // Determine number of geometry input variables
     for (i = 0; i < numGeomIn; i++) {
+        if(aim_getGeomInType(aimInfo, i+1) == EGADS_OUTSIDE) continue;
 
         numShapeVar += geomInVal[i].length; // xD1, yD1, zD1, ...
     }
@@ -1743,6 +1746,7 @@ int fun3d_writeRubber(void *aimInfo,
 
         m = 1;
         for (j = 0; j < numGeomIn; j++) {
+            if(aim_getGeomInType(aimInfo, j+1) == EGADS_OUTSIDE) continue;
             for (k = 0; k < geomInVal[j].length; k++ ) {
 
                 if (geomInVal[j].length == 1) {
@@ -1809,6 +1813,7 @@ int fun3d_writeRubber(void *aimInfo,
         fprintf(fp, "Current derivatives of function wrt shape design variables of body %d\n", i+1);
 
         for (j = 0; j < numGeomIn; j++) {
+            if(aim_getGeomInType(aimInfo, j+1) == EGADS_OUTSIDE) continue;
             for (k = 0; k < geomInVal[j].length; k++ ) {
                 fprintf(fp, "0.000000000000000\n");
             }

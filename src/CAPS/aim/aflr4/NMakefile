@@ -31,6 +31,8 @@ EGADS_AFLR4_OBJS = $(ODIR)\egads_aflr4_version.obj \
 				$(ODIR)\egads_cad_geom_add_attr.obj \
 				$(ODIR)\egads_cad_geom_add_ff.obj \
 				$(ODIR)\egads_cad_geom_data_cleanup.obj \
+				$(ODIR)\egads_cad_geom_edge2face.obj \
+				$(ODIR)\egads_cad_geom_face2face.obj \
 				$(ODIR)\egads_cad_geom_file_read.obj \
 				$(ODIR)\egads_cad_geom_file_write.obj \
 				$(ODIR)\egads_cad_geom_setup.obj \
@@ -69,8 +71,8 @@ $(ODIR)\aflr4_Interface.obj:	aflr4_Interface.c ..\utils\meshUtils.h
 {$(AFLR)\src\egads_aflr4\}.c{$(ODIR)}.obj::
 	cl /c $(CPPOPT) /W0 /Fo"$(ODIR)"\ /Dstrcasecmp=stricmp -I$(IDIR) -I$(AFLR4)\src\egads_aflr4 $<
 
-$(LDIR)\AFLR.dll: $(AFLR)\$(AFLR_ARCH)\bin\dlib\AFLR.dll
-	xcopy /Q /Y $(AFLR)\$(AFLR_ARCH)\bin\dlib\AFLR.dll $(LDIR)
+$(LDIR)\AFLR.dll: $(AFLR)\$(AFLR_ARCH)\bin\AFLR.dll
+	xcopy /Q /Y $(AFLR)\$(AFLR_ARCH)\bin\AFLR.dll $(LDIR)
 
 clear_version:
 	-del $(ODIR)\aflr4_version.exe

@@ -849,9 +849,8 @@ aimCalcOutput(/*@unused@*/ int iIndex, /*@unused@*/ void *aimInfo, const char *a
 
   /* scan the file for the string */
   valstr = NULL;
-/*@-unrecog@*/
   while (getline(&line, &linecap, fp) >= 0) {
-/*@+unrecog@*/
+    if (line == NULL) continue;
     valstr = strstr(line, start[index-1]);
     if (valstr != NULL) {
       if (index > 6) {

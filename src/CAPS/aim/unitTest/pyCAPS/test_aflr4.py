@@ -19,7 +19,7 @@ class TestAFLR4(unittest.TestCase):
         cls.workDir = "workDir_aflr4Test"
 
         # Load CSM file
-        cls.myGeometry = cls.myProblem.loadCAPS("../csmData/cornerGeom.csm")
+        cls.myGeometry = cls.myProblem.loadCAPS(os.path.join("..","csmData","cornerGeom.csm"))
 
     @classmethod
     def tearDownClass(cls):
@@ -33,7 +33,7 @@ class TestAFLR4(unittest.TestCase):
 
     def test_invalid_Mesh_Lenght_Scale(self):
 
-        file = "../csmData/cfdSingleBody.csm"
+        file = os.path.join("..","csmData","cfdSingleBody.csm")
         myProblem = pyCAPS.capsProblem()
 
         myGeometry = myProblem.loadCAPS(file)
@@ -57,7 +57,7 @@ class TestAFLR4(unittest.TestCase):
 
     def test_setAnalysisVals(self):
 
-        file = "../csmData/cfdSingleBody.csm"
+        file = os.path.join("..","csmData","cfdSingleBody.csm")
         myProblem = pyCAPS.capsProblem()
 
         myGeometry = myProblem.loadCAPS(file)
@@ -69,8 +69,8 @@ class TestAFLR4(unittest.TestCase):
         myAnalysis.setAnalysisVal("Mesh_Quiet_Flag", True)
         myAnalysis.setAnalysisVal("Mesh_Format", "Tecplot")
         myAnalysis.setAnalysisVal("Mesh_ASCII_Flag", True)
-        myAnalysis.setAnalysisVal("Mesh_Gen_Input_String", "ff_nseg 10")
-        myAnalysis.setAnalysisVal("ff_nseg", 10)
+        myAnalysis.setAnalysisVal("Mesh_Gen_Input_String", "auto_mode=0")
+        myAnalysis.setAnalysisVal("ff_cdfr", 1.4)
         myAnalysis.setAnalysisVal("min_ncell", 20)
         myAnalysis.setAnalysisVal("no_prox", True)
         myAnalysis.setAnalysisVal("abs_min_scale", 0.01)
@@ -81,9 +81,9 @@ class TestAFLR4(unittest.TestCase):
         myAnalysis.setAnalysisVal("Mesh_Length_Factor", 1.05)
         myAnalysis.setAnalysisVal("erw_all", 0.7)
 
-    def test_SingleBody(self):
+    def test_SingleBody_AnalysisOutVal(self):
 
-        file = "../csmData/cfdSingleBody.csm"
+        file = os.path.join("..","csmData","cfdSingleBody.csm")
         myProblem = pyCAPS.capsProblem()
 
         myGeometry = myProblem.loadCAPS(file)
@@ -94,11 +94,18 @@ class TestAFLR4(unittest.TestCase):
         # Run
         myAnalysis.preAnalysis()
         myAnalysis.postAnalysis()
+        
+        # Assert AnalysisOutVals
+        self.assertTrue(myAnalysis.getAnalysisOutVal("Done"))
 
+        numNodes = myAnalysis.getAnalysisOutVal("NumberOfNode")
+        self.assertGreater(numNodes, 0)
+        numElements = myAnalysis.getAnalysisOutVal("NumberOfElement")
+        self.assertGreater(numElements, 0)
 
     def test_MultiBody(self):
 
-        file = "../csmData/cfdMultiBody.csm"
+        file = os.path.join("..","csmData","cfdMultiBody.csm")
         myProblem = pyCAPS.capsProblem()
 
         myGeometry = myProblem.loadCAPS(file)
@@ -112,7 +119,7 @@ class TestAFLR4(unittest.TestCase):
 
     def test_reenter(self):
 
-        file = "../csmData/cfdSingleBody.csm"
+        file = os.path.join("..","csmData","cfdSingleBody.csm")
         myProblem = pyCAPS.capsProblem()
 
         myGeometry = myProblem.loadCAPS(file)
@@ -142,7 +149,7 @@ class TestAFLR4(unittest.TestCase):
 
         aflr4.setAnalysisVal("max_scale", 0.5)
         aflr4.setAnalysisVal("min_scale", 0.1)
-        aflr4.setAnalysisVal("ff_nseg", 10)
+        aflr4.setAnalysisVal("ff_cdfr", 1.4)
 
         # Just make sure it runs without errors...
         aflr4.preAnalysis()
@@ -157,7 +164,7 @@ class TestAFLR4(unittest.TestCase):
 
         aflr4.setAnalysisVal("max_scale", 0.5)
         aflr4.setAnalysisVal("min_scale", 0.1)
-        aflr4.setAnalysisVal("ff_nseg", 10)
+        aflr4.setAnalysisVal("ff_cdfr", 1.4)
 
         # Just make sure it runs without errors...
         aflr4.preAnalysis()
@@ -172,7 +179,7 @@ class TestAFLR4(unittest.TestCase):
 
         aflr4.setAnalysisVal("max_scale", 0.5)
         aflr4.setAnalysisVal("min_scale", 0.1)
-        aflr4.setAnalysisVal("ff_nseg", 10)
+        aflr4.setAnalysisVal("ff_cdfr", 1.4)
 
         # Just make sure it runs without errors...
         aflr4.preAnalysis()
@@ -187,7 +194,7 @@ class TestAFLR4(unittest.TestCase):
 
         aflr4.setAnalysisVal("max_scale", 0.5)
         aflr4.setAnalysisVal("min_scale", 0.1)
-        aflr4.setAnalysisVal("ff_nseg", 10)
+        aflr4.setAnalysisVal("ff_cdfr", 1.4)
 
         # Just make sure it runs without errors...
         aflr4.preAnalysis()
@@ -204,7 +211,7 @@ class TestAFLR4(unittest.TestCase):
 
         aflr4.setAnalysisVal("max_scale", 0.5)
         aflr4.setAnalysisVal("min_scale", 0.1)
-        aflr4.setAnalysisVal("ff_nseg", 10)
+        aflr4.setAnalysisVal("ff_cdfr", 1.4)
 
         # Just make sure it runs without errors...
         aflr4.preAnalysis()
@@ -221,7 +228,24 @@ class TestAFLR4(unittest.TestCase):
 
         aflr4.setAnalysisVal("max_scale", 0.5)
         aflr4.setAnalysisVal("min_scale", 0.1)
-        aflr4.setAnalysisVal("ff_nseg", 10)
+        aflr4.setAnalysisVal("ff_cdfr", 1.4)
+
+        # Just make sure it runs without errors...
+        aflr4.preAnalysis()
+        aflr4.postAnalysis()
+
+        #aflr4.viewGeometry()
+
+    def test_bullet(self):
+
+        # Load aflr4 aim
+        aflr4 = self.myProblem.loadAIM(aim = "aflr4AIM",
+                                           analysisDir = self.workDir + "Bullet",
+                                           capsIntent = ["bullet", "farfield"])
+
+        aflr4.setAnalysisVal("max_scale", 0.5)
+        aflr4.setAnalysisVal("min_scale", 0.1)
+        aflr4.setAnalysisVal("ff_cdfr", 1.4)
 
         # Just make sure it runs without errors...
         aflr4.preAnalysis()
@@ -238,7 +262,7 @@ class TestAFLR4(unittest.TestCase):
 
         aflr4.setAnalysisVal("max_scale", 0.5)
         aflr4.setAnalysisVal("min_scale", 0.1)
-        aflr4.setAnalysisVal("ff_nseg", 10)
+        aflr4.setAnalysisVal("ff_cdfr", 1.4)
 
         # Just make sure it runs without errors...
         aflr4.preAnalysis()

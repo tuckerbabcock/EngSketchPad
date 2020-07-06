@@ -1323,10 +1323,10 @@ sket.keyPress = function (e) {
             var ibeg = npnt - 1;
             var iend = 0;
 
-            // if this point is within halo of last point, reject it
+            // if this point is within halo of previous point, reject it
             if (Math.abs(sket.pnt.x[npnt-1]-xnew) < sket.halo &&
                 Math.abs(sket.pnt.y[npnt-1]-ynew) < sket.halo   ) {
-                postMessage("cannot create zero-length line segment");
+                postMessage("cannot create zero-length line segment\n use \"Z\" command instead");
                 return;
             }
 
@@ -1387,7 +1387,7 @@ sket.keyPress = function (e) {
             var ibeg = npnt - 1;
             var iend = 0;
 
-            // if this point is within halo of last point, reject it
+            // if this point is within halo of previous point, reject it
             if (Math.abs(sket.pnt.x[npnt-1]-xnew) < sket.halo &&
                 Math.abs(sket.pnt.y[npnt-1]-ynew) < sket.halo   ) {
                 postMessage("cannot create zero-length circular arc");
@@ -1436,7 +1436,7 @@ sket.keyPress = function (e) {
             var ibeg = npnt - 1;
             var iend = 0;
 
-            // if this point is within halo of last point, reject it
+            // if this point is within halo of previous point, reject it
             if (Math.abs(sket.pnt.x[npnt-1]-xnew) < sket.halo &&
                 Math.abs(sket.pnt.y[npnt-1]-ynew) < sket.halo   ) {
                 postMessage("cannot create zero-length spline segment");

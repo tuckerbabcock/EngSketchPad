@@ -80,11 +80,6 @@
 /*                                                                     */
 /***********************************************************************/
 
-#ifdef DEBUG
-   #define DOPEN {if (dbg_fp == NULL) dbg_fp = fopen("serveCSM.dbg", "w");}
-   static  FILE *dbg_fp=NULL;
-#endif
-
 static void *realloc_temp=NULL;            /* used by RALLOC macro */
 
 #define  RED(COLOR)      (float)(COLOR / 0x10000        ) / (float)(255)
@@ -250,6 +245,7 @@ static int        onormal    = 0;      /* =1 to use orthonormal (not perspective
 static int        outLevel   = 1;      /* default output level */
 static int        plotCP     = 0;      /* =1 to plot Bspline control polygons */
 static int        plugs      =-1;      /* >= 0 to run plugs for specified number of passes */
+static int        printStack = 0;      /* =1 to print stack after every command */
 static int        sensTess   = 0;      /* =1 for tessellation sensitivities */
 static int        skipBuild  = 0;      /* =1 to skip initial build */
 static int        skipTess   = 0;      /* -1 to skip tessellation at end of build */
@@ -260,7 +256,7 @@ static char       *despname  = NULL;   /* name of DESPMTRs file */
 static char       *dictname  = NULL;   /* name of dictionary file */
 static char       *ptrbname  = NULL;   /* name of peerturbation file */
 static char       *eggname   = NULL;   /* name of external grid generator */
-static char       *plotname  = NULL;   /* name of plotdata file */
+static char       *plotfile  = NULL;   /* name of plotdata file */
 static char       *BDFname   = NULL;   /* name of BDF file to plot */
 
 /* global variables associated with graphical user interface (gui) */
@@ -327,7 +323,7 @@ static int        buildSceneGraphBody(int ibody);
 static void       cleanupMemory(int quiet);
 static int        getToken(char *text, int nskip, char sep, char *token);
 static int        maxDistance(modl_T *MODL1, modl_T *MODL2, int ibody, double *dist);
-static void       processBrowserToServer(char *text);
+static int        processBrowserToServer(char *text);
 static void       spec_col(float scalar, float out[]);
 static int        storeUndo(char *cmd, char *arg);
 
@@ -362,7 +358,7 @@ main(int       argc,                    /* (in)  number of arguments */
      char      *argv[])                 /* (in)  array  of arguments */
 {
     int       imajor, iminor, status, i, bias, showUsage=0;
-    int       builtTo, buildStatus, nwarn=0;
+    int       builtTo, buildStatus, nwarn=0, plugs_save;
     int       npmtrs, type, nrow, irow, ncol, icol, ii, *ipmtrs=NULL, *irows=NULL, *icols=NULL;
     int       ipmtr, jpmtr, iundo; //, inode, iedge, iface;
     float     fov, zNear, zFar;
@@ -408,7 +404,7 @@ main(int       argc,                    /* (in)  number of arguments */
     MALLOC(dirname,     char, MAX_FILENAME_LEN);
     MALLOC(basename,    char, MAX_FILENAME_LEN);
     MALLOC(eggname,     char, MAX_FILENAME_LEN);
-    MALLOC(plotname,    char, MAX_FILENAME_LEN);
+    MALLOC(plotfile,    char, MAX_FILENAME_LEN);
     MALLOC(BDFname,     char, MAX_FILENAME_LEN);
     MALLOC(text,        char, MAX_STR_LEN     );
 
@@ -421,8 +417,6 @@ main(int       argc,                    /* (in)  number of arguments */
         MALLOC(undo_text[i], char, MAX_NAME_LEN);
     }
 
-    DPRINT0("starting serveCSM");
-
     /* get the flags and casename(s) from the command line */
     casename[ 0] = '\0';
     jrnlname[ 0] = '\0';
@@ -433,7 +427,7 @@ main(int       argc,                    /* (in)  number of arguments */
     ptrbname[ 0] = '\0';
     pmtrname[ 0] = '\0';
     eggname[  0] = '\0';
-    plotname[ 0] = '\0';
+    plotfile[ 0] = '\0';
     BDFname[  0] = '\0';
 
     for (i = 1; i < argc; i++) {
@@ -503,7 +497,7 @@ main(int       argc,                    /* (in)  number of arguments */
             }
         } else if (strcmp(argv[i], "-plot") == 0) {
             if (i < argc-1) {
-                STRNCPY(plotname, argv[++i], MAX_FILENAME_LEN);
+                STRNCPY(plotfile, argv[++i], MAX_FILENAME_LEN);
             } else {
                 showUsage = 1;
                 break;
@@ -517,13 +511,6 @@ main(int       argc,                    /* (in)  number of arguments */
             }
         } else if (strcmp(argv[i], "-plotCP") == 0) {
             plotCP = 1;
-        } else if (strcmp(argv[i], "-port") == 0) {
-            if (i < argc-1) {
-                sscanf(argv[++i], "%d", &port);
-            } else {
-                showUsage = 1;
-                break;
-            }
         } else if (strcmp(argv[i], "-plugs") == 0) {
             if (i < argc-1) {
                 sscanf(argv[++i], "%d", &plugs);
@@ -531,6 +518,15 @@ main(int       argc,                    /* (in)  number of arguments */
                 showUsage = 1;
                 break;
             }
+        } else if (strcmp(argv[i], "-port") == 0) {
+            if (i < argc-1) {
+                sscanf(argv[++i], "%d", &port);
+            } else {
+                showUsage = 1;
+                break;
+            }
+        } else if (strcmp(argv[i], "-printStack") == 0) {
+            printStack = 1;
         } else if (strcmp(argv[i], "-ptrb") == 0) {
             if ( i < argc-1) {
                 STRNCPY(ptrbname, argv[++i], MAX_FILENAME_LEN);
@@ -582,20 +578,26 @@ main(int       argc,                    /* (in)  number of arguments */
         SPRINT0(0, "                        -loadEgads");
         SPRINT0(0, "                        -onormal");
         SPRINT0(0, "                        -outLevel X");
-        SPRINT0(0, "                        -plot plotname");
+        SPRINT0(0, "                        -plot plotfile");
         SPRINT0(0, "                        -plotBDF BDFname");
         SPRINT0(0, "                        -plotCP");
         SPRINT0(0, "                        -plugs npass");
         SPRINT0(0, "                        -port X");
+        SPRINT0(0, "                        -printStack");
         SPRINT0(0, "                        -ptrb ptrbname");
         SPRINT0(0, "                        -sensTess");
         SPRINT0(0, "                        -skipBuild");
         SPRINT0(0, "                        -skipTess");
         SPRINT0(0, "                        -verify");
-        SPRINT0(0, "                        -version  -or-  -v");
+        SPRINT0(0, "                        -version  -or-  -v  -or-  --version");
         SPRINT0(0, "STOPPING...\a");
         status = -998;
         goto cleanup;
+    }
+
+    /* if you specify skipTess, then batch is automatically enabled */
+    if (skipTess == 1) {
+        batch = 1;
     }
 
     /* welcome banner */
@@ -621,10 +623,11 @@ main(int       argc,                    /* (in)  number of arguments */
     SPRINT1(1, "    loadEgads   = %d", loadEgads  );
     SPRINT1(1, "    onormal     = %d", onormal    );
     SPRINT1(1, "    outLevel    = %d", outLevel   );
-    SPRINT1(1, "    plotname    = %s", plotname   );
+    SPRINT1(1, "    plotfile    = %s", plotfile   );
     SPRINT1(1, "    plotBDF     = %s", BDFname    );
     SPRINT1(1, "    plugs       = %d", plugs      );
     SPRINT1(1, "    port        = %d", port       );
+    SPRINT1(1, "    printStack  = %d", printStack );
     SPRINT1(1, "    ptrbname    = %s", ptrbname   );
     SPRINT1(1, "    sensTess    = %d", sensTess   );
     SPRINT1(1, "    skipBuild   = %d", skipBuild  );
@@ -632,6 +635,8 @@ main(int       argc,                    /* (in)  number of arguments */
     SPRINT1(1, "    verify      = %d", verify     );
     SPRINT1(1, "    ESP_ROOT    = %s", getenv("ESP_ROOT"));
     SPRINT0(1, " ");
+
+    plugs_save = plugs;
 
     /* set OCSMs output level */
     (void) ocsmSetOutLevel(outLevel);
@@ -774,6 +779,7 @@ main(int       argc,                    /* (in)  number of arguments */
     if (verify == 1 && pendingError == 0) {
         old_time = clock();
         status   = ocsmLoad(vrfyname, &modl);
+        MODL = (modl_T*)modl;
         new_time = clock();
         SPRINT3(1, "--> ocsmLoad(%s) -> status=%d (%s)", vrfyname, status, ocsmGetText(status));
         SPRINT1(1, "==> ocsmLoad CPUtime=%9.3f sec",
@@ -975,12 +981,12 @@ main(int       argc,                    /* (in)  number of arguments */
         char    templine[128];
 
         /* make sure that there is a plotfile */
-        plot_fp = fopen(plotname, "r");
+        plot_fp = fopen(plotfile, "r");
         if (plot_fp == NULL) {
-            SPRINT1(0, "ERROR:: plotfile \"%s\" does not exist", plotname);
+            SPRINT1(0, "ERROR:: plotfile \"%s\" does not exist", plotfile);
             goto cleanup;
         } else {
-            SPRINT1(1, "Running PLUGS for points in \"%s\"", plotname);
+            SPRINT1(1, "Running PLUGS for points in \"%s\"", plotfile);
         }
 
         /* read the header */
@@ -1072,14 +1078,26 @@ main(int       argc,                    /* (in)  number of arguments */
                     }
                 }
 
-                processBrowserToServer(text);
+                status = processBrowserToServer(text);
                 MODL = (modl_T*)modl;
+
+                if (status < SUCCESS) {
+                    fclose(jrnl_in);
+                    goto cleanup;
+                }
             }
 
             fclose(jrnl_in);
 
             SPRINT0(0, "\n==> Closing input journal file\n");
         }
+    }
+
+    if (plugs_save >= 0 && MODL->sigCode < SUCCESS) {
+        SPRINT2(0, "ERROR:: build not completed because error %d (%s) was detected",
+                MODL->sigCode, ocsmGetText(MODL->sigCode));
+        status = MODL->sigCode;
+        goto cleanup;
     }
 
     /* if discrete displacement surfaces are specified, apply them now */
@@ -1416,7 +1434,7 @@ main(int       argc,                    /* (in)  number of arguments */
     }
 
     /* generate a histogram of the distance of plot points to Brep */
-    if (histDist > 0 && strlen(plotname) == 0) {
+    if (histDist > 0 && strlen(plotfile) == 0) {
         SPRINT0(0, "WARNING:: Cannot choose -histDist without -pnts");
     } else if (histDist > 0) {
         int     imax, jmax, j, iface, atype, alen, count=0;
@@ -1460,12 +1478,12 @@ main(int       argc,                    /* (in)  number of arguments */
         }
 
         /* open the plotfile */
-        fp_plot = fopen(plotname, "r");
+        fp_plot = fopen(plotfile, "r");
         if (fp_plot == NULL) {
-            SPRINT1(0, "ERROR:: pntsfile \"%s\" does not exist", plotname);
+            SPRINT1(0, "ERROR:: pntsfile \"%s\" does not exist", plotfile);
             goto cleanup;
         } else {
-            SPRINT1(1, "Computing distances to \"%s\"", plotname);
+            SPRINT1(1, "Computing distances to \"%s\"", plotfile);
         }
 
         /* open the bad point file */
@@ -1613,7 +1631,7 @@ main(int       argc,                    /* (in)  number of arguments */
         SPRINT1(0, "==> serveCSM completed successfully with %d warnings", nwarn);
     }
 
-    status = 0;
+    status = SUCCESS;
 
 cleanup:
     if (filelist != NULL) free(filelist);
@@ -1634,7 +1652,7 @@ cleanup:
     FREE(undo_modl  );
     FREE(text       );
     FREE(BDFname    );
-    FREE(plotname   );
+    FREE(plotfile   );
     FREE(eggname    );
     FREE(basename   );
     FREE(dirname    );
@@ -1900,7 +1918,7 @@ browserMessage(void    *wsi,
     }
 
     /* process the Message */
-    processBrowserToServer(text);
+    (void) processBrowserToServer(text);
 
     /* send the response */
     SPRINT1(2, "<<< server2browser: %s", response);
@@ -2062,13 +2080,18 @@ buildBodys(int     buildTo,             /* (in)  last Branch to execute */
         }
 
         /* set the verification flag */
-        MODL->verify = verify;
+        if (plugs < 0) {
+            MODL->verify = verify;
+        }
 
         /* set the dumpEgads and loadEgads flags */
         MODL->dumpEgads = dumpEgads;
         MODL->loadEgads = loadEgads;
 
-        /* set the skipp tessellation flag */
+        /* set the printStack flag */
+        MODL->printStack = printStack;
+
+        /* set the skip tessellation flag */
         MODL->tessAtEnd = 1 - skipTess;
 
         /* build the Bodys */
@@ -2180,6 +2203,10 @@ buildBodys(int     buildTo,             /* (in)  last Branch to execute */
             }
         }
     }
+
+    /* disable -loadEgads flag (so that this flag is only enabled
+       for first build (at the most) */
+    loadEgads = 0;
 
     // this is different from gmgwCSM
     if (batch == 0) {
@@ -2460,7 +2487,7 @@ buildSceneGraph()
                 nitems++;
 
                 /* loop through the patches and build up the triangle and
-                   segment tables */
+                   segment tables (bias-1) */
                 ntri = 0;
                 nseg = 0;
 
@@ -2563,7 +2590,7 @@ buildSceneGraph()
                 segs = (int*) malloc(2*nseg*sizeof(int));
                 if (segs == NULL) goto cleanup;
 
-                /* create segments between Triangles (but not within the pair) */
+                /* create segments between Triangles (but not within the pair) (bias-1) */
                 nseg = 0;
                 for (itri = 0; itri < ntri; itri++) {
                     if (tric[3*itri  ] < itri+2) {
@@ -2628,7 +2655,7 @@ buildSceneGraph()
                 wv_adjustVerts(&(items[nitems]), sgFocus);
                 nitems++;
 
-                /* loop through the triangles and build up the segment table */
+                /* loop through the triangles and build up the segment table (bias-1) */
                 nseg = 0;
                 for (itri = 0; itri < ntri; itri++) {
                     for (k = 0; k < 3; k++) {
@@ -2949,6 +2976,7 @@ buildSceneGraph()
                     }
                     spec_col((float)(rcurv), &(pcolors[3*ipnt]));
                 }
+
                 status = wv_setData(WV_REAL32, npnt, (void*)pcolors, WV_COLORS, &(items[nitems]));
                 if (status != SUCCESS) {
                     SPRINT3(0, "ERROR:: wv_setData(%d,%d) -> status=%d", ibody, iface, status);
@@ -2989,6 +3017,7 @@ buildSceneGraph()
                     }
                     spec_col((float)(rcurv), &(pcolors[3*ipnt]));
                 }
+
                 status = wv_setData(WV_REAL32, npnt, (void*)pcolors, WV_COLORS, &(items[nitems]));
                 if (status != SUCCESS) {
                     SPRINT3(0, "ERROR:: wv_setData(%d,%d) -> status=%d", ibody, iface, status);
@@ -3078,7 +3107,7 @@ buildSceneGraph()
                         if (segs == NULL) goto cleanup;
                         nseg = 0;
 
-                        /* i=constant lines */
+                        /* i=constant lines (bias-1) */
                         for (i = 0; i < header[2]; i++) {
                             for (j = 0; j < header[5]-1; j++) {
                                 segs[2*nseg  ] = 1 + (i) + (j  ) * header[2];
@@ -3087,7 +3116,7 @@ buildSceneGraph()
                             }
                         }
 
-                        /* j=constant lines */
+                        /* j=constant lines (bias-1) */
                         for (j = 0; j < header[5]; j++) {
                             for (i = 0; i < header[2]-1; i++) {
                                 segs[2*nseg  ] = 1 + (i  ) + (j) * header[2];
@@ -3134,41 +3163,41 @@ buildSceneGraph()
                     goto cleanup;
                 }
 
+//$$$                nitems = 0;
+//$$$
+//$$$                /* name and attributes */
+//$$$                snprintf(gpname, MAX_STRVAL_LEN-1, "PlotPoints: Face_%s:%d_pts", bname, iface);
+//$$$                attrs = WV_ON;
+//$$$
+//$$$                status = wv_setData(WV_REAL64, npnt, (void*)xyz, WV_VERTICES, &(items[nitems]));
+//$$$                if (status != SUCCESS) {
+//$$$                    SPRINT3(0, "ERROR:: wv_setData(%d,%d) -> status=%d", ibody, iface, status);
+//$$$                }
+//$$$
+//$$$                wv_adjustVerts(&(items[nitems]), sgFocus);
+//$$$                nitems++;
+//$$$
+//$$$                /* point color */
+//$$$                color[0] = 0;   color[1] = 0;   color[2] = 0;
+//$$$
+//$$$                status = wv_setData(WV_REAL32, 1, (void*)color, WV_COLORS, &(items[nitems]));
+//$$$                if (status != SUCCESS) {
+//$$$                    SPRINT3(0, "ERROR:: wv_setData(%d,%d) -> status=%d", ibody, iface, status);
+//$$$                }
+//$$$                nitems++;
+//$$$
+//$$$                /* make graphic primitive for points */
+//$$$                igprim = wv_addGPrim(cntxt, gpname, WV_POINT, attrs, nitems, items);
+//$$$                if (igprim < 0) {
+//$$$                    SPRINT2(0, "ERROR:: wv_addGPrim(%s) -> igprim=%d", gpname, igprim);
+//$$$                } else {
+//$$$                    cntxt->gPrims[igprim].pSize = 3.0;
+//$$$                }
+
                 nitems = 0;
 
                 /* name and attributes */
-                snprintf(gpname, MAX_STRVAL_LEN-1, "Face %s:%d points", bname, iface);
-                attrs = WV_ON;
-
-                status = wv_setData(WV_REAL64, npnt, (void*)xyz, WV_VERTICES, &(items[nitems]));
-                if (status != SUCCESS) {
-                    SPRINT3(0, "ERROR:: wv_setData(%d,%d) -> status=%d", ibody, iface, status);
-                }
-
-                wv_adjustVerts(&(items[nitems]), sgFocus);
-                nitems++;
-
-                /* point color */
-                color[0] = 0;   color[1] = 0;   color[2] = 0;
-
-                status = wv_setData(WV_REAL32, 1, (void*)color, WV_COLORS, &(items[nitems]));
-                if (status != SUCCESS) {
-                    SPRINT3(0, "ERROR:: wv_setData(%d,%d) -> status=%d", ibody, iface, status);
-                }
-                nitems++;
-
-                /* make graphic primitive for points */
-                igprim = wv_addGPrim(cntxt, gpname, WV_POINT, attrs, nitems, items);
-                if (igprim < 0) {
-                    SPRINT2(0, "ERROR:: wv_addGPrim(%s) -> igprim=%d", gpname, igprim);
-                } else {
-                    cntxt->gPrims[igprim].pSize = 3.0;
-                }
-
-                nitems = 0;
-
-                /* name and attributes */
-                snprintf(gpname, MAX_STRVAL_LEN-1, "Face %s:%d tufts", bname, iface);
+                snprintf(gpname, MAX_STRVAL_LEN-1, "PlotLine: Face_%d:%d_tufts", ibody, iface);
                 attrs = WV_ON;
 
                 status = ocsmGetTessVel(MODL, ibody, OCSM_FACE, iface, (const double**)(&vel));
@@ -3205,8 +3234,7 @@ buildSceneGraph()
                 nitems++;
 
                 /* tuft color */
-                color[0] = 0;   color[1] = 0;   color[2] = 0;
-
+                color[0] = 0;   color[1] = 0;   color[2] = 1;
                 status = wv_setData(WV_REAL32, 1, (void*)color, WV_COLORS, &(items[nitems]));
                 if (status != SUCCESS) {
                     SPRINT3(0, "ERROR:: wv_setData(%d,%d) -> status=%d", ibody, iface, status);
@@ -3302,7 +3330,7 @@ buildSceneGraph()
             wv_adjustVerts(&(items[nitems]), sgFocus);
             nitems++;
 
-            /* segments */
+            /* segments (bias-1) */
             ivrts = (int*) malloc(2*(npnt-1)*sizeof(int));
             if (ivrts == NULL) goto cleanup;
 
@@ -3392,41 +3420,41 @@ buildSceneGraph()
                     goto cleanup;
                 }
 
+//$$$                nitems = 0;
+//$$$
+//$$$                /* name and attributes */
+//$$$                snprintf(gpname, MAX_STRVAL_LEN-1, "PlotPoints: Edge_%s:%d_pts", bname, iedge);
+//$$$                attrs = WV_ON;
+//$$$
+//$$$                status = wv_setData(WV_REAL64, npnt, (void*)xyz, WV_VERTICES, &(items[nitems]));
+//$$$                if (status != SUCCESS) {
+//$$$                    SPRINT3(0, "ERROR:: wv_setData(%d,%d) -> status=%d", ibody, iedge, status);
+//$$$                }
+//$$$
+//$$$                wv_adjustVerts(&(items[nitems]), sgFocus);
+//$$$                nitems++;
+//$$$
+//$$$                /* point color */
+//$$$                color[0] = 0;   color[1] = 0;   color[2] = 0;
+//$$$
+//$$$                status = wv_setData(WV_REAL32, 1, (void*)color, WV_COLORS, &(items[nitems]));
+//$$$                if (status != SUCCESS) {
+//$$$                    SPRINT3(0, "ERROR:: wv_setData(%d,%d) -> status=%d", ibody, iedge, status);
+//$$$                }
+//$$$                nitems++;
+//$$$
+//$$$                /* make graphic primitive for points */
+//$$$                igprim = wv_addGPrim(cntxt, gpname, WV_POINT, attrs, nitems, items);
+//$$$                if (igprim < 0) {
+//$$$                    SPRINT2(0, "ERROR:: wv_addGPrim(%s) -> igprim=%d", gpname, igprim);
+//$$$                } else {
+//$$$                    cntxt->gPrims[igprim].pSize = 3.0;
+//$$$                }
+
                 nitems = 0;
 
                 /* name and attributes */
-                snprintf(gpname, MAX_STRVAL_LEN-1, "Edge %s:%d points", bname, iedge);
-                attrs = WV_ON;
-
-                status = wv_setData(WV_REAL64, npnt, (void*)xyz, WV_VERTICES, &(items[nitems]));
-                if (status != SUCCESS) {
-                    SPRINT3(0, "ERROR:: wv_setData(%d,%d) -> status=%d", ibody, iedge, status);
-                }
-
-                wv_adjustVerts(&(items[nitems]), sgFocus);
-                nitems++;
-
-                /* point color */
-                color[0] = 0;   color[1] = 0;   color[2] = 0;
-
-                status = wv_setData(WV_REAL32, 1, (void*)color, WV_COLORS, &(items[nitems]));
-                if (status != SUCCESS) {
-                    SPRINT3(0, "ERROR:: wv_setData(%d,%d) -> status=%d", ibody, iedge, status);
-                }
-                nitems++;
-
-                /* make graphic primitive for points */
-                igprim = wv_addGPrim(cntxt, gpname, WV_POINT, attrs, nitems, items);
-                if (igprim < 0) {
-                    SPRINT2(0, "ERROR:: wv_addGPrim(%s) -> igprim=%d", gpname, igprim);
-                } else {
-                    cntxt->gPrims[igprim].pSize = 3.0;
-                }
-
-                nitems = 0;
-
-                /* name and attributes */
-                snprintf(gpname, MAX_STRVAL_LEN-1, "Edge %s:%d tufts", bname, iedge);
+                snprintf(gpname, MAX_STRVAL_LEN-1, "PlotLine: Edge_%d:%d_tufts", ibody, iedge);
                 attrs = WV_ON;
 
                 status = ocsmGetTessVel(MODL, ibody, OCSM_EDGE, iedge, (const double**)(&vel));
@@ -3463,8 +3491,7 @@ buildSceneGraph()
                 nitems++;
 
                 /* tuft color */
-                color[0] = 0;   color[1] = 0;   color[2] = 0;
-
+                color[0] = 1;   color[1] = 0;   color[2] = 0;
                 status = wv_setData(WV_REAL32, 1, (void*)color, WV_COLORS, &(items[nitems]));
                 if (status != SUCCESS) {
                     SPRINT3(0, "ERROR:: wv_setData(%d,%d) -> status=%d", ibody, iedge, status);
@@ -3476,6 +3503,7 @@ buildSceneGraph()
                 if (igprim < 0) {
                     SPRINT2(0, "ERROR:: wv_addGPrim(%s) -> igprim=%d", gpname, igprim);
                 }
+
             }
 
             /* add Edge to meta data (if there is room) */
@@ -3569,7 +3597,6 @@ buildSceneGraph()
             color[0] = RED(  MODL->body[ibody].node[inode].gratt.color);
             color[1] = GREEN(MODL->body[ibody].node[inode].gratt.color);
             color[2] = BLUE( MODL->body[ibody].node[inode].gratt.color);
-
             status = wv_setData(WV_REAL32, 1, (void*)color, WV_COLORS, &(items[nitems]));
             if (status != SUCCESS) {
                 SPRINT3(0, "ERROR:: wv_setData(%d,%d) -> status=%d", ibody, iedge, status);
@@ -3682,7 +3709,7 @@ buildSceneGraph()
 
             status = wv_setData(WV_REAL64, 6, (void*)axis, WV_VERTICES, &(items[nitems]));
             if (status != SUCCESS) {
-                SPRINT1(0, "ERROR:: wv_setData -> status=%d", status);
+                SPRINT1(0, "ERROR:: wv_setData(axis) -> status=%d", status);
             }
 
             wv_adjustVerts(&(items[nitems]), sgFocus);
@@ -3695,10 +3722,9 @@ buildSceneGraph()
             color[ 9] = 0;   color[10] = 1;   color[11] = 0;
             color[12] = 0;   color[13] = 0;   color[14] = 1;
             color[15] = 0;   color[16] = 0;   color[17] = 1;
-
             status = wv_setData(WV_REAL32, 6, (void*)color, WV_COLORS, &(items[nitems]));
             if (status != SUCCESS) {
-                SPRINT1(0, "ERROR:: wv_setData -> status=%d", status);
+                SPRINT1(0, "ERROR:: wv_setData(color) -> status=%d", status);
             }
             nitems++;
 
@@ -3748,7 +3774,7 @@ buildSceneGraph()
     axis[15] = 0;   axis[16] = 0;   axis[17] = 2 * bigbox[5] - bigbox[2];
     status = wv_setData(WV_REAL64, 6, (void*)axis, WV_VERTICES, &(items[nitems]));
     if (status != SUCCESS) {
-        SPRINT1(0, "ERROR:: wv_setData -> status=%d", status);
+        SPRINT1(0, "ERROR:: wv_setData(axis) -> status=%d", status);
     }
 
     wv_adjustVerts(&(items[nitems]), sgFocus);
@@ -3758,7 +3784,7 @@ buildSceneGraph()
     color[0] = 0.7;   color[1] = 0.7;   color[2] = 0.7;
     status = wv_setData(WV_REAL32, 1, (void*)color, WV_COLORS, &(items[nitems]));
     if (status != SUCCESS) {
-        SPRINT1(0, "ERROR:: wv_setData -> status=%d", status);
+        SPRINT1(0, "ERROR:: wv_setData(color) -> status=%d", status);
     }
     nitems++;
 
@@ -3771,13 +3797,13 @@ buildSceneGraph()
     }
 
     /* extra plotting data */
-    if (STRLEN(plotname) > 0) {
-        fp = fopen(plotname, "r");
+    if (STRLEN(plotfile) > 0) {
+        fp = fopen(plotfile, "r");
         if (fp == NULL) {
-            SPRINT1(0, "ERROR:: plotfile \"%s\" does not exist", plotname);
+            SPRINT1(0, "ERROR:: plotfile \"%s\" does not exist", plotfile);
             goto cleanup;
         } else {
-            SPRINT1(1, "Opening \"%s\"", plotname);
+            SPRINT1(1, "Opening \"%s\"", plotfile);
         }
 
         /* read multiple data sets */
@@ -3805,7 +3831,7 @@ buildSceneGraph()
                 /* points in plotdata */
                 status = wv_setData(WV_REAL32, imax, plotdata, WV_VERTICES, &(items[nitems]));
                 if (status != SUCCESS) {
-                    SPRINT1(0, "ERROR:: wv_setData -> status=%d", status);
+                    SPRINT1(0, "ERROR:: wv_setData(plotdata) -> status=%d", status);
                 }
 
                 free(plotdata);
@@ -3816,10 +3842,9 @@ buildSceneGraph()
 
                 /* point color */
                 color[0] = 0;   color[1] = 0;   color[2] = 0;
-
                 status = wv_setData(WV_REAL32, 1, (void*)color, WV_COLORS, &(items[nitems]));
                 if (status != SUCCESS) {
-                    SPRINT1(0, "ERROR:: wv_setData -> status=%d", status);
+                    SPRINT1(0, "ERROR:: wv_setData(color) -> status=%d", status);
                 }
                 nitems++;
 
@@ -3884,7 +3909,7 @@ buildSceneGraph()
 
                 status = wv_setData(WV_REAL32, 2*nseg, (void*)segments, WV_VERTICES, &(items[nitems]));
                 if (status != SUCCESS) {
-                    SPRINT1(0, "ERROR:: wv_setData -> status=%d", status);
+                    SPRINT1(0, "ERROR:: wv_setData(segments) -> status=%d", status);
                 }
 
                 free(segments);
@@ -3895,10 +3920,9 @@ buildSceneGraph()
 
                 /* line color */
                 color[0] = 0;   color[1] = 0;   color[2] = 0;
-
                 status = wv_setData(WV_REAL32, 1, (void*)color, WV_COLORS, &(items[nitems]));
                 if (status != SUCCESS) {
-                    SPRINT1(0, "ERROR:: wv_setData -> status=%d", status);
+                    SPRINT1(0, "ERROR:: wv_setData(color) -> status=%d", status);
                 }
                 nitems++;
 
@@ -3944,7 +3968,7 @@ buildSceneGraph()
 
                 status = wv_setData(WV_REAL32, 2*imax, (void*)plotdata, WV_VERTICES, &(items[nitems]));
                 if (status != SUCCESS) {
-                    SPRINT1(0, "ERROR:: wv_setData -> status=%d", status);
+                    SPRINT1(0, "ERROR:: wv_setData(plotdata) -> status=%d", status);
                 }
 
                 free(plotdata);
@@ -3955,10 +3979,9 @@ buildSceneGraph()
 
                 /* line color */
                 color[0] = 0;   color[1] = 0;   color[2] = 0;
-
                 status = wv_setData(WV_REAL32, 1, (void*)color, WV_COLORS, &(items[nitems]));
                 if (status != SUCCESS) {
-                    SPRINT1(0, "ERROR:: wv_setData -> status=%d", status);
+                    SPRINT1(0, "ERROR:: wv_setData(color) -> status=%d", status);
                 }
                 nitems++;
 
@@ -3970,6 +3993,106 @@ buildSceneGraph()
                 } else {
                     cntxt->gPrims[igprim].lWidth = 1.0;
                 }
+
+                /* add plotdata to meta data (if there is room) */
+                if (STRLEN(sgMetaData) >= sgMetaDataLen-1000) {
+                    sgMetaDataLen += MAX_METADATA_CHUNK;
+                    RALLOC(sgMetaData, char, sgMetaDataLen);
+                    RALLOC(sgTempData, char, sgMetaDataLen);
+                }
+
+                STRNCPY( sgTempData, sgMetaData, sgMetaDataLen);
+                snprintf(sgMetaData, sgMetaDataLen, "%s\"%s\":[],", sgTempData, gpname);
+
+            /* many triangles */
+            } else if (imax > 0 && jmax == -2) {
+                SPRINT2(1, "    plotting %d triangles (%s)", imax, temp);
+                nitems = 0;
+
+                /* name */
+                snprintf(gpname, MAX_STRVAL_LEN-1, "PlotTris: %.114s", temp);
+                printf("gpname=%s\n", gpname);
+
+                plotdata = (float*) malloc(9*imax*sizeof(float));
+                if (plotdata == NULL) {
+                    SPRINT0(0, "MALLOC error");
+                    goto cleanup;
+                }
+
+                for (ij = 0; ij < imax; ij++) {
+                    fscanf(fp, "%f %f %f %f %f %f %f %f %f", &plotdata[9*ij  ],
+                                                             &plotdata[9*ij+1],
+                                                             &plotdata[9*ij+2],
+                                                             &plotdata[9*ij+3],
+                                                             &plotdata[9*ij+4],
+                                                             &plotdata[9*ij+5],
+                                                             &plotdata[9*ij+6],
+                                                             &plotdata[9*ij+7],
+                                                             &plotdata[9*ij+8]);
+                }
+
+                /* points in plotdata */
+                status = wv_setData(WV_REAL32, 3*imax, plotdata, WV_VERTICES, &(items[nitems++]));
+                if (status != SUCCESS) {
+                    SPRINT1(0, "ERROR:: wv_setData(plotdata) -> status=%d", status);
+                }
+
+                free(plotdata);
+                plotdata = NULL;
+
+                wv_adjustVerts(&(items[nitems-1]), sgFocus);
+
+                /* triangle colors */
+                color[0] = 0;   color[1] = 1;   color[2] = 1;
+                status = wv_setData(WV_REAL32, 1, (void*)color, WV_COLORS, &(items[nitems++]));
+                if (status != SUCCESS) {
+                    SPRINT1(0, "ERROR:: wv_setData(color) -> status=%d", status);
+                }
+
+                /* triangle back colors */
+                color[0] = 0;   color[1] = 0.5;   color[2] = 0.5;
+                status = wv_setData(WV_REAL32, 1, (void*)color, WV_BCOLOR, &(items[nitems++]));
+                if (status != SUCCESS) {
+                    SPRINT1(0, "ERROR:: wv_setData(color) -> status=%d", status);
+                }
+
+                /* triangle sides */
+                segs = (int*) malloc(6*imax*sizeof(int));
+                if (segs == NULL) {
+                    SPRINT0(0, "MALLOC error");
+                    goto cleanup;
+                }
+
+                /* build up the sides (bias-1) */
+                for (ij = 0; ij < imax; ij++) {
+                    segs[6*ij  ] = 3 * ij + 1;
+                    segs[6*ij+1] = 3 * ij + 2;
+                    segs[6*ij+2] = 3 * ij + 2;
+                    segs[6*ij+3] = 3 * ij + 3;
+                    segs[6*ij+4] = 3 * ij + 3;
+                    segs[6*ij+5] = 3 * ij + 1;
+                }
+
+                status = wv_setData(WV_INT32, 6*imax, (void*)segs, WV_LINDICES, &(items[nitems++]));
+                if (status != SUCCESS) {
+                    SPRINT1(0, "ERROR:: wv_setData(segs) -> status=%d", status);
+                }
+
+                free(segs);
+
+                /* triangle side color */
+                color[0] = 1;   color[1] = 0;   color[2] = 0;
+                status = wv_setData(WV_REAL32, 1, (void*)color, WV_LCOLOR, &(items[nitems++]));
+                if (status != SUCCESS) {
+                    SPRINT1(0, "ERROR:: wv_setData(color) -> status=%d", status);
+                }
+
+                /* make graphic primitive */
+                attrs  = WV_ON | WV_LINES;
+                igprim = wv_addGPrim(cntxt, gpname, WV_TRIANGLE, attrs, nitems, items);
+                if (igprim < 0) {
+                    SPRINT2(0, "ERROR:: wv_addGPrim(%s) -> igprim=%d", gpname, igprim);
+               }
 
                 /* add plotdata to meta data (if there is room) */
                 if (STRLEN(sgMetaData) >= sgMetaDataLen-1000) {
@@ -4047,7 +4170,7 @@ buildSceneGraph()
 
                 status = wv_setData(WV_REAL32, 2*nseg, (void*)segments, WV_VERTICES, &(items[nitems]));
                 if (status != SUCCESS) {
-                    SPRINT1(0, "ERROR:: wv_setData -> status=%d", status);
+                    SPRINT1(0, "ERROR:: wv_setData(segments) -> status=%d", status);
                 }
 
                 free(segments);
@@ -4058,10 +4181,9 @@ buildSceneGraph()
 
                 /* grid color */
                 color[0] = 0;   color[1] = 0;   color[2] = 0;
-
                 status = wv_setData(WV_REAL32, 1, (void*)color, WV_COLORS, &(items[nitems]));
                 if (status != SUCCESS) {
-                    SPRINT1(0, "ERROR:: wv_setData -> status=%d", status);
+                    SPRINT1(0, "ERROR:: wv_setData(color) -> status=%d", status);
                 }
                 nitems++;
 
@@ -4149,7 +4271,7 @@ buildSceneGraph()
         /* points in plotdata */
         status = wv_setData(WV_REAL32, ngrid, plotdata, WV_VERTICES, &(items[nitems]));
         if (status != SUCCESS) {
-            SPRINT1(0, "ERROR:: wv_setData -> status=%d", status);
+            SPRINT1(0, "ERROR:: wv_setData(plotdata) -> status=%d", status);
         }
 
         wv_adjustVerts(&(items[nitems]), sgFocus);
@@ -4157,10 +4279,9 @@ buildSceneGraph()
 
         /* point color */
         color[0] = 0;   color[1] = 0;   color[2] = 0;
-
         status = wv_setData(WV_REAL32, 1, (void*)color, WV_COLORS, &(items[nitems]));
         if (status != SUCCESS) {
-            SPRINT1(0, "ERROR:: wv_setData -> status=%d", status);
+            SPRINT1(0, "ERROR:: wv_setData(color) -> status=%d", status);
         }
         nitems++;
 
@@ -4229,7 +4350,7 @@ buildSceneGraph()
             /* segments */
             status = wv_setData(WV_REAL32, 2*i, (void*)segments, WV_VERTICES, &(items[nitems]));
             if (status != SUCCESS) {
-                SPRINT1(0, "ERROR:: wv_setData -> status=%d", status);
+                SPRINT1(0, "ERROR:: wv_setData(segments) -> status=%d", status);
             }
 
             free(segments);
@@ -4240,10 +4361,9 @@ buildSceneGraph()
 
             /* line color */
             color[0] = 1.0;   color[1] = 0.5;   color[2] = 0.5;
-
             status = wv_setData(WV_REAL32, 1, (void*)color, WV_COLORS, &(items[nitems]));
             if (status != SUCCESS) {
-                SPRINT1(0, "ERROR:: wv_setData -> status=%d", status);
+                SPRINT1(0, "ERROR:: wv_setData(color) -> status=%d", status);
             }
             nitems++;
 
@@ -4329,7 +4449,7 @@ buildSceneGraph()
             /* segments */
             status = wv_setData(WV_REAL32, 6*i, (void*)segments, WV_VERTICES, &(items[nitems]));
             if (status != SUCCESS) {
-                SPRINT1(0, "ERROR:: wv_setData -> status=%d", status);
+                SPRINT1(0, "ERROR:: wv_setData(segments) -> status=%d", status);
             }
 
             free(segments);
@@ -4340,10 +4460,9 @@ buildSceneGraph()
 
             /* line color */
             color[0] = 0.5;   color[1] = 1.0;   color[2] = 0.5;
-
             status = wv_setData(WV_REAL32, 1, (void*)color, WV_COLORS, &(items[nitems]));
             if (status != SUCCESS) {
-                SPRINT1(0, "ERROR:: wv_setData -> status=%d", status);
+                SPRINT1(0, "ERROR:: wv_setData(color) -> status=%d", status);
             }
             nitems++;
 
@@ -4437,7 +4556,7 @@ buildSceneGraph()
             /* segments */
             status = wv_setData(WV_REAL32, 8*i, (void*)segments, WV_VERTICES, &(items[nitems]));
             if (status != SUCCESS) {
-                SPRINT1(0, "ERROR:: wv_setData -> status=%d", status);
+                SPRINT1(0, "ERROR:: wv_setData(segments) -> status=%d", status);
             }
 
             free(segments);
@@ -4448,10 +4567,9 @@ buildSceneGraph()
 
             /* line color */
             color[0] = 0.5;   color[1] = 0.5;   color[2] = 1.0;
-
             status = wv_setData(WV_REAL32, 1, (void*)color, WV_COLORS, &(items[nitems]));
             if (status != SUCCESS) {
-                SPRINT1(0, "ERROR:: wv_setData -> status=%d", status);
+                SPRINT1(0, "ERROR:: wv_setData(color) -> status=%d", status);
             }
             nitems++;
 
@@ -4563,12 +4681,12 @@ buildSceneGraphBody(int    ibody)       /* Body index (bias-1) */
         /* vertices */
         status = wv_setData(WV_REAL64, npnt, (void*)xyz, WV_VERTICES, &(items[0]));
         if (status != SUCCESS) {
-            SPRINT1(0, "ERROR:: wv_setData -> status=%d", status);
+            SPRINT1(0, "ERROR:: wv_setData(xyz) -> status=%d", status);
         }
 
         wv_adjustVerts(&(items[0]), sgFocus);
 
-        /* loop through the triangles and build up the segment table */
+        /* loop through the triangles and build up the segment table (bias-1) */
         nseg = 0;
         for (itri = 0; itri < ntri; itri++) {
             for (k = 0; k < 3; k++) {
@@ -4596,19 +4714,19 @@ buildSceneGraphBody(int    ibody)       /* Body index (bias-1) */
         /* triangles */
         status = wv_setData(WV_INT32, 3*ntri, (void*)tris, WV_INDICES, &(items[1]));
         if (status != SUCCESS) {
-            SPRINT1(0, "ERROR:: wv_setData -> status=%d", status);
+            SPRINT1(0, "ERROR:: wv_setData(tris) -> status=%d", status);
         }
 
         color[0] = 1;   color[1] = 1;   color[2] = 0;
         status = wv_setData(WV_REAL32, 1, (void*)color, WV_COLORS, &(items[2]));
         if (status != SUCCESS) {
-            SPRINT1(0, "ERROR:: wv_setData -> status=%d", status);
+            SPRINT1(0, "ERROR:: wv_setData(color) -> status=%d", status);
         }
 
         /* segment indices */
         status = wv_setData(WV_INT32, 2*nseg, (void*)segs, WV_LINDICES, &(items[3]));
         if (status != SUCCESS) {
-            SPRINT1(0, "ERROR:: wv_setData -> status=%d", status);
+            SPRINT1(0, "ERROR:: wv_setData(segs) -> status=%d", status);
         }
 
         free(segs);
@@ -4617,7 +4735,7 @@ buildSceneGraphBody(int    ibody)       /* Body index (bias-1) */
         color[0] = 0;   color[1] = 0;   color[2] = 0;
         status = wv_setData(WV_REAL32, 1, (void*)color, WV_LCOLOR, &(items[4]));
         if (status != SUCCESS) {
-            SPRINT1(0, "ERROR:: wv_setData -> status=%d", status);
+            SPRINT1(0, "ERROR:: wv_setData(color) -> status=%d", status);
         }
 
         /* make graphic primitive */
@@ -4643,12 +4761,12 @@ buildSceneGraphBody(int    ibody)       /* Body index (bias-1) */
         /* vertices */
         status = wv_setData(WV_REAL64, npnt, (void*)xyz, WV_VERTICES, &(items[0]));
         if (status != SUCCESS) {
-            SPRINT1(0, "ERROR:: wv_setData -> status=%d", status);
+            SPRINT1(0, "ERROR:: wv_setData(xyz) -> status=%d", status);
         }
 
         wv_adjustVerts(&(items[0]), sgFocus);
 
-        /* segments */
+        /* segments (bias-1) */
         ivrts = (int*) malloc(2*(npnt-1)*sizeof(int));
         if (ivrts == NULL) goto cleanup;
 
@@ -4659,7 +4777,7 @@ buildSceneGraphBody(int    ibody)       /* Body index (bias-1) */
 
         status = wv_setData(WV_INT32, 2*(npnt-1), (void*)ivrts, WV_INDICES, &(items[1]));
         if (status != SUCCESS) {
-            SPRINT1(0, "ERROR:: wv_setData -> status=%d", status);
+            SPRINT1(0, "ERROR:: wv_setData(ivrts) -> status=%d", status);
         }
 
         free(ivrts);
@@ -4668,7 +4786,7 @@ buildSceneGraphBody(int    ibody)       /* Body index (bias-1) */
         color[0] = 0;   color[1] = 1;   color[2] = 0;
         status = wv_setData(WV_REAL32, 1, (void*)color, WV_COLORS, &(items[2]));
         if (status != SUCCESS) {
-            SPRINT1(0, "ERROR:: wv_setData -> status=%d", status);
+            SPRINT1(0, "ERROR:: wv_setData(color) -> status=%d", status);
         }
 
         /* points */
@@ -4681,7 +4799,7 @@ buildSceneGraphBody(int    ibody)       /* Body index (bias-1) */
 
         status = wv_setData(WV_INT32, npnt, (void*)ivrts, WV_PINDICES, &(items[3]));
         if (status != SUCCESS) {
-            SPRINT1(0, "ERROR:: wv_setData -> status=%d", status);
+            SPRINT1(0, "ERROR:: wv_setData(ivrts) -> status=%d", status);
         }
 
         free(ivrts);
@@ -4690,7 +4808,7 @@ buildSceneGraphBody(int    ibody)       /* Body index (bias-1) */
         color[0] = 0;   color[1] = 0;   color[2] = 0;
         status = wv_setData(WV_REAL32, 1, (void*)color, WV_PCOLOR, &(items[4]));
         if (status != SUCCESS) {
-            SPRINT1(0, "ERROR:: wv_setData -> status=%d", status);
+            SPRINT1(0, "ERROR:: wv_setData(color) -> status=%d", status);
         }
 
         /* make graphic primitive */
@@ -4740,12 +4858,12 @@ buildSceneGraphBody(int    ibody)       /* Body index (bias-1) */
             /* vertices */
             status = wv_setData(WV_REAL64, npnt, (void*)xyz, WV_VERTICES, &(items[0]));
             if (status != SUCCESS) {
-                SPRINT1(0, "ERROR:: wv_setData -> status=%d", status);
+                SPRINT1(0, "ERROR:: wv_setData(xyz) -> status=%d", status);
             }
 
             wv_adjustVerts(&(items[0]), sgFocus);
 
-            /* segments */
+            /* segments (bias-1) */
             ivrts = (int*) malloc(2*(npnt-1)*sizeof(int));
             if (ivrts == NULL) goto cleanup;
 
@@ -4756,7 +4874,7 @@ buildSceneGraphBody(int    ibody)       /* Body index (bias-1) */
 
             status = wv_setData(WV_INT32, 2*(npnt-1), (void*)ivrts, WV_INDICES, &(items[1]));
             if (status != SUCCESS) {
-                SPRINT1(0, "ERROR:: wv_setData -> status=%d", status);
+                SPRINT1(0, "ERROR:: wv_setData(ivrts) -> status=%d", status);
             }
 
             free(ivrts);
@@ -4765,7 +4883,7 @@ buildSceneGraphBody(int    ibody)       /* Body index (bias-1) */
             color[0] = 0.5;   color[1] = 0.5;   color[2] = 0.5;
             status = wv_setData(WV_REAL32, 1, (void*)color, WV_COLORS, &(items[2]));
             if (status != SUCCESS) {
-                SPRINT1(0, "ERROR:: wv_setData -> status=%d", status);
+                SPRINT1(0, "ERROR:: wv_setData(color) -> status=%d", status);
             }
 
             /* points */
@@ -4778,7 +4896,7 @@ buildSceneGraphBody(int    ibody)       /* Body index (bias-1) */
 
             status = wv_setData(WV_INT32, npnt, (void*)ivrts, WV_PINDICES, &(items[3]));
             if (status != SUCCESS) {
-                SPRINT1(0, "ERROR:: wv_setData -> status=%d", status);
+                SPRINT1(0, "ERROR:: wv_setData(ivrts) -> status=%d", status);
             }
 
             free(ivrts);
@@ -4787,7 +4905,7 @@ buildSceneGraphBody(int    ibody)       /* Body index (bias-1) */
             color[0] = 0;   color[1] = 0;   color[2] = 0;
             status = wv_setData(WV_REAL32, 1, (void*)color, WV_PCOLOR, &(items[4]));
             if (status != SUCCESS) {
-                SPRINT1(0, "ERROR:: wv_setData -> status=%d", status);
+                SPRINT1(0, "ERROR:: wv_setData(color) -> status=%d", status);
             }
 
             /* make graphic primitive */
@@ -5152,10 +5270,12 @@ cleanup:
 /*                                                                     */
 /***********************************************************************/
 
-static void
+static int
 processBrowserToServer(char    *text)
 {
-    int       i, status, ibrch, itype, nlist, builtTo, buildStatus, ichar, iundo;
+    int       status = SUCCESS;
+
+    int       i, ibrch, itype, nlist, builtTo, buildStatus, ichar, iundo;
     int       ipmtr, jpmtr, nrow, ncol, irow, icol, index, iattr, actv, itemp;
     int       itoken1, itoken2, itoken3, ibody, onstack, direction=1, nwarn;
     CINT      *tempIlist;
@@ -6232,6 +6352,8 @@ processBrowserToServer(char    *text)
         /* load the new MODL */
         status = ocsmLoad(filename, &modl);
         if (status != SUCCESS) {
+            MODL = (modl_T *) modl;
+
             snprintf(response, max_resp_len, "%s",
                      MODL->sigMesg);
 
@@ -6409,6 +6531,8 @@ processBrowserToServer(char    *text)
         status = ocsmLoad(filename, &modl);
 
         if (status != SUCCESS) {
+            MODL = (modl_T *) modl;
+
             snprintf(response, max_resp_len, "%s",
                      MODL->sigMesg);
         } else {
@@ -6513,7 +6637,37 @@ processBrowserToServer(char    *text)
             snprintf(response, max_resp_len, "build|%d|%d|",
                      abs(builtTo), onstack);
         }
+
+        /* disable -loadEgads */
+        loadEgads = 0;
+
         response_len = STRLEN(response);
+
+    /* "recycle|"  */
+    } else if (strncmp(text, "recycle|", 6) == 0) {
+
+        /* write journal entry */
+        if (jrnl_out != NULL) {
+            fprintf(jrnl_out, "%s\n", text);
+            fflush( jrnl_out);
+        }
+
+        /* extract argument */
+        ibrch = 0;
+        if (getToken(text, 1, '|', arg1)) ibrch = strtol(arg1, &pEnd, 10);
+
+        /* if ibrch is negative, clear the velocities */
+        if (ibrch < 0) {
+            status = ocsmSetVelD(MODL, 0, 0, 0, 0.0);
+            if (status != SUCCESS) {
+                SPRINT1(0, "ERROR:: ocsmSetVelD -> status=%d", status);
+            }
+        }
+
+        /* build the response */
+        status = buildBodys(ibrch, &builtTo, &buildStatus, &nwarn);
+
+        goto cleanup;
 
     /* "loadSketch|" */
     } else if (strncmp(text, "loadSketch|", 11) == 0) {
@@ -6760,6 +6914,8 @@ processBrowserToServer(char    *text)
         }
     }
 
+    status = SUCCESS;
+
 cleanup:
     free(vars_out);
     free(segs);
@@ -6782,6 +6938,8 @@ cleanup:
     free(valu);
     free(type);
     free(name);
+
+    return status;
 }
 
 
@@ -7368,7 +7526,7 @@ checkForGanged(modl_T *MODL)            /* (in)  pointer to MODL */
 
 cleanup:
     FREE(list);
-        
+
     return status;
 }
 
@@ -7658,6 +7816,9 @@ plugsMain(modl_T *MODL,                 /* (in)  pointer to MODL */
 
     /* tell user how to get configuration with updated DESPMTRs */
     SPRINT0(0, "\nHit \"Up to date\" to show results of PLUGS\n");
+
+    /* reset the plugs flag so that verification will be reanabled */
+    plugs = -1;
 
 cleanup:
     FREE(pmtrindx);
@@ -8756,8 +8917,6 @@ matsol(double    A[],                   /* (in)  matrix to be solved (stored row
     double    amax, swap, fact;
 
     ROUTINE(matsol);
-    DPRINT2("%s(n=%d) {",
-            routine, n);
 
     /* --------------------------------------------------------------- */
 
@@ -8820,7 +8979,6 @@ matsol(double    A[],                   /* (in)  matrix to be solved (stored row
     }
 
 cleanup:
-    DPRINT2("%s --> status=%d}", routine, status);
     return status;
 }
 
@@ -8848,8 +9006,6 @@ solsvd(double A[],                      /* (in)  mrow*ncol matrix */
     double wmin, wmax, s, anorm, c, f, g, h, scale, xx, yy, zz;
 
     ROUTINE(solsvd);
-    DPRINT3("%s(mrow=%d, ncol=%d) {",
-            routine, mrow, ncol);
 
     /* --------------------------------------------------------------- */
 
@@ -9205,7 +9361,6 @@ cleanup:
     FREE(V);
     FREE(U);
 
-    DPRINT2("%s --> status=%d}", routine, status);
     return status;
 }
 
@@ -9232,8 +9387,6 @@ tridiag(int    n,                       /* (in)  size of system */
     double W, *p=NULL, *q=NULL;
 
     ROUTINE(tridiag);
-    DPRINT2("%s(n=%d) {",
-            routine, n);
 
     /* --------------------------------------------------------------- */
 

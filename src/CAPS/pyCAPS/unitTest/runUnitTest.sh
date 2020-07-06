@@ -1,7 +1,7 @@
 #!/bin/bash
 
 python --version
-python -m unittest discover
+$VALGRIND_COMMAND python -m unittest discover
 
 # Fix cleanup
 if [ -d "__pycache__" ]; then

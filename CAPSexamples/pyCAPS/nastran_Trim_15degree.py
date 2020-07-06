@@ -22,7 +22,8 @@ args = parser.parse_args()
 myProblem = capsProblem()
 
 # Load CSM file
-myProblem.loadCAPS("../csmData/15degreeWing.csm")
+geometryScript = os.path.join("..","csmData","15degreeWing.csm")
+myProblem.loadCAPS(geometryScript)
 
 # Load nastran aim
 myAnalysis = myProblem.loadAIM(aim = "nastranAIM",

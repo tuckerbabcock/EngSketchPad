@@ -28,7 +28,8 @@ workDir = os.path.join(str(args.workDir[0]), projectName)
 myProblem = capsProblem()
 
 # Load CSM file
-myGeometry = myProblem.loadCAPS("../csmData/feaCantileverPlate.csm", verbosity=args.verbosity)
+geometryScript = os.path.join("..","csmData","feaCantileverPlate.csm")
+myGeometry = myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 
 plateLength = 1.0
 

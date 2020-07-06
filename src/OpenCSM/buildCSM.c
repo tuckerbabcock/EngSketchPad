@@ -59,11 +59,6 @@
 /*                                                                     */
 /***********************************************************************/
 
-#ifdef DEBUG
-   #define DOPEN {if (dbg_fp == NULL) dbg_fp = fopen("buildCSM.dbg", "w");}
-   static  FILE *dbg_fp=NULL;
-#endif
-
 static int outLevel = 1;
 
                                                /* used by RALLOC macro */
@@ -214,8 +209,6 @@ main(int       argc,                    /* (in)  number of arguments */
     ROUTINE(MAIN);
 
     /* --------------------------------------------------------------- */
-
-    DPRINT0("starting buildCSM");
 
     /* get the flags and casename(s) from the command line */
     casename[0] = '\0';
@@ -3475,8 +3468,6 @@ evalRuled(modl_T   *MODL,
     double   uvlimits[4], ulimits[4], ulimitn[4], ubar, vbar, t, datas[18], datan[18];
 
     ROUTINE(evalRuled);
-    DPRINT8("%s(ibody=%d, iface=%d, isketchs=%dm, isketchn=%d, iedge=%d, uv=%f %f) {",
-            routine, ibody, iface, isketchs, isketchn, iedge, uv[0], uv[1]);
 
     /* --------------------------------------------------------------- */
 
@@ -3514,6 +3505,5 @@ evalRuled(modl_T   *MODL,
     xyz[2] = (1-vbar) * datas[2] + vbar * datan[2];
 
 cleanup:
-    DPRINT2("%s --> status=%d}", routine, status);
     return status;
 }

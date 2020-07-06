@@ -25,6 +25,9 @@ c
 	istat = IG_saveModel(model8, 'egads.step')
 	write(*,*) 'IG_saveModel     = ', istat
 
+	istat = IG_saveModel(model8, 'egads.egads')
+	write(*,*) 'IG_saveModel     = ', istat
+
 	istat = IG_deleteObject(model8)
 	write(*,*) 'IG_deleteObject = ', istat
 

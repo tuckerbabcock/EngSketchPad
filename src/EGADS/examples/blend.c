@@ -23,7 +23,7 @@ int main(int argc, char *argv[])
   int    i, j, beg, end, brnd, ernd, status, senses[2], per, nface, rev = 1;
   int    btgt, etgt, atype, alen, nsec;
   double xyz[3], data[10], range[2], xform[12], rc[8], *rc1, *rcN;
-  double btan[4], etan[4];
+  double area, btan[4], etan[4];
   ego    context, nodes[3], curve, edges[2], objs[2], oform, secs[7];
   ego    others[2], body, *faces;
 #ifdef SAVEMODEL
@@ -193,8 +193,13 @@ int main(int argc, char *argv[])
   } else if (beg >= 2) {
     if (btgt == 2) rc1 = btan;
     others[0] = secs[0];
-    printf(" EG_makeFace beg    = %d\n", EG_makeFace(others[0], SREVERSE*rev,
-                                                     NULL, &secs[0]));
+    per       = SFORWARD;
+    area      = 0.0;
+    printf(" EG_getArea  beg    = %d  area = %lf\n", EG_getArea(others[0], NULL,
+                                                                &area), area);
+    if (area < 0.0) per = SREVERSE;
+    printf(" EG_makeFace beg    = %d\n", EG_makeFace(others[0], per, NULL,
+                                                     &secs[0]));
   }
   if (end == 1) {
     if (ernd == 1) rcN = rc;
@@ -207,8 +212,13 @@ int main(int argc, char *argv[])
   } else if (end >= 2) {
     if (etgt == 2) rcN = etan;
     others[1] = secs[4];
-    printf(" EG_makeFace end    = %d\n", EG_makeFace(others[1], SFORWARD*rev,
-                                                     NULL, &secs[4]));
+    per       = SFORWARD;
+    area      = 0.0;
+    printf(" EG_getArea  end    = %d  area = %lf\n", EG_getArea(others[1], NULL,
+                                                                &area), area);
+    if (area < 0.0) per = SREVERSE;
+    printf(" EG_makeFace end    = %d\n", EG_makeFace(others[1], per, NULL,
+                                                     &secs[4]));
   }
   nsec = 5;
   

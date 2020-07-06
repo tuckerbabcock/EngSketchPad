@@ -1974,6 +1974,7 @@ caps_paramQuilt(capsBound *bound, int l, char *line)
           d += caps_triangleArea3D(&xyzx[3*i0], &xyzx[3*i1], &xyzx[3*i2]);
           ntris++;
         } else {
+#ifndef __clang_analyzer__
           for (k = 0; k < quilt->types[eType-1].ntri; k++, ntris++) {
             n  = quilt->types[eType-1].tris[3*k  ] - 1;
             i0 = quilt->elems[j].gIndices[2*n+1]   - 1;
@@ -1983,6 +1984,7 @@ caps_paramQuilt(capsBound *bound, int l, char *line)
             i2 = quilt->elems[j].gIndices[2*n+1]   - 1;
             d += caps_triangleArea3D(&xyzx[3*i0], &xyzx[3*i1], &xyzx[3*i2]);
           }
+#endif
         }
       }
 #ifdef DEBUG

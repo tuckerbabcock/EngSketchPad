@@ -158,15 +158,15 @@ udpExecute(ego  emodel,                 /* (in)  Model containing Body */
 
 #ifdef DEBUG
     printf("udpExecute(emodel=%llx)\n", (long long)emodel);
-    printf("filename( 0) = %s\n", FILENAME( 0));
-    printf("tablename(0) = %s\n", TABLENAME(0));
-    printf("nutile(   0) = %d\n", NUTILE(   0));
-    printf("nvtile(   0) = %d\n", NVTILE(   0));
-    printf("nwtile(   0) = %d\n", NWTILE(   0));
-    printf("writeitd( 0) = %d\n", WRITEITD( 0));
-    printf("bodynum(  0) = %d\n", BODYNUM(  0));
-    printf("outlevel( 0) = %d\n", OUTLEVEL( 0));
-    printf("dumpegads(0) = %d\n", DUMPEGADS(0));
+    printf("filename( 0) = %s\n", FILENAME( 0));       // name of .csm file containing tile
+    printf("tablename(0) = %s\n", TABLENAME(0));       // name of file containing interpolation data
+    printf("nutile(   0) = %d\n", NUTILE(   0));       // number of tiles in U direction
+    printf("nvtile(   0) = %d\n", NVTILE(   0));       // number of tiles in V direction
+    printf("nwtile(   0) = %d\n", NWTILE(   0));       // number of files in W direction
+    printf("writeitd( 0) = %d\n", WRITEITD( 0));       // =1 to write surf1.itd ... surf4.itd or enclosure
+    printf("bodynum(  0) = %d\n", BODYNUM(  0));       // number of Body to return 1-numBodys
+    printf("outlevel( 0) = %d\n", OUTLEVEL( 0));       // output level
+    printf("dumpegads(0) = %d\n", DUMPEGADS(0));       // =1 to dump udfTile.egads after sewing
 #endif
 
     /* default return values */

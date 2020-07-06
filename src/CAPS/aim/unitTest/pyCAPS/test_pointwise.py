@@ -41,7 +41,7 @@ class TestPointwise(unittest.TestCase):
         cls.workDir = "workDir_PointwiseTest"
 
         # Load CSM file
-        cls.myGeometry = cls.myProblem.loadCAPS("../csmData/cornerGeom.csm")
+        cls.myGeometry = cls.myProblem.loadCAPS(os.path.join("..","csmData","cornerGeom.csm"))
 
     # This is executed prior to each test
     def setUp(self):
@@ -105,7 +105,7 @@ class TestPointwise(unittest.TestCase):
 
     def test_SingleBody(self):
 
-        file = "../csmData/cfdSingleBody.csm"
+        file = os.path.join("..","csmData","cfdSingleBody.csm")
         myProblem = pyCAPS.capsProblem()
 
         myGeometry = myProblem.loadCAPS(file)
@@ -123,7 +123,7 @@ class TestPointwise(unittest.TestCase):
 
     def test_MultiBody(self):
 
-        file = "../csmData/cfdMultiBody.csm"
+        file = os.path.join("..","csmData","cfdMultiBody.csm")
         myProblem = pyCAPS.capsProblem()
 
         myGeometry = myProblem.loadCAPS(file)
@@ -262,6 +262,23 @@ class TestPointwise(unittest.TestCase):
                                            capsIntent = ["boxhole", "farfield"])
 
         #pointwise.saveGeometry("BoxHole")
+
+        # Global Min/Max number of points on edges
+        pointwise.setAnalysisVal("Connector_Initial_Dim", 6)
+        pointwise.setAnalysisVal("Connector_Min_Dim", 3)
+        pointwise.setAnalysisVal("Connector_Max_Dim", 8)
+
+        # Just make sure it runs without errors...
+        self.run_pointwise(pointwise)
+
+    def off_test_bullet(self):
+
+        # Load pointwise aim
+        pointwise = self.myProblem.loadAIM(aim = "pointwiseAIM",
+                                           analysisDir = self.workDir + "Bullet",
+                                           capsIntent = ["bullet", "farfield"])
+
+        #pointwise.saveGeometry("Bullet")
 
         # Global Min/Max number of points on edges
         pointwise.setAnalysisVal("Connector_Initial_Dim", 6)

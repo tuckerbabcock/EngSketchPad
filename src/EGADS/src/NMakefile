@@ -69,8 +69,8 @@ $(LDIR)\egads.dll:	$(OBJSP) $(OBJS) emp.obj evaluate.obj rational.obj \
 			regQuads.obj egads.res
 	-del $(LDIR)\egads.dll $(LDIR)\egads.lib $(LDIR)\egads.exp
 	link /out:$(LDIR)\egads.dll /dll /def:egads.def $(OBJSP) $(OBJS) \
-		emp.obj evaluate.obj rational.obj regQuads.obj egads.res \
-		$(LNKPTH) $(LIBS)
+		emp.obj evaluate.obj rational.obj regQuads.obj \
+		egads.res $(LNKPTH) $(LIBS)
 	$(MCOMP) /manifest $(LDIR)\egads.dll.manifest \
 		/outputresource:$(LDIR)\egads.dll;2
 

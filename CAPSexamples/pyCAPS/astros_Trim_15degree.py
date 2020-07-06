@@ -32,7 +32,8 @@ args = parser.parse_args()
 myProblem = capsProblem()
 
 # Load CSM file
-myProblem.loadCAPS("../csmData/15degreeWing.csm", verbosity=args.verbosity)
+geometryScript = os.path.join("..","csmData","15degreeWing.csm")
+myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 
 # Load astros aim
 myAnalysis = myProblem.loadAIM(aim = "astrosAIM",

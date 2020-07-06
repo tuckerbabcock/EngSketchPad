@@ -1414,8 +1414,8 @@ caps_getData(capsObject *dobject, int *npts, int *rank, double **data,
       if (bound->vertexSet[i]              == NULL)      return CAPS_NULLOBJ;
       if (bound->vertexSet[i]->magicnumber != CAPSMAGIC) return CAPS_BADOBJECT;
       if (bound->vertexSet[i]->type        != VERTEXSET) return CAPS_BADTYPE;
-      if (bound->vertexSet[i]->blind       == NULL)      return CAPS_NULLBLIND;
       fvs = (capsVertexSet *) bound->vertexSet[i]->blind;
+      if (fvs                              == NULL)      return CAPS_NULLBLIND;
 #ifdef VSOUTPUT
       ovs = bound->vertexSet[i];
 #endif
@@ -1433,7 +1433,8 @@ caps_getData(capsObject *dobject, int *npts, int *rank, double **data,
       }
       if (foundset != NULL) break;
     }
-    if (foundset == NULL) {
+    if ((fvs == NULL) || (foundset == NULL) || (otherset == NULL) ||
+        (founddsr == NULL)) {
       printf(" caps_getData Error: Bound %s -- %s without a source DataSet!\n",
              bobject->name, dobject->name);
       return CAPS_SOURCEERR;
@@ -1449,6 +1450,11 @@ caps_getData(capsObject *dobject, int *npts, int *rank, double **data,
       return CAPS_SUCCESS;
     }
     if ((foundset->last.sNum > dobject->last.sNum) || (dataset->data == NULL)) {
+      if (foundanl == NULL) {
+        printf(" caps_getData Error: Bound %s -- Analysis is NULL!\n",
+               bobject->name);
+        return CAPS_BADOBJECT;
+      }
       fanal = (capsAnalysis *) foundanl->blind;
       if (fanal == NULL) {
         printf(" caps_getData Error: Bound %s -- Analysis %s blind NULL!\n",
@@ -1546,7 +1552,7 @@ caps_getData(capsObject *dobject, int *npts, int *rank, double **data,
                    i, *npts, stat, dobject->name);
         }
       } else {
-        if (aobject == NULL) {
+        if ((aobject == NULL) || (analysis == NULL)) {
           EG_free(values);
           *npts = *rank = 0;
           return CAPS_BADMETHOD;

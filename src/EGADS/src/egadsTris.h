@@ -12,7 +12,7 @@
 #define CHUNK    256                   /* allocation chunk */
 
 #define MAXELEN 2048                   /* max Edge length */
-#define DEGENUV 1.e-14
+#define DEGENUV 1.e-13
 
 
   typedef struct {

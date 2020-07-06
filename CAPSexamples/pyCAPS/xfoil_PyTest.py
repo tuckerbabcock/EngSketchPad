@@ -36,7 +36,8 @@ workDir = os.path.join(str(args.workDir[0]), workDir)
 
 # Load CSM file
 ## [loadGeom]
-myGeometry = myProblem.loadCAPS("../csmData/airfoilSection.csm")
+geometryScript = os.path.join("..","csmData","airfoilSection.csm")
+myGeometry = myProblem.loadCAPS(geometryScript)
 ## [loadGeom]
 
 # Change a design parameter - area in the geometry
@@ -115,7 +116,7 @@ if (args.noAnalysis == False and args.noPlotData == False):
     try:
         from matplotlib import pyplot as plt
     except:
-        print ("Unable to import matplotlib.pyplot module. Drag polar will not be ploted")
+        print ("Unable to import matplotlib.pyplot module. Drag polar will not be plotted")
         plt = None
 
     # Plot data

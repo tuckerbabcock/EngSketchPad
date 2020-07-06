@@ -2201,7 +2201,7 @@ int aimInputs(int iIndex, void *aimInfo, int index, char **ainame,
     }
 
     if (input != NUMINPUT) {
-        printf("DEVELOPER ERROR: %d != %d\n", input, NUMINPUT);
+        printf("DEVELOPER ERROR: NUMINPUTS %d != %d\n", NUMINPUT, input);
         return CAPS_BADINDEX;
     }
 
@@ -3188,6 +3188,7 @@ aimPostAnalysis(/*@unused@*/ int iIndex, /*@unused@*/ void *aimInfo,
             bodydata[ib].faces_tris[in][3*i+2] = elem[2]+1;
           }
 
+          EG_free(edges); edges = NULL;
           EG_free(edgeCount); edgeCount = NULL;
         } else {
           printf(" Error: line %d Type = %d is not a FACEID!\n", iline, it);

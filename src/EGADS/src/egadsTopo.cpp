@@ -21,6 +21,8 @@
 
 #define OCC_SOLIDS
 
+#define UVTOL    1.e-4
+
 /* structures */
 
   typedef struct {
@@ -35,6 +37,7 @@
   extern "C" int  EG_destroyTopology( egObject *topo );
   extern "C" int  EG_copyObject( const egObject *object, /*@null@*/ void *ptr,
                                        egObject **copy );
+  extern "C" int  EG_fullAttrs( const egObject *obj );
   extern "C" int  EG_isSame( const egObject *obj1, const egObject *obj2 );
   extern "C" int  EG_attributeRet( const egObject *obj, const char *name,
                                    int *atype, int *len,
@@ -54,6 +57,8 @@
                                  double tol, egObject **newcurve );
   extern "C" int  EG_evaluate( const egObject *geom,
                                /*@null@*/ const double *param, double *result );
+  extern "C" int  EG_invEvaluate( const egObject *obj, double *xyz,
+                                  double *param, double *results );
 
   extern "C" int  EG_tolerance( const egObject *topo, double *tol );
   extern "C" int  EG_getTolerance( const egObject *topo, double *tol );
@@ -89,10 +94,12 @@
   extern "C" int  EG_sameBodyTopo( const egObject *bod1, const egObject *bod2 );
   extern "C" int  EG_makeSolidBody( egObject *context, int stype,
                                     const double *rvec, egObject **body );
-  extern "C" int  EG_makeSolidBody_dot( egObject *body, int stype, const double *rvec,
+  extern "C" int  EG_makeSolidBody_dot( egObject *body, int stype,
+                                        const double *rvec,
                                         const double *rvec_dot );
   extern "C" int  EG_getBoundingBox( const egObject *topo, double *box );
-  extern "C" int  EG_getMassProperties( const egObject *topo, double *props );
+  extern "C" int  EG_getMassProperties( const egObject *topo,
+                                        /*@null@*/ double *props );
   extern "C" int  EG_isEquivalent( const egObject *topo1, const egObject *topo2 );
   extern "C" int  EG_isPlanar( const egObject *topo );
   extern "C" int  EG_getEdgeUV( const egObject *face, const egObject *edge,
@@ -119,11 +126,11 @@
                                          egObject **objs, egObject **result );
   extern "C" int  EG_mapBody( const egObject *sBody, const egObject *dBody,
                               const char *fAttr, egObject **mBody );
-  extern "C"  int EG_copyGeometry_dot(const egObject *obj,
-                                      /*@null@*/ const double *xform,
-                                      /*@null@*/ const double *xform_dot,
-                                      egObject *copy);
-  extern "C"  int EG_hasGeometry_dot(const egObject *obj);
+  extern "C" int  EG_copyGeometry_dot( const egObject *obj,
+                                       /*@null@*/ const double *xform,
+                                       /*@null@*/ const double *xform_dot,
+                                       egObject *copy );
+  extern "C" int  EG_hasGeometry_dot( const egObject *obj );
 
   extern     int  EG_attriBodyDup( const egObject *src, egObject *dst );
   extern     void EG_getGeometryLen( const egObject *geom, int *ni, int *nr );
@@ -135,26 +142,29 @@
   extern     int  EG_inFaceX( const egObject *face, const double *uva,
                               /*@null@*/ double *pt, /*@null@*/ double *uvx );
 
-  extern "C" int  EG_makeSolidBox(egObject *context, const double *data,
-                                  egObject **body);
-  extern "C" int  EG_makeSolidBox_dot(const double *data, const double *data_dot,
-                                      egObject *body);
-  extern "C" int  EG_makeSolidSphere(egObject *context, int stypx,
-                                     const double *data, egObject **body);
-  extern "C" int  EG_makeSolidSphere_dot(int stypx, const double *data,
-                                         const double *data_dot, egObject *body);
-  extern "C" int  EG_makeSolidCone(egObject *context, int stypx,
-                                   const double *data, egObject **body);
-  extern "C" int  EG_makeSolidCone_dot(int stypx, const double *data,
-                                       const double *data_dot, egObject *body);
-  extern "C" int  EG_makeSolidCylinder(egObject *context, int stypx,
-                                       const double *data, egObject **body);
-  extern "C" int  EG_makeSolidCylinder_dot(int stypx, const double *data,
-                                           const double *data_dot, egObject *body);
-  extern "C" int  EG_makeSolidTorus(egObject *context, int stypx,
-                                    const double *data, egObject **body);
-  extern "C" int  EG_makeSolidTorus_dot(int stypx, const double *data,
-                                        const double *data_dot, egObject *body);
+  extern "C" int  EG_makeSolidBox( egObject *context, const double *data,
+                                   egObject **body );
+  extern "C" int  EG_makeSolidBox_dot( const double *data, const double *data_dot,
+                                       egObject *body );
+  extern "C" int  EG_makeSolidSphere( egObject *context, int stypx,
+                                      const double *data, egObject **body );
+  extern "C" int  EG_makeSolidSphere_dot( int stypx, const double *data,
+                                          const double *data_dot,
+                                          egObject *body );
+  extern "C" int  EG_makeSolidCone( egObject *context, int stypx,
+                                    const double *data, egObject **body );
+  extern "C" int  EG_makeSolidCone_dot( int stypx, const double *data,
+                                        const double *data_dot, egObject *body );
+  extern "C" int  EG_makeSolidCylinder( egObject *context, int stypx,
+                                        const double *data, egObject **body );
+  extern "C" int  EG_makeSolidCylinder_dot( int stypx, const double *data,
+                                            const double *data_dot,
+                                            egObject *body );
+  extern "C" int  EG_makeSolidTorus( egObject *context, int stypx,
+                                     const double *data, egObject **body );
+  extern "C" int  EG_makeSolidTorus_dot( int stypx, const double *data,
+                                         const double *data_dot,
+                                         egObject *body );
 
 
 static void
@@ -5533,7 +5543,7 @@ EG_getBoundingBox(const egObject *topo, double *bbox)
 
 
 int
-EG_getMassProperties(const egObject *topo, double *data)
+EG_getMassProperties(const egObject *topo, /*@null@*/ double *data)
 {
   int           i;
   gp_Pnt        CofG, pv;
@@ -5548,7 +5558,12 @@ EG_getMassProperties(const egObject *topo, double *data)
   if ((topo->oclass < EDGE) ||
       (topo->oclass > BODY))       return EGADS_NOTTOPO;
   if  (topo->blind == NULL)        return EGADS_NODATA;
-
+  if ((topo->oclass == BODY) && (data == NULL)) {
+    egadsBody *pbody = (egadsBody *) topo->blind;
+    BRepTools::Clean(pbody->shape);
+    return EGADS_SUCCESS;
+  }
+  if  (data == NULL)               return EGADS_NONAME;
   for (i = 0; i < 14; i++) data[i] = 0.0;
 
   /* are we degenerate (a single Node)? */
@@ -7185,13 +7200,69 @@ EG_inFaceAlt(const egObject *face, const double *uv)
 }
 
 
+static int
+EG_getRecurFrag(egObject *object, int oclass, int *ntopo, egObject ***topos)
+{
+  int      stat, i, oc, mt, nobj, *sens;
+  double   limits[4];
+  egObject *geom, **objs, **tmp;
+  
+  /* save away our objects */
+  if (object->oclass == oclass) {
+    tmp = *topos;
+    for (i = 0; i < *ntopo; i++)
+      if (object == tmp[i]) return EGADS_SUCCESS;
+
+    if (*ntopo == 0) {
+      tmp = (egObject **) EG_alloc(sizeof(egObject *));
+    } else {
+      tmp = (egObject **) EG_reall(*topos, (*ntopo+1)*sizeof(egObject *));
+    }
+    if (tmp == NULL) return EGADS_MALLOC;
+    tmp[*ntopo] = object;
+    *ntopo     += 1;
+    *topos      = tmp;
+    return EGADS_SUCCESS;
+  }
+  
+  /* examine the children */
+  stat = EG_getTopology(object, &geom, &oc, &mt, limits, &nobj, &objs, &sens);
+  if (stat != EGADS_SUCCESS) return stat;
+
+  for (i = 0; i < nobj; i++) {
+    stat = EG_getRecurFrag(objs[i], oclass, ntopo, topos);
+    if (stat != EGADS_SUCCESS) return stat;
+  }
+  
+  return EGADS_SUCCESS;
+}
+
+
+static int
+EG_getTopoFrags(const egObject *object, int oclass,
+                int *ntopo, egObject ***topos)
+{
+  *ntopo = 0;
+  *topos = NULL;
+  if  (object == NULL)               return EGADS_NULLOBJ;
+  if  (object->magicnumber != MAGIC) return EGADS_NOTOBJ;
+  if ((object->oclass < LOOP) ||
+      (object->oclass > SHELL))      return EGADS_NOTTOPO;
+  if  (object->blind == NULL)        return EGADS_NODATA;
+  if ((oclass != NODE) &&
+      (oclass != EDGE))              return EGADS_INDEXERR;
+  
+  return EG_getRecurFrag((egObject *) object, oclass, ntopo, topos);
+}
+
+
 int
 EG_sewFaces(int nobj, const egObject **objs, double toler, int opt,
             egObject **result)
 {
-  int      i, j, k, n, outLevel, stat, nerr, *amap;
-  double   tol, toltmp;
-  egObject *context, *omodel;
+  int      i, j, k, n, no, outLevel, stat, nerr, fullAttr, *amap;
+  double   tol, toltmp, tmin, tmax, trange[2], xyz[3];
+  egObject *context, *omodel, *geom, **obs;
 
   *result = NULL;
   if (nobj <= 1)                     return EGADS_EMPTY;
@@ -7201,6 +7272,7 @@ EG_sewFaces(int nobj, const egObject **objs, double toler, int opt,
   if (EG_sameThread(objs[0]))        return EGADS_CNTXTHRD;
   outLevel = EG_outLevel(objs[0]);
   context  = EG_context(objs[0]);
+  fullAttr = EG_fullAttrs(objs[0]);
 
   tol = 0.0;
   for (i = 0; i < nobj; i++) {
@@ -7591,6 +7663,72 @@ EG_sewFaces(int nobj, const egObject **objs, double toler, int opt,
     }
     EG_free(amap);
   }
+  
+  /* deal with extended attribution */
+  if (fullAttr == 1) {
+
+    for (i = 0; i < nobj; i++) {
+      if (objs[i]->oclass == BODY) {
+        stat = EG_getBodyTopos(objs[i], NULL, EDGE, &no, &obs);
+      } else {
+        stat = EG_getTopoFrags(objs[i], EDGE, &no, &obs);
+      }
+      if (stat != EGADS_SUCCESS) {
+        if (outLevel > 1)
+          printf(" EGADS Warning: Getting Edge objects returns = %d\n", stat);
+        continue;
+      }
+      for (int ib = 0; ib < nBody; ib++) {
+        egObject  *pobj  = mshape->bodies[ib];
+        egadsBody *pbody = (egadsBody *) pobj->blind;
+        for (int k = 0; k < no; k++) {
+          if (obs[k]->mtype == DEGENERATE) continue;
+          egadsEdge *pedge = (egadsEdge *) obs[k]->blind;
+          trange[0] = pedge->trange[0];
+          trange[1] = pedge->trange[1];
+          geom      = pedge->curve;
+          for (j = 0; j < pbody->edges.map.Extent(); j++) {
+            if (pbody->edges.objs[j]->mtype == DEGENERATE) continue;
+            if (EG_isSame(obs[k], pbody->edges.objs[j]) == EGADS_SUCCESS) {
+              egadsEdge *pedgd = (egadsEdge *) pbody->edges.objs[j]->blind;
+              egadsNode *pnod0 = (egadsNode *) pedgd->nodes[0]->blind;
+              egadsNode *pnod1 = (egadsNode *) pedgd->nodes[1]->blind;
+              stat = EG_invEvaluate(geom, pnod0->xyz, &tmin, xyz);
+              if (stat != EGADS_SUCCESS) continue;
+              stat = EG_invEvaluate(geom, pnod1->xyz, &tmax, xyz);
+              if (stat != EGADS_SUCCESS) continue;
+              if ((tmin+UVTOL < trange[0]) || (tmax-UVTOL > trange[1])) continue;
+              EG_attributeDup(obs[k], pbody->edges.objs[j]);
+            }
+          }
+        }
+      }
+      EG_free(obs);
+    }
+    
+    for (i = 0; i < nobj; i++) {
+      if (objs[i]->oclass == BODY) {
+        stat = EG_getBodyTopos(objs[i], NULL, NODE, &no, &obs);
+      } else {
+        stat = EG_getTopoFrags(objs[i], NODE, &no, &obs);
+      }
+      if (stat != EGADS_SUCCESS) {
+        if (outLevel > 1)
+          printf(" EGADS Warning: Getting Node objects returns = %d\n", stat);
+        continue;
+      }
+      for (int ib = 0; ib < nBody; ib++) {
+        egObject  *pobj  = mshape->bodies[ib];
+        egadsBody *pbody = (egadsBody *) pobj->blind;
+        for (int k = 0; k < no; k++)
+          for (j = 0; j < pbody->nodes.map.Extent(); j++)
+            if (EG_isSame(obs[k], pbody->nodes.objs[j]) == EGADS_SUCCESS)
+              EG_attributeDup(obs[k], pbody->nodes.objs[j]);
+      }
+      EG_free(obs);
+    }
+    
+  }
 
   *result = omodel;
   return EGADS_SUCCESS;
@@ -7601,8 +7739,9 @@ int
 EG_replaceFaces(const egObject *body, int nobj, egObject **objs,
                       egObject **result)
 {
-  int      i, j, outLevel, stat, mtype, nerr;
-  egObject *context, *obj, *src;
+  int      i, j, k, outLevel, stat, mtype, nerr, fullAttr, no;
+  double   tmin, tmax, trange[2], xyz[3];
+  egObject *context, *obj, *src, *geom, **obs;
 
   *result = NULL;
   if  (body == NULL)               return EGADS_NULLOBJ;
@@ -7616,6 +7755,7 @@ EG_replaceFaces(const egObject *body, int nobj, egObject **objs,
   if  (EG_sameThread(body))        return EGADS_CNTXTHRD;
   outLevel = EG_outLevel(body);
   context  = EG_context(body);
+  fullAttr = EG_fullAttrs(body);
 
   // check the input objects
   egadsBody *pbody = (egadsBody *) body->blind;
@@ -7744,33 +7884,35 @@ EG_replaceFaces(const egObject *body, int nobj, egObject **objs,
   mtype = SHEETBODY;
 
   // promote to a solid?
-  TopoDS_Shell shell = TopoDS::Shell(newShape);
-  BRep_Builder builder3D;
-  TopoDS_Solid solid;
-  builder3D.MakeSolid(solid);
-  builder3D.Add(solid, shell);
-  try {
-    BRepLib::OrientClosedSolid(solid);
-  }
-  catch (const Standard_Failure& e) {
-/*  printf(" EGADS Warning: Cannot Orient Solid (EG_replaceFaces)!\n");
-    printf("                %s\n", e.GetMessageString()); */
-    solid.Nullify();
-  }
-  catch (...) {
-//  printf(" EGADS Warning: Cannot Orient Solid (EG_replaceFaces)!\n");
-    solid.Nullify();
-  }
-  if (!solid.IsNull()) {
-    BRepCheck_Analyzer sCheck(solid);
-    if (!sCheck.IsValid()) {
-      printf(" EGADS Warning: Invalid Solid (EG_replaceFaces)!\n");
+  if ((body->mtype == SOLIDBODY) && (nNull == 0)) {
+    TopoDS_Shell shell = TopoDS::Shell(newShape);
+    BRep_Builder builder3D;
+    TopoDS_Solid solid;
+    builder3D.MakeSolid(solid);
+    builder3D.Add(solid, shell);
+    try {
+      BRepLib::OrientClosedSolid(solid);
+    }
+    catch (const Standard_Failure& e) {
+/*    printf(" EGADS Warning: Cannot Orient Solid (EG_replaceFaces)!\n");
+      printf("                %s\n", e.GetMessageString()); */
       solid.Nullify();
     }
-  }
-  if (!solid.IsNull()) {
-    newShape = solid;
-    mtype    = SOLIDBODY;
+    catch (...) {
+//    printf(" EGADS Warning: Cannot Orient Solid (EG_replaceFaces)!\n");
+      solid.Nullify();
+    }
+    if (!solid.IsNull()) {
+      BRepCheck_Analyzer sCheck(solid);
+      if (!sCheck.IsValid()) {
+      printf(" EGADS Warning: Invalid Solid (EG_replaceFaces)!\n");
+        solid.Nullify();
+      }
+    }
+    if (!solid.IsNull()) {
+      newShape = solid;
+      mtype    = SOLIDBODY;
+    }
   }
 
   stat = EG_makeObject(context, &obj);
@@ -7801,6 +7943,7 @@ EG_replaceFaces(const egObject *body, int nobj, egObject **objs,
   }
 
   // assign attributes
+  if (fullAttr == 1) EG_attriBodyDup(body, obj);
   if (pbody->faces.map.Extent() != pbodn->faces.map.Extent()+nNull) {
     if (outLevel > 0)
       printf(" EGADS Warning: Attribute length Mismatch (EG_replaceFaces)!\n");
@@ -7813,11 +7956,64 @@ EG_replaceFaces(const egObject *body, int nobj, egObject **objs,
         int k = -amap[i]-1;
         src   = objs[2*k+1];
       }
+      if (fullAttr == 1) EG_attributeDel(pbodn->faces.objs[j], NULL);
       EG_attributeDup(src, pbodn->faces.objs[j]);
       j++;
     }
   }
   delete [] amap;
+  
+  /* deal with extended attribution */
+  if (fullAttr == 1) {
+
+    for (i = 0; i < nobj; i++) {
+      if (objs[2*i+1] == NULL) continue;
+      stat = EG_getTopoFrags(objs[2*i+1], EDGE, &no, &obs);
+      if (stat != EGADS_SUCCESS) {
+        if (outLevel > 1)
+          printf(" EGADS Warning: Getting Edge objects returns = %d\n", stat);
+        continue;
+      }
+      for (k = 0; k < no; k++) {
+        if (obs[k]->mtype == DEGENERATE) continue;
+        egadsEdge *pedge = (egadsEdge *) obs[k]->blind;
+        trange[0] = pedge->trange[0];
+        trange[1] = pedge->trange[1];
+        geom      = pedge->curve;
+        for (j = 0; j < pbodn->edges.map.Extent(); j++) {
+          if (pbodn->edges.objs[j]->mtype == DEGENERATE) continue;
+          if (EG_isSame(obs[k], pbodn->edges.objs[j]) == EGADS_SUCCESS) {
+            egadsEdge *pedgd = (egadsEdge *) pbodn->edges.objs[j]->blind;
+            egadsNode *pnod0 = (egadsNode *) pedgd->nodes[0]->blind;
+            egadsNode *pnod1 = (egadsNode *) pedgd->nodes[1]->blind;
+            stat = EG_invEvaluate(geom, pnod0->xyz, &tmin, xyz);
+            if (stat != EGADS_SUCCESS) continue;
+            stat = EG_invEvaluate(geom, pnod1->xyz, &tmax, xyz);
+            if (stat != EGADS_SUCCESS) continue;
+            if ((tmin+UVTOL < trange[0]) || (tmax-UVTOL > trange[1])) continue;
+            EG_attributeDup(obs[k], pbodn->edges.objs[j]);
+          }
+        }
+      }
+      EG_free(obs);
+    }
+    
+    for (i = 0; i < nobj; i++) {
+      if (objs[2*i+1] == NULL) continue;
+      stat = EG_getTopoFrags(objs[2*i+1], NODE, &no, &obs);
+      if (stat != EGADS_SUCCESS) {
+        if (outLevel > 1)
+          printf(" EGADS Warning: Getting Node objects returns = %d\n", stat);
+        continue;
+      }
+      for (k = 0; k < no; k++)
+        for (j = 0; j < pbodn->nodes.map.Extent(); j++)
+          if (EG_isSame(obs[k], pbodn->nodes.objs[j]) == EGADS_SUCCESS)
+            EG_attributeDup(obs[k], pbodn->nodes.objs[j]);
+      EG_free(obs);
+    }
+    
+  }
 
   EG_referenceObject(obj, context);
   *result = obj;

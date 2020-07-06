@@ -23,7 +23,8 @@ args = parser.parse_args()
 myProblem = capsProblem()
 
 # Load CSM file
-myProblem.loadCAPS("../csmData/cfd2D.csm", verbosity=args.verbosity)
+geometryScript = os.path.join("..","csmData","cfd2D.csm")
+myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 
 # Create working directory variable
 workDir = os.path.join(str(args.workDir[0]), "FUN3DAFLR2NodeDistAnalysisTest")

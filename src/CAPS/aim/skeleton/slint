@@ -1,2 +1,0 @@
-#
-lint -I../include -D__x86_64__ -I$ESP_ROOT/include *.c -uniondef -exportlocal

@@ -11,10 +11,15 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <math.h>
-#include <float.h>	/* Needed in some systems for DBL_MAX definition */
-#include <limits.h>	/* Needed in other systems for DBL_EPSILON */
+#include <float.h>	     /* Needed in some systems for DBL_MAX definition */
+#include <limits.h>	     /* Needed in other systems for DBL_EPSILON */
+
+#ifdef __CUDACC__
+#include "liteString.h"
+#else
+#include <string.h>
+#endif
 
 #include "egadsTypes.h"
 #include "egadsInternals.h"
@@ -22,9 +27,12 @@
 #include "emp.h"
 
 
-//#define WRITEFRAME
-#define SPLITDEGEN
-#define INSERTKNOTS
+/* #define WRITEFRAME */     /* output frame with fillArea failure */
+/* #define FULLDEGEN */      /* include DEGENERATE Edges in tessellation */
+/* #define SPLITC0 */        /* split segments at C0s */
+#define SPLITDEGEN           /* split segments approaching DEGENERATE Node */
+#define INSERTKNOTS          /* insert knots when mapping */
+/* #define SPLINE_KNOT_TESSGEOM */
 
 
 #define NOTFILLED	-1
@@ -44,57 +52,86 @@
 #define MIN(a,b)        (((a) < (b)) ?  (a) : (b))
 #define ABS(a)          (((a) <   0) ? -(a) : (a))
 
+#ifdef __HOST_AND_DEVICE__
+#undef __HOST_AND_DEVICE__
+#endif
+#ifdef __PROTO_H_AND_D__
+#undef __PROTO_H_AND_D__
+#endif
 
-  extern int  EG_tolerance( const egObject *topo, double *tol );
-  extern int  EG_getTopology( const egObject *topo, egObject **geom, int *oclas,
-                              int *type, /*@null@*/ double *limits, int *nChild,
-                              egObject ***children, int **senses );
-  extern int  EG_getBodyTopos( const egObject *body, /*@null@*/ egObject *src,
-                               int oclass, int *ntopo,
-                               /*@null@*/ egObject ***topos );
-  extern int  EG_indexBodyTopo( const egObject *body, const egObject *src );
-  extern int  EG_sameBodyTopo( const egObject *bod1, const egObject *bod2 );
-  extern int  EG_getEdgeUV( const egObject *face, const egObject *edge,
-                            int sense, double t, double *result );
-  extern int  EG_getRange( const egObject *geom, double *range, int *pflag );
-  extern int  EG_getGeometry( const egObject *geom, int *oclass, int *type,
-                              egObject **rGeom, /*@null@*/ int    **ivec,
-                                                /*@null@*/ double **rvec );
-  extern int  EG_evaluate( const egObject *geom, /*@null@*/ const double *param,
-                           double *result );
-  extern int  EG_invEvaluate( const egObject *geom, double *xyz, double *param,
-                              double *result );
-  extern int  EG_curvature( const egObject *geom, const double *param,
-                            double *result );
-  extern int  EG_isSame( const egObject *geom1, const egObject *geom2 );
-  extern int  EG_attributeRet( const ego obj, const char *name, int *atype,
-                               int *len, /*@null@*/ const int    **ints,
-                                         /*@null@*/ const double **reals,
-                                         /*@null@*/ const char   **str );
+#ifdef __CUDACC__
+#define __HOST_AND_DEVICE__ extern "C" __host__ __device__
+#define __PROTO_H_AND_D__   extern "C" __host__ __device__
+#else
+#define __HOST_AND_DEVICE__
+#define __PROTO_H_AND_D__ extern
+#endif
+
+__PROTO_H_AND_D__ int  EG_tolerance( const egObject *topo, double *tol );
+__PROTO_H_AND_D__ int  EG_getTopology( const egObject *topo, egObject **geom,
+                                       int *oclas, int *type,
+                                       /*@null@*/ double *limits, int *nChild,
+                                       egObject ***children, int **senses );
+__PROTO_H_AND_D__ int  EG_getBodyTopos( const egObject *body,
+                                        /*@null@*/ egObject *src, int oclass,
+                                        int *ntopo,
+                                        /*@null@*/ egObject ***topos );
+__PROTO_H_AND_D__ int  EG_indexBodyTopo( const egObject *body,
+                                         const egObject *src );
+__PROTO_H_AND_D__ int  EG_sameBodyTopo( const egObject *bod1,
+                                        const egObject *bod2 );
+__PROTO_H_AND_D__ int  EG_getEdgeUV( const egObject *face,
+                                     const egObject *edge, int sense, double t,
+                                     double *result );
+__PROTO_H_AND_D__ int  EG_getRange( const egObject *geom, double *range,
+                                    int *pflag );
+__PROTO_H_AND_D__ int  EG_getGeometry( const egObject *geom, int *oclass,
+                                       int *type, egObject **rGeom,
+                                       /*@null@*/ int    **ivec,
+                                       /*@null@*/ double **rvec );
+__PROTO_H_AND_D__ int  EG_evaluate( const egObject *geom,
+                                    /*@null@*/ const double *param,
+                                    double *result );
+__PROTO_H_AND_D__ int  EG_invEvaluate( const egObject *geom, double *xyz,
+                                       double *param, double *result );
+__PROTO_H_AND_D__ int  EG_arcLength( const egObject *geom, double t1, double t2,
+                                     double *result );
+__PROTO_H_AND_D__ int  EG_isSame( const egObject *geo1, const egObject *geo2 );
+__PROTO_H_AND_D__ int  EG_attributeRet( const ego obj, const char *name,
+                                        int *atype, int *len,
+                                        /*@null@*/ const int    **ints,
+                                        /*@null@*/ const double **reals,
+                                        /*@null@*/ const char   **str );
 #ifndef LITE
-  extern int  EG_attributeDel( egObject *obj, /*@null@*/ const char *name );
-  extern int  EG_attributeAdd( egObject *obj, const char *name, int type,
-                               int len, /*@null@*/ const int    *ints,
+           extern int  EG_attributeDel( egObject *obj,
+                                        /*@null@*/ const char *name );
+           extern int  EG_attributeAdd( egObject *obj, const char *name,
+                                        int type, int len,
+                                        /*@null@*/ const int    *ints,
                                         /*@null@*/ const double *reals,
                                         /*@null@*/ const char   *str );
 #endif
 
-  extern int  EG_tessellate( int outLevel, triStruct *ts, long tID );
-  extern int  EG_quadFill( const egObject *face, double *parms, int *elens,
-                           double *uv, int *npts, double **uvs, int *npat,
-                           int *pats, int **vpats );
-  extern int  EG_baryFrame( egTess2D *tess2d );
-  extern int  EG_baryTess( egTess2D tess2d, const double *uv, double *w );
-  extern void EG_mapTessTs( egTess1D src, egTess1D dst );
-  extern int  EG_relPosTs( egObject *geom, int n, /*@null@*/ const double *rel,
-                           double *ts, double *xyzs );
+__PROTO_H_AND_D__ int  EG_tessellate( int outLevel, triStruct *ts, long tID );
+__PROTO_H_AND_D__ int  EG_quadFill( const egObject *face, double *parms,
+                                    int *elens, double *uv, int *npts,
+                                    double **uvs, int *npat, int *pats,
+                                    int **vpats );
+__PROTO_H_AND_D__ int  EG_baryFrame( egTess2D *tess2d );
+__PROTO_H_AND_D__ int  EG_baryTess( egTess2D tess2d, const double *uv,
+                                    double *w );
+__PROTO_H_AND_D__ void EG_mapTessTs( egTess1D src, egTess1D dst );
+__PROTO_H_AND_D__ int  EG_relPosTs( egObject *geom, int n,
+                                    /*@null@*/ const double *rel,
+                                    double *ts, double *xyzs );
 #ifdef INSERTKNOTS
-  extern int  EG_mapSequen(egObject *src, egObject *dst, egObject **result);
+__PROTO_H_AND_D__ int  EG_mapSequen( egObject *src, egObject *dst,
+                                     egObject **result );
 #endif
 
 
 
-static int
+__HOST_AND_DEVICE__ static int
 EG_faceConnIndex(egFconn conn, int face)
 {
   int i;
@@ -111,7 +148,7 @@ EG_faceConnIndex(egFconn conn, int face)
 
 
 #ifdef CHECK
-static void
+__HOST_AND_DEVICE__ static void
 EG_checkTriangulation(egTessel *btess)
 {
   int i, j, k, n, n1, n2, nf, iface, itri, ie, iv, side;
@@ -258,7 +295,7 @@ EG_checkTriangulation(egTessel *btess)
  * 	      1 - second pass; use dirty tricks
  */
 
-static int
+__HOST_AND_DEVICE__ static int
 EG_crossSeg(int index, const double *mid, int i2, const double *vertices, 
             int pass, fillArea *fa)
 {
@@ -409,7 +446,7 @@ EG_crossSeg(int index, const double *mid, int i2, const double *vertices,
  * point shoud be repeated. i.e. if the outer contour is a square,
  * only the four distinct endpoints should be specified in order.
  *  
- * nc: absoulte value is #contours; (-) run silent
+ * nc: absolute value is #contours; (-) run silent
  * cntr: An array describing the number of points in each
  *	 contour. Thus, cntr[i] = #points in the i'th contour.
  * vertices: Input array of vertices. Vertices for each contour
@@ -428,7 +465,7 @@ EG_crossSeg(int index, const double *mid, int i2, const double *vertices,
  *           0 allocation error
  *           + number of triangles
  */
-int
+__HOST_AND_DEVICE__ int
 EG_fillArea(int nc, const int *cntr, const double *vertices, int *triangles,
             int *n_fig8, int pass, fillArea *fa)
 {
@@ -622,6 +659,7 @@ EG_fillArea(int nc, const int *cntr, const double *vertices, int *triangles,
             if (fa->front[i].sleft != l) {
               index = fa->front[i].sleft;
               indx2 = fa->front[l].sright;
+              if (index == NOTFILLED) continue;
               fa->front[i].sleft      = l;
               fa->front[l].sright     = i;
               fa->front[index].sright = indx2;
@@ -630,6 +668,7 @@ EG_fillArea(int nc, const int *cntr, const double *vertices, int *triangles,
             if (fa->front[i].sright != k) {
               index = fa->front[i].sright;
               indx2 = fa->front[k].sleft;
+              if (indx2 == NOTFILLED) continue;
               fa->front[i].sright     = k;
               fa->front[k].sleft      = i;
               fa->front[index].sleft  = indx2;
@@ -873,7 +912,7 @@ error:
 }
 
 
-void
+__HOST_AND_DEVICE__ void
 EG_makeConnect(int k1, int k2, int *tri, int *kedge, int *ntable,
                connect *etable, int face)
 {
@@ -940,7 +979,7 @@ again:
 }
 
 
-int
+__HOST_AND_DEVICE__ int
 EG_makeNeighbors(triStruct *ts, int f)
 {
   int     *ntab, nside, j;
@@ -988,7 +1027,7 @@ EG_makeNeighbors(triStruct *ts, int f)
 }
 
 
-static void
+__HOST_AND_DEVICE__ static void
 EG_updateTris(triStruct *ts, egTessel *btess, int fIndex)
 {
   int    i, j, k, m, n, nf, edge, *ptype, *pindex, *frame, *frlps, *tris, *tric;
@@ -1100,7 +1139,7 @@ EG_updateTris(triStruct *ts, egTessel *btess, int fIndex)
 }
 
 
-int
+__HOST_AND_DEVICE__ int
 EG_getTessEdge(const egObject *tess, int indx, int *len,
                const double **xyz, const double **t)
 {
@@ -1188,7 +1227,7 @@ EG_getTessEdge(const egObject *tess, int indx, int *len,
 }
 
 
-int
+__HOST_AND_DEVICE__ int
 EG_getTessFace(const egObject *tess, int indx, int *len, const double **xyz,
                const double **uv, const int **ptype, const int **pindex, 
                int *ntri, const int **tris, const int **tric)
@@ -1291,7 +1330,7 @@ EG_getTessFace(const egObject *tess, int indx, int *len, const double **xyz,
 }
 
 
-int
+__HOST_AND_DEVICE__ int
 EG_getTessLoops(const egObject *tess, int fIndex, int *nloop,
                 const int **lIndices)
 {
@@ -1319,7 +1358,7 @@ EG_getTessLoops(const egObject *tess, int fIndex, int *nloop,
 }
 
 
-static int
+__HOST_AND_DEVICE__ static int
 EG_loopQuad(double edgeTol, int *lens, double *uvs, triStruct *ts)
 {
   int    i, j, k, n, len, *types, edge, ne;
@@ -1425,15 +1464,15 @@ EG_loopQuad(double edgeTol, int *lens, double *uvs, triStruct *ts)
 }
 
 
-int
-EG_fillTris(egObject *body, int iFace, egObject *face, egObject *tess, 
+__HOST_AND_DEVICE__ int
+EG_fillTris(egObject *body, int iFace, egObject *face, egObject *tess,
             triStruct *ts, fillArea *fa, long tID)
 {
   int      i, j, k, l, m, n, stat, nedge, nloop, oclass, mtype, ori, np, degen;
-  int      *senses, *sns, *tris, *tmp, npts, ntot, ntri, sen, n_fig8, nd, st;
-  int      outLevel, mm, mp, *lsenses, lor, atype, alen, iper;
+  int      *senses, *sns, *tris, *tmp, npts, ntot, ntri, sen, nfig8, nd, st;
+  int      outLevel, mm, mp, *lsenses, lor, atype, alen, iper, *fig8;
   double   range[4], srange[4], trange[2], uvm[2], uvp[2];
-  double   smallu, smallv, bigu, bigv, *uvs, *intEdg;
+  double   smallu, smallv, bigu, bigv, d, *uvs, *intEdg;
   egObject *geom, **edges, **loops, **nds, *outer;
   egTessel *btess;
   triVert  *tv;
@@ -1463,8 +1502,13 @@ EG_fillTris(egObject *body, int iFace, egObject *face, egObject *tess,
           printf("%lX EGADS Warning: Face %d -> innerLoop Attr Not a String!\n",
                  tID, iFace);
       } else {
+#ifdef __CUDACC__
+        if ((EG_strncmp(aStr,"OFF",3) == 0) || (EG_strncmp(aStr,"Off",3) == 0) ||
+            (EG_strncmp(aStr,"off",3) == 0)) {
+#else
         if ((strcmp(aStr,"OFF") == 0) || (strcmp(aStr,"Off") == 0) ||
             (strcmp(aStr,"off") == 0)) {
+#endif
           outer = NULL;
           for (i = 0; i < nloop; i++)
             if (lsenses[i] == SFORWARD) outer = loops[i];
@@ -1519,7 +1563,9 @@ EG_fillTris(egObject *body, int iFace, egObject *face, egObject *tess,
       stat = EG_getTopology(edges[j], &geom, &oclass, &mtype, trange, &nd,
                             &nds, &sns);
       if (stat != EGADS_SUCCESS) return stat;
+#ifndef FULLDEGEN
       if (mtype == DEGENERATE) continue;
+#endif
       stat = EG_getTessEdge(tess, k, &npts, &xyzs, &tps);
       if (stat != EGADS_SUCCESS) return stat;
       ntot += npts-1;
@@ -1586,14 +1632,15 @@ EG_fillTris(egObject *body, int iFace, egObject *face, egObject *tess,
     ts->mloop = nloop;
   }
   ts->nloop = nloop;
-  uvs = (double *) EG_alloc((ntot*2+2)*sizeof(double));
+  uvs = (double *) EG_alloc((ntot*2+2)*sizeof(double) + ntot*sizeof(int));
   if (uvs == NULL) return EGADS_MALLOC;
+  fig8 = (int *) &uvs[2*ntot+2];
  
   /* fill in the loops & mark the boundary segments */
   
   np     = 1;
   uvs[0] = uvs[1] = 0.0;
-  for (i = 0; i < nloop; i++) {
+  for (nfig8 = i = 0; i < nloop; i++) {
     st   = np;
     stat = EG_getTopology(loops[i], &geom, &oclass, &mtype, NULL, &nedge,
                           &edges, &senses);
@@ -1624,10 +1671,12 @@ EG_fillTris(egObject *body, int iFace, egObject *face, egObject *tess,
         EG_free(uvs);
         return stat;
       }
+#ifndef FULLDEGEN
       if (mtype == DEGENERATE) {
         degen = 1;
         continue;
       }
+#endif
       stat = EG_getTessEdge(tess, k, &npts, &xyzs, &tps);
       if (stat != EGADS_SUCCESS) {
         EG_free(uvs);
@@ -1718,27 +1767,13 @@ EG_fillTris(egObject *body, int iFace, egObject *face, egObject *tess,
                   uvs[2*np  ] = uvs[2*l  ];
                   uvs[2*np+1] = uvs[2*l+1];
                 } else if (ts->verts[l-1].loop > 0) {
-                  /* make room in UV for a gap */
-                  stat = EG_getEdgeUV(face, edges[n], senses[n]*lor,
-                                      tps[0]+0.1*(tps[1]-tps[0]), uvp);
-                  if (stat != EGADS_SUCCESS) {
-                    printf("%lX EGADS Error: getEdgeUV+ = %d for Face %d/%d, Edge = %d\n",
-                           tID, stat, iFace, i+1, n+1);
-                    EG_free(uvs);
-                    return stat;
+                  for (mm = 0; mm < nfig8; mm++)
+                    if (fig8[mm] == ts->verts[np-1].index) break;
+                  if (mm == nfig8) {
+                    fig8[nfig8] = ts->verts[np-1].index;
+                    nfig8++;
                   }
-                  uvm[0]      = uvp[0] - uvs[2*np  ];
-                  uvm[1]      = uvp[1] - uvs[2*np+1];
-                  uvp[0]      = atan2(-uvm[1], uvm[0]);
-                  uvs[2*np  ] = uvs[2*l  ] + sen*smallu*sin(uvp[0]);
-                  uvs[2*np+1] = uvs[2*l+1] + sen*smallv*cos(uvp[0]);
                 }
-//#ifdef DEBUG
-                if (ts->verts[l-1].loop > 0)
-                  printf("%lX Face: %d Loop %d/%d  vert = %d/%d, Node %d is Hit!\n",
-                         tID, iFace, i+1, ts->verts[l-1].loop, np, l,
-                         ts->verts[np-1].index);
-//#endif
                 break;
               }
             if (degen == 1) {
@@ -1785,14 +1820,14 @@ EG_fillTris(egObject *body, int iFace, egObject *face, egObject *tess,
             uvs[2*np+1] = intEdg[4*m+1] + intEdg[4*m+3];
           }
           if (m == npts-1) {
-            ts->verts[np-1].type   = NODE;
-            ts->verts[np-1].edge   = 0;
+            ts->verts[np-1].type    = NODE;
+            ts->verts[np-1].edge    = 0;
             if (mtype == TWONODE) {
               ts->verts[np-1].index = EG_indexBodyTopo(body, nds[1]);
             } else {
               ts->verts[np-1].index = EG_indexBodyTopo(body, nds[0]);
             }
-            ts->verts[np-1].loop   = i+1;
+            ts->verts[np-1].loop    = i+1;
             if (intEdg != NULL) ts->verts[np-1].loop = -(i+1);
             if (intEdg == NULL)
               for (l = 1; l < np; l++) {
@@ -1804,33 +1839,18 @@ EG_fillTris(egObject *body, int iFace, egObject *face, egObject *tess,
                   uvs[2*np  ] = uvs[2*l  ];
                   uvs[2*np+1] = uvs[2*l+1];
                 } else if (ts->verts[l-1].loop > 0) {
-                  /* make room in UV for a gap */
-                  stat = EG_getEdgeUV(face, edges[n], senses[n]*lor,
-                                      tps[npts-1]-0.1*(tps[npts-1]-tps[npts-2]),
-                                      uvm);
-                  if (stat != EGADS_SUCCESS) {
-                    printf("%lX EGADS Error: getEdgeUV- = %d for Face %d/%d, Edge = %d\n",
-                           tID, stat, iFace, i+1, n+1);
-                    EG_free(uvs);
-                    return stat;
+                  for (mm = 0; mm < nfig8; mm++)
+                    if (fig8[mm] == ts->verts[np-1].index) break;
+                  if (mm == nfig8) {
+                    fig8[nfig8] = ts->verts[np-1].index;
+                    nfig8++;
                   }
-                  uvp[0]      = uvs[2*np  ] - uvm[0];
-                  uvp[1]      = uvs[2*np+1] - uvm[1];
-                  uvm[0]      = atan2(-uvp[1], uvp[0]);
-                  uvs[2*np  ] = uvs[2*l  ] + sen*smallu*sin(uvm[0]);
-                  uvs[2*np+1] = uvs[2*l+1] + sen*smallv*cos(uvm[0]);
                 }
-//#ifdef DEBUG
-                if (ts->verts[l-1].loop > 0)
-                  printf("%lX Face %d: Loop %d/%d  Vert = %d/%d, Node %d is Hit!\n",
-                         tID, iFace, i+1, ts->verts[l-1].loop, np, l,
-                         ts->verts[np-1].index);
-//#endif
                 break;
               }
             if (degen == 1) {
 #ifdef DEBUG
-              printf("%lX Face %d: Vertex %d: Node = %d is Degen!\n",
+              printf("%lX Face %d: Vertex %d  Node = %d is Degen!\n",
                      tID, iFace, np, ts->verts[np-1].index);
 #endif
               ts->verts[np-1].edge = -1;
@@ -1873,6 +1893,89 @@ EG_fillTris(egObject *body, int iFace, egObject *face, egObject *tess,
 #endif
     ts->loop[i] = ntot;
   }
+
+  /* handle Loops that touch each other at a Node */
+  for (mm = 0; mm < nfig8; mm++) {
+    mp = 0;
+    for (l = 1; l < np-1; l++) {
+      if (ts->verts[l-1].type  != NODE)     continue;
+      if (ts->verts[l-1].index != fig8[mm]) continue;
+      k = ts->verts[l-1].loop;
+      for (m = l+1; m < np; m++) {
+        if (ts->verts[m-1].type  != NODE)       continue;
+        if (ts->verts[m-1].index != fig8[mm])   continue;
+        if (fabs(uvs[2*m  ]-uvs[2*l  ]) > bigu) continue;
+        if (fabs(uvs[2*m+1]-uvs[2*l+1]) > bigv) continue;
+        j = ts->verts[m-1].loop;
+        if ((j == k) || (j <= 0))               continue;
+        printf("%lX Face %d: NM Node = %d, Loops = %d/%d %d/%d!\n",
+               tID, iFace, fig8[mm], j, lsenses[j-1], k, lsenses[k-1]);
+        /* store away indices and loop sense */
+        if (mp == 0) {
+          lor = lsenses[k-1];
+          if (lor ==  2) lor = -1;
+          if (lor == -2) lor =  1;
+          fig8[nfig8  ] = l;
+          fig8[nfig8+1] = lor;
+          mp++;
+        }
+        lor = lsenses[j-1];
+        if (lor ==  2) lor = -1;
+        if (lor == -2) lor =  1;
+        fig8[nfig8+2*mp  ] = m;
+        fig8[nfig8+2*mp+1] = lor;
+        mp++;
+      }
+    }
+    /* get outer loop -- k */
+    for (k = l = 0; l < mp; l++)
+      if (fig8[nfig8+2*l+1] == SFORWARD)
+        if (k == 0) {
+          k = fig8[nfig8+2*l];
+        } else {
+          printf("%lX Face %d: NM Node = %d  More than 1 outer Loop!\n",
+                 tID, iFace, fig8[mm]);
+          k = -1;
+        }
+    if (k == 0)
+      printf("%lX Face %d: NM Node = %d  No outer Loop!\n",
+             tID, iFace, fig8[mm]);
+    if (k <= 0) continue;
+
+    /* adjust inner loop UVs -- use centroid of triangle touching Node */
+    for (l = 0; l < mp; l++) {
+      int jm, jp;
+
+      if (fig8[nfig8+2*l+1] == SFORWARD) continue;
+      j  = fig8[nfig8+2*l];
+      jm = j-1;
+      jp = j+1;
+      if (jm == 0) jm = ts->loop[0];
+      if (ts->verts[jm-1].loop != ts->verts[j-1].loop)
+        jm += ts->loop[ts->verts[j-1].loop-1];
+      if (jp > np) jp -= ts->loop[ts->verts[j-1].loop-1];
+      if (ts->verts[j-1].loop != ts->verts[jp-1].loop)
+        if (ts->verts[j-1].loop == 1) {
+          jp = 1;
+        } else {
+          jp -= ts->loop[ts->verts[j-1].loop-1];
+        }
+/*    printf(" %d %d   %d %d   %d %d   %d\n", jm, ts->verts[jm-1].loop,
+             j, ts->verts[j-1].loop, jp, ts->verts[jp-1].loop,
+             ts->loop[ts->verts[j-1].loop-1]);  */
+      uvm[0] = (uvs[2*jm  ] + uvs[2*k  ] + uvs[2*jp  ])/3.0;
+      uvm[1] = (uvs[2*jm+1] + uvs[2*k+1] + uvs[2*jp+1])/3.0;
+      uvp[0] = uvm[0] - uvs[2*k  ];
+      uvp[1] = uvm[1] - uvs[2*k+1];
+      d      = sqrt(uvp[0]*uvp[0] + uvp[1]*uvp[1]);
+      if (d != 0.0) {
+        uvp[0] /= d;
+        uvp[1] /= d;
+      }
+      uvs[2*j  ] = uvs[2*k  ] + smallu*uvp[0];
+      uvs[2*j+1] = uvs[2*k+1] + smallv*uvp[1];
+    }
+  }
   
   /* handle quadding */
   if ((nloop == 1) && (ts->qparm[0] >= 0.0)) {
@@ -1899,17 +2002,17 @@ EG_fillTris(egObject *body, int iFace, egObject *face, egObject *tess,
     return EGADS_MALLOC;
   }
   
-  n = EG_fillArea(nloop, ts->loop, uvs, tris, &n_fig8, 0, fa);
+  n = EG_fillArea(nloop, ts->loop, uvs, tris, &nfig8, 0, fa);
   
   /* adjust for figure 8 configurations */
-  if (n_fig8 != 0) {
+  if (nfig8 != 0) {
     printf("%lX EG_fillArea Warning: Face %d -> Found %d figure 8's!\n",
-           tID, iFace, n_fig8);
-    for (i = 0; i < n_fig8; i++) if (n+2*i == ntri) ntri = n;
+           tID, iFace, nfig8);
+    for (i = 0; i < nfig8; i++) if (n+2*i == ntri) ntri = n;
   }
-#ifdef DEBUG  
-  printf("%lX:   EG_fillArea = %d (%d),  #loops = %d, or = %d,  #fig8 = %d\n", 
-         tID, n, ntri, nloop, ori, n_fig8);
+#ifdef DEBUG
+  printf("%lX:   EG_fillArea = %d (%d),  #loops = %d, or = %d,  #fig8 = %d\n",
+         tID, n, ntri, nloop, ori, nfig8);
 #endif
          
   if (n != ntri) {
@@ -1928,6 +2031,8 @@ EG_fillTris(egObject *body, int iFace, egObject *face, egObject *tess,
       fprintf(fp, "\n");
       for (i = 0; i < j; i++)
         fprintf(fp, " %20.13le %20.13le\n", uvs[2*i+2], uvs[2*i+3]);
+      for (i = 0; i < j; i++)
+        fprintf(fp, " %d\n", ts->segs[i].edge);
       fclose(fp);
     }
 #endif
@@ -1948,7 +2053,7 @@ EG_fillTris(egObject *body, int iFace, egObject *face, egObject *tess,
         uvs[2*i  ] *= scl[j][0];
         uvs[2*i+1] *= scl[j][1];
       }
-      n = EG_fillArea(nloop, ts->loop, uvs, tris, &n_fig8, 1, fa);
+      n = EG_fillArea(nloop, ts->loop, uvs, tris, &nfig8, 1, fa);
       printf("%lX EGADS Internal: Face %d -> Renormalizing %d, ntris = %d (%d)!\n",
              tID, iFace, j, ntri, n);
       if (n == ntri) break;
@@ -1986,7 +2091,7 @@ EG_fillTris(egObject *body, int iFace, egObject *face, egObject *tess,
       ts->tris  = tt;
       ts->mtris = n;
     }
-  } 
+  }
   
   for (i = 0; i < ntri; i++) {
     ts->tris[i].mark         = 0;
@@ -2028,7 +2133,7 @@ EG_fillTris(egObject *body, int iFace, egObject *face, egObject *tess,
 }
 
 
-void
+__HOST_AND_DEVICE__ void
 EG_cleanupTess(egTessel *btess)
 {
   int i;
@@ -2087,7 +2192,7 @@ EG_cleanupTess(egTessel *btess)
 }
 
 
-static double
+__HOST_AND_DEVICE__ static double
 EG_surfInsert(egObject *face, double *uv, int sense, double d, double *dx)
 {
   int      stat, count, oclass, mtype, nc, *sen;
@@ -2207,7 +2312,7 @@ EG_surfInsert(egObject *face, double *uv, int sense, double d, double *dx)
 }
 
 
-static double
+__HOST_AND_DEVICE__ static double
 EG_surfDist2(egObject *face, const double *xyz0, const double *uv0,
              const double *xyz1, const double *uv1, const double *xyz2,
              const double *uv2)
@@ -2227,7 +2332,7 @@ EG_surfDist2(egObject *face, const double *xyz0, const double *uv0,
 }
 
 
-static int
+__HOST_AND_DEVICE__ static int
 EG_otherFaces(egTess1D tess1d, ego *faces, int facex, ego edge,
               double t0, double th, double t1)
 {
@@ -2260,7 +2365,7 @@ EG_otherFaces(egTess1D tess1d, ego *faces, int facex, ego edge,
 }
 
 
-static int
+__HOST_AND_DEVICE__ static int
 EG_tessEdge(egTessel *btess, egObject **faces, int j, egObject *edge,
             int ignore, long tID)
 {
@@ -2271,6 +2376,9 @@ EG_tessEdge(egTessel *btess, egObject **faces, int j, egObject *edge,
   double   d, dotnrm, dot, limits[2], mid[3], range[4], dx[3], result[18];
   double   sag, tol, toldist, dm[3], xyzm[3], params[3], uv[2], *prv;
   egObject *body, *geom, *ref, *rref, **nodes, **facs, **dum, **objs, **edges;
+#ifdef SPLITC0
+  int      C0[MAXELEN];
+#endif
 #ifdef SPLITDEGEN
   int      be[2];
 #endif
@@ -2380,6 +2488,43 @@ EG_tessEdge(egTessel *btess, egObject **faces, int j, egObject *edge,
                           &ndum, &dum, &senses);
     if (stat != EGADS_SUCCESS) return stat;
     btess->tess1d[j].nodes[1] = EG_indexBodyTopo(body, nodes[1]);
+  }
+  if (mtype == ONENODE) {
+    stat = EG_tolerance(edge, &dist);
+    if (stat != EGADS_SUCCESS) return stat;
+    stat = EG_arcLength(edge, limits[0], limits[1], &d);
+    if (stat != EGADS_SUCCESS) return stat;
+    /* we have an Edge with a single Node and no length -- ignore */
+    if (d < dist) {
+      if (outLevel > 0)
+        printf("%lX EGADS Warning: Edge %d Tol = %le aLen = %le (EG_tessEdges)!\n",
+               tID, j+1, dist, d);
+      npts = 1;
+      btess->tess1d[j].xyz = (double *) EG_alloc(3*npts*sizeof(double));
+      if (btess->tess1d[j].xyz == NULL) {
+        if (outLevel > 0)
+          printf("%lX EGADS Error: Alloc %d Pts Edge %d (EG_tessEdges)!\n",
+                 tID, npts, j+1);
+        return EGADS_MALLOC;
+      }
+      btess->tess1d[j].t = (double *) EG_alloc(npts*sizeof(double));
+      if (btess->tess1d[j].t == NULL) {
+        EG_free(btess->tess1d[j].xyz);
+        btess->tess1d[j].xyz = NULL;
+        if (outLevel > 0)
+          printf("%lX EGADS Error: Alloc %d Ts Edge %d (EG_tessEdges)!\n",
+                 tID, npts, j+1);
+        return EGADS_MALLOC;
+      }
+      for (i = 0; i < npts; i++) {
+        btess->tess1d[j].xyz[3*i  ] = xyz[i][0];
+        btess->tess1d[j].xyz[3*i+1] = xyz[i][1];
+        btess->tess1d[j].xyz[3*i+2] = xyz[i][2];
+        btess->tess1d[j].t[i]       = t[i];
+      }
+      btess->tess1d[j].npts = npts;
+      return EGADS_SUCCESS;
+    }
   }
   
   /* degenerate -- finish up */
@@ -2542,20 +2687,8 @@ EG_tessEdge(egTessel *btess, egObject **faces, int j, egObject *edge,
   mindist = (xyz[0][0]-result[0])*(xyz[0][0]-result[0]) +
             (xyz[0][1]-result[1])*(xyz[0][1]-result[1]) +
             (xyz[0][2]-result[2])*(xyz[0][2]-result[2]);
-  dist = sqrt(result[3]*result[3] + result[4]*result[4] +
-              result[5]*result[5]);
-  if (dist == 0.0) dist = 1.0;
-  aux[0][0] = result[3]/dist;
-  aux[0][1] = result[4]/dist;
-  aux[0][2] = result[5]/dist;
   stat = EG_evaluate(edge, &t[1], result);
   if (stat != EGADS_SUCCESS) return stat;
-  dist = sqrt(result[3]*result[3] + result[4]*result[4] +
-              result[5]*result[5]);
-  if (dist == 0.0) dist = 1.0;
-  aux[1][0] = result[3]/dist;
-  aux[1][1] = result[4]/dist;
-  aux[1][2] = result[5]/dist;
   dist = (xyz[1][0]-result[0])*(xyz[1][0]-result[0]) +
          (xyz[1][1]-result[1])*(xyz[1][1]-result[1]) +
          (xyz[1][2]-result[2])*(xyz[1][2]-result[2]);
@@ -2599,6 +2732,9 @@ EG_tessEdge(egTessel *btess, egObject **faces, int j, egObject *edge,
       EG_free(facs);
     }
   }
+#ifdef SPLITC0
+  C0[0] = C0[1] = 0;
+#endif
   
   /* non-linear curve types */
   if (geom->mtype != LINE) {
@@ -2609,101 +2745,99 @@ EG_tessEdge(egTessel *btess, egObject **faces, int j, egObject *edge,
       xyz[4][0] = xyz[1][0];
       xyz[4][1] = xyz[1][1];
       xyz[4][2] = xyz[1][2];
-      aux[4][0] = aux[1][0];
-      aux[4][1] = aux[1][1];
-      aux[4][2] = aux[1][2];
       t[4]      = t[1];
       for (i = 1; i <= 3; i++) {
         t[i]      = t[0] + i*(t[4]-t[0])/4.0;
         stat      = EG_evaluate(edge, &t[i], result);
         if (stat != EGADS_SUCCESS) return stat;
-        dist      = sqrt(result[3]*result[3] + result[4]*result[4] +
-                         result[5]*result[5]);
-        if (dist == 0.0) dist = 1.0;
         xyz[i][0] = result[0];
         xyz[i][1] = result[1];
         xyz[i][2] = result[2];
-        aux[i][0] = result[3]/dist;
-        aux[i][1] = result[4]/dist;
-        aux[i][2] = result[5]/dist;
       }
       npts = 5;
     } else if (f2e != 0) {
       xyz[2][0] = xyz[1][0];
       xyz[2][1] = xyz[1][1];
       xyz[2][2] = xyz[1][2];
-      aux[2][0] = aux[1][0];
-      aux[2][1] = aux[1][1];
-      aux[2][2] = aux[1][2];
       t[2]      = t[1];
       t[1]      = 0.5*(t[0]+t[2]);
       stat      = EG_evaluate(edge, &t[1], result);
       if (stat != EGADS_SUCCESS) return stat;
-      dist      = sqrt(result[3]*result[3] + result[4]*result[4] +
-                       result[5]*result[5]);
-      if (dist == 0.0) dist = 1.0;
       xyz[1][0] = result[0];
       xyz[1][1] = result[1];
       xyz[1][2] = result[2];
-      aux[1][0] = result[3]/dist;
-      aux[1][1] = result[4]/dist;
-      aux[1][2] = result[5]/dist;
       npts      = 3;
     }
-  
-    /* angle criteria - aux is normalized tangent */
+
+#ifdef SPLITC0
+    for (i = 2; i < npts; i++) C0[i] = 0;
     
-    if (params[2] != 0.0) {
-      
-      while (npts < MAXELEN) {
-        /* find the segment with the largest angle */
-        k   = -1;
-        dot =  1.0;
-        for (i = 0; i < npts-1; i++) {
-          dist = (xyz[i][0]-xyz[i+1][0])*(xyz[i][0]-xyz[i+1][0]) +
-                 (xyz[i][1]-xyz[i+1][1])*(xyz[i][1]-xyz[i+1][1]) +
-                 (xyz[i][2]-xyz[i+1][2])*(xyz[i][2]-xyz[i+1][2]);
-          if (dist < mindist*mindist/25.0) continue;
-          d = aux[i][0]*aux[i+1][0] + aux[i][1]*aux[i+1][1] +
-              aux[i][2]*aux[i+1][2];
-          if (d < dot) {
-            dot = d;
-            k   = i;
+    /* put vertex at C0 */
+    if (geom->mtype == BSPLINE) {
+      stat = EG_getGeometry(geom, &oclass, &btype, &rref, &info, &prv);
+      if (stat == EGADS_SUCCESS) {
+        for (i = info[1]; i < info[3]-info[1]-1; i++) {
+          if (prv[i] <= limits[0]) continue;
+          if (prv[i] >= limits[1]) continue;
+          for (k = l = 0; l < info[1]-1; l++)
+            if (prv[i] == prv[i+l+1]) k++;
+          if (k == info[1]-1) {
+            k = -1;
+            if (fabs(prv[i]-t[0])      < UVTOL) continue;
+            if (fabs(prv[i]-t[npts-1]) < UVTOL) continue;
+            for (l = 1; l < npts; l++) {
+              if (fabs(prv[i]-t[l]) < UVTOL) {
+                t[l]      = prv[i];
+                stat      = EG_evaluate(edge, &t[l], result);
+                if (stat != EGADS_SUCCESS) return stat;
+                xyz[l][0] = result[0];
+                xyz[l][1] = result[1];
+                xyz[l][2] = result[2];
+                C0[l]     = 1;
+#ifdef DEBUG
+                printf("%lX Edge %d: Overwrite C0 at %lf [%lf %lf]!\n",
+                       tID, j+1, prv[i], limits[0], limits[1]);
+#endif
+                break;
+              }
+              if (prv[i] < t[l]) {
+                k = l-1;
+                break;
+              }
+            }
+            if (k != -1) {
+              for (l = npts-1; l > k; l--) {
+                xyz[l+1][0] = xyz[l][0];
+                xyz[l+1][1] = xyz[l][1];
+                xyz[l+1][2] = xyz[l][2];
+                t[l+1]      = t[l];
+                C0[l+1]     = C0[l];
+              }
+              t[k+1] = prv[i];
+              stat        = EG_evaluate(edge, &t[k+1], result);
+              if (stat != EGADS_SUCCESS) return stat;
+              xyz[k+1][0] = result[0];
+              xyz[k+1][1] = result[1];
+              xyz[k+1][2] = result[2];
+              C0[k+1]     = 1;
+              npts++;
+#ifdef DEBUG
+              printf("%lX Edge %d: C0 at %lf [%lf %lf]  deg = %d!\n",
+                     tID, j+1, prv[i], limits[0], limits[1], info[1]);
+#endif
+              if (npts == MAXELEN) break;
+            }
           }
         }
-        if ((dot > dotnrm) || (k == -1)) break;
-        /* insert */
-        for (i = npts-1; i > k; i--) {
-          xyz[i+1][0] = xyz[i][0];
-          xyz[i+1][1] = xyz[i][1];
-          xyz[i+1][2] = xyz[i][2];
-          aux[i+1][0] = aux[i][0];
-          aux[i+1][1] = aux[i][1];
-          aux[i+1][2] = aux[i][2];
-          t[i+1]      = t[i];
-        }
-        t[k+1] = 0.5*(t[k]+t[k+2]);
-        stat   = EG_evaluate(edge, &t[k+1], result);
-        if (stat != EGADS_SUCCESS) return stat;
-        dist   = sqrt(result[3]*result[3] + result[4]*result[4] +
-                      result[5]*result[5]);
-        if (dist == 0.0) dist = 1.0;
-        xyz[k+1][0] = result[0];
-        xyz[k+1][1] = result[1];
-        xyz[k+1][2] = result[2];
-        aux[k+1][0] = result[3]/dist;
-        aux[k+1][1] = result[4]/dist;
-        aux[k+1][2] = result[5]/dist;
-        npts++;
+        EG_free(info);
+        EG_free(prv);
       }
-#ifdef DEBUG
-      printf("%lX     Angle  Phase npts = %d @ %lf (%lf)\n",
-             tID, npts, dot, dotnrm);
-#endif
     }
-    
+#endif
+
     /* sag - aux is midpoint value */
     if (params[1] > 0.0) {
+      
       for (i = 0; i < npts-1; i++) {
         d    = 0.5*(t[i]+t[i+1]);
         stat = EG_evaluate(edge, &d, result);
@@ -2712,6 +2846,7 @@ EG_tessEdge(egTessel *btess, egObject **faces, int j, egObject *edge,
         aux[i][1] = result[1];
         aux[i][2] = result[2];
       }
+      
       while (npts < MAXELEN) {
         /* find the biggest deviation */
         k    = -1;
@@ -2742,11 +2877,17 @@ EG_tessEdge(egTessel *btess, egObject **faces, int j, egObject *edge,
           aux[i+1][1] = aux[i][1];
           aux[i+1][2] = aux[i][2];
           t[i+1]      = t[i];
+#ifdef SPLITC0
+          C0[i+1]     = C0[i];
+#endif
         }
         t[k+1]      = 0.5*(t[k]+t[k+2]);
         xyz[k+1][0] = aux[k][0];
         xyz[k+1][1] = aux[k][1];
         xyz[k+1][2] = aux[k][2];
+#ifdef SPLITC0
+        C0[k+1]     = 0;
+#endif
         d    = 0.5*(t[k+1]+t[k+2]);
         stat = EG_evaluate(edge, &d, result);
         if (stat != EGADS_SUCCESS) return stat;
@@ -2766,6 +2907,160 @@ EG_tessEdge(egTessel *btess, egObject **faces, int j, egObject *edge,
              tID, npts, sqrt(dist), params[1]);
 #endif
     }
+  }
+  
+  /* max side -- for all curve types */
+  
+  if (params[0] > 0.0) {
+    for (i = 0; i < npts-1; i++)
+      aux[i][0] = (xyz[i][0]-xyz[i+1][0])*(xyz[i][0]-xyz[i+1][0]) +
+                  (xyz[i][1]-xyz[i+1][1])*(xyz[i][1]-xyz[i+1][1]) +
+                  (xyz[i][2]-xyz[i+1][2])*(xyz[i][2]-xyz[i+1][2]);
+    aux[npts-1][0] = 0.0;
+    /* check face uvs
+    for (i = 0; i < npts-2; i++) {
+      stat = EG_otherFaces(btess->tess1d[j], faces, 0, edge,
+                           t[i], t[i+1], t[i+2]);
+      if (stat == EGADS_SUCCESS) continue;
+      printf("%lX *** fold in Edge %d   %d/%d ***\n", tID, j+1, i+1, npts);
+    }  */
+    while (npts < MAXELEN) {
+      /* find the biggest segment */
+      k    = 0;
+      dist = aux[0][0];
+      for (i = 1; i < npts-1; i++) {
+        d = aux[i][0];
+        if (d > dist) {
+          dist = d;
+          k    = i;
+        }
+      }
+      if (dist < params[0]*params[0]) break;
+/*    stat = EG_otherFaces(btess->tess1d[j], faces, 0, edge,
+                           t[k], 0.5*(t[k]+t[k+1]), t[k+1]);
+      if (stat != EGADS_SUCCESS) {
+        printf("%lX *** avoid fold in Edge %d  %d/%d ***\n", tID, j+1, k+1, npts);
+        aux[k][0] = 0.0;
+        continue;
+      }  */
+      /* insert */
+      for (i = npts-1; i > k; i--) {
+        xyz[i+1][0] = xyz[i][0];
+        xyz[i+1][1] = xyz[i][1];
+        xyz[i+1][2] = xyz[i][2];
+        aux[i+1][0] = aux[i][0];
+        t[i+1]      = t[i];
+#ifdef SPLITC0
+        C0[i+1]     = C0[i];
+#endif
+      }
+      t[k+1] = 0.5*(t[k]+t[k+2]);
+      stat   = EG_evaluate(edge, &t[k+1], result);
+      if (stat != EGADS_SUCCESS) return stat;
+      xyz[k+1][0] = result[0];
+      xyz[k+1][1] = result[1];
+      xyz[k+1][2] = result[2];
+#ifdef SPLITC0
+      C0[k+1]     = 0;
+#endif
+      npts++;
+      d = (xyz[k][0]-xyz[k+1][0])*(xyz[k][0]-xyz[k+1][0]) +
+          (xyz[k][1]-xyz[k+1][1])*(xyz[k][1]-xyz[k+1][1]) +
+          (xyz[k][2]-xyz[k+1][2])*(xyz[k][2]-xyz[k+1][2]);
+      aux[k][0] = d;
+      if (d < 0.0625*params[0]*params[0]) break;
+      d = (xyz[k+2][0]-xyz[k+1][0])*(xyz[k+2][0]-xyz[k+1][0]) +
+          (xyz[k+2][1]-xyz[k+1][1])*(xyz[k+2][1]-xyz[k+1][1]) +
+          (xyz[k+2][2]-xyz[k+1][2])*(xyz[k+2][2]-xyz[k+1][2]);
+      aux[k+1][0] = d;
+      if (d < 0.0625*params[0]*params[0]) break;
+    }
+  }
+#ifdef DEBUG
+  if (params[0] > 0.0)
+    printf("%lX     MxSide Phase npts = %d @ %lf (%lf)\n",
+           tID, npts, sqrt(dist), params[0]);
+#endif
+  
+  /* non-linear curve types */
+  if (geom->mtype != LINE) {
+
+    /* angle criteria - aux is normalized tangent */
+    if (params[2] != 0.0) {
+
+      for (i = 0; i < npts; i++) {
+        stat = EG_evaluate(edge, &t[i], result);
+        if (stat != EGADS_SUCCESS) return stat;
+        dist = sqrt(result[3]*result[3] + result[4]*result[4] +
+                    result[5]*result[5]);
+        if (dist == 0.0) dist = 1.0;
+        aux[i][0] = result[3]/dist;
+        aux[i][1] = result[4]/dist;
+        aux[i][2] = result[5]/dist;
+      }
+      
+      while (npts < MAXELEN) {
+        /* find the segment with the largest angle */
+        k   = -1;
+        dot =  1.0;
+        for (i = 0; i < npts-1; i++) {
+#ifdef SPLITC0
+          if ((C0[i] == 1) || (C0[i+1] == 1)) continue;
+#endif
+          dist = (xyz[i][0]-xyz[i+1][0])*(xyz[i][0]-xyz[i+1][0]) +
+                 (xyz[i][1]-xyz[i+1][1])*(xyz[i][1]-xyz[i+1][1]) +
+                 (xyz[i][2]-xyz[i+1][2])*(xyz[i][2]-xyz[i+1][2]);
+          if (dist < mindist*mindist/25.0) continue;
+          d = aux[i][0]*aux[i+1][0] + aux[i][1]*aux[i+1][1] +
+              aux[i][2]*aux[i+1][2];
+          if (d == 0.0) {
+            if ((aux[i  ][0] == 0.0) && (aux[i  ][1] == 0.0) &&
+                (aux[i  ][1] == 0.0)) continue;
+            if ((aux[i+1][0] == 0.0) && (aux[i+1][1] == 0.0) &&
+                (aux[i+1][1] == 0.0)) continue;
+          }
+          if (d < dot) {
+            dot = d;
+            k   = i;
+          }
+        }
+        if ((dot > dotnrm) || (k == -1)) break;
+        /* insert */
+        for (i = npts-1; i > k; i--) {
+          xyz[i+1][0] = xyz[i][0];
+          xyz[i+1][1] = xyz[i][1];
+          xyz[i+1][2] = xyz[i][2];
+          aux[i+1][0] = aux[i][0];
+          aux[i+1][1] = aux[i][1];
+          aux[i+1][2] = aux[i][2];
+          t[i+1]      = t[i];
+#ifdef SPLITC0
+          C0[i+1]     = C0[i];
+#endif
+        }
+        t[k+1] = 0.5*(t[k]+t[k+2]);
+        stat   = EG_evaluate(edge, &t[k+1], result);
+        if (stat != EGADS_SUCCESS) return stat;
+        dist   = sqrt(result[3]*result[3] + result[4]*result[4] +
+                      result[5]*result[5]);
+        if (dist == 0.0) dist = 1.0;
+        xyz[k+1][0] = result[0];
+        xyz[k+1][1] = result[1];
+        xyz[k+1][2] = result[2];
+#ifdef SPLITC0
+        C0[k+1]     = 0;
+#endif
+        aux[k+1][0] = result[3]/dist;
+        aux[k+1][1] = result[4]/dist;
+        aux[k+1][2] = result[5]/dist;
+        npts++;
+      }
+#ifdef DEBUG
+      printf("%lX     Angle  Phase npts = %d @ %lf (%lf)\n",
+             tID, npts, dot, dotnrm);
+#endif
+    }
+    
   }
   
   /* look at non-planar faces for curvature -- aux is uv */
@@ -3077,73 +3372,6 @@ EG_tessEdge(egTessel *btess, egObject **faces, int j, egObject *edge,
     }
     if ((be[0] >= 2) && (be[1] >= 2)) break;
   }
-#endif
-  
-  /* max side -- for all curve types */
-  
-  if (params[0] > 0.0) {
-    for (i = 0; i < npts-1; i++)
-      aux[i][0] = (xyz[i][0]-xyz[i+1][0])*(xyz[i][0]-xyz[i+1][0]) +
-                  (xyz[i][1]-xyz[i+1][1])*(xyz[i][1]-xyz[i+1][1]) +
-                  (xyz[i][2]-xyz[i+1][2])*(xyz[i][2]-xyz[i+1][2]);
-    aux[npts-1][0] = 0.0;
-    /* check face uvs
-    for (i = 0; i < npts-2; i++) {
-      stat = EG_otherFaces(btess->tess1d[j], faces, 0, edge,
-                           t[i], t[i+1], t[i+2]);
-      if (stat == EGADS_SUCCESS) continue;
-      printf("%lX *** fold in Edge %d   %d/%d ***\n", tID, j+1, i+1, npts);
-    }  */
-    while (npts < MAXELEN) {
-      /* find the biggest segment */
-      k    = 0;
-      dist = aux[0][0];
-      for (i = 1; i < npts-1; i++) {
-        d = aux[i][0];
-        if (d > dist) {
-          dist = d;
-          k    = i;
-        }
-      }
-      if (dist < params[0]*params[0]) break;
-/*    stat = EG_otherFaces(btess->tess1d[j], faces, 0, edge,
-                           t[k], 0.5*(t[k]+t[k+1]), t[k+1]);
-      if (stat != EGADS_SUCCESS) {
-        printf("%lX *** avoid fold in Edge %d  %d/%d ***\n", tID, j+1, k+1, npts);
-        aux[k][0] = 0.0;
-        continue;
-      }  */
-      /* insert */
-      for (i = npts-1; i > k; i--) {
-        xyz[i+1][0] = xyz[i][0];
-        xyz[i+1][1] = xyz[i][1];
-        xyz[i+1][2] = xyz[i][2];
-        aux[i+1][0] = aux[i][0];
-        t[i+1]      = t[i];
-      }
-      t[k+1] = 0.5*(t[k]+t[k+2]);
-      stat   = EG_evaluate(edge, &t[k+1], result);
-      if (stat != EGADS_SUCCESS) return stat;
-      xyz[k+1][0] = result[0];
-      xyz[k+1][1] = result[1];
-      xyz[k+1][2] = result[2];
-      npts++;
-      d = (xyz[k][0]-xyz[k+1][0])*(xyz[k][0]-xyz[k+1][0]) +
-          (xyz[k][1]-xyz[k+1][1])*(xyz[k][1]-xyz[k+1][1]) +
-          (xyz[k][2]-xyz[k+1][2])*(xyz[k][2]-xyz[k+1][2]);
-      aux[k][0] = d;
-      if (d < 0.0625*params[0]*params[0]) break;
-      d = (xyz[k+2][0]-xyz[k+1][0])*(xyz[k+2][0]-xyz[k+1][0]) +
-          (xyz[k+2][1]-xyz[k+1][1])*(xyz[k+2][1]-xyz[k+1][1]) +
-          (xyz[k+2][2]-xyz[k+1][2])*(xyz[k+2][2]-xyz[k+1][2]);
-      aux[k+1][0] = d;
-      if (d < 0.0625*params[0]*params[0]) break;
-    }
-  }
-#ifdef DEBUG
-  if (params[0] > 0.0)
-    printf("%lX     MxSide Phase npts = %d @ %lf (%lf)\n",
-           tID, npts, sqrt(dist), params[0]);
 #endif
   
   /* proximity insertions */
@@ -3475,7 +3703,7 @@ fill1D:
 }
 
 
-static void
+__HOST_AND_DEVICE__ static void
 EG_edgeThread(void *struc)
 {
   int     index, stat;
@@ -3534,7 +3762,7 @@ EG_edgeThread(void *struc)
 }
 
 
-static int
+__HOST_AND_DEVICE__ static int
 EG_tessEdges(egTessel *btess, int ignore, /*@null@*/ int *retess)
 {
   int      i, j, k, n, stat, outLevel, nedge, oclass, mtype, np;
@@ -3698,6 +3926,7 @@ EG_tessEdges(egTessel *btess, int ignore, /*@null@*/ int *retess)
   
   np = EMP_Init(&start);
   if (outLevel > 1) printf(" EMP NumProcs = %d!\n", np);
+  if (nedge < np) np = nedge;
   
   if (np > 1) {
     /* create the mutex to handle list synchronization */
@@ -3750,10 +3979,16 @@ EG_tessEdges(egTessel *btess, int ignore, /*@null@*/ int *retess)
 }
 
 
-int
+__HOST_AND_DEVICE__ int
 EG_makeTessGeom(egObject *obj, double *params, int *sizes, egObject **tess)
 {
   int      i, j, k, stat, outLevel, np, nu, nv = 0;
+#ifdef SPLINE_KNOT_TESSGEOM
+  int      oclass, mtype, *ivec=NULL;
+  int      ideg, icp, iknot, jdeg, jcp, jknot, ii, jj;
+  double   *rvec=NULL, *knotu, *knotv, *cp;
+  egObject *ref;
+#endif
   double   *dtess, uv[2], result[18];
   egTessel *btess;
   egObject *gtess, *context;
@@ -3769,26 +4004,86 @@ EG_makeTessGeom(egObject *obj, double *params, int *sizes, egObject **tess)
   nu = abs(sizes[0]);
   np = nu;
   if (obj->oclass == SURFACE) {
-    nv = abs(sizes[1]);
-    if ((nu < 2) || (nv < 2)) {
-      if (outLevel > 0)
-        printf(" EGADS Error: Surface size = %d %d (EG_makeTessGeom)!\n",
-               nu, nv);
-      return EGADS_INDEXERR;
+#ifdef SPLINE_KNOT_TESSGEOM
+    if (obj->mtype == BSPLINE) {
+      stat = EG_getGeometry(obj, &oclass, &mtype, &ref, &ivec, &rvec);
+      if (stat != EGADS_SUCCESS) {
+        if (outLevel > 0)
+          printf(" EGADS Error: EG_getGeometry stat = %d (EG_makeTessGeom)!\n",
+                 stat);
+        return stat;
+      }
+
+      ideg  = ivec[1];
+      icp   = ivec[2];
+      iknot = ivec[3]-2*ideg;
+      jdeg  = ivec[4];
+      jcp   = ivec[5];
+      jknot = ivec[6]-2*jdeg;
+
+      nu  = iknot + ideg*(iknot-1);
+      nv  = jknot + jdeg*(jknot-1);
+      np  = nu*nv;
+      
+      knotu =  rvec+ideg;
+      knotv = &rvec[ivec[3]+ideg];
+      cp    = &rvec[ivec[3]+ivec[6]];
+
+    } else {
+#endif
+      nv = abs(sizes[1]);
+      if ((nu < 2) || (nv < 2)) {
+        if (outLevel > 0)
+          printf(" EGADS Error: Surface size = %d %d (EG_makeTessGeom)!\n",
+                 nu, nv);
+        return EGADS_INDEXERR;
+      }
+      np *= nv;
+#ifdef SPLINE_KNOT_TESSGEOM
     }
-    np *= nv;
+#endif
   } else {
-    if (nu < 2) {
-      if (outLevel > 0)
-        printf(" EGADS Error: Curve len = %d (EG_makeTessGeom)!\n", nu);
-      return EGADS_INDEXERR;
+#ifdef SPLINE_KNOT_TESSGEOM
+    if (obj->mtype == BSPLINE) {
+      stat = EG_getGeometry(obj, &oclass, &mtype, &ref, &ivec, &rvec);
+      if (stat != EGADS_SUCCESS) {
+        if (outLevel > 0)
+          printf(" EGADS Error: EG_getGeometry stat = %d (EG_makeTessGeom)!\n",
+                 stat);
+        return stat;
+      }
+
+      ideg  = ivec[1];
+      icp   = ivec[2];
+      iknot = ivec[3]-2*ideg;
+
+      nu  = iknot + ideg*(iknot-1);
+      nv  = 1;
+      np  = nu*nv;
+
+      knotu =  rvec+ideg;
+      cp    = &rvec[ivec[3]+ideg];
+
+    } else {
+#endif
+      if (nu < 2) {
+        if (outLevel > 0)
+          printf(" EGADS Error: Curve len = %d (EG_makeTessGeom)!\n", nu);
+        return EGADS_INDEXERR;
+      }
+#ifdef SPLINE_KNOT_TESSGEOM
     }
+#endif
   }
   
   btess = (egTessel *) EG_alloc(sizeof(egTessel));
   if (btess == NULL) {
     if (outLevel > 0)
       printf(" EGADS Error: Blind Malloc (EG_makeTessGeom)!\n");
+#ifdef SPLINE_KNOT_TESSGEOM
+    EG_free(ivec);
+    EG_free(rvec);
+#endif
     return EGADS_MALLOC;
   }
   btess->src     = obj;
@@ -3809,6 +4104,10 @@ EG_makeTessGeom(egObject *obj, double *params, int *sizes, egObject **tess)
     if (outLevel > 0)
       printf(" EGADS Error: Data Malloc (EG_makeTessGeom)!\n");
     EG_free(btess);
+#ifdef SPLINE_KNOT_TESSGEOM
+    EG_free(ivec);
+    EG_free(rvec);
+#endif
     return EGADS_MALLOC;
   }
   
@@ -3816,6 +4115,10 @@ EG_makeTessGeom(egObject *obj, double *params, int *sizes, egObject **tess)
   if (stat != EGADS_SUCCESS) {
     EG_free(dtess);
     EG_free(btess);
+#ifdef SPLINE_KNOT_TESSGEOM
+    EG_free(ivec);
+    EG_free(rvec);
+#endif
     return stat;
   }
   gtess->oclass = TESSELLATION;
@@ -3828,47 +4131,105 @@ EG_makeTessGeom(egObject *obj, double *params, int *sizes, egObject **tess)
   
   if (obj->oclass == SURFACE) {
   
-    for (k = j = 0; j < nv; j++) {
-      if (sizes[1] < 0) {
-        uv[1] = params[2] + (nv-j-1)*(params[3]-params[2])/(nv-1);
-      } else {
-        uv[1] = params[2] +        j*(params[3]-params[2])/(nv-1);
+#ifdef SPLINE_KNOT_TESSGEOM
+    if (obj->mtype == BSPLINE) {
+
+      for (k = j = 0; j < jknot-1; j++) {
+        for (jj = (j == 0 ? 0 : 1); jj <= jdeg+1; jj++) {
+
+          uv[1] = knotv[j]*(1.-jj/(double)(jdeg+1.)) + knotv[j+1]*(jj/(double)(jdeg+1.));
+
+          for (i = 0; i < iknot-1; i++) {
+            for (ii = (i == 0 ? 0 : 1); ii <= ideg+1; ii++, k++) {
+
+              uv[0] = knotu[i]*(1.-ii/(double)(ideg+1.)) + knotu[i+1]*(ii/(double)(ideg+1.));
+
+              stat  = EG_evaluate(obj, uv, result);
+              dtess[3*k  ] = result[0];
+              dtess[3*k+1] = result[1];
+              dtess[3*k+2] = result[2];
+              if (stat == EGADS_SUCCESS) continue;
+              if (outLevel > 0)
+                printf(" EGADS Warning: %d/%d, %d/%d eval ret = %d  (EG_makeTessGeom)!\n",
+                       i+ii+1, nv, j+jj+1, nv, stat);
+            }
+          }
+        }
       }
-      for (i = 0; i < nu; i++, k++) {
+      EG_free(ivec);
+      EG_free(rvec);
+
+    } else {
+#endif
+      for (k = j = 0; j < nv; j++) {
+        if (sizes[1] < 0) {
+          uv[1] = params[2] + (nv-j-1)*(params[3]-params[2])/(nv-1);
+        } else {
+          uv[1] = params[2] +        j*(params[3]-params[2])/(nv-1);
+        }
+        for (i = 0; i < nu; i++, k++) {
+          if (sizes[0] < 0) {
+            uv[0] = params[0] + (nu-i-1)*(params[1]-params[0])/(nu-1);
+          } else {
+            uv[0] = params[0] +        i*(params[1]-params[0])/(nu-1);
+          }
+          stat  = EG_evaluate(obj, uv, result);
+          dtess[3*k  ] = result[0];
+          dtess[3*k+1] = result[1];
+          dtess[3*k+2] = result[2];
+          if (stat == EGADS_SUCCESS) continue;
+          if (outLevel > 0)
+            printf(" EGADS Warning: %d/%d, %d/%d eval ret = %d  (EG_makeTessGeom)!\n",
+                   i+1, nu, j+1, nv, stat);
+        }
+      }
+#ifdef SPLINE_KNOT_TESSGEOM
+    }
+#endif
+  } else {
+
+#ifdef SPLINE_KNOT_TESSGEOM
+    if (obj->mtype == BSPLINE) {
+
+      for (k = i = 0; i < iknot-1; i++) {
+        for (ii = (i == 0 ? 0 : 1); ii <= ideg+1; ii++, k++) {
+
+          uv[0] = knotu[i]*(1.-ii/(double)(ideg+1.)) + knotu[i+1]*(ii/(double)(ideg+1.));
+
+          stat  = EG_evaluate(obj, uv, result);
+          dtess[3*k  ] = result[0];
+          dtess[3*k+1] = result[1];
+          dtess[3*k+2] = result[2];
+          if (stat == EGADS_SUCCESS) continue;
+          if (outLevel > 0)
+            printf(" EGADS Warning: %d/%d evaluate ret = %d  (EG_makeTessGeom)!\n",
+                   i+ii+1, nu, stat);
+        }
+      }
+
+      EG_free(ivec);
+      EG_free(rvec);
+
+    } else {
+#endif
+      for (i = 0; i < nu; i++) {
         if (sizes[0] < 0) {
           uv[0] = params[0] + (nu-i-1)*(params[1]-params[0])/(nu-1);
         } else {
           uv[0] = params[0] +        i*(params[1]-params[0])/(nu-1);
         }
         stat  = EG_evaluate(obj, uv, result);
-        dtess[3*k  ] = result[0];
-        dtess[3*k+1] = result[1];
-        dtess[3*k+2] = result[2];
+        dtess[3*i  ] = result[0];
+        dtess[3*i+1] = result[1];
+        dtess[3*i+2] = result[2];
         if (stat == EGADS_SUCCESS) continue;
         if (outLevel > 0)
-          printf(" EGADS Warning: %d/%d, %d/%d eval ret = %d  (EG_makeTessGeom)!\n",
-                 i+1, nv, j+1, nv, stat);
+          printf(" EGADS Warning: %d/%d evaluate ret = %d  (EG_makeTessGeom)!\n",
+                 i+1, nu, stat);
       }
+#ifdef SPLINE_KNOT_TESSGEOM
     }
-
-  } else {
-  
-    for (i = 0; i < nu; i++) {
-      if (sizes[0] < 0) {
-        uv[0] = params[0] + (nu-i-1)*(params[1]-params[0])/(nu-1);
-      } else {
-        uv[0] = params[0] +        i*(params[1]-params[0])/(nu-1);
-      }
-      stat  = EG_evaluate(obj, uv, result);
-      dtess[3*i  ] = result[0];
-      dtess[3*i+1] = result[1];
-      dtess[3*i+2] = result[2];
-      if (stat == EGADS_SUCCESS) continue;
-      if (outLevel > 0)
-        printf(" EGADS Warning: %d/%d evaluate ret = %d  (EG_makeTessGeom)!\n",
-               i+1, nv, stat);
-    }
-
+#endif
   }
   
   btess->xyzs      = dtess;
@@ -3889,7 +4250,7 @@ EG_makeTessGeom(egObject *obj, double *params, int *sizes, egObject **tess)
 }
 
 
-int
+__HOST_AND_DEVICE__ int
 EG_getTessGeom(const egObject *tess, int *sizes, double **xyz)
 {
   int      outLevel;
@@ -3931,7 +4292,7 @@ EG_getTessGeom(const egObject *tess, int *sizes, double **xyz)
 }
 
 
-static void
+__HOST_AND_DEVICE__ static void
 EG_deleteQuads(egTessel *btess, int iface)
 {
   int i, j;
@@ -3958,7 +4319,7 @@ EG_deleteQuads(egTessel *btess, int iface)
 }
 
 
-int
+__HOST_AND_DEVICE__ int
 EG_moveEdgeVert(egObject *tess, int eIndex, int vIndex, double t)
 {
   int      i, j, m, nf, stat, outLevel, nedge, nface, iface, itri, ivrt;
@@ -4114,7 +4475,7 @@ EG_moveEdgeVert(egObject *tess, int eIndex, int vIndex, double t)
 }
 
 
-void
+__HOST_AND_DEVICE__ void
 EG_cleanupTessMaps(egTessel *btess)
 {
   int i;
@@ -4143,7 +4504,7 @@ EG_cleanupTessMaps(egTessel *btess)
 }
 
 
-int
+__HOST_AND_DEVICE__ int
 EG_deleteEdgeVert(egObject *tess, int eIndex, int vIndex, int dir)
 {
   int      i, k, m, n, nf, outLevel, iface, iv[2], it, ivert;
@@ -4474,7 +4835,7 @@ EG_deleteEdgeVert(egObject *tess, int eIndex, int vIndex, int dir)
 }
 
 
-int
+__HOST_AND_DEVICE__ int
 EG_insertEdgeVerts(egObject *tess, int eIndex, int vIndex, int npts,
                    double *t)
 {
@@ -5027,7 +5388,7 @@ EG_insertEdgeVerts(egObject *tess, int eIndex, int vIndex, int npts,
 }
 
 
-static void
+__HOST_AND_DEVICE__ static void
 EG_tessThread(void *struc)
 {
   int          i, index, stat, aStat, aType, aLen;
@@ -5199,7 +5560,7 @@ EG_tessThread(void *struc)
 }
 
 
-int
+__HOST_AND_DEVICE__ int
 EG_makeTessBody(egObject *object, double *paramx, egObject **tess)
 {
   int      i, j, stat, outLevel, nface, np, aStat, aType, aLen, ignore;
@@ -5368,6 +5729,7 @@ EG_makeTessBody(egObject *object, double *paramx, egObject **tess)
   
   np = EMP_Init(&start);
   if (outLevel > 1) printf(" EMP NumProcs = %d!\n", np);
+  if (nface < np) np = nface;
   
   if (np > 1) {
     /* create the mutex to handle list synchronization */
@@ -5432,7 +5794,7 @@ EG_makeTessBody(egObject *object, double *paramx, egObject **tess)
 }
 
 
-int
+__HOST_AND_DEVICE__ int
 EG_remakeTess(egObject *tess, int nobj, egObject **objs, double *paramx)
 {
   int      i, j, mx, stat, outLevel, iface, nface, hit, np, aStat, aType, aLen;
@@ -5727,7 +6089,7 @@ EG_remakeTess(egObject *tess, int nobj, egObject **objs, double *paramx)
 }
 
 
-int
+__HOST_AND_DEVICE__ int
 EG_finishTess(egObject *tess, double *paramx)
 {
   int      i, j, stat, outLevel, nface, np, aStat, aType, aLen, ignore, type;
@@ -6547,6 +6909,31 @@ EG_mapTessBody(egObject *tess, egObject *body, egObject **mapTess)
           return stat;
         }
       }
+#ifdef WRITEBARY
+      {
+        char filename[24];
+        FILE *fp;
+        
+        snprintf(filename, 24, "Face%d.bary", j+1);
+        fp = fopen(filename, "w");
+        if (fp != NULL) {
+          fprintf(fp, " %d %d %d\n", btess->tess2d[j].npts,
+                  btess->tess2d[j].ntris, btess->tess2d[j].nframe);
+          for (i = 0; i < btess->tess2d[j].npts; i++)
+            fprintf(fp, " %20.13le %20.13le %20.13le  %20.13le %20.13le\n",
+                    btess->tess2d[j].xyz[3*i  ], btess->tess2d[j].xyz[3*i+1],
+                    btess->tess2d[j].xyz[3*i+2],
+                    btess->tess2d[j].uv[2*i  ],  btess->tess2d[j].uv[2*i+1]);
+          for (i = 0; i < btess->tess2d[j].ntris; i++)
+            fprintf(fp, " %d %d %d\n", btess->tess2d[j].tris[3*i  ],
+                    btess->tess2d[j].tris[3*i+1], btess->tess2d[j].tris[3*i+2]);
+          for (i = 0; i < btess->tess2d[j].nframe; i++)
+            fprintf(fp, " %d %d %d\n", btess->tess2d[j].frame[3*i  ],
+                    btess->tess2d[j].frame[3*i+1], btess->tess2d[j].frame[3*i+2]);
+          fclose(fp);
+        }
+      }
+#endif
       
       /* allocate our space */
       xyz    = (double *) EG_alloc(3*mtess->tess2d[k].npts*sizeof(double));
@@ -6701,10 +7088,10 @@ EG_mapTessBody(egObject *tess, egObject *body, egObject **mapTess)
             result[6] = result[7] = result[8] = 1.0;
             EG_evaluate(faces[k], &uv[2*i], result);
             if (sqrt(result[3]*result[3] + result[4]*result[4] +
-                     result[5]*result[5]) < 100.*DEGENUV)
+                     result[5]*result[5]) < 10.*DEGENUV)
               uv[2*i  ] = btess->tess2d[j].uv[2*i  ];
             if (sqrt(result[6]*result[6] + result[7]*result[7] +
-                     result[8]*result[8]) < 100.*DEGENUV)
+                     result[8]*result[8]) < 10.*DEGENUV)
               uv[2*i+1] = btess->tess2d[j].uv[2*i+1];
 /*          printf(" Node %d: du = %le   dv = %le\n", pindex[i],
                    sqrt(result[3]*result[3]+result[4]*result[4]+ result[5]*result[5]),
@@ -6862,7 +7249,7 @@ EG_mapTessBody(egObject *tess, egObject *body, egObject **mapTess)
 #endif
 
 
-int
+__HOST_AND_DEVICE__ int
 EG_locateTessBody(const egObject *tess, int npts, const int *ifaces,
                   const double *uvs, /*@null@*/ int *itris, double *results)
 {
@@ -6969,7 +7356,7 @@ EG_locateTessBody(const egObject *tess, int npts, const int *ifaces,
 }
 
 
-int
+__HOST_AND_DEVICE__ int
 EG_getTessQuads(const egObject *tess, int *nquad, int **fIndices)
 {
   int      i, n, outLevel, *ivec;
@@ -7034,7 +7421,7 @@ EG_getTessQuads(const egObject *tess, int *nquad, int **fIndices)
 }
 
 
-static int
+__HOST_AND_DEVICE__ static int
 EG_quadLoop(egTessel *btess, int outLevel, int nedge, int *eindex, 
             int *senses, double *parms, int *lim)
 {
@@ -7107,7 +7494,7 @@ EG_quadLoop(egTessel *btess, int outLevel, int nedge, int *eindex,
 }
 
 
-int
+__HOST_AND_DEVICE__ int
 EG_makeQuads(egObject *tess, double *parms, int index)
 {
   int          i, j, k, l, m, n, outLevel, stat, oclass, mtype, ftype, atype;
@@ -7184,8 +7571,13 @@ EG_makeQuads(egObject *tess, double *parms, int index)
           printf(" EGADS Warning: Face %d -> innerLoop Attr Not a String!\n",
                  index);
       } else {
+#ifdef __CUDACC__
+        if ((EG_strncmp(aStr,"OFF",3) == 0) || (EG_strncmp(aStr,"Off",3) == 0) ||
+            (EG_strncmp(aStr,"off",3) == 0)) {
+#else
         if ((strcmp(aStr,"OFF") == 0) || (strcmp(aStr,"Off") == 0) ||
             (strcmp(aStr,"off") == 0)) {
+#endif
           for (i = 0; i < nloop; i++)
             if (senses[i] == SFORWARD) loop = loops[i];
         }
@@ -7568,7 +7960,7 @@ EG_makeQuads(egObject *tess, double *parms, int index)
 }
 
 
-int
+__HOST_AND_DEVICE__ int
 EG_getQuads(const egObject *tess, int index, int *len, const double **xyz, 
             const double **uv, const int **ptype, const int **pindex, 
             int *npatch)
@@ -7631,7 +8023,7 @@ EG_getQuads(const egObject *tess, int index, int *len, const double **xyz,
 }
 
 
-int
+__HOST_AND_DEVICE__ int
 EG_getPatch(const egObject *tess, int index, int patch, int *nu, int *nv, 
             const int **ipts, const int **bounds)
 {

@@ -36,7 +36,8 @@ workDir = os.path.join(str(args.workDir[0]), "AeroelasticSimple_Displacement")
 projectName = "aeroelasticSimple_Displacement_SM"
 
 # Load CSM file
-myProblem.loadCAPS("../csmData/aeroelasticDataTransferSimple.csm", verbosity=args.verbosity)
+geometryScript = os.path.join("..","csmData","aeroelasticDataTransferSimple.csm")
+myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 
 # Load AIMs
 myMesh = myProblem.loadAIM(aim = "tetgenAIM",
@@ -88,7 +89,7 @@ su2.setAnalysisVal("Boundary_Condition", [("Skin", inviscid),
                                           ("Farfield","farfield")])
 
 # BC names of surfaces that should be deformed (default all invisicd and viscous)
-su2.setAnalysisVal("Surface_Deform", ["Skin"]) 
+su2.setAnalysisVal("Surface_Deform", ["Skin"])
 
 
 # Set inputs for mystran
@@ -177,9 +178,9 @@ for j in transfers:
             myProblem.dataBound[j].dataSetSrc["Displacement"].viewData()
             print ("\tPlotting dataTransfer destination......")
             myProblem.dataBound[j].dataSetDest["Displacement"].viewData()
-            #myProblem.dataBound[j].viewData("Displacement", 
-            #                                filename = os.path.join(mystran.analysisDir, j + "_Displacement"), 
-            #                                showImage=False, 
+            #myProblem.dataBound[j].viewData("Displacement",
+            #                                filename = os.path.join(mystran.analysisDir, j + "_Displacement"),
+            #                                showImage=False,
             #                                colormap="Purples")
         except:
             print("Unable to plot data")

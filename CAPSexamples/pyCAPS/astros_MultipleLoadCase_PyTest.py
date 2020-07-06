@@ -32,7 +32,8 @@ args = parser.parse_args()
 myProblem = capsProblem()
 
 # Load CSM file
-myProblem.loadCAPS("../csmData/feaSimplePlate.csm", verbosity=args.verbosity)
+geometryScript = os.path.join("..","csmData","feaSimplePlate.csm")
+myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 
 # Create project name
 projectName = "AstrosMultipleLoadPlate"

@@ -48,13 +48,12 @@ int openssl_websocket_private_data_index;
 #endif
 
 #ifdef S_SPLINT_S
-  /*@-incondefs@*/
+/*@-incondefs@*/
   extern /*@kept@*/ struct hostent
               *gethostbyaddr(const void *addr, socklen_t len, int type);
-  /*@+incondefs@*/
+/*@+incondefs@*/
   extern int   gettimeofday(struct timeval *restrict tp, void *restrict tzp);
   extern void  bzero(void *s, size_t n);
-#define MSG_NOSIGNAL  0
 #define	EINTR         4
 #define SIGPIPE      13
 #endif

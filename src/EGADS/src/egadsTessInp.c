@@ -13,6 +13,12 @@
 #include <stdlib.h>
 #include <math.h>
 
+#ifdef __CUDACC__
+#include "liteString.h"
+#else
+#include <string.h>
+#endif
+
 #include "egadsTypes.h"
 #include "egadsInternals.h"
 #include "egadsTris.h"
@@ -27,7 +33,7 @@
     int      end;                 /* end of loop */
     int      index;               /* current loop index */
     egTessel *ntess;              /* tessellation structure */
-    /*@dependent@*/
+  /*@dependent@*/
     bodyQuad *bodydata;           /* the quad storage */
   } EMPquad;
 
@@ -56,52 +62,75 @@
 #include <time.h>
 #endif
 
-  extern void EG_cleanupTess( egTessel *btess );
-  extern void EG_cleanupTessMaps( egTessel *btess );
-  extern void EG_makeConnect( int k1, int k2, int *tri, int *kedge, int *ntable,
-                              connect *etable, int face );
-  extern int  EG_fillArea( int ncontours, const int *cntr,
-                           const double *vertices, int *triangles, int *n_fig8,
-                           int pass, fillArea *fa );
+#ifdef __HOST_AND_DEVICE__
+#undef __HOST_AND_DEVICE__
+#endif
+#ifdef __PROTO_H_AND_D__
+#undef __PROTO_H_AND_D__
+#endif
 
-  extern int  EG_getTopology( const egObject *topo, egObject **geom, int *oclas,
-                              int *type, /*@null@*/ double *limits, int *nChild,
-                              egObject ***children, int **senses );
-  extern int  EG_getBodyTopos( const egObject *body, /*@null@*/ egObject *src,
-                               int oclass, int *ntopo,
-                               /*@null@*/ egObject ***topos );
-  extern int  EG_indexBodyTopo( const egObject *body, const egObject *src );
-  extern int  EG_evaluate( const egObject *geom, /*@null@*/ const double *param,
-                           double *result );
-  extern int  EG_getRange( const egObject *geom, double *range, int *pflag );
-  extern int  EG_invEvaluate( const egObject *geom, double *xyz,
-                              double *param, double *result );
-  extern int  EG_invEvaluateGuess( const egObject *geom, double *xyz,
-                                   double *param, double *result );
-  extern int  EG_getEdgeUV( const egObject *face, const egObject *edge,
-                            int sense, double t, double *result );
-  extern int  EG_getEdgeUVeval( const egObject *face, const egObject *topo,
-                                int sense, double t, double *result);
-  extern int  EG_getTessEdge( const egObject *tess, int indx, int *len,
-                              const double **xyz, const double **t );
-  extern int  EG_getTessFace( const egObject *tess, int indx, int *len,
-                              const double **xyz, const double **uv,
-                              const int **ptype, const int **pindex,
-                              int *ntri, const int **tris, const int **tric );
-  extern int  EG_attributeRet( const egObject *obj, const char *name,
-                               int *type, int *len, /*@null@*/ const int **ints,
-                               /*@null@*/ const double **reals,
-                               /*@null@*/ const char   **str );
+#ifdef __CUDACC__
+#define __HOST_AND_DEVICE__ extern "C" __host__ __device__
+#define __PROTO_H_AND_D__   extern "C" __host__ __device__
+#else
+#define __HOST_AND_DEVICE__
+#define __PROTO_H_AND_D__ extern
+#endif
+
+__PROTO_H_AND_D__ void EG_cleanupTess( egTessel *btess );
+__PROTO_H_AND_D__ void EG_cleanupTessMaps( egTessel *btess );
+__PROTO_H_AND_D__ void EG_makeConnect( int k1, int k2, int *tri, int *kedge,
+                                       int *ntable, connect *etable, int face );
+__PROTO_H_AND_D__ int  EG_fillArea( int ncontours, const int *cntr,
+                                    const double *vertices, int *triangles,
+                                    int *n_fig8, int pass, fillArea *fa );
+
+__PROTO_H_AND_D__ int  EG_getTopology( const egObject *topo, egObject **geom,
+                                       int *oclas, int *type,
+                                       /*@null@*/ double *limits, int *nChild,
+                                       egObject ***children, int **senses );
+__PROTO_H_AND_D__ int  EG_getBodyTopos( const egObject *body,
+                                        /*@null@*/ egObject *src, int oclass,
+                                        int *nto, /*@null@*/ egObject ***topo );
+__PROTO_H_AND_D__ int  EG_indexBodyTopo( const egObject *body,
+                                         const egObject *src );
+__PROTO_H_AND_D__ int  EG_evaluate( const egObject *geom,
+                                    /*@null@*/ const double *prm, double *dat );
+__PROTO_H_AND_D__ int  EG_getRange( const egObject *geom, double *range,
+                                    int *pflag );
+__PROTO_H_AND_D__ int  EG_invEvaluate( const egObject *geom, double *xyz,
+                                       double *param, double *result );
+__PROTO_H_AND_D__ int  EG_invEvaluateGuess( const egObject *geom, double *xyz,
+                                            double *param, double *result );
+__PROTO_H_AND_D__ int  EG_getEdgeUV( const egObject *face, const egObject *edge,
+                                     int sense, double t, double *result );
+__PROTO_H_AND_D__ int  EG_getEdgeUVeval( const egObject *face,
+                                         const egObject *topo, int sense,
+                                         double t, double *result);
+__PROTO_H_AND_D__ int  EG_getTessEdge( const egObject *tess, int indx, int *len,
+                                       const double **xyz, const double **t );
+__PROTO_H_AND_D__ int  EG_getTessFace( const egObject *tess, int indx, int *len,
+                                       const double **xyz, const double **uv,
+                                       const int **ptype, const int **pindex,
+                                       int *ntri, const int **tris,
+                                                  const int **tric );
+__PROTO_H_AND_D__ int  EG_attributeRet( const egObject *obj, const char *name,
+                                        int *type, int *len,
+                                        /*@null@*/ const int **ints,
+                                        /*@null@*/ const double **reals,
+                                        /*@null@*/ const char   **str );
 #ifndef LITE
-  extern int  EG_attributeDel( egObject *obj, /*@null@*/ const char *name );
-  extern int  EG_attributeAdd( egObject *obj, const char *name, int type,
-                               int len, /*@null@*/ const int    *ints,
+           extern int  EG_attributeDel( egObject *obj,
+                                        /*@null@*/ const char *name );
+           extern int  EG_attributeAdd( egObject *obj, const char *name,
+                                        int type, int len,
+                                        /*@null@*/ const int    *ints,
                                         /*@null@*/ const double *reals,
                                         /*@null@*/ const char   *str );
 #endif
 
 
-int
+__HOST_AND_DEVICE__ int
 EG_openTessBody(egObject *tess)
 {
   egTessel *btess;
@@ -139,7 +168,7 @@ EG_openTessBody(egObject *tess)
 }
 
 
-int
+__HOST_AND_DEVICE__ int
 EG_initTessBody(egObject *object, egObject **tess)
 {
   int      i, j, k, n, stat, outLevel, nedge, nloop, nface, oclass, mtype;
@@ -382,7 +411,7 @@ EG_initTessBody(egObject *object, egObject **tess)
 }
 
 
-int
+__HOST_AND_DEVICE__ int
 EG_computeTessMap(egTessel *btess, int outLevel)
 {
   int i, j, k, n, npts, pt, pi, nNode, *inode;
@@ -633,7 +662,7 @@ EG_computeTessMap(egTessel *btess, int outLevel)
 }
 
 
-int
+__HOST_AND_DEVICE__ int
 EG_statusTessBody(egObject *tess, egObject **body, int *state, int *npts)
 {
   int          i, j, k, stat, outLevel, atype, alen;
@@ -776,7 +805,7 @@ EG_statusTessBody(egObject *tess, egObject **body, int *state, int *npts)
 }
 
 
-int
+__HOST_AND_DEVICE__ int
 EG_setTessEdge(const egObject *tess, int index, int len, const double *xyz,
                const double *t)
 {
@@ -984,7 +1013,7 @@ EG_setTessEdge(const egObject *tess, int index, int len, const double *xyz,
 }
 
 
-static int
+__HOST_AND_DEVICE__ static int
 findPoint(double *range, double *uvp, int ptype, int pindex,
           int len, int *table, const double *uv, double *uvx)
 {
@@ -1025,7 +1054,7 @@ findPoint(double *range, double *uvp, int ptype, int pindex,
 }
 
 
-static int
+__HOST_AND_DEVICE__ static int
 makeNeighbors(int f, int nverts, int ntri, int *tris, int *tric,
               int nseg, triSeg *segs)
 {
@@ -1070,7 +1099,7 @@ makeNeighbors(int f, int nverts, int ntri, int *tris, int *tric,
 }
 
 
-int
+__HOST_AND_DEVICE__ int
 EG_setTessFace(const egObject *tess, int index, int len, const double *xyz,
                const double *uv, int ntri, const int *tris)
 {
@@ -1596,14 +1625,14 @@ EG_setTessFace(const egObject *tess, int index, int len, const double *xyz,
         printf(" Face %d: tri = %d, side = %d -- No Neighbor!\n",
                index, i+1, j);
       } else if (tric[3*i+j] < 0) {
-        mm = tris[3*i+sides[j][0]]-1;
-        mp = tris[3*i+sides[j][1]]-1;
+        mm = trix[3*i+sides[j][0]]-1;
+        mp = trix[3*i+sides[j][1]]-1;
         if (ptype[mm] < 0)
-          printf(" Face %d: Edge = %d  tri = %d, side = %d -> Not in Frame-!\n",
-                 index, -tric[3*i+j], i+1, j);
+          printf(" Face %d: Edge = %d  verts = %d %d -> Not in Frame-!\n",
+                 index, -tric[3*i+j], mm+1, mp+1);
         if (ptype[mp] < 0)
-          printf(" Face %d: Edge = %d  tri = %d, side = %d -> Not in Frame+!\n",
-                 index, -tric[3*i+j], i+1, j);
+          printf(" Face %d: Edge = %d  verts = %d %d -> Not in Frame+!\n",
+                 index, -tric[3*i+j], mm+1, mp+1);
       }
 
   /* update the Face pointers */
@@ -1646,7 +1675,7 @@ EG_setTessFace(const egObject *tess, int index, int len, const double *xyz,
 }
 
 
-int
+__HOST_AND_DEVICE__ int
 EG_localToGlobal(const egObject *tess, int index, int local, int *global)
 {
   int      stat;
@@ -1685,7 +1714,7 @@ EG_localToGlobal(const egObject *tess, int index, int local, int *global)
 }
 
 
-int
+__HOST_AND_DEVICE__ int
 EG_getGlobal(const egObject *tess, int global, int *ptype, int *pindex,
              /*@null@*/ double *xyz)
 {
@@ -1730,7 +1759,7 @@ EG_getGlobal(const egObject *tess, int global, int *ptype, int *pindex,
 }
 
 
-static int
+__HOST_AND_DEVICE__ static int
 EG_findMidSide(int i1, int i2, int *table, midside *mid)
 {
   int index, last;
@@ -1748,7 +1777,7 @@ EG_findMidSide(int i1, int i2, int *table, midside *mid)
 }
 
 
-void
+__HOST_AND_DEVICE__ void
 EG_getInterior(const ego face, double *xyz, double *uv)
 {
   int    count, stat, diverge = 0;
@@ -1825,7 +1854,7 @@ EG_getInterior(const ego face, double *xyz, double *uv)
 }
 
 
-int
+__HOST_AND_DEVICE__ int
 EG_baryInsert(ego face, double w1, double w2, double w3, const double *uvA,
               const double *uvB, const double *uvC, double *uvOUT)
 {
@@ -2229,7 +2258,7 @@ EG_baryInsert(ego face, double w1, double w2, double w3, const double *uvA,
                splits uv1 and uv3 in fact2, 1-fact2 and
                with minimum distance
 */
-void
+__HOST_AND_DEVICE__ void
 EG_minArc4(const ego face, double fact1, double fact2, const double *uv0,
            const double *uv1, const double *uv2, const double *uv3,
            double *uvOUT)
@@ -2519,7 +2548,7 @@ EG_minArc4(const ego face, double fact1, double fact2, const double *uv0,
 }
 
 
-void
+__HOST_AND_DEVICE__ void
 EG_getEdgepoint(const ego edge, double w, double tm, double tp, double *tOUT)
 {
   int    nT = 50, stat, i, it, nS = 20;
@@ -2684,7 +2713,7 @@ EG_getEdgepoint(const ego edge, double w, double tm, double tp, double *tOUT)
    is guaranteed to be positive.
 
 */
-void
+__HOST_AND_DEVICE__ void
 EG_getSidepoint(const ego face, double fact, const double *uvm,
                 const double *uvp, /*@null@*/ const double *uvl,
                 /*@null@*/ const double *uvr, double *uvOUT)
@@ -3073,7 +3102,7 @@ EG_getSidepoint(const ego face, double fact, const double *uvm,
 }
 
 
-static void
+__HOST_AND_DEVICE__ static void
 EG_quadThread(void *struc)
 {
   int     index, stat;
@@ -3112,7 +3141,7 @@ EG_quadThread(void *struc)
 }
 
 
-int
+__HOST_AND_DEVICE__ int
 EG_quadTess(const egObject *tess, egObject **quadTess)
 {
   int          i, j, k, m, n, nedges, nfaces, stat, npts, ntris, nside, alen;
@@ -4105,8 +4134,13 @@ EG_quadTess(const egObject *tess, egObject **quadTess)
   stat = EG_attributeRet(tess, ".qRegular", &atype, &alen, &ints, &reals, &str);
   if (stat == EGADS_SUCCESS)
     if ((atype == ATTRSTRING) && (str != NULL))
-      if ((strcmp(str, "off") == 0) || (strcmp(str, "Off") == 0) ||
-          (strcmp(str, "OFF") == 0)) {
+#ifdef __CUDACC__
+      if ((EG_strncmp(str,"OFF",3) == 0) || (EG_strncmp(str,"Off",3) == 0) ||
+          (EG_strncmp(str,"off",3) == 0)) {
+#else
+      if ((strcmp(str,"OFF") == 0) || (strcmp(str,"Off") == 0) ||
+          (strcmp(str,"off") == 0)) {
+#endif
         *quadTess = newTess;
         return EGADS_SUCCESS;
       }

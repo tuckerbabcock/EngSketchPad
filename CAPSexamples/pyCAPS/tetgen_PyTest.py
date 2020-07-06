@@ -24,7 +24,8 @@ workDir = os.path.join(str(args.workDir[0]), "TetgenAnalysisTest")
 myProblem = capsProblem()
 
 # Load CSM file
-myProblem.loadCAPS("../csmData/cfdMultiBody.csm", verbosity=args.verbosity)
+geometryScript = os.path.join("..","csmData","cfdMultiBody.csm")
+myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 
 # Load TetGen aim
 myProblem.loadAIM(aim = "tetgenAIM", analysisDir= workDir)

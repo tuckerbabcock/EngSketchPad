@@ -29,7 +29,8 @@ projectName = "pyCAPS_AFLR2_Test"
 myProblem = capsProblem()
 
 # Load CSM file
-myProblem.loadCAPS("../csmData/cfd2D.csm", verbosity=args.verbosity)
+geometryScript = os.path.join("..","csmData","cfd2D.csm")
+myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 
 # Load aflr2 aim
 myMesh = myProblem.loadAIM(aim = "aflr2AIM", analysisDir = workDir, capsIntent="CFD")

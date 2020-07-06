@@ -302,6 +302,8 @@ int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValu
     int numBody;
     ego *bodies = NULL;
 
+    vlmSectionStruct vlmSection;
+
     // File I/O
     FILE *fp = NULL, *fpTemp = NULL;
     char inputFilename[] = "xfoilInput.txt";
@@ -339,6 +341,9 @@ int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValu
         return CAPS_SOURCEERR;
     }
 
+    status = initiate_vlmSectionStruct(&vlmSection);
+    if (status != CAPS_SUCCESS) goto cleanup;
+
     // Accumulate cross coordinates of airfoil and write out data file
     for (bodyIndex = 0; bodyIndex < numBody; bodyIndex++) {
 
@@ -360,11 +365,20 @@ int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValu
 
         fprintf(fp,"capsBody_%d\n",bodyIndex+1);
 
+        status = EG_copyObject(bodies[bodyIndex], NULL, &vlmSection.ebody);
+        if (status != CAPS_SUCCESS) goto cleanup;
+
+        status = finalize_vlmSectionStruct(&vlmSection);
+        if (status != CAPS_SUCCESS) goto cleanup;
+
         // Write out the airfoil cross-section given an ego body
         status = vlm_writeSection(fp,
-                                  bodies[bodyIndex],
+                                  &vlmSection,
                                   (int) false, // Normalize by chord (true/false)
                                   (int) MAXPOINT);
+        if (status != CAPS_SUCCESS) goto cleanup;
+
+        status = destroy_vlmSectionStruct(&vlmSection);
         if (status != CAPS_SUCCESS) goto cleanup;
 
         // Close file

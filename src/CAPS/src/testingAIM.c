@@ -176,15 +176,15 @@ aimDiscr(char *bname, capsDiscr *discr)
     printf(" testingAIM/aimDiscr: %d aim_getBodies = %d!\n", inst, stat);
     return stat;
   }
+  
+  if (nBody <= 0) return CAPS_SUCCESS;
 
-  if (nBody > 0) {
-    tess = (ego *) EG_alloc(nBody*sizeof(ego));
-    if (tess == NULL) return EGADS_MALLOC;
-    for (i = 0; i < nBody; i++) {
-      tess[i] = NULL;
-      /* look for existing tessellation */
-      if (bodies[nBody+i] != NULL) tess[i] = bodies[nBody+i];
-    }
+  tess = (ego *) EG_alloc(nBody*sizeof(ego));
+  if (tess == NULL) return EGADS_MALLOC;
+  for (i = 0; i < nBody; i++) {
+    tess[i] = NULL;
+    /* look for existing tessellation */
+    if (bodies[nBody+i] != NULL) tess[i] = bodies[nBody+i];
   }
 
   /* find any faces with our boundary marker */
@@ -354,6 +354,7 @@ aimDiscr(char *bname, capsDiscr *discr)
       for (j = 0; j < nGlobal; j++) vid[j] = 0;
       ibod++;
     }
+    if (vid == NULL) continue;
     stat = EG_getTessFace(tess[pairs[2*i]-1], pairs[2*i+1], &alen, &xyz, &uv,
                           &ptype, &pindex, &tlen, &tris, &nei);
     if (stat != EGADS_SUCCESS) continue;
@@ -619,12 +620,24 @@ aimOutputs(/*@unused@*/ int inst, /*@unused@*/ void *aimStruc,
 
 
 int
-aimPostAnalysis(/*@unused@*/ int inst, /*@unused@*/ void *aimStruc,
-                /*@unused@*/ const char *apath, capsErrs **errs)
+aimPostAnalysis(int inst, void *aimStruc, /*@unused@*/ const char *apath,
+                capsErrs **errs)
 {
+  int i, stat;
 #ifdef DEBUG
   printf(" testingAIM/aimPostAnalysis instance = %d!\n", inst);
 #endif
+  
+  if (inst == 0)
+    for (i = 1; i <= instance[inst].ngIn; i++) {
+      stat = aim_getGeomInType(aimStruc, i);
+      if (stat < CAPS_SUCCESS) {
+        printf(" testingAIM/aimPostAnalysis: %d aim_getGeomInType = %d\n",
+               i, stat);
+      } else if (stat == EGADS_OUTSIDE) {
+        printf(" testingAIM/aimPostAnalysis: %d is Config Parameter\n", i);
+      }
+    }
   
   *errs = NULL;
   

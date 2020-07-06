@@ -619,13 +619,6 @@ int wv_sendBinaryData(struct libwebsocket *wsi, unsigned char *buf, int iBuf)
 
 #ifdef STANDALONE
 
-void browserMessage(/*@unused@*/ struct libwebsocket *wsi, char *text,
-                    /*@unused@*/ int len)
-{
-  printf(" RX: %s\n", text);
-}
-
-
 static void createBox(wvContext *cntxt, char *name, int attr, float *offset)
 {
     int    i, n, attrs;

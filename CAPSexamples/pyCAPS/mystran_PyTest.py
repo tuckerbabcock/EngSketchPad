@@ -36,7 +36,8 @@ myProblem = capsProblem()
 
 # Load CSM file
 ## [loadGeom]
-myProblem.loadCAPS("../csmData/feaWingBEM.csm", verbosity=args.verbosity)
+geometryScript = os.path.join("..","csmData","feaWingBEM.csm")
+myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 ## [loadGeom]
 
 

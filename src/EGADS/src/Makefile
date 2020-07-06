@@ -41,25 +41,28 @@ default:	uts $(LDIR)/$(SHLIB) $(LDIR)/libegadstatic.a \
 		$(IDIR)/wsss.h $(IDIR)/egadsTris.h $(IDIR)/egadsSplineFit.h \
 		$(IDIR)/egadsSplineVels.h $(IDIR)/egadsf90.inc $(SRINC)
 
-$(LDIR)/libegads.so:	$(OBJSP) $(OBJS) emp.o evaluate.o rational.o regQuads.o
+$(LDIR)/libegads.so:	$(OBJSP) $(OBJS) emp.o evaluate.o rational.o \
+			regQuads.o
 	touch $(LDIR)/libegads.so
 	rm $(LDIR)/libegads.so
 	(cd $(ODIR); $(CC) -shared -Wl,-no-undefined -o $(LDIR)/libegads.so \
 		$(OBJSP) $(OBJS) emp.o evaluate.o rational.o regQuads.o \
 		$(LIBPATH) $(LIBS) $(CPPSLB) )
 
-$(LDIR)/libegads.dylib:	$(OBJSP) $(OBJS) emp.o evaluate.o rational.o regQuads.o
+$(LDIR)/libegads.dylib:	$(OBJSP) $(OBJS) emp.o evaluate.o rational.o \
+			regQuads.o
 	touch $(LDIR)/libegads.dylib
 	rm $(LDIR)/libegads.dylib
 	(cd $(ODIR); $(CC) -dynamiclib -o $(LDIR)/libegads.dylib $(OBJSP) \
-		$(OBJS) emp.o evaluate.o rational.o regQuads.o $(RPATH) \
-		$(LIBPATH) $(LIBS) $(CPPSLB) -undefined error \
+		$(OBJS) emp.o evaluate.o rational.o regQuads.o \
+		$(RPATH) $(LIBPATH) $(LIBS) $(CPPSLB) -undefined error \
 		-install_name '@rpath/libegads.dylib' \
 		-compatibility_version $(CASREV) \
 		-current_version $(EGREV) )
 
 # CYGWIN
-$(LDIR)/libegads.dll:	$(OBJSP) $(OBJS) emp.o evaluate.o rational.o regQuads.o
+$(LDIR)/libegads.dll:	$(OBJSP) $(OBJS) emp.o evaluate.o rational.o \
+			regQuads.o
 	touch $(LDIR)/libegads.dll
 	touch $(LDIR)/libegads.dll.a
 	rm $(LDIR)/libegads.dll
@@ -75,7 +78,7 @@ $(LDIR)/libegadstatic.a:	$(OBJSP) $(OBJS) emp.o evaluate.o rational.o \
 	rm $(LDIR)/libegadstatic.a
 	(cd $(ODIR); \
 		ar $(LOPTS) $(LDIR)/libegadstatic.a $(OBJS) $(OBJSP) emp.o \
-		evaluate.o rational.o regQuads.o; $(RANLB) )
+		evaluate.o rational.o regQuads.o ; $(RANLB) )
 
 $(LDIR)/libfgads.a:		$(FOBJS)
 	touch $(LDIR)/libfgads.a
@@ -115,8 +118,8 @@ $(FOBJS): %.o:	%.c ../include/egadsErrors.h egadsInternals.h egadsStack.h \
 	$(CC) -c $(COPTS) $(DEFINE) $(XDEF) -I../include $< -o $(ODIR)/$@
 
 $(OBJSP): %.o:	%.cpp ../include/egadsErrors.h egadsOCC.h egadsInternals.h \
-		../include/egadsTypes.h egadsClasses.h egadsSplineFit.h \
-		egadsStack.h Surreal/SurrealS.h
+		../include/egadsTypes.h \
+		egadsClasses.h egadsSplineFit.h egadsStack.h Surreal/SurrealS.h
 	$(CXX) -c $(CPPOPT) $(DEFANL) $(DEFINE) $(XDEF) $(INCS) -I../include \
 		-I. $< -o $(ODIR)/$@
 

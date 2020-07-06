@@ -40,7 +40,8 @@ projectName = "aeroelastic_Iterative"
 numTransferIteration = 2
 
 # Load CSM file
-myProblem.loadCAPS("../csmData/aeroelasticDataTransfer.csm", verbosity=args.verbosity)
+geometryScript = os.path.join("..","csmData","aeroelasticDataTransfer.csm")
+myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 
 # Load AIMs
 myProblem.loadAIM(aim = "tetgenAIM",
@@ -172,7 +173,7 @@ for iter in range(numTransferIteration):
     os.chdir(myProblem.analysis["su2"].analysisDir) # Move into test directory
 
     # Run SU2 mesh deformation
-    if iter > 0: 
+    if iter > 0:
         # Work around python 3 bug in su2Deform function
         if sys.version_info[0] < 3:
             su2Deform(projectName + ".cfg", args.numberProc)

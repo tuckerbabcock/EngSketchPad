@@ -440,6 +440,7 @@ static int createVLMMesh(int iIndex, void *aimInfo, capsValue *aimInputs) {
         status = get_vlmSurface(aimInputs[aim_getIndex(aimInfo, "VLM_Surface", ANALYSISIN)-1].length,
                                 aimInputs[aim_getIndex(aimInfo, "VLM_Surface", ANALYSISIN)-1].vals.tuple,
                                 &astrosInstance[iIndex].attrMap,
+                                0.0, // default Cspace
                                 &numVLMSurface,
                                 &vlmSurface);
         if (status != CAPS_SUCCESS) goto cleanup;
@@ -452,18 +453,16 @@ static int createVLMMesh(int iIndex, void *aimInfo, capsValue *aimInputs) {
 
     printf("\nGetting FEA vortex lattice mesh\n");
 
-    status = vlm_getSection(numBody,
-                            bodies,
-                            "Aerodynamic",
-                            astrosInstance[iIndex].attrMap,
-                            numVLMSurface,
-                            &vlmSurface);
+    status = vlm_getSections(numBody,
+                             bodies,
+                             "Aerodynamic",
+                             astrosInstance[iIndex].attrMap,
+                             vlmPLANEYZ,
+                             numVLMSurface,
+                             &vlmSurface);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     for (i = 0; i < numVLMSurface; i++) {
-        // Order cross sections for each surface
-        status = vlm_orderSections(vlmSurface[i].numSection, vlmSurface[i].vlmSection);
-        if (status != CAPS_SUCCESS) goto cleanup;
 
         // Compute auto spacing
         if (vlmSurface[i].NspanTotal > 0)
@@ -539,7 +538,7 @@ static int createVLMMesh(int iIndex, void *aimInfo, capsValue *aimInputs) {
 
             // ADD something for coordinate systems
 
-            // Sections aren't necessarily stored in order coming out of vlm_GetSection, however sectionIndex is!
+            // Sections aren't necessarily stored in order coming out of vlm_getSections, however sectionIndex is!
             sectionIndex = vlmSurface[i].vlmSection[j].sectionIndex;
 
             // Populate vmlSurface structure
@@ -563,7 +562,7 @@ static int createVLMMesh(int iIndex, void *aimInfo, capsValue *aimInputs) {
 
                 // Add k to section indexing variable j to get j and j+1 during iterations
 
-                // Sections aren't necessarily stored in order coming out of vlm_GetSection, however sectionIndex is!
+                // Sections aren't necessarily stored in order coming out of vlm_getSections, however sectionIndex is!
                 sectionIndex = vlmSurface[i].vlmSection[j+k].sectionIndex;
 
                 status = initiate_vlmSectionStruct(&astrosInstance[iIndex].feaProblem.feaAero[surfaceIndex].vlmSurface.vlmSection[k]);
@@ -875,17 +874,17 @@ static int createVLMMesh(int iIndex, void *aimInfo, capsValue *aimInputs) {
                 skip = (int) false;
                 for (k = 0; k < feaAeroTempCombine[0].vlmSurface.numSection; k++) {
 
-                    // Check body index
-                    if (feaAeroTempCombine[0].vlmSurface.vlmSection[k].bodyIndex ==
-                        astrosInstance[iIndex].feaProblem.feaAero[i].vlmSurface.vlmSection[j].bodyIndex) {
-
+                    // Check geometry
+                    status = EG_isEquivalent(feaAeroTempCombine[0].vlmSurface.vlmSection[k].ebody,
+                                             astrosInstance[iIndex].feaProblem.feaAero[i].vlmSurface.vlmSection[j].ebody);
+                    if (status == EGADS_SUCCESS) {
                         skip = (int) true;
                         break;
                     }
 
                     // Check geometry
-                    status = EG_isSame(bodies[feaAeroTempCombine[0].vlmSurface.vlmSection[k].bodyIndex],
-                                       bodies[astrosInstance[iIndex].feaProblem.feaAero[i].vlmSurface.vlmSection[j].bodyIndex]);
+                    status = EG_isSame(feaAeroTempCombine[0].vlmSurface.vlmSection[k].ebody,
+                                       astrosInstance[iIndex].feaProblem.feaAero[i].vlmSurface.vlmSection[j].ebody);
                     if (status == EGADS_SUCCESS) {
                         skip = (int) true;
                         break;
@@ -1045,6 +1044,7 @@ static int createVLMMesh(int iIndex, void *aimInfo, capsValue *aimInputs) {
         status = get_vlmSurface(aimInputs[aim_getIndex(aimInfo, "VLM_Surface", ANALYSISIN)-1].length,
                                 aimInputs[aim_getIndex(aimInfo, "VLM_Surface", ANALYSISIN)-1].vals.tuple,
                                 &astrosInstance[iIndex].attrMap,
+                                0.0, // default Cspace
                                 &numVLMSurface,
                                 &vlmSurface);
         if (status != CAPS_SUCCESS) goto cleanup;
@@ -1057,12 +1057,13 @@ static int createVLMMesh(int iIndex, void *aimInfo, capsValue *aimInputs) {
 
     printf("\nGetting FEA vortex lattice mesh\n");
 
-    status = vlm_getSection(numBody,
-                            bodies,
-                            "Aerodynamic",
-                            astrosInstance[iIndex].attrMap,
-                            numVLMSurface,
-                            &vlmSurface);
+    status = vlm_getSections(numBody,
+                             bodies,
+                             "Aerodynamic",
+                             astrosInstance[iIndex].attrMap,
+                             Y,
+                             numVLMSurface,
+                             &vlmSurface);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     // Order cross sections for each surface
@@ -2752,6 +2753,12 @@ int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath,
 
         // If name isn't found in Geometry inputs skip write geometric design variables
         if (j >= astrosInstance[iIndex].numGeomIn) continue;
+
+        if(aim_getGeomInType(aimInfo, j+1) == EGADS_OUTSIDE) {
+            printf("Error: Geometric sensitivity not available for CFGPMTR = %s\n", geomInName);
+            status = CAPS_NOSENSITVTY;
+            goto cleanup;
+        }
 
         printf(">>> Writing geometry parametrization\n");
         status = astros_writeGeomParametrization(fp,

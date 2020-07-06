@@ -45,7 +45,8 @@ workDir = os.path.join(str(args.workDir[0]), "AeroelasticSimple_Displacement")
 projectName = "aeroelasticSimple_Displacement_SA"
 
 # Load CSM file
-myProblem.loadCAPS("../csmData/aeroelasticDataTransferSimple.csm", verbosity=args.verbosity)
+geometryScript = os.path.join("..","csmData","aeroelasticDataTransferSimple.csm")
+myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 
 # Load AIMs
 myMesh = myProblem.loadAIM(aim = "tetgenAIM",
@@ -98,7 +99,7 @@ su2.setAnalysisVal("Boundary_Condition", [("Skin", inviscid),
                                           ("Farfield","farfield")])
 
 # BC names of surfaces that should be deformed (default all invisicd and viscous)
-su2.setAnalysisVal("Surface_Deform", ["Skin"]) 
+su2.setAnalysisVal("Surface_Deform", ["Skin"])
 
 
 # Set inputs for astros

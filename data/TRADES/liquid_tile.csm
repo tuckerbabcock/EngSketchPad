@@ -1,7 +1,0 @@
-# liquid_tile
-# written by John Dannenhoffer
-
-box       0.000  0.875  0.025   1.000  0.100  0.950
-   attribute _color $red
-
-end

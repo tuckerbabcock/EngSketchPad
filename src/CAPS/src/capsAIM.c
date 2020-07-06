@@ -176,7 +176,7 @@ static DLLFunc aimDLget(DLL dll, const char *symname, const char *name)
 /*@+castfcnptr@*/
 #endif
   if ((data == NULL) && (name != NULL))
-    printf(" CAPS Info: Couldn't get symbol %s in %s\n", symname, name);
+    printf(" CAPS Info: No symbol for %s in %s\n", symname, name);
   return data;
 }
 

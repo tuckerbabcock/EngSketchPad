@@ -19,7 +19,7 @@
   <body>
     <p><h1 align=center>Engineering Sketch Pad (ESP) Version 1.18</h1>
     <p><h3>Authors: John F. Dannenhoffer, III (Syracuse University) and Bob Haimes (MIT)</h3>
-    <p><h3>Date: February 2020.</h3>
+    <p><h3>Date: June 2020.</h3>
 
     <p><h3 align=center><img src="esp_logo.png" width="400"/></h3>
 
@@ -44,34 +44,37 @@
     <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec5.9">5.9 Parameter rules</a>
     <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec5.10">5.10 Expression rules</a>
     <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec5.11">5.11 Attribute rules</a>
+    <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec5.12">5.12 Format of the plotfile</a>
     <p><a href="#sec6">6.0 Example <code>.csm</code> file</a>
     <p><a href="#sec7">7.0 Frequently Asked Questions</a>
     <p><a href="#sec8">8.0 Release notes</a>
-    <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec8.1">8.1 New/extended features in v1.17</a>
-    <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec8.2">8.2 Bug fixes since v1.16</a>
-    <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec8.3">8.3 New/extended features in v1.16</a>
-    <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec8.4">8.4 Bug fixes since v1.15</a>
-    <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec8.5">8.5 New/extended features in v1.15</a>
-    <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec8.6">8.6 Bug fixes since v1.14</a>
-    <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec8.7">8.7 New/extended features in v1.14</a>
-    <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec8.8">8.8 Bug fixes since v1.13</a>
-    <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec8.9">8.9 New/extended features in v1.13</a>
-    <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec8.10">8.10 Bug fixes since v1.12</a>
-    <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec8.11">8.11 New/extended features in v1.12</a>
-    <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec8.12">8.12 Bug fixes since v1.11</a>
-    <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec8.13">8.13 New/extended features in v1.11</a>
-    <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec8.14">8.14 Bug fixes since v1.10</a>
-    <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec8.15">8.15 New/extended features in v1.10</a>
-    <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec8.16">8.16 Bug fixes since v1.09</a>
-    <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec8.17">8.17 New/extended features in v1.09</a>
-    <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec8.18">8.18 Bug fixes since v1.08</a>
-    <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec8.19">8.19 New/extended features in v1.08</a>
-    <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec8.20">8.20 Bug fixes since v1.07</a>
-    <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec8.21">8.21 New/extended features in v1.07</a>
-    <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec8.22">8.22 Bug fixes since v1.06</a>
-    <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec8.23">8.23 New/extended features in v1.06</a>
-    <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec8.24">8.24 Bug fixes since v1.05</a>
-    <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec8.25">8.25 Known problems in v1.09</a>
+    <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec8.1">8.1 New/extended features in v1.18</a>
+    <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec8.2">8.2 Bug fixes since v1.17</a>
+    <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec8.3">8.3 New/extended features in v1.17</a>
+    <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec8.4">8.4 Bug fixes since v1.16</a>
+    <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec8.5">8.5 New/extended features in v1.16</a>
+    <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec8.6">8.6 Bug fixes since v1.15</a>
+    <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec8.7">8.7 New/extended features in v1.15</a>
+    <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec8.8">8.8 Bug fixes since v1.14</a>
+    <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec8.9">8.9 New/extended features in v1.14</a>
+    <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec8.10">8.10 Bug fixes since v1.13</a>
+    <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec8.11">8.11 New/extended features in v1.13</a>
+    <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec8.12">8.12 Bug fixes since v1.12</a>
+    <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec8.13">8.13 New/extended features in v1.12</a>
+    <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec8.14">8.14 Bug fixes since v1.11</a>
+    <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec8.15">8.15 New/extended features in v1.11</a>
+    <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec8.16">8.16 Bug fixes since v1.10</a>
+    <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec8.17">8.17 New/extended features in v1.10</a>
+    <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec8.18">8.18 Bug fixes since v1.09</a>
+    <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec8.19">8.19 New/extended features in v1.09</a>
+    <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec8.20">8.20 Bug fixes since v1.08</a>
+    <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec8.21">8.21 New/extended features in v1.08</a>
+    <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec8.22">8.22 Bug fixes since v1.07</a>
+    <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec8.23">8.23 New/extended features in v1.07</a>
+    <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec8.24">8.24 Bug fixes since v1.06</a>
+    <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec8.25">8.25 New/extended features in v1.06</a>
+    <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec8.26">8.26 Bug fixes since v1.05</a>
+    <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec8.27">8.27 Known problems in v1.09</a>
     <p><a href="#sec9">9.0 Error Codes</a>
     <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec9.1">9.1 OpenCSM error codes</a>
     <p>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#sec9.2">9.2 EGADS error codes</a>
@@ -167,6 +170,13 @@
        described in a <code>.csm</code> file and then modify it and/or
        build it via <code>OpenCSM</code>'s various commands.
 
+    <p>For a convenient Quick Reference,
+       see <code>$ESP_ROOT/doc/ESP_QuickReference.pdf</code>, which is
+       a two-page summary of the various <code>.csm</code> commands,
+       built-in functions, dot-suffixes, the <code>ESP</code>
+       character set, and a brief summary of the meanings of the various
+       keypresses in <code>ESP</code>.
+
     <p><h3 id="sec1.1">1.1 Gallery of cases</h3>
 
     <p><code>ESP</code> ships with a assortment of
@@ -202,6 +212,29 @@
 
        <h4>Xwing.csm</h4>
        <img src="gallery/Xwing.png" width="100%"/>
+
+    <p>In addition, several students have created models of a variety
+       of configurations.  The <code>.csm</code> files for these cases
+       are not included in the distribution since they have not been
+       cleaned up; nevertheless, the models are very impressive.
+
+      <h4>BulletTrain</h4>
+      <img src="studentGallery/BulletTrain.png" width="100%"/>
+
+      <h4>Cessna162</h4>
+      <img src="studentGallery/Cessna162.png" width="100%"/>
+
+      <h4>F117</h4>
+      <img src="studentGallery/F117.png" width="100%"/>
+
+      <h4>GenericFighter</h4>
+      <img src="studentGallery/GenericFighter.png" width="100%"/>
+
+      <h4>LunarLander_11</h4>
+      <img src="studentGallery/LunarLander_11.png" width="100%"/>
+
+      <h4>PittsSpecial</h4>
+      <img src="studentGallery/PittsSpecial.png" width="100%"/>
 
     <p>Back to <a href="#sec0">Table of Contents</a>
 
@@ -510,6 +543,13 @@
        the Local Variable names are listed in black type and cannot be
        edited.
 
+    <p>Now there are two ways to proceed.  The following paragraphs 
+       describe the legacy method, using
+       the <code>ESP</code> user interface.  This method is similar to
+       other CAD systems, but experienced users find that using the
+       integrated <code>.csm</code> editor to be much faster and
+       easier to debug; it is described at the end of this tutorial.
+
     <p>Press on the label "Lbar" to edit the Parameter named "Lbar".
        When this is done, the user is provided with an editing form
        that asks for the new value; the current value is pre-loaded in
@@ -616,6 +656,11 @@
           Edges in the body</li>
       </ul>
 
+    <p>When you have a configuration with lots of Bodys, it is
+       sometimes useful to turn the visibility of all Faces, Edges, or
+       Nodes (in all Bodys) on or off.  This can be done by pressing
+       on the word "<strong>Display</strong>" in the Key Window.
+
     <p>Now let's combine the sphere and the original solid by adding a
        UNION Branch.  (Press "<strong>Branches</strong>" and add a
        UNION).  This operation wants to know if the operation should
@@ -681,6 +726,10 @@
        defaults and rebuild, producing:
     <p><img src="pictures/ESP-fig13.png" width="100%"/>
 
+    <p>You can now proceed to the <a href="#sec2.1c">common part of
+       the tutorial</a> or take a detour to explore the new
+       integrated <code>.csm</code> editor (which is next).
+
     <p>Now we want to create a series (pattern) of small holes that
        are drilled across the shaft.  Start by creating a new
        Parameter (by clicking on "<strong>Design Parameters</strong>")
@@ -692,7 +741,7 @@
        or a 2D matrix, press the "<strong>Add row</strong>" or
        "<strong>Add column</strong>" button before entering values in
        the table.)
-      
+
     <p>Since we only want a scalar, just use the standard form, such
        as:
     <p><img src="pictures/ESP-fig14.png" width="100%"/>
@@ -901,6 +950,62 @@
        editing tasks.
     <p><img src="pictures/ESP-fig26.png" width="100%"/>
 
+    <p>The integrated editor has a row of buttons at the top:
+      <ul>
+        <li>"<strong>Copy</strong>": take highlighted text and puts a
+          copy of it into the clipboard
+        <li>"<strong>Cut</strong>": remove highlighted text and put it
+          into the clipboard
+        <li>"<strong>Paste</strong>": put copy of the clipboard at the
+          current cursor location
+        <li>"<strong>Search</strong>": look for a string (see prompt
+          near top of screen). The search is case sensitive.
+        <li>"<strong>Prev</strong>": look for previous occurrence of
+          current search string
+        <li>"<strong>Next</strong>": look for next occurence of
+          current search string
+        <li>"<strong>Replace</strong>": replace current search string
+          with the replacement text (see prompt near top of screen)
+        <li>"<strong>Comment</strong>": for the current highlighted
+        text
+          <ul>
+            <li>if the first line is uncommented, comment all lines that
+              are highlighted
+            <li>if the first line is commented, uncomment all lines
+              that are highlighted (if possible)
+          </ul>
+        <li>"<strong>Indent</strong>": use standard indentation for
+          all highlight lines
+        <li>"<strong>Hint</strong>": provide a hint of the arguments
+          associated with the line at the current cursor (see top of
+          screen for hint)
+        <li>"<strong>Undo</strong>": undo the last change
+        <li>"<strong>Cancel</strong>": exit the editor and do not save
+          changes
+        <li>"<strong>Save</strong>": save the changes and exit the
+        editor
+          <ul>
+            <li>if editing the <code>.csm</code> file and there are no
+              current <code>.udc</code> files, then the configuration
+              is automatically rebuilt
+            <li>otherwise, you will need to press "<strong>Press to
+                Rebuild</strong>" to rebuild the configuration
+          </ul>
+      </ul>
+
+    <p>Note that the text in the file is colored:
+      <ul>
+        <li>comments are show in <strong>grey</strong>
+        <li>command names are shown in <strong>blue</strong> (this is
+          an easy way to check that you have spelled the command name
+          correctly)
+        <li>parameter names are shown in <strong>yellow</strong>
+        <li>numbers are shown in <strong>green</strong>
+        <li>strings are shown in <strong>magenta</strong>
+        <li>quotation marks (which show the extent of an argument) are
+          shown in <strong>cyan</strong>
+      </ul>
+
     <p>Start by highlighting lines 12 and 13 and then press the
        "<strong>Copy</strong>" button.  You can then move your  cursor
        to the beginning of line 14 and press "<strong>Paste</strong>",
@@ -956,6 +1061,77 @@
     <p>This tutorial covered most of <code>ESP</code>'s user
        interface.  Further details are contained in the sections that
        follow.
+
+    <p>Now we will learn how to develop a configuration using the
+       integrated editor.  Make a copy of the
+       original <code>.csm</code> file and
+       restart <code>serveCSM</code>.
+      <pre>
+       cp       ../data/tutorial1.csm ../data/tutorial1_temp.csm
+       serveCSM ../data/tutorial1_temp
+      </pre>
+      or
+      <pre>
+       copy     ..\data\tutorial1.csm ..\data\tutorial1_temp.csm
+       serveCSM ..\data\tutorial1_temp
+      </pre>
+
+    <p>Start by pressing the "<strong>File</strong>" button and then
+       "<strong>Edit: ../data/tutorial1_temp.csm</strong>".  This will
+       display the contents of the (original) tutorial file in code
+       form. Notice at the top you have Design Parameters with their
+       given values which are followed by the Branches and their
+       arguments.
+
+    <p>Start by finding the Design Parameter "Lbar", shown in the line
+       "<code>despmtr Lbar 6.00</code>" on your screen. You can edit
+       this parameter by simply changing the number. Do this now,
+       change the "6.00" to "9.00" and then press
+       "<strong>Save</strong>". This will change the length of the bar
+       and automatically rebuild the model.
+
+    <p>Return to "<strong>Edit</strong>" and change the value of
+       “Lbar” back to “6.00”, but do not save yet. We will now add a
+       SPHERE branch to the model. To do this, add a line under the
+       "intersect" corresponding to "clip weights with outer cylinder"
+       that reads "SPHERE".  This branch needs four arguments, which
+       are "xcent", "ycent", "zcent" and "radius". If you would like
+       to see for yourself, put your cursor somewhere in the word
+       "SPHERE" and then press the "<strong>Hint</strong>" button at
+       the top of the screen. This button will tell you the required
+       arguments for any branch you add. Now set these arguments as
+       "xcent" set to "1", "ycent" set to "0", "zcent" set to "0", and
+       "radius" set to "2"; in other words, add the line "<code>SPHERE
+       1 0 0 2</code>" and press "<strong>Save</strong>".
+
+    <p>Now try to combine the sphere and the original solid by adding
+       a "UNION" Branch under the line that starts with
+       "SPHERE". Re-build by saving the edits. Notice that this is not
+       the shape we wanted. To fix this replace the "UNION" Branch
+       with an "INTERSECT" Branch and save again.
+
+    <p>Now you can see that the head of our shape is too thin, so
+       increase the radius of the sphere from "2" to "2.3", and while
+       you are at it change the design parameter "Rbar" to "0.4".
+
+    <p>The next step is to create a hole through the center of the
+       shaft. To do this we will create a CYLINDER and then SUBTRACT
+       it from the solid. Create a new "CYLINDER" Branch with
+       the arguments "-1.2*L" and "+1.2*L" for "xbeg" and "xend"
+       respectively, as well as "0" for "ybeg", "zbeg", "yend", and
+       "zend". Finally, set "radius" to "0.2".  Remove the material in
+       this new
+       cylinder from the existing solid by adding a "SUBTRACT" Branch under the
+       new "CYLINDER" line.  In other words, add the lines
+      <pre>
+       CYLINDER  -1.2*L  0.0  0.0  +1.2*L  0.0  0.0  0.2
+       SUBTRACT
+      </pre>
+       and "<strong>Save</strong>".
+
+    <p>As you can see, the ideas are the same as using
+       the <code>ESP</code> Tree Window, but experienced users find it
+       much faster using the integrated editor.
 
     <p><h3 id="sec2.2">2.2 Second tutorial: Sketcher</h3>
 
@@ -1634,7 +1810,7 @@ mark
        programming languages):
       <!-- extract from tutorial3.csm -->
       <pre>
-   patbeg    i  15
+   patbeg    i  fuse.nrow
       udprim ellipse   ry  abs(fuse[i,2])  rz  (fuse[i,4]-fuse[i,3])/2
       translate        fuse[i,1]  0            (fuse[i,4]+fuse[i,3])/2
    patend
@@ -1788,20 +1964,28 @@ serveCSM ../data/tutorial3 -loadEgads
         serveCSM [casename[.csm]] [options...]
            where [options...] = -addVerify
                                 -batch
+                                -checkMass
+                                -checkPara
+                                -despmtrs despname
                                 -dict dictname
                                 -dumpEgads
                                 -egg eggname
                                 -help  -or-  -h
+                                -histDist dist
                                 -jrnl jrnlname
                                 -loadEgads
                                 -onormal
                                 -outLevel X
-                                -plot plotname
+                                -plot plotfile
                                 -plotBDF BDFname
                                 -plotCP
+                                -plugs npass
                                 -port X
+                                -printStack
+                                -ptrb ptrbname
                                 -sensTess
                                 -skipBuild
+                                -skipTess
                                 -verify
                                 -version  -or-  -v  -or-  --version
       </pre>
@@ -1830,7 +2014,7 @@ serveCSM ../data/tutorial3 -loadEgads
     <p>The <code>-dumpEgads</code> option tells <code>serveCSM</code>
        to write an EGADS file named "Body_xxxxxx.egads" to the current
        working directory every time a new Body is built.  This option
-       is useul if one wants to see the progress so far during a long
+       is useful if one wants to see the progress so far during a long
        build or in conjunction with the <code>-loadEgads</code>
        option.
 
@@ -1840,6 +2024,10 @@ serveCSM ../data/tutorial3 -loadEgads
 
     <p>The <code>-help</code> option produces a listing of the command
        line options.
+
+    <p>the <code>-histDist</code> option produces a histogram of the
+       distances of all point in a plotfile (specified with
+       the <code>-plot</code> option) from the current configuration.
 
     <p>The <code>-jrnl</code> option is useful for replaying a
        previous session.  This journal file is an ASCII file that can
@@ -1865,9 +2053,10 @@ serveCSM ../data/tutorial3 -loadEgads
        Higher numbers are useful for debugging and should seldom be
        used by most users.
 
-    <p>The <code>-plot</code> option provides a <code>plotname</code>
+    <p>The <code>-plot</code> option provides a <code>plotfile</code>
        file that contains X,Y,Z triplets of points to be plotted in
        ESP with the label <code>plotdata</code>.
+       See <a href="#sec5.12">Section 5.12</a> for details.
 
     <p>The <code>-plotBDF</code> option plots the GRIDs, CRODs, and
        CQUAD4s in the associated <code>.bdf</code> file (which can be
@@ -1876,10 +2065,21 @@ serveCSM ../data/tutorial3 -loadEgads
     <p>The <code>-plotCP</code> option plots the control polygons
        associated with all Bspline Faces.
 
+    <p>The <code>-plugs</code> option starts Plugs, which is a tool
+       for modifying the DESPMTRs in a configuration so that the
+       distances from the points in a plotfile (specified via
+       the <code>-plot</code> option) to the configuration is
+       minimized in a least-squares sense.  This option is still
+       experimental and should be used with caution.
+
     <p>The <code>-port</code> option tells <code>serveCSM</code> with
        which port to connect.  If a port other than the default is
        used, be certain to use that same port number
        in <code>ESP</code>'s initial prompt.
+
+    <p>The <code>-printStack</code> option tells <code>OpenCSM</code>
+        to print out the contents of the stack after every command is
+        executed.
 
     <p>The <code>-sensTess</code> flag allows a user to select
        "configuration" sensitivities instead of the (default)
@@ -1889,14 +2089,27 @@ serveCSM ../data/tutorial3 -loadEgads
        skip the initial build.  This is useful when the user knows
        that some DESPMTRs will be changed before the build.
 
+    <p>The <code>-skipTess</code> option is used when you want to
+       run <code>OpenCSM</code> in <code>-batch</code> mode and you do
+       not want it to create the tessellation of all the Bodys on the
+       stack.
+
     <p>The <code>-verify</code> is typically used during testing to
        verify that the Bodys that are produced "match" those that were
        produced when the <code>-addVerify</code> flag was used.  It
        does this by actually checking the ASSERT Branches
        whose <code>verify</code> option is set to 1.
 
-    <p>The <code>-version</code> flag is used to print version
+    <p>The <code>-version</code> (or <code>-v</code>
+       or <code>--version</code>) flag is used to print version
        information for the user.
+
+    <p><code>OpenCSM</code> ignores the <code>--</code> flag.
+
+    <p>The options <code>-checkMass</code>, <code>-checkPara</code>,
+       <code>-despmtrs</code> and <code>-ptrb</code> are basically
+       used during development, and users should generally not need to
+       use them.
 
     <p>Back to <a href="#sec0">Table of Contents</a>
 
@@ -2019,6 +2232,13 @@ serveCSM ../data/tutorial3 -loadEgads
     <p>The current CSM statements are listed here, grouped by type.  A
       full alphabetical description of any command can be obtained by
       clicking on the command name.
+
+    <p>For a convenient Quick Reference,
+       see <code>$ESP_ROOT/doc/ESP_QuickReference.pdf</code>, which is
+       a two-page summary of the various <code>.csm</code> commands,
+       built-in functions, dot-suffixes, the <code>ESP</code>
+       character set, and a brief summary of the meanings of the various
+       keypresses in <code>ESP</code>.
 
     <p>In the descriptions below, the conventions used are:
       <ul>
@@ -2212,6 +2432,10 @@ serveCSM ../data/tutorial3 -loadEgads
         <tr><td></td>
           <td><a href="#spline">spline</a></td>
           <td>x y z</td>
+        </tr>
+        <tr><td></td>
+          <td><a href="#sslope">sslope</a></td>
+          <td>dx dy dz</td>
         </tr>
         <tr><td></td>
           <td><a href="#bezier">bezier</a></td>
@@ -2413,13 +2637,12 @@ APPLYCSYS $csysName ibody=0
         <pre>
 ARC       xend yend zend dist $plane=xy
           use:    create a new circular arc to the new point, with a
-                     specified offset distance
+                     specified distance between the mid-chord and mid-arc
           pops:   -
           pushes: -
           notes:  Sketch must be open
                   Solver may not be open
                   $plane must be xy, yz, or zx
-                  point on circle is dist from midpoint in plane specified
                   if dist>0, sweep is counterclockwise
                   sensitivity computed w.r.t. xend, yend, zend, dist
                   signals that may be thrown/caught:
@@ -2679,13 +2902,13 @@ COMBINE   toler=0
                   Solver may not be open
                   Mark must be set
                   if all Bodys since Mark are SheetBodys
-                     create SolidBody from closed Shell
+                     create either a SolidBody from closed Shell or an
+                     (open) SheetBody
                   elseif all Bodys since Mark are WireBodys and are co-planar
                      create SheetBody from closed Loop
                   endif
                   if maxtol>0, then tolerance can be relaxed until successful
                   sets up @-parameters
-                  new Faces all receive the Branch's Attributes
                   signals that may be thrown/caught:
                      $did_not_create_body
                      $insufficient_bodys_on_stack
@@ -2731,6 +2954,7 @@ CONNECT   faceList1 faceList2 edgeList1=0 edgeList2=0
                       Body  is same type as Body1
                       Face in faceLists are removed
                       bridging Faces are made between edgeList pairs
+                      a zero in an edgelist creates a degenerate Face
                   else
                       Body1 and Body2 must both be SolidBodys
                       Faces within each faceList must be contiguous
@@ -3055,7 +3279,7 @@ EXTRACT   entList
           pushes: Body
           notes:  Sketch may not be open
                   Solver may not be open
-                  all member of entList must have the same sign
+                  all members of entList must have the same sign
                   Body1 must be a SolidBody or a SheetBody
                   if     entList entries are all positive
                      create SheetBody from entList Face(s) of Body1
@@ -3171,6 +3395,7 @@ GROUP     nbody=0
           notes:  Sketch may not be open
                   Solver may not be open
                   if nbody>0,   then nbody Bodys on stack are in Group
+                  if nbody<0,   then Bodys are ungrouped
                   if no Mark on stack, all Bodys on stack are in Group
                   the Mark is removed from the stack
                   Attributes are set on all Bodys in Group
@@ -3395,7 +3620,7 @@ JOIN      toler=0 toMark=0
         <!-- extract from OpenCSM.h -->
         <pre>
 LBOUND    $pmtrName bounds
-          use:    defines a lower bound for a design Parameter
+          use:    defines a lower bound for a design or configuration Parameter
           pops:   -
           pushes: -
           notes:  Sketch may not be open
@@ -3785,9 +4010,9 @@ SELECT    $type arg1 ...
                      sets @seltype to -1
                      sets @selbody to the nth from the top of the stack
                      sets @sellist to -1
-                  elseif arguments are: "body $attrName1   $attrValue1
-                                              $attrName2=* $attrValue2=*
-                                              $attrName3=* $attrValue3=*"
+                  elseif arguments are: "body attrName1    attrValue1
+                                              attrName2=$* attrValue2=$*
+                                              attrName3=$* attrValue3=$*"
                      sets @seltype to -1
                      uses @selbody to Body that match all Attributes
                      sets @sellist to -1
@@ -3809,9 +4034,13 @@ SELECT    $type arg1 ...
                      sets @seltype to 2
                      uses @selbody
                      sets @sellist with Face in @selbody that matches ibody1/iford1
-                  elseif arguments are: "face $attrName1   $attrValue1
-                                              $attrName2=* $attrValue2=*
-                                              $attrName3=* $attrValue3=*"
+                  elseif arguments are: "face xmin xmax ymin ymax zmin zmax"
+                     sets @seltype to 2
+                     uses @selbody
+                     sets @sellist to Faces whose bboxs are in given range
+                  elseif arguments are: "face attrName1    attrValue1
+                                              attrName2=$* attrValue2=$*
+                                              attrName3=$* attrValue3=$*"
                      sets @seltype to 2
                      uses @selbody
                      sets @sellist to Faces in @selbody that match all Attributes
@@ -3826,7 +4055,8 @@ SELECT    $type arg1 ...
                   elseif arguments are: "edge 0 iford1 ibody2 iford2" or
                                         "edge ibody1 0 ibody2 iford2" or
                                         "edge ibody1 iford1 0 iford2" or
-                                        "edge ibody1 iford1 ibody2 0"
+                                        "edge ibody1 iford1 ibody2 0" or
+                                        "edge ibody1 0 ibody2 0"
                      sets @seltype to 1
                      uses @selbody
                      sets @sellist to Edge in @selbody that adjoins Faces
@@ -3836,9 +4066,13 @@ SELECT    $type arg1 ...
                      uses @selbody
                      sets @sellist to Edge in @selbody that adjoins Faces
                         ibody1/iford1 and ibody2/iford2
-                  elseif arguments are: "edge $attrName1   $attrValue1
-                                              $attrName2=* $attrValue2=*
-                                              $attrName3=* $attrValue3=*"
+                  elseif arguments are: "edge xmin xmax ymin ymax zmin zmax"
+                     sets @seltype to 1
+                     uses @selbody
+                     sets @sellist to Edges whose bboxs are in given range
+                  elseif arguments are: "edge attrName1    attrValue1
+                                              attrName2=$* attrValue2=$*
+                                              attrName3=$* attrValue3=$*"
                      sets @seltype to 1
                      uses @selbody
                      sets @sellist to Edges in @selbody that match all Attributes
@@ -3858,15 +4092,19 @@ SELECT    $type arg1 ...
                      sets @seltype to 0
                      uses @selbodt
                      sets @sellist to Node closest to (x,y,z)
-                  elseif arguments are: "node $attrName1   $attrValue1
-                                              $attrName2=* $attrValue2=*
-                                              $attrName3=* $attrValue3=*"
+                  elseif arguments are: "node xmin xmax ymin ymax zmin zmax"
+                     sets @seltype to 0
+                     uses @selbody
+                     sets @sellist to Nodes whose bboxs are in given range
+                  elseif arguments are: "node attrName1    attrValue1
+                                              attrName2=$* attrValue2=$*
+                                              attrName3=$* attrValue3=$*"
                      sets @seltype to 0
                      uses @selbody
                      sets sellist to Nodes in @selbody that match all Attributes
-                  elseif arguments are: "add $attrName1   $attrValue1
-                                             $attrName2=* $attrValue2=*
-                                             $attrName3=* $attrValue3=*"
+                  elseif arguments are: "add attrName1    attrValue1
+                                             attrName2=$* attrValue2=$*
+                                             attrName3=$* attrValue3=$*"
                      uses @seltype
                      uses @selbody
                      appends to @selList the Nodes/Edges/Faces that match all Attributes
@@ -3876,9 +4114,18 @@ SELECT    $type arg1 ...
                   elseif arguments are: "add ibody1 iford1 ibody2 iford2 iseq=1" and @seltype is 1
                      uses @selbody
                      appends to @sellist the Edge in @selbody that adjoins Faces
-                  elseif arguments are: "sub $attrName1   $attrValue1
-                                             $attrName2=* $attrValue2=*
-                                             $attrName3=* $attrValue3=*"
+                  elseif arguments are: "add iface" and @seltype is 2
+                     uses @selbody
+                     appends to @sellist Face iface in @selbody
+                  elseif arguments are: "add iedge" and @seltype is 1
+                     uses @selbody
+                     appends to @sellist Edge iedge in @selbody
+                  elseif arguments are: "add inode" and @seltype is 0
+                     uses @selbody
+                     appends to @sellist Node inode in @selbody
+                  elseif arguments are: "sub attrName1    attrValue1
+                                             attrName2=$* attrValue2=$*
+                                             attrName3=$* attrValue3=$*"
                      uses @seltype
                      uses @selbody
                      removes from @sellist the Nodes/Edges/Faces that match all Attributes
@@ -3888,6 +4135,8 @@ SELECT    $type arg1 ...
                   elseif arguments are: "sub ibody1 iford1 ibody2 iford2 iseq=1" and @seltype is 1
                      uses @selbody
                      removes from @sellist the Edge in @selbody that adjoins Faces
+                  elseif arguments are: "sub ient" and ient is in @sellist
+                     removes from @sellist ient
                   elseif arguments are: "sort $key"
                      sorts @sellist based upon $key which can be: $xmin, $ymin, $zmin,
                         $xmax, $ymax, $zmax, $xcg, $ycg, $zcg, $area, or $length
@@ -4116,6 +4365,26 @@ SPLINE    x y z
                   sensitivity computed w.r.t. x, y, z
                   signals that may be thrown/caught:
         </pre>
+      <p><h3 id="sslope">sslope</h3>
+        <!-- extract from OpenCSM.h -->
+        <pre>
+SSLOPE    dx dy dz
+          use:    define the slope at the beginning or end of a SPLINE
+          pops:   -
+          pushes: -
+          notes:  Sketch must be open
+                  Solver may not be open
+                  for defining slope at beginning:
+                      must not follow a SPLINE statement
+                      must    precede a SPLINE statement
+                  for definiing slope at end:
+                      must      follow a SPLINE statement
+                      must not precede a SPLINE statement
+                  dx, dy, and dz must not all be zero
+                  sensitivity computed w.r.t. x, y, z
+                  signals that may be thrown/caught:
+                     $illegal_value
+        </pre>
       <p><h3 id="store">store</h3>
         <!-- extract from OpenCSM.h -->
         <pre>
@@ -4260,7 +4529,7 @@ TRANSLATE dx dy dz
         <!-- extract from OpenCSM.h -->
         <pre>
 UBOUND    $pmtrName bounds
-          use:    defines an upper bound for a design Parameter
+          use:    defines an upper bound for a design or configuration Parameter
           pops:   -
           pushes: -
           notes:  Sketch may not be open
@@ -4903,7 +5172,7 @@ UDPRIM sample
            else
               error
            endif
-     
+
 UDPRIM sew
        input arguments (specified as name/value pairs):
            filename   name of file (prepended with '$' or '$$/')
@@ -4961,19 +5230,19 @@ UDPRIM supell
        output arguments:
        usage:
            superellipse is generated separately in each quadrant, using:
-               edge 1: 
+               edge 1:
                    rx_e  is latest rx or rx_e
                    ry_n  is latest ry or ry_n
                    n_ne  is latest n, n_n, n_e, or n_ne
-               edge 2: 
+               edge 2:
                    rx_w  is latest rx or rx_w
                    ry_n  is latest ry or ry_n
                    n_nw  is latest n, n_n, n_w, or n_nw
-               edge 3: 
+               edge 3:
                    rx_w  is latest rx or rx_w
                    ry_s  is latest ry or ry_s
                    n_sw  is latest n, n_s, n_w, or n_sw
-               edge 4: 
+               edge 4:
                    rx_e  is latest rx or rx_e
                    ry_s  is latest ry or ry_s
                    n_se  is latest n, n_s, n_e, or n_se
@@ -5229,6 +5498,7 @@ Strings:
        ampersand                  &
        exclamation                !
       </pre>
+      <!-- " -->
 
     <p><h3 id="sec5.9">5.9: Parameter rules</h3>
 
@@ -5472,7 +5742,7 @@ Valid function calls:
     <p>The following is taken from the <code>OpenCSM.h</code> file:
       <!-- extract from OpenCSM.h -->
       <pre>
-EGADS Attributes assigned to Bodys:
+Attributes assigned to Bodys:
 
     _body       Body index (bias-1)
 
@@ -5487,9 +5757,6 @@ EGADS Attributes assigned to Bodys:
     <any>       all Attributes associated with Branch that created Body
 
     <any>       all Attributes associated with "SELECT $body" statement
-
-                Note: if the Attribute name is "_name" then its
-                      corresponding value is used as its name in ESP
 
                 Note: if the Attribute name is ".tParams", then its
                       corresponding values are:
@@ -5511,7 +5778,15 @@ EGADS Attributes assigned to Bodys:
                                     count to allow
                       .qParams[3] = number of smoothing iterations
 
-EGADS Attributes assigned to Faces:
+Special User-defined Attributes for Bodys:
+
+    _makeQuds   to make quads on all Faces in Body
+
+    _name       string used in ESP interface for a Body
+
+    _stlColor   color to use for all Faces in an .stl file
+
+Attributes assigned to Faces:
 
     _body       non-unique 2-tuple associated with first Face creation
         [0]     Body index in which Face first existed (bias-1)
@@ -5560,29 +5835,24 @@ EGADS Attributes assigned to Faces:
     <any>       all Attributes associated with Branch if a RESTORE
                     statement
 
-    <any>       all Attributes associated with "SELECT $face" statement
+    <any>       all Attributes associated with "SELECT FACE" statement
 
-                Note: if the Attribute name is "_color" then the Face is
-                      colored in ESP if the Attribute value is "red",
-                      "green", "blue", "yellow", "magenta", "cyan",
-                      "white", "black" or a 3-tuple that contains values
-                      between 0 and 1 for the rgb components
+Special User-defined Attributes for Faces:
 
-                Note: if the Attribute name is "_bcolor" then the back
-                      of the Face is colored in ESP if the Attribute
-                      value is "red", "green", "blue", "yellow",
-                      "magenta", "cyan", "white", "black" or a 3-tuple
-                      that contains values between 0 and 1 for the rgb
-                      components
+    _color      color of front of Face in ESP
+                either R,G,B in three 0-1 reals
+                or $red, $green, $blue, $yellow, $magenta,
+                $cyan, $white, or $black
 
-                Note: if the Attribute name is "_gcolor" then the grid
-                      lines on the Face are colored in ESP if the
-                      Attribute value is "red", "green", "blue",
-                      "yellow", "magenta", "cyan", "white", "black" or
-                      a 3-tuple that contains values between 0 and 1
-                      for the rgb components
+    _bcolor     color of back of Face in ESP (see _color)
 
-EGADS Attributes assigned to Edges:
+    _gcolor     color of grid of Face in ESP (see _color)
+
+    _makeQuds   to make quads for this Face
+
+    _stlColor   color to use for this Face in an .stl file
+
+Attributes assigned to Edges:
 
     _body       non-unique 2-tuple associated with first Edge creation
         [0]     Body index in which Edge first existed (bias-1)
@@ -5609,35 +5879,91 @@ EGADS Attributes assigned to Edges:
 
     _nface      number of incident Faces
 
-    <any>       all Attributes associated with "SELECT $edge" statement
+    <any>       all Attributes associated with "SELECT EDGE" statement
 
-                Note: if the Attribute name is "_color" then the Edge is
-                      colored in ESP if the Attribute value is "red",
-                      "green", "blue", "yellow", "magenta", "cyan",
-                      "white", "black" or a 3-tuple that contains values
-                      between 0 and 1 for the rgb components
+Special User-defined Attributes for Edges:
 
-                Note: if the Attribute name is "_gcolor" then the grid
-                      points on the Edge are colored in ESP if the
-                      Attribute value is "red", "green", "blue",
-                      "yellow", "magenta", "cyan", "white", "black" or
-                      a 3-tuple that contains values between 0 and 1
-                      for the rgb components
+    _color      color of front of Edge in ESP
+                either R,G,B in three 0-1 reals
+                or $red, $green, $blue, $yellow, $magenta,
+                $cyan, $white, or $black
 
-EGADS Attributes assigned to Nodes:
+    _gcolor     color of grid of Edge in ESP (see _color)
+
+Attributes assigned to Nodes:
 
     _nodeID     unique integer that is assigned automatically
 
     _nedge      number of incident Edges
 
-    <any>       all Attributes associated with "SELECT $node" statement
+    <any>       all Attributes associated with "SELECT FACE" statement
 
-                Note: if the Attribute name is "_color" then the Node is
-                      colored in ESP if the Attribute value is "red",
-                      "green", "blue", "yellow", "magenta", "cyan",
-                      "white", "black" or a 3-tuple that contains values
-                      between 0 and 1 for the rgb components
+Special User-defined Attributes for Nodes:
+
+    _color      color of Node in ESP
+                either R,G,B in three 0-1 reals
+                or $red, $green, $blue, $yellow, $magenta,
+                $cyan, $white, or $black
       </pre>
+
+    <p>Back to <a href="#sec0">Table of Contents</a>
+
+    <p><h3 id="sec5.12">5.12: Format of plotfile</h3>
+
+    <p>A plotfile is a file that is specified via the
+      <code>-plot</code> command line option
+      to <code>serveCSM</code>.
+      The contents of this file is used for either plotting in
+      <code>ESP</code> and/or as input for the <code>-histDist</code>
+      or <code>-plugs</code> command line options.
+
+      The plotfile contains a series of blocks of data with the
+      format:
+      <pre>
+        imax  jmax  name
+      </pre>
+      The <code>name</code> is a character string (without white
+      spaces) that will be listed in the <code>ESP</code> Display
+      list; this name must be unique.  The meaning of
+      <code>imax</code> and <code>jmax</code> depends on the type
+      of data, as described below.
+
+    <h4>Series of points</h4>
+    <p>Here <code>imax</code> is the number points
+      and <code>jmax</code> must be <code>0</code>.  This is also the
+      data block type used by the <code>-histDist</code>
+      and <code>-plugs</code> options.  There are <code>imax</code>
+      3-D coordinates.
+
+    <h4>Polyline</h4>
+    <p>Here <code>imax</code> is the number points in the line
+      and <code>jmax</code> must be <code>1</code>.  There are
+      <code>imax</code> 3-D coordinates specified.
+
+    <h4>Series of 2-point lines</h4>
+    <p>Here <code>imax</code> is the number 2-point lines
+      and <code>jmax</code> must be <code>-1</code>.  There are two
+      3-D coordinates for each line; that is, there are
+      <code>2*imax</code> 3-D coordinates specified.
+
+    <h4>Series of triangles</h4>
+    <p>Here <code>imax</code> is the number triangles
+      and <code>jmax</code> must be <code>-2</code>.  There are three
+      3-D coordinates for each triangle; that is, there are
+      <code>3*imax</code> 3-D coordinates specified.
+
+    <h4>Grid of quadrilaterals</h4>
+    <p>Here <code>imax</code> is the number i-lines (in the j
+      direction) and <code>jmax</code> is the number of j-lines (in
+      the i direction).  There are <code>imax*jmax</code> 3-D
+      coordinates specified.
+
+    <h4>End of data blocks</h4>
+    <p>Here <code>imax</code> and <code>jmax</code> must
+      be <code>0</code>.  Use of this block is optional.
+
+    <p>Following the data block header is a series of 3-D coordinates
+      specified as <code>x y z</code>.
 
     <p>Back to <a href="#sec0">Table of Contents</a>
 
@@ -5673,7 +5999,7 @@ box       -L-T/2    -D/3      -D        T         D*2/3     2*D
 union
 fillet    Rfil
 
-# rite weight 
+# rite weight
 box       +L-T/2    -D/2      -D/2      T         D         D
    name      rite_weight
    attribute weight    2
@@ -5684,10 +6010,6 @@ fillet    Rfil
 cylinder  -L-T      0.00      0.00      +L+T      0.00      0.00      Rout
    attribute clipper   1
 intersect
-
-###################
-# no verification #
-###################
 
 end
       </pre>
@@ -5732,7 +6054,200 @@ end
 
     <p><h2 id="sec8">8.0: Release Notes</h2>
 
-    <p><h3 id="sec8.1"> 8.1: New/extended features in v1.17</h3>
+    <p><h3 id="sec8.1"> 8.1: New/extended features in v1.18</h3>
+
+    <p><h4>New/updated commands/statements and functions</h4>
+
+    <p>Node, Edges, and Faces can now be SELECTed by bounding boxes
+
+    <p>SUBTRACT can now be applied to coplanar SheetBodys
+
+    <p>SCALE can now scale about a scaling center
+
+    <p>SELECT ADD can now add Faces, Edges, or Nodes by index
+
+    <p>SELECT SUB can now subtract entities by index
+
+    <p>GROUP with a negative argument ungroups
+
+    <p>CONNECT generates degenerate Faces when edgeList* contains
+             a zero
+
+    <p>SWEEP can be applied to a FaceBody
+
+    <p>new SSLOPE allows a user to specify the slope at the beginning
+       or end of a SPLINE in a sketch
+
+    <p>COMBINE command now returns a SheetBody if the Shell created is
+       not closed
+
+    <p>SELECTing via attributes has been extended to have attribute
+             values that are strings, integer(s), or real(s)
+
+    <p><h4>New command line arguments</h4>
+
+    <p>-skipTess allows a user to skip the tessellation on the Bodys on
+        the stack at the end
+
+    <p>-printStack allows a user to print the contants of the stack
+        after every Branch
+
+    <p>-batch is automatically selected when -skipTess is specified
+
+    <p><h4>New/updated UDPs, UDCs, or UDFs</h4>
+
+    <p>applyTparams.udc puts .tParams on Body based upon its size
+
+    <p>calcCG.udc computes the CG of all Bodys on the stack
+
+    <p>udpEllipse is modified to have nedge and thbeg input parameters
+
+    <p>editAttrUdf now allows PATBEG/PATEND statements
+
+    <p><h4>OpenCSM updates</h4>
+
+    <p>update default tessellation parameters
+
+    <p>allow UDFs to receive any number of input Bodys (back to Mark
+       or beginning of stack)
+
+    <p>add ocsmUpdateDespmtrs to allow a user to update the DESPMTR
+       values from a file
+
+    <p>add __filename__ to files processed by -loadEgads and
+       -dumpEgads
+
+    <p>remove tmp_OpenCSM files at beginning of ocsmLoad
+
+    <p>Edges that come from Booleans no longer have the Attributes
+       of possibly-coincident Edges in one of the parents
+
+    <p>significatly speed up finishing all Bodys
+
+    <p><h4>ESP updates</h4>
+
+    <p>allow user to add an EVALUATE statement from ESP interface
+
+    <p>add CFGPMTR highlighting and hints in ESP
+
+    <p>unpost File or Tool menu if File, Tool, StepThur, Help,
+             UpToDate, or Undo button is pressed
+
+    <p>make groups for at- and at-at-parameters in ESP
+
+    <p>in serveCSM -sensTess, show Face tufts in blue and Edge tufts
+             in red
+
+    <p>add option to ESP to turn on/off all Nodes, Edges, Faces, or
+             Csystems
+
+    <p>allow plotfile to contain triangles (if jmax==-2)
+
+    <p><h3 id="sec8.2"> 8.2: Bug fixes since v1.17</h3>
+
+    <p>throw error if sketch solver does not converge
+
+    <p>allow user to create a SELECT statement in ESP with any
+       number of arguments
+
+    <p>fix bug in udfPrintBrep which mistakenly printed info for the
+       next-to-last Body on the stack
+
+    <p>fix ESP bug that displayed the wrong file (such as wrong
+       .udc) after saving with no changes
+
+    <p>fix algorithm for finding of .ibody and .iford to avoid
+       warnings
+
+    <p>fix bug in path(csm) that returns wrong value if .csm file is
+       in pwd
+
+    <p>fix bug that did not store at-at-parameters when a Body is
+       recycled
+
+    <p>fix memory leaks in udpSew
+
+    <p>disable -loadEgads when the user uses File->Edit
+
+    <p>fix bug associated with Edge attributes
+
+    <p>fix bug that did not ignore degenerate Edges in CONNECT
+
+    <p>fix bug that did not restore csystems in RESTORE command
+
+    <p>do not delete Edge Attributes that are returned from a
+       UDP/UDF
+
+    <p>fix ESP bug that stored wrong values for D and W options
+
+    <p>fix bug that does not re-set at-at-paraneters when UDP is
+       called from UDC from File->Edit
+
+    <p>fix bug that cause undefined behavior if a .csm file was
+       edited in ESP and the new file became much shorter
+
+    <p>fix bug that did not add all Bodys to the stack that were
+       recycled in a RESTORE command
+
+    <p>fix bug that sometimes seg faulted when recycling after a
+       CATBEG
+
+    <p>fix bug that caused an error when recycling a case with a UDC
+       that had a string-valued output paremeter
+
+    <p>fix bug that did not reinitialize the size of INTERNAL and
+       OUTPUT Paremeters at the beginning of ocsmBuild
+
+    <p>fix memory leak when EXTRACT detected an error
+
+    <p>never recycle UDPARG statements
+
+    <p>avoid divide by zero while setting up at-parameters if no
+       entities are selected
+
+    <p>maintain Edge attributes when IMPORTing .egads file
+
+    <p>fix bug associated with recycling when IMPORT or UDPRIM
+       returns multiple Bodys
+
+    <p>fix bug that did not clear Bodys from stack when recycling in
+       a JOIN
+
+    <p>remove Mark from stack when a UDPRIM that uses all Bodys to
+       the Mark is recycled
+
+    <p>remove STOREage when ocsmBuild starts
+
+    <p>fix memory leak associated with clearing storage at the
+       beginning of ocsmBuild
+
+    <p>fix bug when there is a sketch and the user SELECTs a Body
+       via attributes
+
+    <p>fix bug that incorrectly identified a Body made by a REVOLVE
+       as a Body made by an EXTRUDE
+
+    <p>fix bug that did not sort the @sellist properly when Nodes
+       are selected and the sort key is xcg, ycg, or zcg
+
+    <p>fix bug that did not properly process tessellations for
+       perturbed Body (for finite differences)
+
+    <p>fix bug that did not skip degenerate Edges in createTessVels
+
+    <p>fix bug that did not close a -jrnl if an error was detected
+       while the jrnl was being processed
+
+    <p>fix bug associated with tessellation sensitivities for an
+       EXTRUDE, RULE, or BLEND when applied to a planar sketch that
+       was scaled
+
+    <p>fix bug that hangs ESP if FileOpen does not work
+
+    <p>fix bug after FileEdit when one of the skteches in a RULE or
+       BLEND could not be recycled
+
+    <p><h3 id="sec8.3"> 8.3: New/extended features in v1.17</h3>
 
     <p><h4>New/updated commands/statements and functions</h4>
 
@@ -5841,7 +6356,7 @@ end
     <p>allow multi-segment line plotting in serveCSM
 
 
-    <p><h3 id="sec8.2"> 8.2: Bug fixes since v1.16</h3>
+    <p><h3 id="sec8.4"> 8.4: Bug fixes since v1.16</h3>
 
     <p>fix bug that did not allow sensitivity calculations if there
       was a NodeBody on the stack
@@ -5910,7 +6425,7 @@ end
     <p>fix bug that did not free memory after an error was detected
       during argument evaluations
 
-    <p><h3 id="sec8.3"> 8.3: New/extended features in v1.16</h3>
+    <p><h3 id="sec8.5"> 8.5: New/extended features in v1.16</h3>
 
     <p>add ESP_QuickReference
 
@@ -5963,7 +6478,7 @@ end
 
     <p>compute analytic sensisitivities for udpBiconvex
 
-    <p><h3 id="sec8.4"> 8.4: Bug fixes since v1.15</h3>
+    <p><h3 id="sec8.6"> 8.6: Bug fixes since v1.15</h3>
 
     <p>fix bug in Sketcher to use atan2d for ::I[]
 
@@ -6026,7 +6541,7 @@ end
     <p>fix bug that did not update Local Variables after FILE->Edit in
  `    ESP
 
-    <p><h3 id="sec8.5"> 8.5: New/extended features in v1.15</h3>
+    <p><h3 id="sec8.7"> 8.7: New/extended features in v1.15</h3>
 
     <p><h4>New commands/statements</h4>
 
@@ -6151,7 +6666,7 @@ end
 
     <p>allow StepThru mode to show WireBodys
 
-    <p><h3 id="sec8.6"> 8.6: Bug fixes since v1.14</h3>
+    <p><h3 id="sec8.8"> 8.8: Bug fixes since v1.14</h3>
 
     <p>fix erroneous error message ass≈oociated with UNION of
       SheetBodys or WireBodys with the tomark flag
@@ -6263,7 +6778,7 @@ end
 
     <p>fix typos associated with LINT in Makefile.DARWIN64
 
-    <p><h3 id="sec8.7"> 8.7: New/extended features in v1.14</h3>
+    <p><h3 id="sec8.9"> 8.9: New/extended features in v1.14</h3>
 
     <p><h4>New commands/statements</h4>
 
@@ -6379,7 +6894,7 @@ end
 
     <p>Allow visibility of NodeBodys to be toggled in ESP
 
-    <p><h3 id="sec8.8"> 8.8: Bug fixes since v1.13</h3>
+    <p><h3 id="sec8.10"> 8.10: Bug fixes since v1.13</h3>
 
     <p>Fix error statement associated with mis-matched argument in
        call to UDC
@@ -6402,7 +6917,7 @@ end
     <p>Fix bug that gets wrong value for at-parameters in ATTRIBUTE
        statements (caused by attributes being assigned before
        at-parameters were computed)
-      
+
     <p>Fix bug where pointers were not NULLed when a Parameter or
        Branch was deleted
 
@@ -6511,7 +7026,7 @@ end
 
     <p>Fix bug that truncated long filenames in ESP Edit-File
 
-    <p><h3 id="sec8.9"> 8.9: New/extended features in v1.13</h3>
+    <p><h3 id="sec8.11"> 8.11: New/extended features in v1.13</h3>
 
     <p><h4>New commands/statements</h4>
 
@@ -6599,7 +7114,7 @@ end
     <p>Design Parameters are now listed hierarchically in ESP (with
        the hierarcy defined by a colon (:)
 
-    <p><h3 id="sec8.10"> 8.10: Bug fixes since v1.12</h3>
+    <p><h3 id="sec8.12"> 8.12: Bug fixes since v1.12</h3>
 
     <p>Fix bug that caused infinite recursion if trying to generate a
        .sens file for a case that required finite difference
@@ -6637,7 +7152,7 @@ end
     <p>An error is raised if an INTERFACE statement uses name of a
        CONPMTR
 
-    <p><h3 id="sec8.11"> 8.11: New/extended features in v1.12</h3>
+    <p><h3 id="sec8.13"> 8.13: New/extended features in v1.12</h3>
 
     <p><h4>New commands/statements</h4>
 
@@ -6742,7 +7257,7 @@ end
 
     <p>Recycling is used (if possible) after FileEdit
 
-    <p><h3 id="sec8.12"> 8.12: Bug fixes since v1.11</h3>
+    <p><h3 id="sec8.14"> 8.14: Bug fixes since v1.11</h3>
 
     <p>Fix many bugs in udpTblade and Tblade itself
 
@@ -6783,7 +7298,7 @@ end
        faulted) after an error encountered during loading a .csm file
        (after FileOpen or FileEdit)
 
-    <p><h3 id="sec8.13"> 8.13: New/extended features in v1.11</h3>
+    <p><h3 id="sec8.15"> 8.15: New/extended features in v1.11</h3>
 
     <p><h4>New commands/statements</h4>
 
@@ -6839,7 +7354,7 @@ end
     <p><h4>ESP updates</h4>
 
     <p>Color non-manifold Edges (nface.gt.2) orange
-      
+
     <p>Color non-manifold Edges (nface.lt.2) brown
 
     <p>DisplayType allow user to plot normalized parametric
@@ -6852,7 +7367,7 @@ end
 
     <p>Add ability to save view to and read view from a file
 
-    <p><h3 id="sec8.14"> 8.14: Bug fixes since v1.010</h3>
+    <p><h3 id="sec8.16"> 8.16: Bug fixes since v1.010</h3>
 
     <p>Add printing of Node Attributes in ocsmPrintBrep
 
@@ -6894,7 +7409,7 @@ end
 
     <p>Fix bug to allow HOLLOW after SKEND
 
-    <p><h3 id="sec8.15"> 8.15: New/extended features in v1.10</h3>
+    <p><h3 id="sec8.17"> 8.17: New/extended features in v1.10</h3>
 
     <p><h4>New commands/statements</h4>
 
@@ -6951,14 +7466,14 @@ end
 
     <p>Add gallery of cases to ESP-help
 
-    <p><h3 id="sec8.16"> 8.16: Bug fixes since v1.09</h3>
+    <p><h3 id="sec8.18"> 8.18: Bug fixes since v1.09</h3>
 
     <p>Fix code when bad expression is detected to not seg fault
 
     <p>Save file now correctly writes IFTHEN statements
 
     <p>Distinguish between illegal_pmtr_name and
-      func_arg_out_of_bounds in thrown errors 
+      func_arg_out_of_bounds in thrown errors
 
     <p>Many small documentation fixes
 
@@ -6966,7 +7481,7 @@ end
 
     <p>Fix arrowhead size in CSYSTEMs
 
-    <p><h3 id="sec8.17"> 8.17: New/extended features in v1.09</h3>
+    <p><h3 id="sec8.19"> 8.19: New/extended features in v1.09</h3>
 
     <p><h4>New commands/statements</h4>
 
@@ -7058,7 +7573,7 @@ end
     <p>Add "Show Attributes/Csystem" button in ESP
 
     <p>Do not allow statements within a UDC to be edited in ESP
-      
+
     <p>Reorganize and update ESP-help
 
     <p><h4>Miscellaneous updates</h4>
@@ -7089,7 +7604,7 @@ end
 
     <p>Add many new test cases, all with verification data
 
-    <p><h3 id="sec8.18"> 8.18: Bug fixes since v1.08</h3>
+    <p><h3 id="sec8.20"> 8.20: Bug fixes since v1.08</h3>
 
     <p>Improve robustness of UNION when applied to SheetBodys
 
@@ -7128,7 +7643,7 @@ end
 
     <p>Fix erroneous truncation of very long metadata in ESP
 
-    <p><h3 id="sec8.19"> 8.19: New/extended features in v1.08</h3>
+    <p><h3 id="sec8.21"> 8.21: New/extended features in v1.08</h3>
 
     <p>A new ocsmDelPmtr function has been added to the OpenCSM API to
        delete a Design Parameter
@@ -7222,7 +7737,7 @@ end
        explicit as to which messages are sent by the browser and which
        message are sent by the server
 
-    <p><h3 id="sec8.20"> 8.20: Bug fixes since v1.07</h3>
+    <p><h3 id="sec8.22"> 8.22: Bug fixes since v1.07</h3>
 
     <p>Numerous typos were fixed in this help file
 
@@ -7308,7 +7823,7 @@ end
 
     <p>Sensitivities are now correctly computed for non-manifold Edges
 
-    <p><h3 id="sec8.21"> 8.21: New/extended features in v1.07</h3>
+    <p><h3 id="sec8.23"> 8.23: New/extended features in v1.07</h3>
 
     <p><code>CAPRI</code> is no longer supported
 
@@ -7430,7 +7945,7 @@ end
        to <code>ESP_START</code> (although <code>ESP_START</code> still
        works)
 
-    <p><h3 id="sec8.22"> 8.22: Bug fixes since v1.06</h3>
+    <p><h3 id="sec8.24"> 8.24: Bug fixes since v1.06</h3>
 
     <p>A journalling error was associated with the UNION command
 
@@ -7473,7 +7988,7 @@ end
 
     <p>An error in the first Branch caused ESP to hang
 
-    <p><h3 id="sec8.23"> 8.23: New/extended features in v1.06</h3>
+    <p><h3 id="sec8.25"> 8.25: New/extended features in v1.06</h3>
 
     <p>User-defined components (UDCs) have been implemented to execute
        consistently with user-defined primitives (UDPs).  The main
@@ -7595,7 +8110,7 @@ end
 
     <p>Branches are indented (with ">") in Tree Window in ESP.
 
-    <p><h3 id="sec8.24"> 8.24: Bug fixes since v1.05</h3>
+    <p><h3 id="sec8.26"> 8.26: Bug fixes since v1.05</h3>
 
     <p>Attribute values can be strings (prepended by "$").
 
@@ -7631,7 +8146,7 @@ end
     <p>Fix serveCSM so that the JSON that it transfers to the browser
        does not contain ",]" nor ",}".
 
-    <p><h3 id="sec8.25"> 8.25: Known problems in v1.09</h3>
+    <p><h3 id="sec8.27"> 8.27: Known problems in v1.09</h3>
 
     <p>Internet Explorer (11) is not recommended since it sometimes
        stops sending messages to the server.

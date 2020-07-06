@@ -27,7 +27,8 @@ workDir = os.path.join(str(args.workDir[0]), "AFLR3AnalysisTest")
 myProblem = capsProblem()
 
 # Load CSM file
-myProblem.loadCAPS("../csmData/cfdMultiBody.csm", verbosity=args.verbosity)
+geometryScript = os.path.join("..","csmData","cfdMultiBody.csm")
+myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 
 # Load AFLR3 aim
 myAnalysis = myProblem.loadAIM(aim = "aflr3AIM",

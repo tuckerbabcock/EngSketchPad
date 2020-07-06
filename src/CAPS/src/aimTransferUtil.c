@@ -123,7 +123,7 @@ int aim_nodalQuadType(capsEleType *eletype)
   return CAPS_SUCCESS;
 
 cleanup:
-  printf(" aimTransferUtil/aim_NodalTriangleType: malloc error!\n");
+  printf(" aimTransferUtil/aim_nodalQuadType: malloc error!\n");
 
   EG_free(eletype->gst);
   eletype->gst = NULL;

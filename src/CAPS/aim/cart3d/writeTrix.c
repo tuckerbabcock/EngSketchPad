@@ -100,6 +100,7 @@ int writeTrix(const char *fname, /*@null@*/ p_tsXddm p_xddm, int ibody,
     return CAPS_IOERR;
   }
   c3d_freeTriangulation(p_surf, 0);
+  free(p_surf);
 
   return CAPS_SUCCESS;
 }

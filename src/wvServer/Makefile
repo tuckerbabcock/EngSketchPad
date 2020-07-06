@@ -15,7 +15,7 @@ VPATH = $(ODIR)
 
 OBJS = base64-decode.o handshake.o client-handshake.o libwebsockets.o \
        extension-deflate-stream.o md5.o extension-x-google-mux.o parsers.o \
-       extension.o sha-1.o server.o wv.o fwv.o
+       extension.o sha-1.o browserMessage.o server.o wv.o fwv.o
 
 $(TDIR)/server:	$(LDIR)/libwsserver.a $(ODIR)/servertest.o
 	$(CC) -o $(TDIR)/server $(ODIR)/servertest.o -L$(LDIR) -lwsserver \

@@ -62,6 +62,20 @@ iv_usleep_(int *micsec)
 
 
 void
+fbrowserMessage(void *wsi, char *text, int len)
+{
+  INT8 WSI;
+
+  WSI = (INT8) wsi;
+#ifdef WIN32
+  BROWSERMESSAGE (&WSI, text, len);
+#else
+  browsermessage_(&WSI, text, len);
+#endif
+}
+
+
+void
 #ifdef WIN32
 IV_CREATECONTEXT (int *bias, float *fov, float *zNear, float *zFar, float *eye,
                   float *center, float *up, INT8 *cntxt)
@@ -73,6 +87,7 @@ iv_createcontext_(int *bias, float *fov, float *zNear, float *zFar, float *eye,
   wvContext *context;
 
   context = wv_createContext(*bias, *fov, *zNear, *zFar, eye, center, up);
+  if (context != NULL) wv_setCallBack(context, fbrowserMessage);
   *cntxt  = (INT8) context;
 }
 
@@ -444,20 +459,6 @@ iv_sendtext_(INT8 *WSI, char *text, int textLen)
   wsi = (struct libwebsocket *) *WSI;
   wv_sendText(wsi, name);
   free(name);
-}
-
-
-void 
-browserMessage(struct libwebsocket *wsi, char *text, int len)
-{
-  INT8 WSI;
-
-  WSI = (INT8) wsi;
-#ifdef WIN32
-  BROWSERMESSAGE (&WSI, text, len);
-#else
-  browsermessage_(&WSI, text, len);
-#endif
 }
 
 

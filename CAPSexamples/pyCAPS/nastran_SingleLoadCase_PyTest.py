@@ -3,7 +3,7 @@ from __future__ import print_function
 # Import pyCAPS class file
 from pyCAPS import capsProblem
 
-# Import os module   
+# Import os module
 import os
 import argparse
 
@@ -21,20 +21,21 @@ args = parser.parse_args()
 # Initialize capsProblem object
 myProblem = capsProblem()
 
-# Load CSM file 
-myProblem.loadCAPS("../csmData/feaSimplePlate.csm", verbosity=args.verbosity)
+# Load CSM file
+geometryScript = os.path.join("..","csmData","feaSimplePlate.csm")
+myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 
-# Create project name 
+# Create project name
 projectName = "NastranSingleLoadPlate"
 
-# Load Nastran aim 
-myProblem.loadAIM(aim = "nastranAIM", 
-                  altName = "nastran", 
-                  analysisDir = os.path.join(str(args.workDir[0]), projectName), 
+# Load Nastran aim
+myProblem.loadAIM(aim = "nastranAIM",
+                  altName = "nastran",
+                  analysisDir = os.path.join(str(args.workDir[0]), projectName),
                   capsIntent = "STRUCTURE")
 
-# Set project name so a mesh file is generated 
-myProblem.analysis["nastran"].setAnalysisVal("Proj_Name", projectName) 
+# Set project name so a mesh file is generated
+myProblem.analysis["nastran"].setAnalysisVal("Proj_Name", projectName)
 
 # Set meshing parameters
 myProblem.analysis["nastran"].setAnalysisVal("Edge_Point_Max", 4)
@@ -46,38 +47,38 @@ myProblem.analysis["nastran"].setAnalysisVal("Tess_Params", [.25,.01,15])
 # Set analysis type
 myProblem.analysis["nastran"].setAnalysisVal("Analysis_Type", "Static");
 
-# Set materials 
-madeupium    = {"materialType" : "isotropic", 
-                "youngModulus" : 72.0E9 , 
-                "poissonRatio": 0.33, 
+# Set materials
+madeupium    = {"materialType" : "isotropic",
+                "youngModulus" : 72.0E9 ,
+                "poissonRatio": 0.33,
                 "density" : 2.8E3}
 
 myProblem.analysis["nastran"].setAnalysisVal("Material", ("Madeupium", madeupium))
 
 # Set properties
-shell  = {"propertyType" : "Shell", 
-          "membraneThickness" : 0.006, 
-          "material"        : "madeupium", 
-          "bendingInertiaRatio" : 1.0, # Default           
-          "shearMembraneRatio"  : 5.0/6.0} # Default 
+shell  = {"propertyType" : "Shell",
+          "membraneThickness" : 0.006,
+          "material"        : "madeupium",
+          "bendingInertiaRatio" : 1.0, # Default
+          "shearMembraneRatio"  : 5.0/6.0} # Default
 
 myProblem.analysis["nastran"].setAnalysisVal("Property", ("plate", shell))
 
 # Set constraints
-constraint = {"groupName" : "plateEdge", 
+constraint = {"groupName" : "plateEdge",
               "dofConstraint" : 123456}
 
 myProblem.analysis["nastran"].setAnalysisVal("Constraint", ("edgeConstraint", constraint))
 
 # Set load
-load = {"groupName" : "plate", 
-        "loadType" : "Pressure", 
+load = {"groupName" : "plate",
+        "loadType" : "Pressure",
         "pressureForce" : 2.e6}
 
-# Set loads    
+# Set loads
 myProblem.analysis["nastran"].setAnalysisVal("Load", ("appliedPressure", load ))
 
-# Set analysis  
+# Set analysis
 # No analysis case information needs to be set for a single static load case
 
 # Run AIM pre-analysis
@@ -85,19 +86,19 @@ myProblem.analysis["nastran"].preAnalysis()
 
 ####### Run Nastran ####################
 print ("\n\nRunning Nastran......")
-currentDirectory = os.getcwd() # Get our current working directory 
+currentDirectory = os.getcwd() # Get our current working directory
 
 os.chdir(myProblem.analysis["nastran"].analysisDir) # Move into test directory
 
 if (args.noAnalysis == False):
     os.system("nastran old=no notify=no batch=no scr=yes sdirectory=./ " + projectName +  ".dat"); # Run Nastran via system call
 
-os.chdir(currentDirectory) # Move back to working directory 
+os.chdir(currentDirectory) # Move back to working directory
 print ("Done running Nastran!")
 ######################################
 
 # Run AIM post-analysis
 myProblem.analysis["nastran"].postAnalysis()
 
-# Close CAPS 
+# Close CAPS
 myProblem.closeCAPS()

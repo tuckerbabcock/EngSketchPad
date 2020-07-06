@@ -34,6 +34,16 @@
                              int *len, /*@null@*/ const int **ints, 
                                        /*@null@*/ const double **reals,
                                        /*@null@*/ const char **str);
+  extern int EG_attributeAddSeq( ego obj, const char *name, int type,
+                                 int len, /*@null@*/ const int    *ints,
+                                          /*@null@*/ const double *reals,
+                                          /*@null@*/ const char   *str );
+  extern int EG_attributeNumSeq( const ego obj, const char *name, int *num );
+  extern int EG_attributeRetSeq( const ego obj, const char *name,
+                                 int index, int *atype, int *len,
+                                 /*@null@*/ const int    **ints,
+                                 /*@null@*/ const double **reals,
+                                 /*@null@*/ const char   **str );
 
 
 int
@@ -111,7 +121,7 @@ ig_attributeget_(INT8 *obj, int *ind, char *name, int *atype, int *len,
   *ints  = NULL;
   *reals = NULL;  
   object = (egObject *) *obj;
-  stat   = EG_attributeGet(object, *ind, &fname, atype, len, 
+  stat   = EG_attributeGet(object, *ind, &fname, atype, len,
                            ints, reals, &fstr);
   EG_c2f(fname, name, nameLen);
   EG_c2f(fstr,  str,  strLen);
@@ -140,8 +150,7 @@ ig_attributeret_(INT8 *obj, char *name, int *atype, int *len,
   object = (egObject *) *obj;
   fname  = EG_f2c(name, nameLen);
   if (fname == NULL) return EGADS_NONAME;
-  stat   = EG_attributeRet(object, fname, atype, len, 
-                           ints, reals, &fstr);
+  stat   = EG_attributeRet(object, fname, atype, len, ints, reals, &fstr);
   EG_c2f(fstr, str, strLen);
   EG_free(fname);
   return stat;
@@ -160,4 +169,77 @@ ig_attributeDUP_(INT8 *src, INT8 *dst)
   source = (egObject *) *src;
   dest   = (egObject *) *dst;
   return EG_attributeDup(source, dest);
+}
+
+
+int
+#ifdef WIN32
+IG_ATTRIBUTEADDSEQ (INT8 *obj, const char *name, int *atype, int *len, int *ints,
+                    double *reals, char *str, int nameLen, int strLen)
+#else
+ig_attributeaddseq_(INT8 *obj, const char *name, int *atype, int *len, int *ints,
+                    double *reals, char *str, int nameLen, int strLen)
+#endif
+{
+  int      stat;
+  char     *fname, *fstr;
+  egObject *object;
+  
+  object = (egObject *) *obj;
+  fname  = EG_f2c(name, nameLen);
+  if (fname == NULL) return EGADS_NONAME;
+  fstr   = EG_f2c(str,  strLen);
+  stat   = EG_attributeAddSeq(object, fname, *atype, *len, ints, reals, fstr);
+  EG_free(fstr);
+  EG_free(fname);
+  return stat;
+}
+
+
+int
+#ifdef WIN32
+IG_ATTRIBUTENUMSEQ (INT8 *obj, const char *name, int *num, int nameLen)
+#else
+ig_attributenumseq_(INT8 *obj, const char *name, int *num, int nameLen)
+#endif
+{
+  int      stat;
+  char     *fname;
+  egObject *object;
+  
+  object = (egObject *) *obj;
+  fname  = EG_f2c(name, nameLen);
+  if (fname == NULL) return EGADS_NONAME;
+  stat = EG_attributeNumSeq(object, fname, num);
+  EG_free(fname);
+  return stat;
+}
+
+
+int
+#ifdef WIN32
+IG_ATTRIBUTERETSEQ (INT8 *obj, char *name, int *index, int *atype, int *len,
+                    const int **ints, const double **reals, char *str,
+                    int nameLen, int strLen)
+#else
+ig_attributeretseq_(INT8 *obj, char *name, int *index, int *atype, int *len,
+                    const int **ints, const double **reals, char *str,
+                    int nameLen, int strLen)
+#endif
+{
+  int        stat;
+  char       *fname;
+  const char *fstr;
+  egObject   *object;
+
+  *ints  = NULL;
+  *reals = NULL;
+  object = (egObject *) *obj;
+  fname  = EG_f2c(name, nameLen);
+  if (fname == NULL) return EGADS_NONAME;
+  stat   = EG_attributeRetSeq(object, fname, *index, atype, len,
+                              ints, reals, &fstr);
+  EG_c2f(fstr, str, strLen);
+  EG_free(fname);
+  return stat;
 }

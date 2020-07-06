@@ -114,10 +114,6 @@ store     OML
    
     #Rotate the body to put it in the typical aero-coordinate system
     rotatex   90   0   0
-   
-    select body
-        attribute capsDiscipline $Structure #FEA Analysis (2D elements)
-        attribute capsAIM        $nastranAIM;astrosAIM;mystranAIM;egadsTessAIM
 
     udprim editAttr filename <<
        edge adj2face capsGroup=Rib_Root
@@ -135,6 +131,10 @@ store     OML
        face   has tagComponent=spar  tagIndex=2
        set    capsGroup=Spar2
 >>
+    select body
+        attribute capsDiscipline $Structure #FEA Analysis (2D elements)
+        attribute capsAIM        $nastranAIM;astrosAIM;mystranAIM;egadsTessAIM
+        attribute _name          $FEA
 
 # Point Connecting to Rib_Root to apply boundary conditions too
 point  croot/4 0 0
@@ -143,6 +143,7 @@ attribute capsGroup         $Rib_Root
 attribute capsConnect       $Rib_Root
 attribute capsConstraint    $Rib_Root_Point
 attribute capsAIM $nastranAIM;astrosAIM;mystranAIM;egadsTessAIM
+attribute _name             $Rib_Root
 
 
 # Aero
@@ -157,6 +158,7 @@ attribute capsAIM $nastranAIM;astrosAIM;mystranAIM;egadsTessAIM
    attribute capsAIM $nastranAIM;astrosAIM;mystranAIM;egadsTessAIM
    attribute vlmControl_CntrlLE flapLE 
    attribute vlmControlCntrlTE flapTE # Both _CntrlTE and CntrlTE = CntrlTE
+   attribute _name $RightTip
    rotatex   90   0   0
    
    restore Root 
@@ -166,6 +168,7 @@ attribute capsAIM $nastranAIM;astrosAIM;mystranAIM;egadsTessAIM
    attribute capsAIM $nastranAIM;astrosAIM;mystranAIM;egadsTessAIM
    attribute vlmControl_CntrlLE flapLE
    attribute vlmControl_CntrlTE flapTE
+   attribute _name $Root
    rotatex   90   0   0
 
 end
