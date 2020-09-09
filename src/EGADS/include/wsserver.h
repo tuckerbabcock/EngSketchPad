@@ -41,6 +41,8 @@ __ProtoExt__ /*@null@*/ wvContext *
                                     float zFar, float *eye, float *center, 
                                     float *up );
 
+__ProtoExt__ void wv_setCallBack( wvContext *cntxt, /*@null@*/ wvCB callback );
+
 __ProtoExt__ void wv_printGPrim( wvContext *cntxt, int index );
 
 __ProtoExt__ int  wv_indexGPrim( wvContext *cntxt, char *name );

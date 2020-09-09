@@ -15,14 +15,29 @@
 #include <stdlib.h>
 #include "egadsTypes.h"
 
+#ifdef __HOST_AND_DEVICE__
+#undef __HOST_AND_DEVICE__
+#endif
+#ifdef __DEVICE__
+#undef __DEVICE__
+#endif
+
+#ifdef __CUDACC__
+# define __HOST_AND_DEVICE__ __host__ __device__
+# define __DEVICE__ __device__
+#else
+# define __HOST_AND_DEVICE__
+# define __DEVICE__
+#endif
+
 #ifdef __ProtoExt__
 #undef __ProtoExt__
 #endif
 #ifdef __cplusplus
 extern "C" {
-#define __ProtoExt__
+#define __ProtoExt__ __HOST_AND_DEVICE__
 #else
-#define __ProtoExt__ extern
+#define __ProtoExt__ __HOST_AND_DEVICE__ extern
 #endif
 
 /* memory functions */
@@ -63,6 +78,7 @@ __ProtoExt__ int  EG_getUserPointer( const ego context, void **ptr );
 
 /* attribute functions */
 
+__ProtoExt__ int  EG_setFullAttrs( ego context, int flag );
 __ProtoExt__ int  EG_attributeAdd( ego obj, const char *name, int type, int len,
                                   /*@null@*/ const int    *ints, 
                                   /*@null@*/ const double *reals,
@@ -79,6 +95,17 @@ __ProtoExt__ int  EG_attributeRet( const ego obj, const char *name, int *atype,
                                              /*@null@*/ const double **reals, 
                                              /*@null@*/ const char   **str );
 __ProtoExt__ int  EG_attributeDup( const ego src, ego dst );
+__ProtoExt__ int  EG_attributeAddSeq( ego obj, const char *name, int type,
+                                      int len, /*@null@*/ const int    *ints,
+                                               /*@null@*/ const double *reals,
+                                               /*@null@*/ const char   *str );
+__ProtoExt__ int  EG_attributeNumSeq( const ego obj, const char *name,
+                                      int *num );
+__ProtoExt__ int  EG_attributeRetSeq( const ego obj, const char *name,
+                                      int index, int *atype, int *len,
+                                      /*@null@*/ const int    **ints,
+                                      /*@null@*/ const double **reals,
+                                      /*@null@*/ const char   **str );
 
 /* geometry functions */
 
@@ -155,7 +182,8 @@ __ProtoExt__ int  EG_getBody( const ego object, ego *body );
 __ProtoExt__ int  EG_makeSolidBody( ego context, int stype, const double *rvec,
                                     ego *body );
 __ProtoExt__ int  EG_getBoundingBox( const ego topo, double *bbox );
-__ProtoExt__ int  EG_getMassProperties( const ego topo, double *result );
+__ProtoExt__ int  EG_getMassProperties( const ego topo, 
+                                        /*@null@*/ double *result );
 __ProtoExt__ int  EG_isEquivalent( const ego topo1, const ego topo2 );
 __ProtoExt__ int  EG_sewFaces( int nobj, const ego *objs, double toler,
                                int flag, ego *result );

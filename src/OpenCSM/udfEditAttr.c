@@ -1011,6 +1011,7 @@ processFile(ego    context,             /* (in)  EGADS context */
                         if (status < EGADS_SUCCESS) goto cleanup;
                         (*nchange)++;
                     }
+
                 /* if first character of attrValu is an exclamation point,
                    evaluate the expression */
                 } else if (attrValu[0] == '!') {
@@ -1434,6 +1435,7 @@ processFile(ego    context,             /* (in)  EGADS context */
                             break;
                         }
                     }
+
                     if (iremove == 1) {
                         esel[isel] = esel[nsel-1];
                         nsel--;
@@ -1520,6 +1522,7 @@ processFile(ego    context,             /* (in)  EGADS context */
                             break;
                         }
                     }
+
                     if (iremove == 1) {
                         esel[isel] = esel[nsel-1];
                         nsel--;

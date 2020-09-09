@@ -240,6 +240,7 @@
              -2
              1
          <Exit>
+
       setenv ESP_START "open -a /Applications/Firefox.app ../ESP/ESP.html"
       serveCSM ../data/tutorial1_new.csm -port 7210
          Localhost:7210
@@ -423,6 +424,7 @@
         <File->ExportFeatureTree>
            ../data/tutorial2
          <exit>
+
       mv port7681.jrnl ../data/tutorial2.jrnl
       serveCSM -jrnl ../data/tutorial2.jrnl
          Localhost:7681

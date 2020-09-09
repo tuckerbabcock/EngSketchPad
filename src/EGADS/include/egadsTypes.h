@@ -134,8 +134,17 @@ typedef struct {
 
 
 typedef struct {
-  int     nattrs;               /* number of attributes */
-  egAttr *attrs;                /* the attributes */
+  char *root;                   /* root name for the sequenced attribute */
+  int  nSeq;                    /* number in the sequence (2 and on) */
+  int  *attrSeq;                /* vector of ordered sequenced attributes */
+} egAttrSeq;
+
+
+typedef struct {
+  int       nattrs;             /* number of attributes */
+  egAttr    *attrs;             /* the attributes */
+  int       nseqs;              /* number of sequenced attributes */
+  egAttrSeq *seqs;              /* the sequenced attributes */
 } egAttrs;
 
 

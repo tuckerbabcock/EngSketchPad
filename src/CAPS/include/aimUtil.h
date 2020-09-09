@@ -66,6 +66,9 @@ __ProtoExt__ int
 __ProtoExt__ int
   aim_getName( void *aimInfo, int index, enum capssType subtype,
                const char **name );
+
+__ProtoExt__ int
+  aim_getGeomInType( void *aimInfo, int index );
   
 __ProtoExt__ int
   aim_getData( void *aimInfo, const char *name, enum capsvType *vtype,

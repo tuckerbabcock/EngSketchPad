@@ -237,16 +237,16 @@ fi
 if [ ! -n "$PYTHONLIB" ]; then
 	PYTHONLIB=UNKNOWN
 fi
-pyt="`which python`"
+pyt="`which python3`"
 if [ -n "$pyt" ]; then
-	PYTH=python
+	PYTH=python3
 fi
 
 echo
 if [ "$PYTH" != UNKNOWN ]; then
 	if [ "$PYTHONINC" == UNKNOWN ]; then
 		pscr="\"from __future__ import print_function; import distutils.sysconfig as sysconfig; print(sysconfig.get_config_var('INCLUDEPY'))\""
-		pcmd="python -c $pscr"
+		pcmd="python3 -c $pscr"
 		eval PYTHINC=\`$pcmd\`
 
 		if [ -f "$PYTHINC/Python.h" ]; then
@@ -257,7 +257,7 @@ if [ "$PYTH" != UNKNOWN ]; then
 
 	if [ "$PYTHONINC" == UNKNOWN ]; then
 		pscr="\"from __future__ import print_function; import distutils.sysconfig as sysconfig; print(sysconfig.get_path('platinclude'))\""
-		pcmd="python -c $pscr"
+		pcmd="python3 -c $pscr"
 		eval PYTHINC=\`$pcmd\`
 		if [ -f "$PYTHINC/Python.h" ]; then
 			PYTHONINC=$PYTHINC
@@ -267,7 +267,7 @@ if [ "$PYTH" != UNKNOWN ]; then
 
 	if [ "$PYTHONINC" == UNKNOWN ]; then
 		pscr="\"from __future__ import print_function; import sysconfig; print(sysconfig.get_path('platinclude'))\""
-		pcmd="python -c $pscr"
+		pcmd="python3 -c $pscr"
 		eval PYTHONINC=\`$pcmd\`
 		if [ -f "$PYTHONINC/Python.h" ]; then
 			PYTHONINC=$PYTHINC
@@ -282,7 +282,7 @@ if [ "$PYTH" != UNKNOWN ]; then
 	fi
 
 	pscr="\"from __future__ import print_function; import distutils.sysconfig as sysconfig; print(sysconfig.get_config_var('LIBRARY'))\""
-	pcmd="python -c $pscr"
+	pcmd="python3 -c $pscr"
 	eval plb=\`$pcmd\`
 	pso=`echo $plb|sed -e 'sx.axx'`.so
 	pdy=`echo $plb|sed -e 'sx.axx'`.dylib
@@ -291,7 +291,7 @@ if [ "$PYTH" != UNKNOWN ]; then
 
 	if [ "$PYTHONLIB" == UNKNOWN ] && [ "$ARCH" = Darwin ]; then
 		pscr="\"from __future__ import print_function; import sys, os; print(os.path.exists(os.path.join(sys.prefix, 'conda-meta')))\""
-		pcmd="python -c $pscr"
+		pcmd="python3 -c $pscr"
 		eval conda=\`$pcmd\`
 
 		if [ "$conda" == True ]; then
@@ -302,7 +302,7 @@ if [ "$PYTH" != UNKNOWN ]; then
 
 	if [ "$PYTHONLIB" == UNKNOWN ]; then
 		pscr="\"from __future__ import print_function; import distutils.sysconfig as sysconfig; print(sysconfig.get_config_var('LIBPL'))\""
-		pcmd="python -c $pscr"
+		pcmd="python3 -c $pscr"
 		eval plp=\`$pcmd\`
 
 		if [ -f "$plp/$pso" ]; then
@@ -319,7 +319,7 @@ if [ "$PYTH" != UNKNOWN ]; then
 
 	if [ "$PYTHONLIB" == UNKNOWN ]; then
 		pscr="\"from __future__ import print_function; import distutils.sysconfig as sysconfig; print(sysconfig.get_config_var('LIBDIR'))\""
-		pcmd="python -c $pscr"
+		pcmd="python3 -c $pscr"
 		eval plp=\`$pcmd\`
 
 		if [ -f "$plp/$pso" ]; then
@@ -336,7 +336,7 @@ if [ "$PYTH" != UNKNOWN ]; then
 
 	if [ "$PYTHONLIB" == UNKNOWN ]; then
 		pscr="\"from __future__ import print_function; import distutils.sysconfig as sysconfig; print(sysconfig.get_path('platstdlib'))\""
-		pcmd="python -c $pscr"
+		pcmd="python3 -c $pscr"
 		eval plp=\`$pcmd\`
 
 		if [ -f "$plp/$pso" ]; then
@@ -353,7 +353,7 @@ if [ "$PYTH" != UNKNOWN ]; then
 
 	if [ "$PYTHONLIB" == UNKNOWN ]; then
 		pscr="\"from __future__ import print_function; import sysconfig; print(sysconfig.get_path('platstdlib'))\""
-		pcmd="python -c $pscr"
+		pcmd="python3 -c $pscr"
 		eval plp=\`$pcmd\`
 		if [ -f "$plp/$pso" ]; then
 			PYTHONLIB="-L$plp -l$pllb"
@@ -369,7 +369,7 @@ if [ "$PYTH" != UNKNOWN ]; then
 
 	if [ "$PYTHONLIB" == UNKNOWN ]; then
 		pscr="\"from __future__ import print_function; import sys; import os; print(os.path.join(sys.exec_prefix, 'lib'))\""
-		pcmd="python -c $pscr"
+		pcmd="python3 -c $pscr"
 		eval plp=\`$pcmd\`
 		if [ -f "$plp/$pso" ]; then
 			PYTHONLIB="-L$plp -l$pllb"
@@ -385,7 +385,7 @@ if [ "$PYTH" != UNKNOWN ]; then
 
 	if [ "$PYTHONLIB" == UNKNOWN ]; then
 		pscr="\"from __future__ import print_function; import sys; import os; print(os.path.join(os.path.dirname(os.path.dirname(sys.executable)), 'lib'))\""
-		pcmd="python -c $pscr"
+		pcmd="python3 -c $pscr"
 		eval plp=\`$pcmd\`
 		if [ -f "$plp/$pso" ]; then
 			PYTHONLIB="-L$plp -l$pllb"
@@ -401,7 +401,7 @@ if [ "$PYTH" != UNKNOWN ]; then
 
 	if [ "$PYTHONLIB" == UNKNOWN ]; then
 		pscr="\"from __future__ import print_function; import sysconfig; print(sysconfig.get_config_var('PYTHONFRAMEWORKPREFIX'))\""
-		pcmd="python -c $pscr"
+		pcmd="python3 -c $pscr"
 		eval plp=\`$pcmd\`
 		if [ -f "$plp/$pso" ]; then
 			PYTHONLIB="-L$plp -l$pllb"
@@ -418,7 +418,7 @@ if [ "$PYTH" != UNKNOWN ]; then
 	# Alternatively we could have just this one check that should work on all platforms
 	# https://github.com/JuliaPy/PyCall.jl/blob/master/deps/find_libpython.py
 	#if [ "$PYTHONLIB" == UNKNOWN ]; then
-		#plp=`python find_libpython.py`
+		#plp=`python3 find_libpython.py`
 		#if [ -f "$plp" ]; then
 			#PYTHONLIB=$plp
 			#echo "Info: Python library $plp found!"
