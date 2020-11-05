@@ -34,8 +34,8 @@
 #endif
 
 #define CAPSMAJOR      1
-#define CAPSMINOR     18
-#define CAPSPROP      CAPSprop: Revision 1.18
+#define CAPSMINOR     19
+#define CAPSPROP      CAPSprop: Revision 1.19
 
 #define CAPSMAGIC     1234321
 #define MAXANAL       64
@@ -47,11 +47,12 @@ enum capsoType   {BODIES=-2, ATTRIBUTES, UNUSED, PROBLEM, VALUE, ANALYSIS,
 enum capssType   {NONE, STATIC, PARAMETRIC, GEOMETRYIN, GEOMETRYOUT, BRANCH,
                   PARAMETER, USER, ANALYSISIN, ANALYSISOUT, CONNECTED,
                   UNCONNECTED};
+enum capseType   {CONTINUATION=-1, CINFO, CWARN, CERROR};
 enum capsBoolean {False=false, True=true};
-enum capsvType   {Boolean, Integer, Double, String, Tuple, Value};
+enum capsvType   {Boolean, Integer, Double, String, Tuple, Value, DoubleDot};
 enum capsvDim    {Scalar, Vector, Array2D};
 enum capsFixed   {Change, Fixed};
-enum capsNull    {NotAllowed, NotNull, IsNull};
+enum capsNull    {NotAllowed, NotNull, IsNull, IsPartial};
 enum capstMethod {Copy, Integrate, Average};
 enum capsdMethod {BuiltIn, Sensitivity, Analysis, Interpolate, Conserve, User};
 enum capsState   {MultipleError=-2, Open, Empty, Single, Multiple};
@@ -207,7 +208,8 @@ typedef struct capsObject* capsObj;
  * defines the error structures
  */
 typedef struct {
-  capsObject *errObj;           /* the offending object pointer */
+  capsObject *errObj;           /* the offending object pointer -- not AIM */
+  int        eType;             /* Error Type: INFO, WARNING, ERROR */
   int        index;             /* index to offending struct -- AIM */
   int        nLines;            /* the number of error strings */
   char       **lines;           /* the error strings */
@@ -217,6 +219,20 @@ typedef struct {
   int       nError;             /* number of errors in this structure */
   capsError *errors;            /* the errors */
 } capsErrs;
+
+
+/*
+ * structure for derivative data w/ CAPS Value structure
+ *   only used with "real" (double) data and
+ *   only with GeometryOut or AnalysisOut Value Objects
+ */
+typedef struct {
+  char   *name;                  /* the derivative with respect to */
+                                 /* including optional [n] or [n,m]
+                                    for vectors/arrays */
+  int    rank;                   /* the number of members in the derivative */
+  double *dot;                   /* the dot values -- rank*length in length */
+} capsDot;
 
 
 /*
@@ -232,6 +248,7 @@ typedef struct {
   int          sfixed;          /* shape is fixed */
   int          nullVal;         /* NULL handling */
   int          pIndex;          /* parent index for vType = Value */
+  int          gInType;         /* 0 -- normal, 1 -- OCSM_CFGPMTR */
   union {
     int        integer;         /* single int -- length == 1 */
     int        *integers;       /* multiple ints */
@@ -241,6 +258,7 @@ typedef struct {
     capsTuple  *tuple;          /* tuple (no single tuple) */
     capsObject *object;         /* single object */
     capsObject **objects;       /* multiple objects */
+    void       *AIMptr;         /* single pointer only */
   } vals;
   union {
     int        ilims[2];        /* integer limits */
@@ -249,6 +267,9 @@ typedef struct {
   char         *units;          /* the units for the values */
   capsObject   *link;           /* the linked object (or NULL) */
   int          linkMethod;      /* the link method */
+  int          *partial;        /* NULL or vector/array element NULL handling */
+  int          ndot;            /* the number of derivatives */
+  capsDot      *dots;           /* the derivatives associated with the Value */
 } capsValue;
 
 
@@ -304,6 +325,18 @@ typedef struct {
 
 
 /*
+ * structure for sensitivity registry for Geometry In
+ */
+typedef struct {
+  char *name;                    /* parameter name including optional [n] or
+                                    [n,m] for vectors/arrays */
+  int  index;                    /* GeometryIn Index */
+  int  irow;                     /* the row index */
+  int  icol;                     /* the column index */
+} capsRegGIN;
+  
+
+/*
  * structure for CAPS object -- PROBLEM
  */
 typedef struct {
@@ -318,6 +351,7 @@ typedef struct {
   capsOwn    writer;             /* the owning info of a Problem writer */
   int        outLevel;		 /* output level for messages
                                     0 none, 1 minimal, 2 verbose, 3 debug */
+  int        funID;              /* active function index */
   void       *modl;              /* OpenCSM model void pointer or static ego */
   int        nParam;             /* number of parameters */
   capsObject **params;           /* list of parameter objects */
@@ -335,6 +369,8 @@ typedef struct {
   int        nBodies;            /* number of current geometric bodies */
   ego        *bodies;            /* the EGADS bodies */
   char       **lunits;           /* the body-based length units */
+  int        nRegGIN;            /* number of Registered GeometryIn Values */
+  capsRegGIN *regGIN;            /* sensitivity slots for GeometryIn Values */
   CAPSLONG   sNum;               /* sequence number */
 } capsProblem;
 
@@ -350,6 +386,7 @@ typedef struct {
   capsProblem *problem;        /* problem structure */
   /*@dependent@*/
   void        *analysis;       /* specific analysis structure */
+  capsErrs    errs;            /* accumulate the AIMs error/warnings */
 } aimInfo;
 
 

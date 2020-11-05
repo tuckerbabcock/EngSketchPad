@@ -28,6 +28,9 @@ extern "C" {
 
 /* base-level object functions */
 
+__ProtoExt__ void
+  caps_revision( int *major, int *minor );
+
 __ProtoExt__ int
   caps_info( const capsObj object, char **name, enum capsoType *type,
              enum capssType *subtype, capsObj *link, capsObj *parent,
@@ -72,6 +75,18 @@ __ProtoExt__ void
   caps_freeValue( capsValue *value );
 
 
+/* I/O functions */
+
+__ProtoExt__ int
+  caps_writeParameters( const capsObj pobject, char *filename );
+
+__ProtoExt__ int
+  caps_readParameters( const capsObj pobject, char *filename );
+
+__ProtoExt__ int
+  caps_writeGeometry( const capsObj obj, int flag, const char *filename );
+
+
 /* attribute functions */
 
 __ProtoExt__ int
@@ -100,6 +115,10 @@ __ProtoExt__ int
   
 __ProtoExt__ int
   caps_outLevel( capsObj pobject, int outLevel );
+
+__ProtoExt__ int
+  caps_sensitivity( const capsObj object, int irow, int icol, int funFlag,
+                    int *nErr, capsErrs **errors );
   
 
 /* analysis functions */
@@ -109,7 +128,7 @@ __ProtoExt__ int
                       int *execution );
   
 __ProtoExt__ int
-  caps_getBodies( const capsObject *aobject, int *nBody, ego **bodies );
+  caps_getBodies( const capsObj aobject, int *nBody, ego **bodies );
   
 __ProtoExt__ int
   caps_getInput( capsObj pobj, const char *aname, int index, char **ainame,
@@ -120,8 +139,7 @@ __ProtoExt__ int
                   capsValue *form );
   
 __ProtoExt__ int
-  caps_AIMbackdoor( const capsObject *aobject, const char *JSONin,
-                    char **JSONout );
+  caps_AIMbackdoor( const capsObj aobject, const char *JSONin, char **JSONout );
   
 __ProtoExt__ int
   caps_load( capsObj pobj, const char *anam, const char *apath,
@@ -248,6 +266,13 @@ __ProtoExt__ int
   caps_makeLinkage( /*@null@*/ capsObj link, enum capstMethod method,
                     capsObj target );
   
+__ProtoExt__ int
+  caps_hasDot( const capsObj value, int *ndot, char ***names );
+
+__ProtoExt__ int
+  caps_getDot( const capsObj value, const char *name, int *len, int *rank,
+               double **dot );
+
 
 /* others */
   

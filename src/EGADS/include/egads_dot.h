@@ -68,6 +68,8 @@ __ProtoExt__ int  EG_blend_dot( ego body, int nsec, const ego *secs,
                                 /*@null@*/ double *rcN,
                                 /*@null@*/ double *rcN_dot );
 
+__ProtoExt__ int  EG_setRange_dot( egObject *geom, int oclass,
+                                   const double *range, const double *range_dot );
 __ProtoExt__ int  EG_getRange_dot( const egObject *geom,
                                    double *range, double *range_dot, int *periodic );
 
@@ -89,7 +91,11 @@ int  EG_copyGeometry_dot( const egObject *obj,
                           ego copy );
 int  EG_evaluate( const egObject *geom, /*@null@*/ const SurrealS<1> *param,
                   SurrealS<1> *result );
+int  EG_approximate_dot( ego bspline, int maxdeg, double tol,
+                         const int *sizes,
+                         const SurrealS<1> *data );
 
+int  EG_setRange_dot( egObject *geom, int oclass, const SurrealS<1> *range);
 int  EG_getRange( const egObject *geom, SurrealS<1> *range, int *periodic );
 #endif
 

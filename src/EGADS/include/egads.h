@@ -253,6 +253,8 @@ __ProtoExt__ int  EG_localToGlobal( const ego tess, int index, int local,
                                     int *global );
 __ProtoExt__ int  EG_getGlobal( const ego tess, int global, int *ptype,
                                 int *pindex, /*@null@*/ double *xyz );
+__ProtoExt__ int  EG_saveTess( ego tess, const char *name );
+__ProtoExt__ int  EG_loadTess( ego body, const char *name, ego *tess );
   
 __ProtoExt__ int  EG_tessMassProps( const ego tess, double *props );
 
@@ -287,6 +289,19 @@ __ProtoExt__ int  EG_loft( int nsec, const ego *secs, int opt, ego *result );
 __ProtoExt__ int  EG_blend( int nsec, const ego *secs, /*@null@*/ double *rc1,
                             /*@null@*/ double *rcN, ego *result );
 __ProtoExt__ int  EG_ruled( int nsec, const ego *secs, ego *result );
+
+/* effective topology functions */
+
+__ProtoExt__ int EG_virtualize( ego tess, double angle, ego *ebody );
+__ProtoExt__ int EG_finalize( ego EBody );
+__ProtoExt__ int EG_makeComposite( ego EBody, int nFace, ego *Faces,
+                                   ego *EFace );
+__ProtoExt__ int EG_makeAttrComposites( ego EBody, const char *attrName,
+                                        int *nEFace, ego **EFaces );
+__ProtoExt__ int EG_effectiveMap( ego EObject, double *eparam, ego *Object,
+                                  double *param );
+__ProtoExt__ int EG_getEdgeList( ego EEdge, int *nedge, ego **edges,
+                                 int **senses, double **tstart );
 
 /* other functions */
 

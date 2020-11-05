@@ -11,6 +11,8 @@
  *
  */
 
+#define EGADS_EFFCTOBJ -36
+#define EGADS_UVMAP    -35
 #define EGADS_SEQUERR  -34
 #define EGADS_CNTXTHRD -33
 #define EGADS_READERR  -32

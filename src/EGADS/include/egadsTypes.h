@@ -15,8 +15,8 @@
 
 
 #define EGADSMAJOR     1
-#define EGADSMINOR    18
-#define EGADSPROP     EGADSprop: Revision 1.18
+#define EGADSMINOR    19
+#define EGADSPROP     EGADSprop: Revision 1.19
 
 #define MAGIC      98789
 #define MTESSPARAM     2
@@ -39,6 +39,11 @@
 #define SHELL         24
 #define BODY          25
 #define MODEL         26
+#define EEDGE         31
+#define ELOOPX        32        /* ELOOP conflicts with errno.h */
+#define EFACE         33
+#define ESHELL        34
+#define EBODY         35
 
 
 /* MEMBER TYPES */
@@ -247,5 +252,91 @@ typedef struct {
   int      nv;                  /* number of vs for surface tessellation */
   int      done;                /* is Object complete? */
 } egTessel;
+
+
+typedef struct {
+  int       nobjs;              /* number in the map */
+  egObject **objs;              /* vector of egos for map */
+} egEMap;
+
+
+typedef struct {
+  egObject *edge;               /* Edge object */
+  int      sense;               /* sense use for Edge */
+  int      npts;                /* number of discrete points */
+  egObject *nstart;             /* Node object @ beginning */
+  double   dstart[3];           /* displacement in xyz first Node */
+  double   tstart;              /* t for beginning of segment */
+  double   dend[3];             /* displacement in xyz last Node */
+  double   tend;                /* t for end of segment */
+  double   *ts;                 /* ts (original Edge) */
+} egEEseg;
+
+
+typedef struct {
+  int      nsegs;               /* number of Edge segments */
+  egEEseg  *segs;               /* Edge segments */
+  double   trange[2];
+  egObject *nodes[2];           /* pointer to ego Nodes */
+} egEEdge;
+
+
+typedef struct {
+  egObject *edge;               /* Edge object */
+  int      sense;               /* sense use for Edge */
+  int      npts;                /* number of discrete points */
+  int      *iuv;                /* index into uvmap for Edge ts */
+} egEdgeUV;
+
+
+typedef struct {
+  egEMap   eedges;              /* list of EEdges (in order) */
+  int      *senses;             /* sense for each EEdge */
+  double   area;                /* area in UVmap */
+  int      nedge;               /* length of edgeUVs */
+  egEdgeUV *edgeUVs;            /* the UVs for each Edge in the ELoop */
+} egELoop;
+
+
+typedef struct {
+  egObject *face;               /* Face object */
+  int      start;               /* offset for start in larger triangulation */
+  int      nuvs;                /* length of uvs (x 2) */
+  int      ndeflect;            /* length of deflect (x 3) */
+  int      ntris;               /* number of triangles (single Face) */
+  int      *uvtris;             /* tri indices into uvs */
+  double   *uvs;                /* UVs for the triangle vertices -- Face Tess */
+  int      *dtris;              /* deflection tri indices -- zero - no bump */
+  double   *deflect;            /* displacement in xyz for frame indices */
+} egEPatch;
+
+
+typedef struct {
+  int      npatch;              /* number of Faces */
+  egEPatch *patches;            /* the Face(s) and discrete data */
+  egEMap   eloops;              /* list of ELoops */
+  int      *senses;
+  int      *trmap;              /* triangle remapping -- can be null */
+  void     *uvmap;              /* UVmap structure */
+  double   range[4];
+  int      last;                /* last triangle -- single Face */
+} egEFace;
+
+
+typedef struct {
+  egEMap efaces;                /* list of EFaces */
+} egEShell;
+
+
+typedef struct {
+  egObject *ref;                /* source of the EBody (Body Tess or Body) */
+  egEMap   eedges;
+  egEMap   eloops;
+  egEMap   efaces;
+  egEMap   eshells;
+  int      *senses;
+  double   angle;               /* Open Edge Node removal criteria */
+  int      done;                /* is EBody complete? */
+} egEBody;
 
 #endif
