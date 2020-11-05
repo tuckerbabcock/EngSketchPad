@@ -16,6 +16,8 @@ else
 ODIR  = .
 endif
 
+CXX = mpicxx
+
 PUMI_INSTALL := $(PUMI)/build/install
 PUMI_LDIR := $(PUMI_INSTALL)/lib
 PUMI_IDIR := $(PUMI_INSTALL)/include
