@@ -53,7 +53,8 @@ extern int
 udp_setArgument(char primName[],
                 char name[],
                 void *value,
-                int  nvalue);
+                int  nvalue,
+                char message[]);
 
 /* execute */
 extern int
@@ -68,7 +69,8 @@ extern int
 udp_getOutput(char primName[],
               ego  body,
               char name[],
-              void *value);
+              void *value,
+              char message[]);
 
 /* return the OverSet Mesh */
 extern int
@@ -123,11 +125,13 @@ int udpClean(ego ebody);
 
 int udpSet(char name[],
            void *values,
-           int  nvalue);
+           int  nvalue,
+           char message[]);
 
 int udpGet(ego  ebody,
            char name[],
-           void *value);
+           void *value,
+           char message[]);
 
 int udpVel(ego    ebody,
            char   name[],

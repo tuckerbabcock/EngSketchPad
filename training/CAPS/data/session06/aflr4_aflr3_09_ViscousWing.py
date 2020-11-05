@@ -21,7 +21,7 @@ transport = myProblem.loadCAPS(filename)
 # Load AFLR4 AIM
 aflr4 = myProblem.loadAIM(aim         = "aflr4AIM",
                           altName     = "aflr4",
-                          analysisDir = "workDir_AFLR4_AFLR3_9_ViscousWing")
+                          analysisDir = "workDir_AFLR4_AFLR3_09_ViscousWing")
 
 # Dump VTK files for visualization
 aflr4.setAnalysisVal("Proj_Name", "TransportWing")

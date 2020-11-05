@@ -18,7 +18,7 @@
 
 int main(int argc, char *argv[])
 {
-  int          i, j, k, status, oclass, mtype, nbody, nvert, nface, nedge;
+  int          i, j, k, n, status, oclass, mtype, nbody, nvert, nface, nedge;
   int          pt, pi, plen, tlen, global, *sens;
   float        arg;
   double       params[3], box[6], coord[3], size;
@@ -249,6 +249,17 @@ int main(int argc, char *argv[])
                coord[1], coord[2], points[3*k  ], points[3*k+1], points[3*k+2]);
       }
     }
+    
+    status = EG_getBodyTopos(bodies[i], NULL, NODE, &n, NULL);
+    if (status == EGADS_SUCCESS)
+      for (j = 1; j <= n; j++) {
+        status = EG_localToGlobal(tess, 0, j, &global);
+        if (status != EGADS_SUCCESS) {
+          printf(" Body %d/Node %d: EG_localToGlobal = %d\n", i+1, j, status);
+        } else {
+          printf(" Body %d/Node %d: %d\n", i+1, j, global);
+        }
+      }
 
     EG_deleteObject(copy);
     EG_deleteObject(tess);

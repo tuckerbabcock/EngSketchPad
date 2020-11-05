@@ -697,7 +697,7 @@ setLineLoop_dot( const double *x0,     /* (in)  coordinates of the first point  
   tdata_dot[0] = 0;
   tdata_dot[1] = (data[3]*data_dot[3] + data[4]*data_dot[4] + data[5]*data_dot[5])/tdata[1];
 
-  status = EG_setGeometry_dot(eedges[0], EDGE, TWONODE, NULL, tdata, tdata_dot);
+  status = EG_setRange_dot(eedges[0], EDGE, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   status = EGADS_SUCCESS;
@@ -725,6 +725,9 @@ pingLineRuled(ego context)
   p2_dot = x_dot+3;
 
   for (dir = -1; dir <= 1; dir += 2) {
+
+    printf(" ---------------------------------\n");
+    printf(" Ping Ruled Line dir %+d\n", dir);
 
     xform1[0] = 1.0;
     xform1[1] = 0.1;
@@ -865,6 +868,9 @@ pingLineBlend(ego context)
   p2_dot = x_dot+3;
 
   for (dir = -1; dir <= 1; dir += 2) {
+
+    printf(" ---------------------------------\n");
+    printf(" Ping Blend Line dir %+d\n", dir);
 
     xform1[0] = 1.0;
     xform1[1] = 0.1;
@@ -1013,6 +1019,9 @@ equivLineRuled(ego context)
 
   for (dir = -1; dir <= 1; dir += 2) {
 
+    printf(" ---------------------------------\n");
+    printf(" Equiv Ruled Line dir %+d\n", dir);
+
     xform1[0] = 1.0;
     xform1[1] = 0.1;
     xform1[2] = 0.2;
@@ -1153,6 +1162,9 @@ equivLineBlend(ego context)
   p2_dot = x_dot+3;
 
   for (dir = -1; dir <= 1; dir += 2) {
+
+    printf(" ---------------------------------\n");
+    printf(" Equiv Blend Line dir %+d\n", dir);
 
     xform1[0] = 1.0;
     xform1[1] = 0.1;
@@ -1388,7 +1400,7 @@ setLine2Loop_dot( const double *x0,     /* (in)  the point                      
   if (status != EGADS_SUCCESS) goto cleanup;
 
   /* set the t-range sensitivity */
-  status = EG_setGeometry_dot(eedges[0], EDGE, TWONODE, NULL, ts, ts_dot);
+  status = EG_setRange_dot(eedges[0], EDGE, ts, ts_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   status = EGADS_SUCCESS;
@@ -1419,6 +1431,9 @@ pingLine2Ruled(ego context)
   ts_dot = x_dot+6;
 
   for (dir = -1; dir <= 1; dir += 2) {
+
+    printf(" ---------------------------------\n");
+    printf(" Ping Ruled Line2 dir %+d\n", dir);
 
     xform1[0] = 1.0;
     xform1[1] = 0.1;
@@ -1563,6 +1578,9 @@ pingLine2Blend(ego context)
   ts_dot = x_dot+6;
 
   for (dir = -1; dir <= 1; dir += 2) {
+
+    printf(" ---------------------------------\n");
+    printf(" Ping Blend Line2 dir %+d\n", dir);
 
     xform1[0] = 1.0;
     xform1[1] = 0.1;
@@ -1837,7 +1855,7 @@ setCircle_dot( const double *xcent,     /* (in)  Center          */
   tdata_dot[0] = 0;
   tdata_dot[1] = 0;
 
-  status = EG_setGeometry_dot(eedges[0], EDGE, ONENODE, NULL, tdata, tdata_dot);
+  status = EG_setRange_dot(eedges[0], EDGE, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   /* set the Circle data and velocity */
@@ -1949,6 +1967,9 @@ pingCircleRuled(ego context)
   yax_dot   = x_dot+6;
 
   for (dir = -1; dir <= 1; dir += 2) {
+
+    printf(" ---------------------------------\n");
+    printf(" Ping Ruled Circle dir %+d\n", dir);
 
     xform1[0] = 1.0;
     xform1[1] = 0.1;
@@ -2111,6 +2132,9 @@ pingCircleBlend(ego context)
   yax_dot   = x_dot+6;
 
   for (dir = -1; dir <= 1; dir += 2) {
+
+    printf(" ---------------------------------\n");
+    printf(" Ping Blend Circle dir %+d\n", dir);
 
     xform1[0] = 1.0;
     xform1[1] = 0.1;
@@ -2281,6 +2305,9 @@ equivCircleRuled(ego context)
 
   for (dir = -1; dir <= 1; dir += 2) {
 
+    printf(" ---------------------------------\n");
+    printf(" Equiv Ruled Circle dir %+d\n", dir);
+
     xform1[0] = 1.0;
     xform1[1] = 0.1;
     xform1[2] = 0.2;
@@ -2438,6 +2465,9 @@ equivCircleBlend(ego context)
   yax_dot   = x_dot+6;
 
   for (dir = -1; dir <= 1; dir += 2) {
+
+    printf(" ---------------------------------\n");
+    printf(" Equiv Blend Circle dir %+d\n", dir);
 
     xform1[0] = 1.0;
     xform1[1] = 0.1;
@@ -2732,12 +2762,12 @@ setCircle2_dot( const double *xcent,     /* (in)  Center          */
   tdata_dot[0] = 0;
   tdata_dot[1] = 0;
 
-  status = EG_setGeometry_dot(eedges[0], EDGE, TWONODE, NULL, tdata, tdata_dot);
+  status = EG_setRange_dot(eedges[0], EDGE, tdata, tdata_dot);
 
   tdata[0] = PI;
   tdata[1] = TWOPI;
 
-  status = EG_setGeometry_dot(eedges[1], EDGE, TWONODE, NULL, tdata, tdata_dot);
+  status = EG_setRange_dot(eedges[1], EDGE, tdata, tdata_dot);
 
   /* get the Nodes and the Circle from the Edge */
   status = EG_getTopology(eedges[0], &ecircle, &oclass, &mtype,
@@ -2893,6 +2923,9 @@ pingNoseCircleBlend(ego context)
   x[9] = 1.0;
 
   for (dir = -1; dir <= 1; dir += 2) {
+
+    printf(" ---------------------------------\n");
+    printf(" Ping Nose Circle dir %+d\n", dir);
 
     xform1[0] = 1.0;
     xform1[1] = 0.1;
@@ -3122,6 +3155,9 @@ pingNoseCircle2Blend(ego context)
   x[9] = 1.0;
 
   for (dir = -1; dir <= 1; dir += 2) {
+
+    printf(" ---------------------------------\n");
+    printf(" Ping Nose Circle2 dir %+d\n", dir);
 
     xform1[0] = 1.0;
     xform1[1] = 0.1;
@@ -3660,7 +3696,7 @@ int setNaca_dot( int sharpte,     /* (in) sharp or blunt TE */
   tdata_dot[0] = 0;
   tdata_dot[1] = tle_dot;
 
-  status = EG_setGeometry_dot(eedges[0], EDGE, TWONODE, NULL, tdata, tdata_dot);
+  status = EG_setRange_dot(eedges[0], EDGE, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   /* set Edge t-range sensitivity for lower surface */
@@ -3669,7 +3705,7 @@ int setNaca_dot( int sharpte,     /* (in) sharp or blunt TE */
   tdata_dot[0] = tdata_dot[1];
   tdata_dot[1] = 0;
 
-  status = EG_setGeometry_dot(eedges[1], EDGE, TWONODE, NULL, tdata, tdata_dot);
+  status = EG_setRange_dot(eedges[1], EDGE, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   /* set the sensitivity of the Node at leading edge */
@@ -3716,7 +3752,7 @@ int setNaca_dot( int sharpte,     /* (in) sharp or blunt TE */
     tdata_dot[0] = 0;
     tdata_dot[1] = (data[3]*data_dot[3] + data[4]*data_dot[4] + data[5]*data_dot[5])/tdata[1];
 
-    status = EG_setGeometry_dot(eedges[2], EDGE, TWONODE, NULL, tdata, tdata_dot);
+    status = EG_setRange_dot(eedges[2], EDGE, tdata, tdata_dot);
     if (status != EGADS_SUCCESS) goto cleanup;
   }
 
@@ -3884,7 +3920,7 @@ pingNacaRuled(ego context)
       xform2[3] = 2.*dir;
 
       /* make the ruled body */
-      status = makeNaca( context, FACE, sharpte, x[im], x[ip], x[it], &secs1[0] );
+      status = makeNaca( context, FACEBODY, sharpte, x[im], x[ip], x[it], &secs1[0] );
       if (status != EGADS_SUCCESS) goto cleanup;
 
       status = makeNaca( context, LOOP, sharpte, x[im], x[ip], x[it], &eloop1 );
@@ -4059,7 +4095,7 @@ pingNacaBlend(ego context)
       printf(" Ping Blend NACA dir %+d sharpte %d\n", dir, sharpte);
 
       /* make the ruled body */
-      status = makeNaca( context, FACE, sharpte, x[im], x[ip], x[it], &secs1[0] );
+      status = makeNaca( context, FACEBODY, sharpte, x[im], x[ip], x[it], &secs1[0] );
       if (status != EGADS_SUCCESS) goto cleanup;
 
       status = makeNaca( context, LOOP, sharpte, x[im], x[ip], x[it], &eloop1 );
@@ -4526,7 +4562,7 @@ int main(int argc, char *argv[])
     printf(" EG_open return = %d\n", status);
     return EXIT_FAILURE;
   }
-#if 0
+
   /*-------*/
   status = pingLineRuled(context);
   if (status != EGADS_SUCCESS) goto cleanup;
@@ -4576,7 +4612,7 @@ int main(int argc, char *argv[])
 
   status = pingNacaBlend(context);
   if (status != EGADS_SUCCESS) goto cleanup;
-#endif
+
   status = equivNacaRuled(context);
   if (status != EGADS_SUCCESS) goto cleanup;
 

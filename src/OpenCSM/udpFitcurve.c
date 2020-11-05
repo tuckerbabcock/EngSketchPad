@@ -27,7 +27,7 @@
  *     MA  02110-1301  USA
  */
 
-#define NUMUDPARGS 8
+#define NUMUDPARGS 9
 #include "udpUtilities.h"
 
 /* shorthands for accessing argument values and velocities */
@@ -35,16 +35,17 @@
 #define NCP(     IUDP)    ((int    *) (udps[IUDP].arg[1].val))[0]
 #define ORDERED( IUDP)    ((int    *) (udps[IUDP].arg[2].val))[0]
 #define PERIODIC(IUDP)    ((int    *) (udps[IUDP].arg[3].val))[0]
-#define XFORM(   IUDP,I)  ((double *) (udps[IUDP].arg[4].val))[I]
-#define NPNT(    IUDP)    ((int    *) (udps[IUDP].arg[5].val))[0]
-#define RMS(     IUDP)    ((double *) (udps[IUDP].arg[6].val))[0]
-#define XYZ(     IUDP,I)  ((double *) (udps[IUDP].arg[7].val))[I]
+#define SPLIT(   IUDP,I)  ((int    *) (udps[IUDP].arg[4].val))[I]
+#define XFORM(   IUDP,I)  ((double *) (udps[IUDP].arg[5].val))[I]
+#define NPNT(    IUDP)    ((int    *) (udps[IUDP].arg[6].val))[0]
+#define RMS(     IUDP)    ((double *) (udps[IUDP].arg[7].val))[0]
+#define XYZ(     IUDP,I)  ((double *) (udps[IUDP].arg[8].val))[I]
 
 /* data about possible arguments */
-static char  *argNames[NUMUDPARGS] = {"filename", "ncp",   "ordered", "periodic", "xform",  "npnt",   "rms",     "xyz", };
-static int    argTypes[NUMUDPARGS] = {ATTRSTRING, ATTRINT, ATTRINT,   ATTRINT,    ATTRREAL, -ATTRINT, -ATTRREAL, 0,     };
-static int    argIdefs[NUMUDPARGS] = {0,          0,       1,         0,          0,        0,        0,         0,     };
-static double argDdefs[NUMUDPARGS] = {0.,         0.,      1.,        0.,         0.,       0.,       0.,        0.,    };
+static char  *argNames[NUMUDPARGS] = {"filename", "ncp",   "ordered", "periodic", "split", "xform",  "npnt",   "rms",     "xyz", };
+static int    argTypes[NUMUDPARGS] = {ATTRSTRING, ATTRINT, ATTRINT,   ATTRINT,    ATTRINT, ATTRREAL, -ATTRINT, -ATTRREAL, 0,     };
+static int    argIdefs[NUMUDPARGS] = {0,          0,       1,         0,          0,       0,        0,        0,         0,     };
+static double argDdefs[NUMUDPARGS] = {0.,         0.,      1.,        0.,         0.,      0.,       0.,       0.,        0.,    };
 
 /* get utility routines: udpErrorStr, udpInitialize, udpReset, udpSet,
                          udpGet, udpVel, udpClean, udpMesh */
@@ -102,7 +103,7 @@ udpExecute(ego  context,                /* (in)  EGADS context */
     int     status = EGADS_SUCCESS;
 
     int     *senses=NULL;
-    int     ipnt, jpnt, npnt, iedge, nedge, nument, idum;
+    int     ipnt, jpnt, npnt, iedge, nedge, nument, idum, i;
     int     bitflag, wraparound, periodic;
     double  xin, yin, zin, rms, range[4], norm[3], range_save;
     double  data[18], uv_out[2], xyz_out[3], *cpdata=NULL;
@@ -116,6 +117,11 @@ udpExecute(ego  context,                /* (in)  EGADS context */
     printf("ncp(     0) = %d\n", NCP(     0));
     printf("ordered( 0) = %d\n", ORDERED( 0));
     printf("periodic(0) = %d\n", PERIODIC(0));
+    printf("split(   0) = %d",   SPLIT(   0,0));
+    for (i = 1; i < udps[0].arg[4].size; i++) {
+        printf(" %d", SPLIT(0,i));
+    }
+    printf("\n");
 #endif
 
     /* default return values */
@@ -159,7 +165,7 @@ udpExecute(ego  context,                /* (in)  EGADS context */
         status = EGADS_RANGERR;
         goto cleanup;
 
-    } else if (udps[0].arg[4].size != 1 && udps[0].arg[4].size != 12) {
+    } else if (udps[0].arg[5].size != 1 && udps[0].arg[5].size != 12) {
         printf(" udpExecute: xform should have 1 or 12 elements\n");
         status = EGADS_RANGERR;
         goto cleanup;
@@ -177,7 +183,12 @@ udpExecute(ego  context,                /* (in)  EGADS context */
     printf("filename(%d) = %s\n", numUdp, FILENAME(numUdp));
     printf("ncp(     %d) = %d\n", numUdp, NCP(     numUdp));
     printf("ordered( %d) = %d\n", numUdp, ORDERED( numUdp));
-    printf("periodic(%d0 = %d\n", numUdp, PERIODIC(numUdp));
+    printf("periodic(%d) = %d\n", numUdp, PERIODIC(numUdp));
+    printf("split(   %d) = %d",   numUdp, SPLIT(   numUdp,0));
+    for (i = 1; i < udps[0].arg[4].size; i++) {
+        printf(" %d", SPLIT(numUdp,i));
+    }
+    printf("\n");
 #endif
 
     /* open the file */
@@ -195,14 +206,19 @@ udpExecute(ego  context,                /* (in)  EGADS context */
         if (nument != 3) break;
         npnt++;
     }
+    for (i = 0; i < udps[0].arg[4].size; i++) {
+        if (SPLIT(0,i) > 0) {
+            npnt++;
+        }
+    }
 #ifdef DEBUG
     printf("npnt=%d\n", npnt);
 #endif
 
     /* save the number of points in the file and allocate sufficient space*/
     NPNT(numUdp) = npnt;
-    udps[numUdp].arg[7].val = (double *) EG_reall(udps[numUdp].arg[7].val, 3*npnt*sizeof(double));
-    if (udps[numUdp].arg[7].val == NULL) {
+    udps[numUdp].arg[8].val = (double *) EG_reall(udps[numUdp].arg[8].val, 3*npnt*sizeof(double));
+    if (udps[numUdp].arg[8].val == NULL) {
         status = EGADS_MALLOC;
         goto cleanup;
     }
@@ -216,7 +232,7 @@ udpExecute(ego  context,                /* (in)  EGADS context */
         nument = fscanf(fp, "%lf %lf %lf\n", &xin, &yin, &zin);
         if (nument != 3) break;
 
-        if (udps[numUdp].arg[4].size == 1) {
+        if (udps[numUdp].arg[5].size == 1) {
             XYZ(numUdp,3*npnt  ) = xin;
             XYZ(numUdp,3*npnt+1) = yin;
             XYZ(numUdp,3*npnt+2) = zin;
@@ -232,6 +248,17 @@ udpExecute(ego  context,                /* (in)  EGADS context */
             fabs(XYZ(numUdp,3*npnt-5)-XYZ(numUdp,3*npnt-2)) < EPS06 &&
             fabs(XYZ(numUdp,3*npnt-4)-XYZ(numUdp,3*npnt-1)) < EPS06   ) {
             nedge++;
+        }
+
+        for (i = 0; i < udps[0].arg[4].size; i++) {
+            if (npnt == SPLIT(0,i)+i) {
+                XYZ(numUdp,3*npnt  ) = XYZ(numUdp,3*npnt-3);
+                XYZ(numUdp,3*npnt+1) = XYZ(numUdp,3*npnt-2);
+                XYZ(numUdp,3*npnt+2) = XYZ(numUdp,3*npnt-1);
+
+                npnt++;
+                nedge++;
+            }
         }
     }
 #ifdef DEBUG
@@ -260,7 +287,7 @@ udpExecute(ego  context,                /* (in)  EGADS context */
 
     /* fit a Bspline to the data */
     bitflag = ORDERED(numUdp) + 2 * PERIODIC(numUdp);
-    status = EG_fitBspline(context, npnt, bitflag, udps[numUdp].arg[7].val,
+    status = EG_fitBspline(context, npnt, bitflag, udps[numUdp].arg[8].val,
                            NCP(numUdp), &ecurve, &rms);
     if (status != EGADS_SUCCESS) goto cleanup;
 

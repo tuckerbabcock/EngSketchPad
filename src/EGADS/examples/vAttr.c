@@ -362,12 +362,13 @@ int main(int argc, char *argv[])
 
 void browserMessage(/*@unused@*/ void *wsi, char *text, /*@unused@*/ int lena)
 {
-  int          i, j, iBody, ient, stat, nattr, atype, alen;
+  int          i, j, iBody, ient, stat, nattr, atype, alen, oclass, mtype;
+  int          *senses;
   const int    *pints;
   char         tag[5];
   const char   *name, *pstr;
   const double *preals;
-  ego          obj;
+  ego          obj, geom, *objs;
 
   if (strncmp(text,"Picked: ", 8) == 0) {
     iBody = 0;
@@ -379,6 +380,10 @@ void browserMessage(/*@unused@*/ void *wsi, char *text, /*@unused@*/ int lena)
       } else {
         obj = bodydata[iBody-1].edges[ient-1];
       }
+      stat = EG_getTopology(obj, &geom, &oclass, &mtype, NULL, &i, &objs,
+                            &senses);
+      if (stat == EGADS_SUCCESS)
+        printf("         Geom type = %d\n", geom->mtype);
       nattr = 0;
       stat  = EG_attributeNum(obj, &nattr);
       if ((stat == EGADS_SUCCESS) && (nattr != 0)) {

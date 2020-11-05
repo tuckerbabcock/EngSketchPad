@@ -77,6 +77,8 @@
 //       editPmtrOk()
 //       editPmtrCancel()
 //    delPmtr()
+//    showOutpmtrs()
+//       showOutpmtrsOk()
 //    addBrch()
 //       addBrchOk()
 //       addBrchCancel()
@@ -455,6 +457,8 @@ var wvInitUI = function () {
     wv.filenames = "|";            // name of the .csm file (and .udc files)
     wv.fileindx  = undefined;      // index of file being editted: -1 <new file>, 0 *.csm, >0 *.udc
     wv.linenum   = 0;              // line number to start editing
+    wv.lastfile  = "";             // last file that was editted
+    wv.lastline  = -1;             // line number in last file editted
     wv.curFile   = "";             // contents of current .csm file
     wv.codeMirror= undefined;      // pointer to CodeMirror object
     wv.clipboard = "";             // clipboard for copy/cut/paste
@@ -465,9 +469,10 @@ var wvInitUI = function () {
                                    // 3 show editBrchForm with editBrchHeader
                                    // 4 show editPmtrForm with addPmtrHeader
                                    // 5 show editPmtrForm with editPmtrHeader
-                                   // 6 show editCsmForm
-                                   // 7 show sketcherForm
-                                   // 8 show glovesForm
+                                   // 6 show showOutpmtrsForm
+                                   // 7 show editCsmForm
+                                   // 8o show sketcherForm
+                                   // 9 show glovesForm
     wv.curTool   = main;           // current tool
     wv.curStep   =  0;             // >0 if in StepThru mode
     wv.curPmtr   = -1;             // Parameter being editted (or -1)
@@ -684,7 +689,7 @@ var wvUpdateUI = function () {
                     if (myTree.gprim[inode] == wv.picked.gprim) {
                         if (wv.picked.gprim.search(" Edge ") >= 0) {
                             postMessage("Toggling orientation of "+wv.picked.gprim);
-                            
+
                             if ((wv.sceneGraph[myTree.gprim[inode]].attrs & wv.plotAttrs.ORIENTATION) == 0) {
                                 myTree.prop(inode, 3, "on");
                             } else {
@@ -693,7 +698,7 @@ var wvUpdateUI = function () {
                             myTree.update();
                             break;
                         } else {
-                            postMessage("Cannot toggle orientation of a non-Edge");   
+                            postMessage("Cannot toggle orientation of a non-Edge");
                         }
                     }
                 }
@@ -777,13 +782,13 @@ var wvUpdateUI = function () {
                 var zloc = wv.focus[3] * wv.located[2] + wv.focus[2];
 
                 if (wv.lastPoint === undefined) {
-                    postMessage("Located: x="+xloc.toFixed(4)+", y="+yloc.toFixed(4)+
+                    postMessage("Approximate location: x="+xloc.toFixed(4)+", y="+yloc.toFixed(4)+
                                 ", z="+zloc.toFixed(4));
                 } else {
                     var dist = Math.sqrt(Math.pow(xloc-wv.lastPoint[0], 2)
                                        + Math.pow(yloc-wv.lastPoint[1], 2)
                                        + Math.pow(zloc-wv.lastPoint[2], 2));
-                    postMessage("Located: x="+xloc.toFixed(4)+", y="+yloc.toFixed(4)+
+                    postMessage("Approximate location: x="+xloc.toFixed(4)+", y="+yloc.toFixed(4)+
                                 ", z="+zloc.toFixed(4)+", dist="+dist.toFixed(6));
                 }
 
@@ -1502,38 +1507,46 @@ var wvServerMessage = function (text) {
 
         var textList = text.split("|");
 
+        // post messages sent from OpenCSM
+        if (textList[3].length > 0) {
+            postMessage(textList[3]);
+        }
+
         if (textList[1].substring(0,7) == "ERROR::") {
-            postMessage(textList[1]);
-
-            var ibrch    = Number(textList[2]);
-            var nbody    = Number(textList[3]);
-
-            wv.builtTo = ibrch;
-
-            if (nbody > 0) {
-                postMessage("Build complete through ibrch="+ibrch+
-                            ", which generated "+nbody+" Body(s)");
-            } else {
-                alert("No Bodys were produced");
-            }
+            alert("how did we get here???");
+//            postMessage(textList[1]);
+//
+//            var ibrch    = Number(textList[2]);
+//            var nbody    = Number(textList[3]);
+//
+//            wv.builtTo = ibrch;
+//
+//            if (nbody > 0) {
+//                postMessage("Build complete through ibrch="+ibrch+
+//                            ", which generated "+nbody+" Body(s)");
+//            } else {
+//                alert("No Bodys were produced");
+//            }
         } else {
             var ibrch    = Number(textList[1]);
             var nbody    = Number(textList[2]);
 
             wv.builtTo = ibrch;
 
-            if (ibrch == brch.length) {
+            if (ibrch == 0 && brch.length == 0) {
+                // post nothing because we started without a file
+            } else if (ibrch == brch.length || brch.length == 0) {
                 postMessage("Entire build complete, which generated "+nbody+
                             " Body(s)");
-            } else if (ibrch >= brch.length) {
-                postMessage("Build complete through ibrch="+ibrch+
-                            ", which generated "+nbody+" Body(s)");
+//            } else if (ibrch >= brch.length) {
+//                postMessage("Build complete through ibrch="+ibrch+
+//                            ", which generated "+nbody+" Body(s)");
             } else if (ibrch > 0) {
                 postMessage("Partial build (through "+brch[ibrch-1].name+
                             ") complete, which generated "+nbody+" Body(s)");
             } else {
-                postMessage("ibrch="+ibrch+"   brch.length="+brch.length);
-                postMessage("Build failed in first Branch");
+//                postMessage("ibrch="+ibrch+"   brch.length="+brch.length);
+                postMessage("Build failed before first Branch");
             }
         }
 
@@ -1549,7 +1562,7 @@ var wvServerMessage = function (text) {
             alert("Sketch cannot be loaded");
         } else {
             // open the Sketcher
-            changeMode(7);
+            changeMode(8);
             sket.initialize();
             sket.cmdLoad(textList[1], textList[2], textList[3], textList[4]);
         }
@@ -1607,9 +1620,33 @@ var wvServerMessage = function (text) {
         }
         postMessage(mesg);
 
-    // if it starts with "getCsmFile|" store the results in wv.curFile and change to mode 6
+    // if it starts with "getCsmFile|" store the results in wv.curFile and change to mode 7
     } else if (text.substring(0,11) == "getCsmFile|") {
         wv.curFile = text.substring(11);
+
+        // special treatment if entering Gloves
+        if (wv.curMode == 9) {
+
+            // load Gloves from wv.curFile
+            glov.cmdLoad();
+
+            // if wv.curFile does not have a Gloves section, ask for a component
+            if (glov.comp.length == 0) {
+                glov.cmdSolve();
+            }
+
+            // if there are still no Gloves components, quit Gloves
+            if (glov.comp.length == 0) {
+                glov.cmdQuit();
+
+            // if there is at least one component, show it/them
+            } else {
+                glovesDraw();
+                glov.cmdHome();
+            }
+
+            return;
+        }
 
         // fill in the name of the .csm file
         var csmFilename = document.getElementById("editCsmFilename");
@@ -1657,14 +1694,26 @@ var wvServerMessage = function (text) {
         wv.clipboard = "";
 
         // make wv.linenum the active line
+
         if (wv.linenum != 0) {
             wv.codeMirror.focus();
             wv.codeMirror.setCursor({line: wv.linenum-1, ch: 0});
             wv.linenum = 0;
+
+        // if we previously editted this file, go back to line number
+        } else if (wv.fileindx >= 0) {
+            var filelist = wv.filenames.split("|");
+            if (filelist[wv.fileindx] == wv.lastfile && wv.lastline >= 0) {
+                wv.codeMirror.focus();
+                wv.codeMirror.setCursor({line: wv.lastline-1, ch: 0});
+            }
         }
 
+        wv.lastfile = "";
+        wv.lastline = -1;
+
         // post the editCsmForm
-        changeMode(6);
+        changeMode(7);
 
     // if it starts with "setCsmFileBeg|" do nothing
     } else if (text.substring(0,14) == "setCsmFileBeg|") {
@@ -1734,7 +1783,14 @@ var wvServerMessage = function (text) {
 
     // if it starts with "ERROR::" post the error
     } else if (text.substring(0,7) == "ERROR::") {
-        postMessage(text);
+        var textList = text.split("|");
+
+        // post messages sent from OpenCSM
+        if (textList[1].length > 0) {
+            postMessage(textList[1]);
+        }
+
+        postMessage(textList[0]);
 
         // turn the background of the message window back to light-yellow
         var botm = document.getElementById("brframe");
@@ -1746,6 +1802,10 @@ var wvServerMessage = function (text) {
         button.style.backgroundColor = "#FF3F3F";
 
         changeMode(0);
+
+    // if it starts with "message|" post the message
+    } else if (text.substring(0,8) == "message|") {
+        postMessage(text);
 
     // default is to post the message
     } else {
@@ -2238,6 +2298,18 @@ var cmdFileEdit = function (e, indx) {
 var editCsmOk = function () {
     // alert("in editCsmOk()");
 
+    // remember what file we are editting and which line we were on
+    var myLastline = wv.codeMirror.getCursor()["line"] + 1;
+
+    if (wv.fileindx >= 0) {
+        var filelist = wv.filenames.split("|");
+        wv.lastfile = filelist[wv.fileindx];
+        wv.lastline = myLastline;
+    } else {
+        wv.lastfile = "";
+        wv.lastline = -1;
+    }
+
     // tell user if no changes were made
     var newFile = wv.codeMirror.getDoc().getValue();
 
@@ -2267,6 +2339,9 @@ var editCsmOk = function () {
             alert("NOT saving since no filename specified");
             return;
         }
+
+        wv.lastfile = wv.filenames;
+        wv.lastline = myLastline;
 
 //$$$    // check for overwrite
 //$$$    } else if (confirm("This may overwrite an existing file. " +
@@ -2323,28 +2398,26 @@ var editCsmOk = function () {
     // reset the number of changes
     wv.nchanges = 0;
 
-//$$$    // if only one file, inform the user that a rebuild is in process
-//$$$    if (wv.filenames.split("|").length <= 3) {
-//$$$        var button = document.getElementById("solveButton");
-//$$$        button["innerHTML"] = "Re-building...";
-//$$$        button.style.backgroundColor = "#FFFF3F";
-//$$$
-//$$$        // turn the background of the message window back to original color
-//$$$        var botm = document.getElementById("brframe");
-//$$$        botm.style.backgroundColor = "#F7F7F7";
-//$$$
-//$$$        browserToServer("build|0|");
-//$$$
-//$$$        // inactivate buttons until build is done
-//$$$        changeMode( 0);
-//$$$        changeMode(-1);
-//$$$
-//$$$    // otherwise, activate the Re-Build button
-//$$$    } else {
-//$$$        changeMode(0);
-//$$$        activateBuildButton();
-//$$$        postMessage("====> Re-build is needed <====");
-//$$$    }
+    // if only one file, inform the user that a rebuild is in process
+    if (wv.filenames.split("|").length <= 3) {
+        var button = document.getElementById("solveButton");
+        button["innerHTML"] = "Re-building...";
+        button.style.backgroundColor = "#FFFF3F";
+
+        // turn the background of the message window back to original color
+        var botm = document.getElementById("brframe");
+        botm.style.backgroundColor = "#F7F7F7";
+
+        // inactivate buttons until build is done
+        changeMode( 0);
+        changeMode(-1);
+
+    // otherwise, activate the Re-Build button
+    } else {
+        changeMode(0);
+        activateBuildButton();
+        postMessage("====> Re-build is needed <====");
+    }
 }
 
 var editCsmOk_old = function () {
@@ -2444,6 +2517,16 @@ var editCsmOk_old = function () {
 var editCsmCancel = function () {
     // alert("in editCsmCancel()");
 
+    // remember what file we are editting and which line we were on
+    if (wv.fileindx >= 0) {
+        var filelist = wv.filenames.split("|");
+        wv.lastfile = filelist[wv.fileindx];
+        wv.lastline = wv.codeMirror.getCursor()["line"] + 1;
+    } else {
+        wv.lastfile = "";
+        wv.lastline = -1;
+    }
+
     // remove the contents of the file from memory
     wv.curFile = "";
 
@@ -2493,7 +2576,7 @@ var cmdStepThru = function (direction) {
     document.getElementById("myFileMenu").classList.remove("showFileMenu");
     document.getElementById("myToolMenu").classList.remove("showToolMenu");
 
-    if        (wv.curMode >= 7) {
+    if        (wv.curMode >= 8) {
         alert("stepThru not enabled when in tool");
     } else if (wv.curMode >= 0) {
         browserToServer("nextStep|"+direction+"|");
@@ -2577,12 +2660,14 @@ var addPmtr = function () {
     pmtr[newPmtr] = new Array();
 
     pmtr[newPmtr].name = name;
-    pmtr[newPmtr].type = OCSM_EXTERNAL;
+    pmtr[newPmtr].type = OCSM_DESPMTR;
     pmtr[newPmtr].nrow = 1;
     pmtr[newPmtr].ncol = 1;
     pmtr[newPmtr].value = new Array(1);
+    pmtr[newPmtr].dot   = new Array(1);
 
     pmtr[newPmtr].value[0] = "";
+    pmtr[newPmtr].dot[  0] = "0";
 
     // remember info for Parameter
     wv.curPmtr = newPmtr;
@@ -2691,9 +2776,11 @@ var addRow = function () {
     // adjust the number of rows
     pmtr[wv.curPmtr].nrow++;
     pmtr[wv.curPmtr].value = new Array(pmtr[wv.curPmtr].nrow*pmtr[wv.curPmtr].ncol);
+    pmtr[wv.curPmtr].dot   = new Array(pmtr[wv.curPmtr].nrow*pmtr[wv.curPmtr].ncol);
 
     for (var i = 0; i < pmtr[wv.curPmtr].value.length; i++) {
         pmtr[wv.curPmtr].value[i] = "";
+        pmtr[wv.curPmtr].dot[  i] = "0";
     }
 
     // set up editPmtrForm
@@ -2715,9 +2802,11 @@ var addColumn = function () {
     // adjust the number of columns
     pmtr[wv.curPmtr].ncol++;
     pmtr[wv.curPmtr].value = new Array(pmtr[wv.curPmtr].nrow*pmtr[wv.curPmtr].ncol);
+    pmtr[wv.curPmtr].dot   = new Array(pmtr[wv.curPmtr].nrow*pmtr[wv.curPmtr].ncol);
 
     for (var i = 0; i < pmtr[wv.curPmtr].value.length; i++) {
         pmtr[wv.curPmtr].value[i] = "";
+        pmtr[wv.curPmtr].dot[  i] = "0";
     }
 
     // set up editPmtrForm
@@ -2775,7 +2864,7 @@ var compSens = function () {
     }
 
     // can only compute sensitivity for a despmtr
-    if (pmtr[ipmtr].type != OCSM_EXTERNAL) {
+    if (pmtr[ipmtr].type != OCSM_DESPMTR) {
         alert("Can only compute sensitivity for a DESPMTR (not a CFGPMTR).");
         return;
     }
@@ -2785,7 +2874,8 @@ var compSens = function () {
 
     // can only compute sensitivity for a scalar
     if (pmtr[ipmtr].nrow > 1 || pmtr[ipmtr].ncol > 1) {
-        alert("Use \"Set Design Velocity\" to select which element of this multi-valued parameter to use.  Then \"Press to Re-build\"");
+//        alert("Use \"Set Design Velocity\" to select which element of this multi-valued parameter to use.  Then \"Press to Re-build\"");
+        alert("Use table at bottom to set velocity(s).  Then \"Press to Re-Build\"");
         return;
     }
 
@@ -2825,105 +2915,107 @@ var compSens = function () {
 var setVel = function () {
     // alert("in setVel()");
 
-    // disable this command if there were any changes to the Parameter
-    if (numberOfPmtrChanges() > 0) {
-        alert("Changes were made.  Press 'Cancel' or 'OK' first");
-        return;
-    }
+    alert("Set velocity(s) in table at bottom");
 
-    // get the Tree Node
-    var id    = wv.menuEvent["target"].id;
-    var inode = Number(id.substring(4,id.length-4));
-
-    // get the Parameter name
-    var name = myTree.name[inode].replace(/\u00a0/g, "");
-    name = name.replace(/\^/g, "");
-
-    var jnode   = inode;
-    var newName = name;
-    while (myTree.parent[jnode] != 1) {
-        jnode   = myTree.parent[jnode];
-        newName = myTree.name[jnode] + newName;
-    }
-    name = newName.replace(/\u00a0/g, "");
-
-    // get the Parameter index
-    var ipmtr = -1;      // 0-bias
-    var jpmtr;           // 1-bias (and temp)
-    for (jpmtr = 0; jpmtr < pmtr.length; jpmtr++) {
-        if (pmtr[jpmtr].name.replace(/\^/g, "") == name) {
-            ipmtr = jpmtr;
-            break;
-        }
-    }
-    if (ipmtr < 0) {
-        alert(name+" not found");
-        return;
-    } else {
-        jpmtr = ipmtr + 1;
-    }
-
-    // unhighlight the first column of the Tree
-    unhighlightColumn1();
-
-    // get each of the values
-    var index  = -1;
-    var nchange = 0;
-    for (var irow = 1; irow <= pmtr[ipmtr].nrow; irow++) {
-        for (var icol = 1; icol <= pmtr[ipmtr].ncol; icol++) {
-            index++;
-
-            // get the new value
-            var newVel;
-            if (pmtr[ipmtr].nrow == 1 && pmtr[ipmtr].ncol == 1) {
-                newVel = prompt("Enter new Design Velocity for "+name,
-                                pmtr[ipmtr].dot[index]);
-            } else {
-                newVel = prompt("Enter new Design Velocity for "+name+
-                                "["+irow+","+icol+"]",
-                                pmtr[ipmtr].dot[index]);
-            }
-
-            // make sure a valid number was entered
-            if (newVel === null) {
-                continue;
-            } else if (isNaN(newVel)) {
-                alert("Illegal number format, so Design Velocity not being changed");
-                continue;
-            } else if (newVel == pmtr[ipmtr].dot[index]) {
-                continue;
-            } else if (pmtr[ipmtr].nrow == 1 && pmtr[ipmtr].ncol == 1) {
-                postMessage("Parameter '"+name+"' has new Design Velocity "+
-                            newVel+" ====> Re-build is needed <====");
-                nchange++;
-            } else {
-                postMessage("Parameter '"+name+"["+irow+","+icol+
-                            "]' has new Design Velocity "+newVel+
-                            " ====> Re-build is needed <====");
-                nchange++;
-            }
-
-            // store the value locally
-            pmtr[ipmtr].dot[index] = Number(newVel);
-
-            // send the new Design Velocity to the server
-            browserToServer("setVel|"+pmtr[ipmtr].name+"|"+irow+"|"+icol+"|"+newVel+"|");
-
-        }
-    }
-
-    // update the UI
-    if (nchange > 0) {
-        wv.nchanges += nchange;
-
-        var myElem = document.getElementById(id);
-        myElem.className = "fakelinkoff";
-
-        activateBuildButton();
-    }
-
-    // return to the WebViewer
-    changeMode(0);
+//    // disable this command if there were any changes to the Parameter
+//    if (numberOfPmtrChanges() > 0) {
+//        alert("Changes were made.  Press 'Cancel' or 'OK' first");
+//        return;
+//    }
+//
+//    // get the Tree Node
+//    var id    = wv.menuEvent["target"].id;
+//    var inode = Number(id.substring(4,id.length-4));
+//
+//    // get the Parameter name
+//    var name = myTree.name[inode].replace(/\u00a0/g, "");
+//    name = name.replace(/\^/g, "");
+//
+//    var jnode   = inode;
+//    var newName = name;
+//    while (myTree.parent[jnode] != 1) {
+//        jnode   = myTree.parent[jnode];
+//        newName = myTree.name[jnode] + newName;
+//    }
+//    name = newName.replace(/\u00a0/g, "");
+//
+//    // get the Parameter index
+//    var ipmtr = -1;      // 0-bias
+//    var jpmtr;           // 1-bias (and temp)
+//    for (jpmtr = 0; jpmtr < pmtr.length; jpmtr++) {
+//        if (pmtr[jpmtr].name.replace(/\^/g, "") == name) {
+//            ipmtr = jpmtr;
+//            break;
+//        }
+//    }
+//    if (ipmtr < 0) {
+//        alert(name+" not found");
+//        return;
+//    } else {
+//        jpmtr = ipmtr + 1;
+//    }
+//
+//    // unhighlight the first column of the Tree
+//    unhighlightColumn1();
+//
+//    // get each of the values
+//    var index  = -1;
+//    var nchange = 0;
+//    for (var irow = 1; irow <= pmtr[ipmtr].nrow; irow++) {
+//        for (var icol = 1; icol <= pmtr[ipmtr].ncol; icol++) {
+//            index++;
+//
+//            // get the new value
+//            var newVel;
+//            if (pmtr[ipmtr].nrow == 1 && pmtr[ipmtr].ncol == 1) {
+//                newVel = prompt("Enter new Design Velocity for "+name,
+//                                pmtr[ipmtr].dot[index]);
+//            } else {
+//                newVel = prompt("Enter new Design Velocity for "+name+
+//                                "["+irow+","+icol+"]",
+//                                pmtr[ipmtr].dot[index]);
+//            }
+//
+//            // make sure a valid number was entered
+//            if (newVel === null) {
+//                continue;
+//            } else if (isNaN(newVel)) {
+//                alert("Illegal number format, so Design Velocity not being changed");
+//                continue;
+//            } else if (newVel == pmtr[ipmtr].dot[index]) {
+//                continue;
+//            } else if (pmtr[ipmtr].nrow == 1 && pmtr[ipmtr].ncol == 1) {
+//                postMessage("Parameter '"+name+"' has new Design Velocity "+
+//                            newVel+" ====> Re-build is needed <====");
+//                nchange++;
+//            } else {
+//                postMessage("Parameter '"+name+"["+irow+","+icol+
+//                            "]' has new Design Velocity "+newVel+
+//                            " ====> Re-build is needed <====");
+//                nchange++;
+//            }
+//
+//            // store the value locally
+//            pmtr[ipmtr].dot[index] = Number(newVel);
+//
+//            // send the new Design Velocity to the server
+//            browserToServer("setVel|"+pmtr[ipmtr].name+"|"+irow+"|"+icol+"|"+newVel+"|");
+//
+//        }
+//    }
+//
+//    // update the UI
+//    if (nchange > 0) {
+//        wv.nchanges += nchange;
+//
+//        var myElem = document.getElementById(id);
+//        myElem.className = "fakelinkoff";
+//
+//        activateBuildButton();
+//    }
+//
+//    // return to the WebViewer
+//    changeMode(0);
 };
 
 
@@ -2944,6 +3036,23 @@ var clrVels = function () {
 
     // get an updated Parameter list (so that added Parameter is listed)
     browserToServer("clrVels|");
+
+    // set all visible velocities to 0 and update display
+    for (var ipmtr = 0; ipmtr < pmtr.length; ipmtr++) {
+        if (pmtr[ipmtr].type == OCSM_DESPMTR) {
+            var index = -1;
+            for (var irow = 1; irow <= pmtr[ipmtr].nrow; irow++) {
+                for (var icol = 1; icol <= pmtr[ipmtr].ncol; icol++) {
+                    index++;
+
+                    var myInput = editPmtrForm["row"+irow+"col"+icol+"dot"];
+                    myInput.value = 0;
+
+                    pmtr[ipmtr].dot[index] = 0;
+                }
+            }
+        }
+    }
 
     // update the UI
     postMessage("Design Velocities have been cleared ====> Re-build is needed <====");
@@ -2968,26 +3077,48 @@ var editPmtrOk = function () {
 
     // make sure that all entries have valid values
     var nchange = 0;
+
     var index   = -1;
     for (irow = 1; irow <= pmtr[ipmtr].nrow; irow++) {
         for (icol = 1; icol <= pmtr[ipmtr].ncol; icol++) {
             index++;
 
             // get the new value
-            var myInput = editPmtrForm["row"+irow+"col"+icol];
+            var myInput = editPmtrForm["row"+irow+"col"+icol+"val"];
             var value   = myInput.value.replace(/\s/g, "");
 
             if (value.length <= 0) {
-                alert("Entry at (row "+irow+", col "+icol+") is blank");
+                alert("Value at (row "+irow+", col "+icol+") is blank");
                 return;
             } else if (isNaN(value)) {
-                alert("Illegal number format at (row "+irow+", col "+icol+")");
+                alert("Illegal number format in value at (row "+irow+", col "+icol+")");
                 return;
             }
         }
     }
 
-    // send the new Parameter to the server if in add Brch mode
+    if (pmtr[ipmtr].type == OCSM_DESPMTR) {
+        index   = -1;
+        for (irow = 1; irow <= pmtr[ipmtr].nrow; irow++) {
+            for (icol = 1; icol <= pmtr[ipmtr].ncol; icol++) {
+                index++;
+
+                // get the new value
+                var myInput = editPmtrForm["row"+irow+"col"+icol+"dot"];
+                var value   = myInput.value.replace(/\s/g, "");
+
+                if (value.length <= 0) {
+                    alert("Velocity at (row "+irow+", col "+icol+") is blank");
+                    return;
+                } else if (isNaN(value)) {
+                    alert("Illegal number format in velocity at (row "+irow+", col "+icol+")");
+                    return;
+                }
+            }
+        }
+    }
+
+    // send the new Parameter to the server if in add Pmtr mode
     if (wv.curMode == 4) {
         var mesg = "newPmtr|"+name+"|"+nrow+"|"+ncol+"|";
 
@@ -3009,7 +3140,7 @@ var editPmtrOk = function () {
             index++;
 
             // get the new value
-            var myInput = editPmtrForm["row"+irow+"col"+icol];
+            var myInput = editPmtrForm["row"+irow+"col"+icol+"val"];
             var value = myInput.value.replace(/\s/g, "");
 
             if (value != pmtr[ipmtr].value[index]) {
@@ -3023,6 +3154,33 @@ var editPmtrOk = function () {
 
                 // send the new value to the server
                 browserToServer("setPmtr|"+pmtr[ipmtr].name+"|"+irow+"|"+icol+"|"+value+"|");
+            }
+        }
+    }
+
+    // get each of the velocities
+    if (pmtr[ipmtr].type == OCSM_DESPMTR) {
+        index = -1;
+        for (irow = 1; irow <= pmtr[ipmtr].nrow; irow++) {
+            for (icol = 1; icol <= pmtr[ipmtr].ncol; icol++) {
+                index++;
+
+                // get the new value
+                var myInput = editPmtrForm["row"+irow+"col"+icol+"dot"];
+                var value = myInput.value.replace(/\s/g, "");
+
+                if (value != pmtr[ipmtr].dot[index]) {
+                    postMessage("Velocity of parameter '"+pmtr[ipmtr].name+"["+irow+","+icol+
+                                "]' has been changed to "+value+
+                                " ====> Re-build is needed <====");
+                    nchange++;
+
+                    // store the value locally
+                    pmtr[ipmtr].dot[index] = Number(value);
+
+                    // send the new value to the server
+                    browserToServer("setVel|"+pmtr[ipmtr].name+"|"+irow+"|"+icol+"|"+value+"|");
+                }
             }
         }
     }
@@ -3068,7 +3226,7 @@ var editPmtrCancel = function () {
 
     // return to the WebViewer
     changeMode(0);
-};;
+};
 
 
 //
@@ -3089,6 +3247,101 @@ var delPmtr = function () {
     // update the UI
     postMessage("Deleting Parameter "+name+" ====> Re-build is needed <====");
     activateBuildButton();
+
+    // return to the WebViewer
+    changeMode(0);
+};
+
+
+//
+// callback when "Local Variables" is pressed in Tree
+//
+var showOutpmtrs = function () {
+    // alert("showOutpmtrs()");
+
+    if (wv.curMode != 0) {
+        alert("Command disabled.  Press 'Cancel' or 'OK' first");
+        return;
+    } else if (wv.server != "serveCSM") {
+        alert("addPmtr is not implemented for "+wv.server);
+        return;
+    }
+
+    // count the number of OUTPMTRs
+    var count = 0;
+    for (var ipmtr = 0; ipmtr < pmtr.length; ipmtr++) {
+        if (pmtr[ipmtr].type == OCSM_OUTPMTR) {
+            count++;
+        }
+    }
+
+    if (count == 0) {
+        alert("There are no OUTPMTRs");
+        return;
+    }
+    
+    // build up the message to display
+    var message = "";
+    for (ipmtr = 0; ipmtr < pmtr.length; ipmtr++) {
+        if (pmtr[ipmtr].type == OCSM_OUTPMTR) {
+            message += pmtr[ipmtr].name + ":\n    Values:\n";
+            var irow;
+            var icol;
+            var index = -1;
+            for (irow = 1; irow <= pmtr[ipmtr].nrow; irow++) {
+                message += "      ";
+                for (icol = 1; icol <= pmtr[ipmtr].ncol; icol++) {
+                    index++;
+                    message += " " + pmtr[ipmtr].value[index].toFixed(6).padStart(14);
+                }
+                message += "\n";
+            }
+            message += "    Velocities:\n";
+
+            index = -1;
+            for (irow = 1; irow <= pmtr[ipmtr].nrow; irow++) {
+                message += "      ";
+                for (icol = 1; icol <= pmtr[ipmtr].ncol; icol++) {
+                    index++;
+                    message += " " + pmtr[ipmtr].dot[index].toFixed(6).padStart(14);
+                }
+                message += "\n";
+            }
+        }
+    }
+
+    // add the message to the outpmtrsList
+    var outpmtrsList = document.getElementById("outpmtrsList");
+
+    var pre  = document.createElement("pre");
+    var text = document.createTextNode(message);
+    pre.appendChild(text);
+    outpmtrsList.insertBefore(pre, outpmtrsList.lastChild);
+
+    // post the showOutpmtrsForm
+    changeMode(6);
+};
+
+
+//
+// callback when "Ok" is pressed in showOutpmtrsForm (called by ESP.html)
+//
+var showOutpmtrsOk = function () {
+    // alert("showOutpmtrsOk()");
+
+    if (wv.curMode != 6) {
+        alert("Command disabled.  Press 'Cancel' or 'OK' first");
+        return;
+    } else if (wv.server != "serveCSM") {
+        alert("addPmtr is not implemented for "+wv.server);
+        return;
+    }
+
+    // clear the outpmtrsList
+    var outpmtrsList = document.getElementById("outpmtrsList");
+    while (outpmtrsList.firstChild !== null) {
+        outpmtrsList.removeChild(outpmtrsList.firstChild)
+    }
 
     // return to the WebViewer
     changeMode(0);
@@ -4261,6 +4514,18 @@ main.keyPress = function(e) {
         } else {
             return true;
         }
+
+    // if showOutpmtrsForm is posted, press OK when <return> is pressed
+    } else if (wv.curMode == 6) {
+        wv.keyPress = e.charCode;
+        wv.keyCode  = e.keyCode;
+
+        if (wv.keyCode == 13) {
+            showOutpmtrsOk();
+            return false;
+        } else {
+            return true;
+        }
     }
 
     return true;
@@ -4659,7 +4924,9 @@ var modifyDisplayType = function (e) {
     } else {
         wv.plotType = Number(ptype);
 
-        setKeyLimits(null);
+        if (wv.plotType > 0) {
+            setKeyLimits(null);
+        }
     }
 };
 
@@ -4809,22 +5076,42 @@ var modifyDisplayFilter = function (e) {
 
         // loop through all graphics primitives.  if it matches the filter,
         //    make it non-transparent
-        for (gprim in wv.sceneGraph) {
-            try {
-                var attrs = wv.sgData[gprim];
-                for (var i = 0; i < attrs.length; i+=2) {
-                    if        (attrs[i].trim() == attrName && attrs[i+1].trim() == attrValue) {
-                        wv.sceneGraph[gprim].attrs &= ~wv.plotAttrs.TRANSPARENT;
-                    } else if ("*"             == attrName && attrs[i+1].trim() == attrValue) {
-                        wv.sceneGraph[gprim].attrs &= ~wv.plotAttrs.TRANSPARENT;
-                    } else if (attrs[i].trim() == attrName && "*"               == attrValue) {
-                        wv.sceneGraph[gprim].attrs &= ~wv.plotAttrs.TRANSPARENT;
+        if (isNaN(Number(attrValue)) == true) {
+            for (gprim in wv.sceneGraph) {
+                try {
+                    var attrs = wv.sgData[gprim];
+                    for (var i = 0; i < attrs.length; i+=2) {
+                        if        (attrs[i].trim() == attrName && attrs[i+1].trim() == attrValue) {
+                            wv.sceneGraph[gprim].attrs &= ~wv.plotAttrs.TRANSPARENT;
+                        } else if ("*"             == attrName && attrs[i+1].trim() == attrValue) {
+                            wv.sceneGraph[gprim].attrs &= ~wv.plotAttrs.TRANSPARENT;
+                        } else if (attrs[i].trim() == attrName && "*"               == attrValue) {
+                            wv.sceneGraph[gprim].attrs &= ~wv.plotAttrs.TRANSPARENT;
+                        }
                     }
+                } catch (x) {
                 }
-            } catch (x) {
             }
+            postMessage("Display filtered to \""+attrName+"\" \""+attrValue+"\"");
+        } else {
+            attrValue = Number(attrValue);
+            var scale = 1.0 / Math.max(Math.abs(attrValue), 1e-6);
+            
+            for (gprim in wv.sceneGraph) {
+                try {
+                    var attrs = wv.sgData[gprim];
+                    for (var i = 0; i < attrs.length; i+=2) {
+                        if (attrs[i].trim() == attrName && scale*Math.abs(Number(attrs[i+1].trim())-attrValue) < 1e-3) {
+                            wv.sceneGraph[gprim].attrs &= ~wv.plotAttrs.TRANSPARENT;
+                        } else if ("*"      == attrName && scale*Math.abs(Number(attrs[i+1].trim())-attrValue) < 1e-3) {
+                            wv.sceneGraph[gprim].attrs &= ~wv.plotAttrs.TRANSPARENT;
+                        }
+                    }
+                } catch (x) {
+                }
+            }
+            postMessage("Display filtered to \""+attrName+"\" "+attrValue+"");
         }
-        postMessage("Display filtered to \""+attrName+"\" \""+attrValue+"\"");
     }
 
     myTree.update();
@@ -5746,22 +6033,23 @@ var resizeFrames = function () {
 var changeMode = function (newMode) {
     // alert("in changeMode(newMode="+newMode+")");
 
-    var webViewer      = document.getElementById("WebViewer");
-    var addBrchForm    = document.getElementById("addBrchForm");
-    var editBrchForm   = document.getElementById("editBrchForm");
-    var addBrchHeader  = document.getElementById("addBrchHeader");
-    var editBrchHeader = document.getElementById("editBrchHeader");
-    var editPmtrForm   = document.getElementById("editPmtrForm");
-    var addPmtrHeader  = document.getElementById("addPmtrHeader");
-    var editPmtrHeader = document.getElementById("editPmtrHeader");
-    var editCsmForm    = document.getElementById("editCsmForm");
-    var sketcherForm   = document.getElementById("sketcherForm");
-    var glovesForm     = document.getElementById("glovesForm");
+    var webViewer        = document.getElementById("WebViewer");
+    var addBrchForm      = document.getElementById("addBrchForm");
+    var editBrchForm     = document.getElementById("editBrchForm");
+    var addBrchHeader    = document.getElementById("addBrchHeader");
+    var editBrchHeader   = document.getElementById("editBrchHeader");
+    var editPmtrForm     = document.getElementById("editPmtrForm");
+    var showOutpmtrsForm = document.getElementById("showOutpmtrsForm");
+    var addPmtrHeader    = document.getElementById("addPmtrHeader");
+    var editPmtrHeader   = document.getElementById("editPmtrHeader");
+    var editCsmForm      = document.getElementById("editCsmForm");
+    var sketcherForm     = document.getElementById("sketcherForm");
+    var glovesForm       = document.getElementById("glovesForm");
 
-    var wvKey          = document.getElementById("WVkey");
-    var sketcherStatus = document.getElementById("sketcherStatus");
-    var glovesStatus   = document.getElementById("glovesStatus");
-    var ESPlogo        = document.getElementById("ESPlogo");
+    var wvKey            = document.getElementById("WVkey");
+    var sketcherStatus   = document.getElementById("sketcherStatus");
+    var glovesStatus     = document.getElementById("glovesStatus");
+    var ESPlogo          = document.getElementById("ESPlogo");
 
     if (newMode == wv.curMode) {
         return;
@@ -5774,17 +6062,18 @@ var changeMode = function (newMode) {
 
         return;
     } else if (newMode == 0) {
-        webViewer.hidden      = false;
-        addBrchForm.hidden    = true;
-        editBrchForm.hidden   = true;
-        editPmtrForm.hidden   = true;
-        editCsmForm.hidden    = true;
-        sketcherForm.hidden   = true;
-        glovesForm.hidden     = true;
-        wvKey.hidden          = true;
-        sketcherStatus.hidden = true;
-        glovesStatus.hidden   = true;
-        ESPlogo.hidden        = false;
+        webViewer.hidden        = false;
+        addBrchForm.hidden      = true;
+        editBrchForm.hidden     = true;
+        editPmtrForm.hidden     = true;
+        showOutpmtrsForm.hidden = true;
+        editCsmForm.hidden      = true;
+        sketcherForm.hidden     = true;
+        glovesForm.hidden       = true;
+        wvKey.hidden            = true;
+        sketcherStatus.hidden   = true;
+        glovesStatus.hidden     = true;
+        ESPlogo.hidden          = false;
 
         wv.curMode   = 0;
         wv.curTool   = main;
@@ -5792,18 +6081,20 @@ var changeMode = function (newMode) {
         wv.curBrch   = -1;
         wv.afterBrch = -1;
         wv.menuEvent = undefined;
+        wv.keyPress  = -1;
     } else if (newMode == 1) {
-        webViewer.hidden      = true;
-        addBrchForm.hidden    = false;
-        editBrchForm.hidden   = true;
-        editPmtrForm.hidden   = true;
-        editCsmForm.hidden    = true;
-        sketcherForm.hidden   = true;
-        glovesForm.hidden     = true;
-        wvKey.hidden          = true;
-        sketcherStatus.hidden = true;
-        glovesStatus.hidden   = true;
-        ESPlogo.hidden        = false;
+        webViewer.hidden        = true;
+        addBrchForm.hidden      = false;
+        editBrchForm.hidden     = true;
+        editPmtrForm.hidden     = true;
+        showOutpmtrsForm.hidden = true;
+        editCsmForm.hidden      = true;
+        sketcherForm.hidden     = true;
+        glovesForm.hidden       = true;
+        wvKey.hidden            = true;
+        sketcherStatus.hidden   = true;
+        glovesStatus.hidden     = true;
+        ESPlogo.hidden          = false;
 
         // unselect all items
         var elements = document.getElementById("addBrchForm").elements;
@@ -5814,20 +6105,21 @@ var changeMode = function (newMode) {
         wv.curTool = main;
         wv.curMode = 1;
     } else if (newMode == 2) {
-        webViewer.hidden      = true;
-        addBrchForm.hidden    = true;
-        editBrchForm.hidden   = false;
-        editPmtrForm.hidden   = true;
-        editCsmForm.hidden    = true;
-        sketcherForm.hidden   = true;
-        glovesForm.hidden     = true;
-        wvKey.hidden          = true;
-        sketcherStatus.hidden = true;
-        glovesStatus.hidden   = true;
-        ESPlogo.hidden        = false;
+        webViewer.hidden        = true;
+        addBrchForm.hidden      = true;
+        editBrchForm.hidden     = false;
+        editPmtrForm.hidden     = true;
+        showOutpmtrsForm.hidden = true;
+        editCsmForm.hidden      = true;
+        sketcherForm.hidden     = true;
+        glovesForm.hidden       = true;
+        wvKey.hidden            = true;
+        sketcherStatus.hidden   = true;
+        glovesStatus.hidden     = true;
+        ESPlogo.hidden          = false;
 
-        addBrchHeader.hidden  = false;
-        editBrchHeader.hidden = true;
+        addBrchHeader.hidden    = false;
+        editBrchHeader.hidden   = true;
 
         if (wv.getFocus !== undefined) {
             wv.getFocus.focus();
@@ -5838,20 +6130,21 @@ var changeMode = function (newMode) {
         wv.curTool = main;
         wv.curMode = 2;
     } else if (newMode == 3) {
-        webViewer.hidden      = true;
-        addBrchForm.hidden    = true;
-        editBrchForm.hidden   = false;
-        editPmtrForm.hidden   = true;
-        editCsmForm.hidden    = true;
-        sketcherForm.hidden   = true;
-        glovesForm.hidden     = true;
-        wvKey.hidden          = true;
-        sketcherStatus.hidden = true;
-        glovesStatus.hidden   = true;
-        ESPlogo.hidden        = false;
+        webViewer.hidden        = true;
+        addBrchForm.hidden      = true;
+        editBrchForm.hidden     = false;
+        editPmtrForm.hidden     = true;
+        showOutpmtrsForm.hidden = true;
+        editCsmForm.hidden      = true;
+        sketcherForm.hidden     = true;
+        glovesForm.hidden       = true;
+        wvKey.hidden            = true;
+        sketcherStatus.hidden   = true;
+        glovesStatus.hidden     = true;
+        ESPlogo.hidden          = false;
 
-        addBrchHeader.hidden  = true;
-        editBrchHeader.hidden = false;
+        addBrchHeader.hidden    = true;
+        editBrchHeader.hidden   = false;
 
         showBrchArgs();
 
@@ -5864,20 +6157,21 @@ var changeMode = function (newMode) {
         wv.curTool = main;
         wv.curMode = 3;
     } else if (newMode == 4) {
-        webViewer.hidden      = true;
-        addBrchForm.hidden    = true;
-        editBrchForm.hidden   = true;
-        editPmtrForm.hidden   = false;
-        editCsmForm.hidden    = true;
-        sketcherForm.hidden   = true;
-        glovesForm.hidden     = true;
-        wvKey.hidden          = true;
-        sketcherStatus.hidden = true;
-        glovesStatus.hidden   = true;
-        ESPlogo.hidden        = false;
+        webViewer.hidden        = true;
+        addBrchForm.hidden      = true;
+        editBrchForm.hidden     = true;
+        editPmtrForm.hidden     = false;
+        showOutpmtrsForm.hidden = true;
+        editCsmForm.hidden      = true;
+        sketcherForm.hidden     = true;
+        glovesForm.hidden       = true;
+        wvKey.hidden            = true;
+        sketcherStatus.hidden   = true;
+        glovesStatus.hidden     = true;
+        ESPlogo.hidden          = false;
 
-        addPmtrHeader.hidden  = false;
-        editPmtrHeader.hidden = true;
+        addPmtrHeader.hidden    = false;
+        editPmtrHeader.hidden   = true;
 
         if (wv.getFocus !== undefined) {
             wv.getFocus.focus();
@@ -5888,20 +6182,21 @@ var changeMode = function (newMode) {
         wv.curTool = main;
         wv.curMode = 4;
     } else if (newMode == 5) {
-        webViewer.hidden      = true;
-        addBrchForm.hidden    = true;
-        editBrchForm.hidden   = true;
-        editPmtrForm.hidden   = false;
-        editCsmForm.hidden    = true;
-        sketcherForm.hidden   = true;
-        glovesForm.hidden     = true;
-        wvKey.hidden          = true;
-        sketcherStatus.hidden = true;
-        ESPlogo.hidden        = false;
+        webViewer.hidden        = true;
+        addBrchForm.hidden      = true;
+        editBrchForm.hidden     = true;
+        editPmtrForm.hidden     = false;
+        showOutpmtrsForm.hidden = true;
+        editCsmForm.hidden      = true;
+        sketcherForm.hidden     = true;
+        glovesForm.hidden       = true;
+        wvKey.hidden            = true;
+        sketcherStatus.hidden   = true;
+        ESPlogo.hidden          = false;
 
-        addPmtrHeader.hidden  = true;
-        glovesStatus.hidden   = true;
-        editPmtrHeader.hidden = false;
+        addPmtrHeader.hidden    = true;
+        glovesStatus.hidden     = true;
+        editPmtrHeader.hidden   = false;
 
         if (wv.getFocus !== undefined) {
             wv.getFocus.focus();
@@ -5912,50 +6207,68 @@ var changeMode = function (newMode) {
         wv.curTool = main;
         wv.curMode = 5;
     } else if (newMode == 6) {
-        webViewer.hidden      = true;
-        addBrchForm.hidden    = true;
-        editBrchForm.hidden   = true;
-        editPmtrForm.hidden   = true;
-        editCsmForm.hidden    = false;
-        sketcherForm.hidden   = true;
-        glovesForm.hidden     = true;
-        wvKey.hidden          = true;
-        sketcherStatus.hidden = true;
-        glovesStatus.hidden   = true;
-        ESPlogo.hidden        = false;
+        webViewer.hidden        = true;
+        addBrchForm.hidden      = true;
+        editBrchForm.hidden     = true;
+        editPmtrForm.hidden     = true;
+        showOutpmtrsForm.hidden = false;
+        editCsmForm.hidden      = true;
+        sketcherForm.hidden     = true;
+        glovesForm.hidden       = true;
+        wvKey.hidden            = true;
+        sketcherStatus.hidden   = true;
+        ESPlogo.hidden          = false;
 
         wv.curTool = main;
         wv.curMode = 6;
     } else if (newMode == 7) {
-        webViewer.hidden      = true;
-        addBrchForm.hidden    = true;
-        editBrchForm.hidden   = true;
-        editPmtrForm.hidden   = true;
-        editCsmForm.hidden    = true;
-        sketcherForm.hidden   = false;
-        glovesForm.hidden     = true;
-        wvKey.hidden          = true;
-        sketcherStatus.hidden = false;
-        glovesStatus.hidden   = true;
-        ESPlogo.hidden        = true;
+        webViewer.hidden        = true;
+        addBrchForm.hidden      = true;
+        editBrchForm.hidden     = true;
+        editPmtrForm.hidden     = true;
+        showOutpmtrsForm.hidden = true;
+        editCsmForm.hidden      = false;
+        sketcherForm.hidden     = true;
+        glovesForm.hidden       = true;
+        wvKey.hidden            = true;
+        sketcherStatus.hidden   = true;
+        glovesStatus.hidden     = true;
+        ESPlogo.hidden          = false;
 
-        wv.curTool = sket;
+        wv.curTool = main;
         wv.curMode = 7;
     } else if (newMode == 8) {
-        webViewer.hidden      = true;
-        addBrchForm.hidden    = true;
-        editBrchForm.hidden   = true;
-        editPmtrForm.hidden   = true;
-        editCsmForm.hidden    = true;
-        sketcherForm.hidden   = true;
-        glovesForm.hidden     = false;
-        wvKey.hidden          = true;
-        sketcherStatus.hidden = true;
-        glovesStatus.hidden   = true;
-        ESPlogo.hidden        = false;
+        webViewer.hidden        = true;
+        addBrchForm.hidden      = true;
+        editBrchForm.hidden     = true;
+        editPmtrForm.hidden     = true;
+        showOutpmtrsForm.hidden = true;
+        editCsmForm.hidden      = true;
+        sketcherForm.hidden     = false;
+        glovesForm.hidden       = true;
+        wvKey.hidden            = true;
+        sketcherStatus.hidden   = false;
+        glovesStatus.hidden     = true;
+        ESPlogo.hidden          = true;
+
+        wv.curTool = sket;
+        wv.curMode = 8;
+    } else if (newMode == 9) {
+        webViewer.hidden        = true;
+        addBrchForm.hidden      = true;
+        editBrchForm.hidden     = true;
+        editPmtrForm.hidden     = true;
+        showOutpmtrsForm.hidden = true;
+        editCsmForm.hidden      = true;
+        sketcherForm.hidden     = true;
+        glovesForm.hidden       = false;
+        wvKey.hidden            = true;
+        sketcherStatus.hidden   = true;
+        glovesStatus.hidden     = true;
+        ESPlogo.hidden          = false;
 
         wv.curTool = glov;
-        wv.curMode = 8;
+        wv.curMode = 9;
     } else {
         alert("Bad new mode = "+newMode);
     }
@@ -5963,7 +6276,7 @@ var changeMode = function (newMode) {
     if        (wv.curMode == 0) {
         document.getElementById("toolMenuBtn").hidden = false;
         document.getElementById("doneMenuBtn").hidden = true;
-    } else if (wv.curMode >= 7) {
+    } else if (wv.curMode >= 8) {
         document.getElementById("toolMenuBtn").hidden = true;
         document.getElementById("doneMenuBtn").hidden = false;
     }
@@ -5994,24 +6307,24 @@ var rebuildTreeWindow = function () {
     wv.bodynames = "|";
 
     // put the group headers into the Tree
-    myTree.addNode(0, "Design Parameters", "Add a Parameter",   "", addPmtr);    // 1
-    myTree.addNode(0, "Local Variables",   "",                  "", null   );    // 2
-    myTree.addNode(0, "Branches",          "Add Branch at end", "", addBrch);    // 3
+    myTree.addNode(0, "Design Parameters", "Add a Parameter",   "", addPmtr);      // 1
+    myTree.addNode(0, "Local Variables",   "Show Outpmtrs",     "", showOutpmtrs); // 2
+    myTree.addNode(0, "Branches",          "Add Branch at end", "", addBrch);      // 3
     if (wv.curStep == 0) {
-        myTree.addNode(0, "Display",       "Change display",    "", chgDisplay,  // 4
+        myTree.addNode(0, "Display",       "Change display",    "", chgDisplay,    // 4
                        "Viz", toggleViz,
                        "Grd", toggleGrd);
     } else {
-        myTree.addNode(0, "Display");                                            // 4
+        myTree.addNode(0, "Display");                                              // 4
     }
 
-    myTree.addNode(2, "@-parameters",      "",                  "", null   );    // 5
-    myTree.addNode(2, "@@-parameters",     "",                  "", null   );    // 6
+    myTree.addNode(2, "@-parameters",      "",                  "", null   );      // 5
+    myTree.addNode(2, "@@-parameters",     "",                  "", null   );      // 6
 
     // put the Design Parameters into the Tree
     for (var ipmtr = 0; ipmtr < pmtr.length; ipmtr++) {
-        if (pmtr[ipmtr].type == OCSM_EXTERNAL ||
-            pmtr[ipmtr].type == OCSM_CONFIG     ) {
+        if (pmtr[ipmtr].type == OCSM_DESPMTR ||
+            pmtr[ipmtr].type == OCSM_CFGPMTR   ) {
             var name   = "\u00a0\u00a0"+pmtr[ipmtr].name;
             var nrow   =                pmtr[ipmtr].nrow;
             var ncol   =                pmtr[ipmtr].ncol;
@@ -6074,8 +6387,8 @@ var rebuildTreeWindow = function () {
 
     // put the Local Variables into the Tree
     for (ipmtr = 0; ipmtr < pmtr.length; ipmtr++) {
-        if (pmtr[ipmtr].type != OCSM_EXTERNAL &&
-            pmtr[ipmtr].type != OCSM_CONFIG     ) {
+        if (pmtr[ipmtr].type != OCSM_DESPMTR &&
+            pmtr[ipmtr].type != OCSM_CFGPMTR   ) {
             var name  = "\u00a0\u00a0"+pmtr[ipmtr].name;
             var nrow  =                pmtr[ipmtr].nrow;
             var ncol  =                pmtr[ipmtr].ncol;
@@ -6271,11 +6584,20 @@ var rebuildTreeWindow = function () {
             }
         }
 
-        // determine if Body does not exists
+        // determine if Body does not exist by looking for a tree node
+        //    whose name matches the Body's name and which is a descendant
+        //    of the "Display" node
         var kbody = -1;
         for (var jnode = 1; jnode < myTree.name.length; jnode++) {
             if (myTree.name[jnode] == "\u00a0\u00a0"+bodyName) {
-                kbody = jnode;
+                var knode = jnode;
+                while (knode != 0) {
+                    if (knode == 4) {             // "Display"
+                        kbody = jnode;
+                        break;
+                    }
+                    knode = myTree.parent[knode];
+                }
             }
         }
 
@@ -6445,8 +6767,8 @@ var setupEditBrchForm = function () {
         defValue = ["",  "",  "" ];
         document.getElementById("EnterSketcher").style.display = "inline";
     } else if (type == "blend") {
-        argList  = ["begList", "endList", "reorder", "oneFace"];
-        defValue = ["0",       "0",       "0",       "0"      ];
+        argList  = ["begList", "endList", "reorder", "oneFace", "periodic"];
+        defValue = ["0",       "0",       "0",       "0"      , "0"       ];
         suppress = 1;
     } else if (type == "box") {
         argList  = ["xmin", "ymin", "zmin", "dx", "dy", "dz"];
@@ -6553,6 +6875,9 @@ var setupEditBrchForm = function () {
     } else if (type == "mark") {
         argList  = [];
         defValue = [];
+    } else if (type == "message") {
+        argList  = ["$text", "$schar"];
+        defValue = ["",      "_"     ];
     } else if (type == "mirror") {
         argList  = ["nx", "ny", "nz", "dist"];
         defValue = ["",   "",   "",   "0"   ];
@@ -6601,8 +6926,8 @@ var setupEditBrchForm = function () {
         defValue = ["",       "",      ""     ];
         suppress = 1;
     } else if (type == "rule") {
-        argList  = ["reorder"];
-        defValue = ["0"      ];
+        argList  = ["reorder", "periodic"];
+        defValue = ["0"      , "0"       ];
         suppress = 1;
     } else if (type == "scale") {
         argList  = ["fact"];
@@ -6910,11 +7235,11 @@ var setupEditPmtrForm = function () {
     // fill in the Parameter name
     document.getElementById("pmtrName").firstChild["data"] = name;
 
-    var pmtrTable = document.getElementById("editPmtrTable");
+    var pmtrValTable = document.getElementById("editPmtrValTable");
 
     // remove old table entries
-    if (pmtrTable) {
-        var child1 = pmtrTable.lastChild;
+    if (pmtrValTable) {
+        var child1 = pmtrValTable.lastChild;
         while (child1) {
             var child2 = child1.lastChild;
             while (child2) {
@@ -6927,15 +7252,15 @@ var setupEditPmtrForm = function () {
                 child1.removeChild(child2);
                 child2 = child1.lastChild;
             }
-            pmtrTable.removeChild(child1);
-            child1 = pmtrTable.lastChild;
+            pmtrValTable.removeChild(child1);
+            child1 = pmtrValTable.lastChild;
         }
     }
 
     // build the table that will contain values
     for (var irow = 0; irow <= nrow; irow++) {
         var newTR = document.createElement("TR");
-        pmtrTable.appendChild(newTR);
+        pmtrValTable.appendChild(newTR);
 
         // fill the row
         if (irow == 0) {
@@ -6967,7 +7292,7 @@ var setupEditPmtrForm = function () {
 
                 var newInput = document.createElement("input");
                 newInput.type  = "text";
-                newInput.name  = "row"+irow+"col"+icol;
+                newInput.name  = "row"+irow+"col"+icol+"val";
                 newInput.size  = 12;
                 newInput.value = pmtr[ipmtr].value[indx];
                 newTD.appendChild(newInput);
@@ -6977,6 +7302,77 @@ var setupEditPmtrForm = function () {
                 }
             }
         }
+    }
+
+    if (pmtr[ipmtr].type == OCSM_DESPMTR) {
+        document.getElementById("editPmtrDot").hidden = false;
+
+        var pmtrDotTable = document.getElementById("editPmtrDotTable");
+
+        // remove old table entries
+        if (pmtrDotTable) {
+            var child1 = pmtrDotTable.lastChild;
+            while (child1) {
+                var child2 = child1.lastChild;
+                while (child2) {
+
+                    var child3 = child2.lastChild;
+                    while (child3) {
+                        child2.removeChild(child3);
+                        child3 = child2.lastChild;
+                    }
+                    child1.removeChild(child2);
+                    child2 = child1.lastChild;
+                }
+                pmtrDotTable.removeChild(child1);
+                child1 = pmtrDotTable.lastChild;
+            }
+        }
+
+        // build the table that will contain velocities
+        for (var irow = 0; irow <= nrow; irow++) {
+            var newTR = document.createElement("TR");
+            pmtrDotTable.appendChild(newTR);
+
+            // fill the row
+            if (irow == 0) {
+                var newTD = document.createElement("TD");
+                newTR.appendChild(newTD);
+
+                var newText = document.createTextNode("");
+                newTD.appendChild(newText);
+
+                for (var icol = 1; icol <= ncol; icol++) {
+                    newTD = document.createElement("TD");
+                    newTR.appendChild(newTD);
+
+                    newText = document.createTextNode("col\u00a0"+icol);
+                    newTD.appendChild(newText);
+                }
+            } else{
+                var newTD = document.createElement("TD");
+                newTR.appendChild(newTD);
+
+                var newText = document.createTextNode("row\u00a0"+irow);
+                newTD.appendChild(newText);
+
+                for (var icol = 1; icol <= ncol; icol++) {
+                    var indx = icol-1 + (irow-1)*pmtr[ipmtr].ncol;
+
+                    newTD = document.createElement("TD");
+                    newTR.appendChild(newTD);
+
+                    var newInput = document.createElement("input");
+                    newInput.type  = "text";
+                    newInput.name  = "row"+irow+"col"+icol+"dot";
+                    newInput.size  = 12;
+                    newInput.value = pmtr[ipmtr].dot[indx];
+                    newTD.appendChild(newInput);
+                }
+            }
+        }
+    } else {
+        document.getElementById("editPmtrDot").hidden = true;
     }
 
     return 0;
@@ -7009,19 +7405,39 @@ var numberOfPmtrChanges = function () {
     var editPmtrForm = document.getElementById("editPmtrForm");
 
     var ipmtr = wv.curPmtr;
+    var irow;
+    var icol;
 
     // examine each of the values
     var index   = -1;
-    for (var irow = 1; irow <= pmtr[ipmtr].nrow; irow++) {
-        for (var icol = 1; icol <= pmtr[ipmtr].ncol; icol++) {
+    for (irow = 1; irow <= pmtr[ipmtr].nrow; irow++) {
+        for (icol = 1; icol <= pmtr[ipmtr].ncol; icol++) {
             index++;
 
             // get the new value
-            var myInput = editPmtrForm["row"+irow+"col"+icol];
+            var myInput = editPmtrForm["row"+irow+"col"+icol+"val"];
             var value   = myInput.value.replace(/\s/g, "");
 
             if (value != pmtr[ipmtr].value[index]) {
                 nchange++;
+            }
+        }
+    }
+
+    // examine each of the velocities
+    if (pmtr[ipmtr].type == OCSM_DESPMTR) {
+        index   = -1;
+        for (irow = 1; irow <= pmtr[ipmtr].nrow; irow++) {
+            for (icol = 1; icol <= pmtr[ipmtr].ncol; icol++) {
+                index++;
+
+                // get the new value
+                var myInput = editPmtrForm["row"+irow+"col"+icol+"dot"];
+                var value   = myInput.value.replace(/\s/g, "");
+
+                if (value != pmtr[ipmtr].dot[index]) {
+                    nchange++;
+                }
             }
         }
     }
@@ -7328,7 +7744,7 @@ var cmdEditHint = function () {
     } else if (curLine.match(/^\s*bezier/i) !== null) {
         hintText =        "hint:: BEZIER    x y z";
     } else if (curLine.match(/^\s*blend/i) !== null) {
-        hintText =        "hint:: BLEND     begList=0 endList=0 reorder=0 oneFace=0";
+        hintText =        "hint:: BLEND     begList=0 endList=0 reorder=0 oneFace=0 periodic=0";
     } else if (curLine.match(/^\s*box/i) !== null) {
         hintText =        "hint:: BOX       xbase ybase zbase dx dy dz";
     } else if (curLine.match(/^\s*catbeg/i) !== null) {
@@ -7403,12 +7819,16 @@ var cmdEditHint = function () {
         hintText =        "hint:: MACEND (deprecate)";
     } else if (curLine.match(/^\s*mark/i) !== null) {
         hintText =        "hint:: MARK";
+    } else if (curLine.match(/^\s*message/i) !== null) {
+        hintText =        "hint:: MESSAGE   $text $schar=_";
     } else if (curLine.match(/^\s*mirror/i) !== null) {
         hintText =        "hint:: MIRROR    nx ny nz dist=0";
     } else if (curLine.match(/^\s*name/i) !== null) {
         hintText =        "hint:: NAME      $branchName";
     } else if (curLine.match(/^\s*outpmtr/i) !== null) {
         hintText =        "hint:: OUTPMTR   $pmtrName";
+    } else if (curLine.match(/^\s*patbeg/i) !== null) {
+        hintText =        "hint:: PATBEG    $pmtrName ncopy";
     } else if (curLine.match(/^\s*patbreak/i) !== null) {
         hintText =        "hint:: PATBREAK  expr";
     } else if (curLine.match(/^\s*patend/i) !== null) {
@@ -7432,7 +7852,7 @@ var cmdEditHint = function () {
     } else if (curLine.match(/^\s*rotatez/i) !== null) {
         hintText =        "hint:: ROTATEZ   angDeg xaxis yaxis";
     } else if (curLine.match(/^\s*rule/i) !== null) {
-        hintText =        "hint:: RULE      reorder=0";
+        hintText =        "hint:: RULE      reorder=0 periodic=0";
     } else if (curLine.match(/^\s*scale/i) !== null) {
         hintText =        "hint:: SCALE     fact";
     } else if (curLine.match(/^\s*select/i) !== null) {
@@ -7570,7 +7990,7 @@ CodeMirror.defineSimpleMode("csm_mode", {
     {token: "keyword", regex: /\s*(blend|BLEND)\b/,         sol: true,               dedent: true},
     {token: "keyword", regex: /\s*(box|BOX)\b/,             sol: true},
     {token: "keyword", regex: /\s*(catbeg|CATBEG)\b/,       sol: true, indent: true},
-    {token: "keyword", regex: /\s*(catend|CATEND)\b/,       sol: true,               dednet: true},
+    {token: "keyword", regex: /\s*(catend|CATEND)\b/,       sol: true,               dedent: true},
     {token: "keyword", regex: /\s*(cfgpmtr|CFGPMTR)\b/,     sol: true},
     {token: "keyword", regex: /\s*(chamfer|CHAMFER)\b/,     sol: true},
     {token: "keyword", regex: /\s*(cirarc|CIRARC)\b/,       sol: true},
@@ -7605,6 +8025,7 @@ CodeMirror.defineSimpleMode("csm_mode", {
     {token: "keyword", regex: /\s*(macbeg|MACBEG)\b/,       sol: true, indent: true},
     {token: "keyword", regex: /\s*(macend|MACEND)\b/,       sol: true,               dedent: true},
     {token: "keyword", regex: /\s*(mark|MARK)\b/,           sol: true, indent: true},
+    {token: "keyword", regex: /\s*(message|MESSAGE)\b/,     sol: true},
     {token: "keyword", regex: /\s*(mirror|MIRROR)\b/,       sol: true},
     {token: "keyword", regex: /\s*(name|NAME)\b/,           sol: true},
     {token: "keyword", regex: /\s*(outpmtr|OUTPMTR)\b/,     sol: true},

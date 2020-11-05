@@ -38,14 +38,14 @@ dihedral  = 15   # maximum interior dihedral angle between triangle facets
 # Set EGADS body tessellation parameters
 tess.setAnalysisVal("Tess_Params", [maxLength, deviation, dihedral])
 
-# Impact of chaning deviation
+# Impact of changing deviation
 for dev in [0.01, 0.005, 0.001]:
     tess.setAnalysisVal("Tess_Params", [0, dev, 30])
-    
+
     # Run AIM pre/post-analysis
     tess.preAnalysis()
     tess.postAnalysis()
-    
+
     # View the tessellation
     tess.viewGeometry()
 

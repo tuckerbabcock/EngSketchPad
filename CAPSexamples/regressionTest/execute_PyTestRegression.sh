@@ -224,10 +224,10 @@ if [[ "$TYPE" == "MESH" || "$TYPE" == "ALL" ]]; then
         expectPythonSuccess "aflr2_PyTest.py" $capsPythonRegDir
         expectPythonSuccess "aflr3_PyTest.py" $capsPythonRegDir
         expectPythonSuccess "aflr4_PyTest.py" $capsPythonRegDir
-        expectPythonSuccess "aflr4_PyTest.py" $capsPythonRegDir
         expectPythonSuccess "aflr4_Symmetry_PyTest.py" $capsPythonRegDir
         expectPythonSuccess "aflr4_Generic_Missile.py" $capsPythonRegDir
         expectPythonSuccess "aflr4_TipTreat_PyTest.py" $capsPythonRegDir -noPlotData
+        expectPythonSuccess "aflr4_and_aflr3_PyTest.py" $capsPythonRegDir
     
         if [ -f $ESP_ROOT/lib/tetgenAIM.$EXT ]; then
             expectPythonSuccess "aflr4_and_Tetgen_PyTest.py" $capsPythonRegDir

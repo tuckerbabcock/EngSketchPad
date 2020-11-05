@@ -22,11 +22,13 @@
 #include "OpenCSM.h"
 
 
+#define EBUFSIZE  4096
+
+
 /*@-incondefs@*/
 extern void ut_free(/*@only@*/ ut_unit* const unit);
 extern void cv_free(/*@only@*/ cv_converter* const converter);
 /*@+incondefs@*/
-
 
 
 static int
@@ -486,8 +488,6 @@ aim_getName(void *aimStruc, int index, enum capssType subtype,
 int
 aim_getGeomInType(void *aimStruc, int index)
 {
-  int         stat, nrow, ncol, type;
-  char        name[MAX_NAME_LEN];
   aimInfo     *aInfo;
   capsObject  *vobj;
   capsValue   *value;
@@ -504,12 +504,8 @@ aim_getGeomInType(void *aimStruc, int index)
   if (vobj->type        != VALUE)      return CAPS_BADTYPE;
   if (vobj->blind       == NULL)       return CAPS_NULLBLIND;
   value = (capsValue *) vobj->blind;
-
-  stat  = ocsmGetPmtr(problem->modl, value->pIndex, &type, &nrow, &ncol, name);
-  if (stat != SUCCESS) return stat;
   
-  if (type == OCSM_EXTERNAL) return CAPS_SUCCESS;
-  return EGADS_OUTSIDE;
+  return value->gInType;
 }
 
 
@@ -1010,12 +1006,14 @@ aim_getBounds(void *aimStruc, int *nTname, char ***tnames)
 int
 aim_setSensitivity(void *aimStruc, const char *GIname, int irow, int icol)
 {
-  int          stat, i, ipmtr, nbrch, npmtr, nrow, ncol, type;
+  int          stat, i, j, k, m, n, ipmtr, nbrch, npmtr, nrow, ncol, type;
   int          buildTo, builtTo, nbody;
   char         name[MAX_NAME_LEN];
+  double       *reals;
   modl_T       *MODL;
   aimInfo      *aInfo;
   capsProblem  *problem;
+  capsValue    *value;
 
   aInfo = (aimInfo *) aimStruc;
   if (aInfo == NULL)                   return CAPS_NULLOBJ;
@@ -1032,7 +1030,7 @@ aim_setSensitivity(void *aimStruc, const char *GIname, int irow, int icol)
   for (ipmtr = i = 0; i < npmtr; i++) {
     stat = ocsmGetPmtr(problem->modl, i+1, &type, &nrow, &ncol, name);
     if (stat != SUCCESS) continue;
-    if (type != OCSM_EXTERNAL) continue;
+    if (type != OCSM_DESPMTR) continue;
     if (strcmp(name, GIname) != 0) continue;
     ipmtr = i+1;
     break;
@@ -1052,6 +1050,32 @@ aim_setSensitivity(void *aimStruc, const char *GIname, int irow, int icol)
   nbody   = 0;
   stat    = ocsmBuild(problem->modl, buildTo, &builtTo, &nbody, NULL);
   if (stat != SUCCESS) return stat;
+  
+  /* fill in GeometryOut Dot values -- same as caps_geomOutSensit */
+  for (i = 0; i < problem->nRegGIN; i++) {
+    if (problem->geomIn[problem->regGIN[i].index-1] == NULL) continue;
+    value = (capsValue *) problem->geomIn[problem->regGIN[i].index-1]->blind;
+    if (value                   == NULL)  continue;
+    if (value->pIndex           != ipmtr) continue;
+    if (problem->regGIN[i].irow != irow)  continue;
+    if (problem->regGIN[i].icol != icol)  continue;
+    for (j = 0; j < problem->nGeomOut; j++) {
+      if (problem->geomOut[j] == NULL) continue;
+      value = (capsValue *) problem->geomOut[j]->blind;
+      if (value               == NULL) continue;
+      if (value->dots         == NULL) continue;
+      if (value->dots[i].dot  != NULL) continue;
+      value->dots[i].dot = (double *) EG_alloc(value->length*sizeof(double));
+      if (value->dots[i].dot  == NULL) continue;
+      reals = value->vals.reals;
+      if (value->length == 1) reals = &value->vals.real;
+      for (n = k = 0; k < value->nrow; k++)
+        for (m = 0; m < value->ncol; m++, n++)
+          ocsmGetValu(problem->modl, value->pIndex, k+1, m+1,
+                      &reals[n], &value->dots[i].dot[n]);
+    }
+    break;
+  }
 
   aInfo->pIndex = ipmtr;
   aInfo->irow   = irow;
@@ -1212,7 +1236,7 @@ aim_sensitivity(void *aimStruc, const char *GIname, int irow, int icol,
   for (ipmtr = i = 0; i < npmtr; i++) {
     stat = ocsmGetPmtr(problem->modl, i+1, &type, &nrow, &ncol, name);
     if (stat != SUCCESS) continue;
-    if (type != OCSM_EXTERNAL) continue;
+    if (type != OCSM_DESPMTR) continue;
     if (strcmp(name, GIname) != 0) continue;
     ipmtr = i+1;
     break;
@@ -1316,4 +1340,182 @@ aim_isNodeBody(ego body, double *xyz)
   if (status != EGADS_SUCCESS) return status;
 
   return EGADS_SUCCESS;
+}
+
+
+static void
+aim_addLine(void *aimStruc, enum capseType etype, const char *line)
+{
+  int       index, len;
+  char      **ltmp;
+  capsError *etmp;
+  aimInfo   *aInfo;
+  
+  aInfo = (aimInfo *) aimStruc;
+  if (aInfo == NULL)                   return;
+  if (aInfo->magicnumber != CAPSMAGIC) return;
+  
+  if (etype == CONTINUATION) {
+    if (aInfo->errs.nError == 0) {
+      printf(" CAPS Internal: Continuation without a start!\n");
+      return;
+    }
+    index = aInfo->errs.nError - 1;
+    len   = aInfo->errs.errors[index].nLines + 1;
+    ltmp  = (char **) EG_reall(aInfo->errs.errors[index].lines,
+                               len*sizeof(char *));
+    if (ltmp == NULL) return;
+    ltmp[len-1] = EG_strdup(line);
+    aInfo->errs.errors[index].lines  = ltmp;
+    aInfo->errs.errors[index].nLines = len;
+    return;
+  }
+  
+  index = aInfo->errs.nError;
+  if (index == 0) {
+    aInfo->errs.errors = (capsError *) EG_alloc(sizeof(capsError));
+    if (aInfo->errs.errors == NULL) return;
+  } else {
+    etmp = (capsError *) EG_reall(aInfo->errs.errors,
+                                  (index+1)*sizeof(capsError));
+    if (etmp == NULL) return;
+    aInfo->errs.errors = etmp;
+  }
+  aInfo->errs.errors[index].errObj = NULL;
+  aInfo->errs.errors[index].eType  = etype;
+  aInfo->errs.errors[index].index  = 0;
+  aInfo->errs.errors[index].nLines = 1;
+  aInfo->errs.errors[index].lines  = (char **) EG_alloc(sizeof(char *));
+  if (aInfo->errs.errors[index].lines != NULL)
+    aInfo->errs.errors[index].lines[0] = EG_strdup(line);
+  
+  aInfo->errs.nError = index+1;
+}
+
+
+void
+aim_status(void *aimInfo, const int status, const char *file, const int line,
+           const char *func, const int narg, ...)
+{
+  va_list args;
+  char    buffer[EBUFSIZE] = {'\0'}, buffer2[EBUFSIZE] = {'\0'};
+  const char *format = NULL;
+
+  if (narg > 0) {
+    va_start(args, narg);
+    format = va_arg(args, const char *);
+    vsnprintf(buffer, EBUFSIZE, format, args);
+    va_end(args);
+  }
+
+  snprintf(buffer2, EBUFSIZE, "%s:%d %s %s\n", file, line, func, buffer);
+  aim_addLine(aimInfo, CERROR, buffer2);
+}
+
+
+void
+aim_error(void *aimInfo, const char *file, const int line, const char *func,
+           const char *format, ...)
+{
+  va_list args;
+  char    buffer[EBUFSIZE] = {'\0'}, buffer2[EBUFSIZE] = {'\0'};
+
+  va_start(args, format);
+  vsnprintf(buffer, EBUFSIZE, format, args);
+  va_end(args);
+
+  snprintf(buffer2, EBUFSIZE, "%s:%d %s %s\n", file, line, func, buffer);
+  aim_addLine(aimInfo, CERROR, buffer2);
+}
+
+
+void
+aim_warning(void *aimInfo, const char *file, const int line, const char *func,
+           const char *format, ...)
+{
+  va_list args;
+  char    buffer[EBUFSIZE] = {'\0'}, buffer2[EBUFSIZE] = {'\0'};
+
+  va_start(args, format);
+  vsnprintf(buffer, EBUFSIZE, format, args);
+  va_end(args);
+
+  snprintf(buffer2, EBUFSIZE, "%s:%d %s %s\n", file, line, func, buffer);
+  aim_addLine(aimInfo, CWARN, buffer2);
+}
+
+
+void
+aim_info(void *aimInfo, const char *file, const int line, const char *func,
+         const char *format, ...)
+{
+  va_list args;
+  char    buffer[EBUFSIZE] = {'\0'}, buffer2[EBUFSIZE] = {'\0'};
+
+  va_start(args, format);
+  vsnprintf(buffer, EBUFSIZE, format, args);
+  va_end(args);
+
+  snprintf(buffer2, EBUFSIZE, "%s:%d %s %s\n", file, line, func, buffer);
+  aim_addLine(aimInfo, CINFO, buffer2);
+}
+
+
+void
+aim_continuation(void *aimInfo, const char *file, const int line,
+                 const char *func, const char *format, ...)
+{
+  va_list args;
+  char    buffer[EBUFSIZE] = {'\0'}, buffer2[EBUFSIZE] = {'\0'};
+
+  va_start(args, format);
+  vsnprintf(buffer, EBUFSIZE, format, args);
+  va_end(args);
+
+  snprintf(buffer2, EBUFSIZE, "%s:%d %s %s\n", file, line, func, buffer);
+  aim_addLine(aimInfo, CONTINUATION, buffer2);
+}
+
+
+void
+aim_setIndexError(void *aimStruc, int index)
+{
+  int     i;
+  aimInfo *aInfo;
+  
+  aInfo = (aimInfo *) aimStruc;
+  if (aInfo == NULL)                   return;
+  if (aInfo->magicnumber != CAPSMAGIC) return;
+  if (aInfo->errs.nError == 0)         return;
+
+  i = aInfo->errs.nError - 1;
+  aInfo->errs.errors[i].index = index;
+}
+
+
+void
+aim_removeError(void *aimStruc)
+{
+  int     i, j, k;
+  aimInfo *aInfo;
+  
+  aInfo = (aimInfo *) aimStruc;
+  if (aInfo == NULL)                   return;
+  if (aInfo->magicnumber != CAPSMAGIC) return;
+  
+  for (j = i = 0; i < aInfo->errs.nError; i++)
+    if (aInfo->errs.errors[i].eType == CERROR) {
+      for (k = 0; k < aInfo->errs.errors[i].nLines; k++)
+        EG_free(aInfo->errs.errors[i].lines[k]);
+      EG_free(aInfo->errs.errors[i].lines);
+    } else {
+      aInfo->errs.errors[j] = aInfo->errs.errors[i];
+      j++;
+    }
+  
+  if (j == 0) {
+    EG_free(aInfo->errs.errors);
+    aInfo->errs.errors = NULL;
+  }
+  aInfo->errs.nError = j;
 }

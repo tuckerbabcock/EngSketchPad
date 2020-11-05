@@ -22,47 +22,47 @@ endif
 VPATH = $(ODIR)
 
 OBJSP = egadsGeom.o egadsHLevel.o egadsTopo.o   egadsCopy.o   egadsSpline.o \
-	egadsIO.o   egadsSplineFit.o            egadsTessSens.o
+	egadsIO.o   egadsSplineFit.o            egadsTessSens.o BRepLib_FuseEdges.o
 OBJS  = egadsBase.o egadsMemory.o egadsAttrs.o  egadsTess.o   egadsTessInp.o \
 	egadsTris.o egadsQuads.o  egadsFit.o    egadsRobust.o egadsSBO.o \
 	prmCfit.o   prmGrid.o     prmUV.o       egadsExport.o egadsSkinning.o \
-	egadsSolids.o
+	egadsEffect.o egadsSolids.o
 FOBJS = fgadsBase.o fgadsMemory.o fgadsAttrs.o  fgadsTess.o   fgadsHLevel.o \
 	fgadsGeom.o fgadsTopo.o
 SRINC = $(SIDIR)/SurrealD.h $(SIDIR)/SurrealD_Lazy.h $(SIDIR)/SurrealD_Trad.h \
         $(SIDIR)/SurrealS.h $(SIDIR)/SurrealS_Lazy.h $(SIDIR)/SurrealS_Trad.h \
 	$(SIDIR)/always_inline.h
 
-default:	uts $(LDIR)/$(SHLIB) $(LDIR)/libegadstatic.a \
-		$(LDIR)/libfgads.a $(LDIR)/libemp.a $(IDIR)/$(ESP_ARCH) \
+default:	$(IDIR)/$(ESP_ARCH) uts $(LDIR)/$(SHLIB) \
+		$(LDIR)/libegadstatic.a $(LDIR)/libfgads.a $(LDIR)/libemp.a \
 		$(IDIR)/egads.h $(IDIR)/egads_dot.h $(IDIR)/egads.inc \
 		$(IDIR)/egadsErrors.h $(IDIR)/egadsTypes.h $(IDIR)/emp.h \
 		$(IDIR)/prm.h $(IDIR)/wsserver.h $(IDIR)/wsserver.inc \
 		$(IDIR)/wsss.h $(IDIR)/egadsTris.h $(IDIR)/egadsSplineFit.h \
-		$(IDIR)/egadsSplineVels.h $(IDIR)/egadsf90.inc $(SRINC)
+		$(IDIR)/egadsSplineVels.h $(IDIR)/egadsf90.inc $(SRINC) end
 
 $(LDIR)/libegads.so:	$(OBJSP) $(OBJS) emp.o evaluate.o rational.o \
-			regQuads.o
+			regQuads.o $(LDIR)/libuvmap.a
 	touch $(LDIR)/libegads.so
 	rm $(LDIR)/libegads.so
 	(cd $(ODIR); $(CC) -shared -Wl,-no-undefined -o $(LDIR)/libegads.so \
 		$(OBJSP) $(OBJS) emp.o evaluate.o rational.o regQuads.o \
-		$(LIBPATH) $(LIBS) $(CPPSLB) )
+		$(LIBPATH) -luvmap $(LIBS) $(CPPSLB) $(RPATH) )
 
 $(LDIR)/libegads.dylib:	$(OBJSP) $(OBJS) emp.o evaluate.o rational.o \
-			regQuads.o
+			regQuads.o $(LDIR)/libuvmap.a
 	touch $(LDIR)/libegads.dylib
 	rm $(LDIR)/libegads.dylib
 	(cd $(ODIR); $(CC) -dynamiclib -o $(LDIR)/libegads.dylib $(OBJSP) \
 		$(OBJS) emp.o evaluate.o rational.o regQuads.o \
-		$(RPATH) $(LIBPATH) $(LIBS) $(CPPSLB) -undefined error \
+		$(RPATH) $(LIBPATH) -luvmap $(LIBS) $(CPPSLB) -undefined error \
 		-install_name '@rpath/libegads.dylib' \
 		-compatibility_version $(CASREV) \
 		-current_version $(EGREV) )
 
 # CYGWIN
 $(LDIR)/libegads.dll:	$(OBJSP) $(OBJS) emp.o evaluate.o rational.o \
-			regQuads.o
+			regQuads.o $(LDIR)/libuvmap.a
 	touch $(LDIR)/libegads.dll
 	touch $(LDIR)/libegads.dll.a
 	rm $(LDIR)/libegads.dll
@@ -70,15 +70,19 @@ $(LDIR)/libegads.dll:	$(OBJSP) $(OBJS) emp.o evaluate.o rational.o \
 	(cd $(ODIR); $(CC) -shared -o $(LDIR)/libegads.dll \
 		-Wl,--out-implib,$(LDIR)/libegads.dll.a \
 		$(OBJSP) $(OBJS) emp.o evaluate.o rational.o regQuads.o \
-		$(LIBPATH) $(LIBS) $(CPPSLB) )
+		$(LIBPATH) -luvmap $(LIBS) $(CPPSLB) )
 
 $(LDIR)/libegadstatic.a:	$(OBJSP) $(OBJS) emp.o evaluate.o rational.o \
-				regQuads.o
+				regQuads.o $(LDIR)/libuvmap.a
 	touch $(LDIR)/libegadstatic.a
 	rm $(LDIR)/libegadstatic.a
+	cp $(LDIR)/libuvmap.a $(LDIR)/libegadstatic.a
 	(cd $(ODIR); \
 		ar $(LOPTS) $(LDIR)/libegadstatic.a $(OBJS) $(OBJSP) emp.o \
-		evaluate.o rational.o regQuads.o ; $(RANLB) )
+		evaluate.o rational.o regQuads.o; $(RANLB) )
+
+$(LDIR)/libuvmap.a:
+	(cd ../util; make)
 
 $(LDIR)/libfgads.a:		$(FOBJS)
 	touch $(LDIR)/libfgads.a
@@ -107,6 +111,7 @@ $(ODIR)/SurrealS4:	../util/SurrealS4_btest.cpp
 	$(ODIR)/SurrealS4
 
 uts:	$(ODIR)/SurrealD1 $(ODIR)/SurrealD4 $(ODIR)/SurrealS1 $(ODIR)/SurrealS4
+	(cd ../util; make)
 
 $(OBJS): %.o:	%.c ../include/egadsErrors.h egadsInternals.h egadsStack.h \
 		../include/egadsTypes.h egadsTris.h
@@ -118,7 +123,7 @@ $(FOBJS): %.o:	%.c ../include/egadsErrors.h egadsInternals.h egadsStack.h \
 	$(CC) -c $(COPTS) $(DEFINE) $(XDEF) -I../include $< -o $(ODIR)/$@
 
 $(OBJSP): %.o:	%.cpp ../include/egadsErrors.h egadsOCC.h egadsInternals.h \
-		../include/egadsTypes.h \
+		../include/egadsTypes.h ../include/egads_dot.h \
 		egadsClasses.h egadsSplineFit.h egadsStack.h Surreal/SurrealS.h
 	$(CXX) -c $(CPPOPT) $(DEFANL) $(DEFINE) $(XDEF) $(INCS) -I../include \
 		-I. $< -o $(ODIR)/$@
@@ -128,16 +133,12 @@ emp.o:		../util/emp.c
 		-o $(ODIR)/emp.o
 
 evaluate.o:	../util/evaluate.c
-	cp ../util/evaluate.c evaluate.cpp
-	$(CXX) -c $(CPPOPT) $(DEFINE) $(INCS) -I../include evaluate.cpp \
-		-o $(ODIR)/evaluate.o
-	-rm evaluate.cpp
+	$(CXX) -x c++ -c $(CPPOPT) $(DEFINE) $(INCS) -I. -I../include \
+		../util/evaluate.c -o $(ODIR)/evaluate.o
 
 rational.o:	../util/rational.c
-	cp ../util/rational.c rational.cpp
-	$(CXX) -c $(CPPOPT) $(DEFINE) $(INCS) -I../include rational.cpp \
-		-o $(ODIR)/rational.o
-	-rm rational.cpp
+	$(CXX) -x c++ -c $(CPPOPT) $(DEFINE) $(INCS) -I. -I../include \
+		../util/rational.c -o $(ODIR)/rational.o
 
 regQuads.o:	../util/regQuads.c ../util/regQuads.h
 	$(CC) -c $(COPTS) $(DEFINE) $(INCS) -I../include -I../util \
@@ -224,11 +225,16 @@ $(SRINC):	Surreal/SurrealD.h Surreal/SurrealS.h Surreal/always_inline.h \
 	mkdir -p $(SIDIR)
 	cp Surreal/$(notdir $@) $@
 
+end:
+	@echo " *** EGADS Build Complete! ***"
+
 clean:
+	-(cd ../util; make clean)
 	-(cd $(ODIR); rm $(FOBJS) $(OBJSP) $(OBJS) emp.o evaluate.o rational.o \
 		regQuads.o SurrealD1 SurrealD4 SurrealS1 SurrealS4)
 
 cleanall:	clean
+	-(cd ../util; make cleanall)
 	-rm $(LDIR)/libegads* $(LDIR)/libfgads.a $(LDIR)/libemp.a
 	-rm $(IDIR)/$(ESP_ARCH) $(IDIR)/egads.h $(IDIR)/egads_dot.h
 	-rm $(IDIR)/egadsErrors.h $(IDIR)/egadsTypes.h $(IDIR)/emp.h 

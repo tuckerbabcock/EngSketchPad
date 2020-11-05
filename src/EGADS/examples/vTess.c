@@ -32,10 +32,6 @@
 #ifndef LITE
 /* from util subdirectory -- not in egads.h! */
 extern int EG_retessFaces(ego tess, int nf, int *iface, double *params);
-/*
-extern int EG_saveTess(ego tess, const char *name);
-extern int EG_loadTess(ego body, const char *name, ego *tess);
-*/
 #endif
 
 

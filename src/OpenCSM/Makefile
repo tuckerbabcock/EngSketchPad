@@ -323,7 +323,7 @@ $(ODIR)/udpNaca.o:	udpNaca.c udpUtilities.c udpUtilities.h
 $(LDIR)/naca456.so:	$(ODIR)/udpNaca456.o $(ODIR)/naca456.o $(LDIR)/$(OSHLIB)
 	touch $(LDIR)/naca456.so
 	rm $(LDIR)/naca456.so
-	$(FCOMP) $(SOFLGS) -o $(LDIR)/naca456.so $(ODIR)/udpNaca456.o \
+	$(FCOMP) $(FSOFLG) -o $(LDIR)/naca456.so $(ODIR)/udpNaca456.o \
 		$(ODIR)/naca456.o -L$(LDIR) -locsm -legads -lm $(ESPFLIBS)
 
 $(ODIR)/udpNaca456.o:	udpNaca456.c udpUtilities.c udpUtilities.h

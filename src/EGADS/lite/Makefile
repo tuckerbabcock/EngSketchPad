@@ -4,6 +4,7 @@ CCSAV = $(CC)
 CXSAV = $(CXX)
 include ../include/$(ESP_ARCH)
 ifneq (,$(findstring analyzer,$(CCSAV)))
+DEFANL = -DDEBUG
 CC     = $(CCSAV)
 CXX    = $(CXSAV)
 endif

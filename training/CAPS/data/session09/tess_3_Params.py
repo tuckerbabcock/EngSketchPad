@@ -38,7 +38,7 @@ dihedral  = 15   # maximum interior dihedral angle between triangle facets
 # Set EGADS body tessellation parameters
 tess.setAnalysisVal("Tess_Params", [maxLength, deviation, dihedral])
 
-# Impact of chaning bound on the maximum segment
+# Impact of changing bound on the maximum segment
 for maxLen in [0, 0.3, 0.1]:
     tess.setAnalysisVal("Tess_Params", [maxLen, 0.1, 30])
 
@@ -48,5 +48,4 @@ for maxLen in [0, 0.3, 0.1]:
 
     # View the tessellation
     tess.viewGeometry()
-    tess.saveGeometry("wing3.egads")
 

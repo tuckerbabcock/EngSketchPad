@@ -28,7 +28,7 @@ geometryScript = os.path.join("..","csmData","regions.csm")
 geometry = problem.loadCAPS(geometryScript, verbosity=args.verbosity)
 
 # Use egads for surface tessellation
-surface = problem.loadAIM(aim='aflr4AIM', altName='S')
+surface = problem.loadAIM(aim='aflr4AIM', analysisDir = workDir, altName='S')
 
 # Set maximum and minimum edge lengths relative to capsMeshLength
 surface.setAnalysisVal("max_scale", 0.2)

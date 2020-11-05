@@ -1055,7 +1055,7 @@ __HOST_AND_DEVICE__ int
 EG_arcLength(const egObject *geom, double t1, double t2, double *alen)
 {
   int            i, stat;
-  double         t, d, ur, mid, result[9];
+  double         t, d, ur, mid, result[9] = {0.,0.,0.,0.,0.,0.,0.,0.,0.};
   liteEdge       *ledge;
   const egObject *ref;
 /*

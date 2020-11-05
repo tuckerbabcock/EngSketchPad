@@ -25,13 +25,15 @@ caps_attrByName(capsObject *cobj, char *name, capsObject **attr)
   const void     *data;
   enum capsvType type;
   capsValue      *value;
-  capsObject     *object;
+  capsObject     *object, *pobject;
 
   *attr = NULL;
-  if (cobj              == NULL)      return CAPS_NULLOBJ;
-  if (name              == NULL)      return CAPS_NULLNAME;
-  if (cobj->magicnumber != CAPSMAGIC) return CAPS_BADOBJECT;
-  if (cobj->attrs       == NULL)      return CAPS_NOTFOUND;
+  if (cobj              == NULL)         return CAPS_NULLOBJ;
+  if (name              == NULL)         return CAPS_NULLNAME;
+  if (cobj->magicnumber != CAPSMAGIC)    return CAPS_BADOBJECT;
+  if (cobj->attrs       == NULL)         return CAPS_NOTFOUND;
+  status = caps_findProblem(cobj, CAPS_ATTRBYNAME, &pobject);
+  if (status            != CAPS_SUCCESS) return status;
 
   for (i = 0; i < cobj->attrs->nattrs; i++)
     if (strcmp(name, cobj->attrs->attrs[i].name) == 0) {
@@ -85,6 +87,7 @@ caps_attrByName(capsObject *cobj, char *name, capsObject **attr)
       object->type    = VALUE;
       object->subtype = USER;
       object->blind   = value;
+      object->parent  = pobject;
       
       *attr  = object;
       return CAPS_SUCCESS;
@@ -101,13 +104,15 @@ caps_attrByIndex(capsObject *cobj, int in, capsObject **attr)
   const void     *data;
   enum capsvType type;
   capsValue      *value;
-  capsObject     *object;
+  capsObject     *object, *pobject;
   
   *attr = NULL;
-  if (cobj              == NULL)      return CAPS_NULLOBJ;
-  if (cobj->magicnumber != CAPSMAGIC) return CAPS_BADOBJECT;
-  if (cobj->attrs       == NULL)      return CAPS_NOTFOUND;
+  if (cobj              == NULL)              return CAPS_NULLOBJ;
+  if (cobj->magicnumber != CAPSMAGIC)         return CAPS_BADOBJECT;
+  if (cobj->attrs       == NULL)              return CAPS_NOTFOUND;
   if ((in < 1) || (in > cobj->attrs->nattrs)) return CAPS_BADINDEX;
+  status = caps_findProblem(cobj, CAPS_ATTRBYINDEX, &pobject);
+  if (status            != CAPS_SUCCESS)      return status;
 
   len   = cobj->attrs->attrs[in-1].length;
   atype = cobj->attrs->attrs[in-1].type;
@@ -159,6 +164,7 @@ caps_attrByIndex(capsObject *cobj, int in, capsObject **attr)
   object->type    = VALUE;
   object->subtype = USER;
   object->blind   = value;
+  object->parent  = pobject;
   
   *attr  = object;
   return CAPS_SUCCESS;
@@ -168,22 +174,25 @@ caps_attrByIndex(capsObject *cobj, int in, capsObject **attr)
 int
 caps_setAttr(capsObject *cobj, /*@null@*/ const char *aname, capsObject *aval)
 {
-  int          atype, i, find = -1;
+  int          atype, i, status, find = -1;
   const int    *ints  = NULL;
   const double *reals = NULL;
   const char   *str   = NULL, *name;
   egAttr       *attr;
   egAttrs      *attrs;
+  capsObject   *pobject;
   capsValue    *value;
   
-  if (cobj              == NULL)      return CAPS_NULLOBJ;
-  if (cobj->magicnumber != CAPSMAGIC) return CAPS_BADOBJECT;
-  if (aval              == NULL)      return CAPS_NULLVALUE;
-  if (aval->type        != VALUE)     return CAPS_BADTYPE;
-  if (aval->blind       == NULL)      return CAPS_NULLBLIND;
+  if (cobj              == NULL)         return CAPS_NULLOBJ;
+  if (cobj->magicnumber != CAPSMAGIC)    return CAPS_BADOBJECT;
+  if (aval              == NULL)         return CAPS_NULLVALUE;
+  if (aval->type        != VALUE)        return CAPS_BADTYPE;
+  if (aval->blind       == NULL)         return CAPS_NULLBLIND;
   name = aname;
   if (name == NULL) name = aval->name;
-  if (name              == NULL)      return CAPS_NULLNAME;
+  if (name              == NULL)         return CAPS_NULLNAME;
+  status = caps_findProblem(cobj, CAPS_SETATTR, &pobject);
+  if (status            != CAPS_SUCCESS) return status;
 
   value = aval->blind;
   if ((value->type == Boolean) || (value->type == Value)) return CAPS_BADVALUE;
@@ -302,12 +311,15 @@ caps_setAttr(capsObject *cobj, /*@null@*/ const char *aname, capsObject *aval)
 int
 caps_deleleAttr(capsObject *cobj, /*@null@*/ char *name)
 {
-  int     i, find = -1;
-  egAttrs *attrs;
+  int        i, status, find = -1;
+  egAttrs    *attrs;
+  capsObject *pobject;
 
-  if (cobj              == NULL)      return CAPS_NULLOBJ;
-  if (cobj->magicnumber != CAPSMAGIC) return CAPS_BADOBJECT;
-  if (cobj->attrs       == NULL)      return CAPS_NOTFOUND;
+  if (cobj              == NULL)         return CAPS_NULLOBJ;
+  if (cobj->magicnumber != CAPSMAGIC)    return CAPS_BADOBJECT;
+  if (cobj->attrs       == NULL)         return CAPS_NOTFOUND;
+  status = caps_findProblem(cobj, CAPS_DELETEATTR, &pobject);
+  if (status            != CAPS_SUCCESS) return status;
   
   /* delete all? */
   if (name == NULL) {

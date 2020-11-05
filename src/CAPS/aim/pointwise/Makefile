@@ -14,9 +14,11 @@ ODIR  = .
 TDIR  = $(ESP_ROOT)/bin
 endif
 
-
-#default:	$(LDIR)/pointwiseAIM.so $(TDIR)/egads2nmb
+ifdef GELITE
+default:	$(LDIR)/pointwiseAIM.so $(TDIR)/egads2nmb
+else
 default:	$(LDIR)/pointwiseAIM.so
+endif
 
 $(LDIR)/pointwiseAIM.so:	$(ODIR)/pointwiseAIM.o $(ODIR)/hashElement.o \
 			$(LDIR)/libutils.a $(LDIR)/libaimUtil.a

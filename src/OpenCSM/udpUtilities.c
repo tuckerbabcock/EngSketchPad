@@ -308,7 +308,8 @@ udpReset(int flag)                      /* (in)  flag: 0=reset current, 1=close 
 int
 udpSet(char name[],                     /* (in)  argument name */
        void *value,                     /* (in)  pointer to values (can be char* or double*) */
-       int  nvalue)                     /* (in)  number  of values */
+       int  nvalue,                     /* (in)  number  of values */
+       char message[])                  /* (out) error message (if any) */
 {
     int  i, iarg, ivalue;
     char lowername[257];
@@ -316,6 +317,10 @@ udpSet(char name[],                     /* (in)  argument name */
 #ifdef DEBUG
     printf("udpSet(name=%s, nvalue=%d)\n", name, nvalue);
 #endif
+
+    if (message != NULL) {
+        message[0] = '\0';
+    }
 
     if        (name  == NULL) {
         return EGADS_NONAME;
@@ -414,16 +419,33 @@ udpSet(char name[],                     /* (in)  argument name */
         }
     }
 
-    printf(" udpSet: Parameter \"%s\" not known.  should be one of:", name);
-    for (iarg = 0; iarg < NUMUDPARGS; iarg++) {
-        if (argTypes[iarg] == +ATTRSTRING ||
-            argTypes[iarg] == +ATTRINT    ||
-            argTypes[iarg] == +ATTRREAL   ||
-            argTypes[iarg] == +ATTRREALSEN  ) {
-            printf(" %s", argNames[iarg]);
+    if (message != NULL) {
+        snprintf(message, 256, "Parameter \"%s\" not known.  should be one of:", name);
+        for (iarg = 0; iarg < NUMUDPARGS; iarg++) {
+            if (argTypes[iarg] == +ATTRSTRING ||
+                argTypes[iarg] == +ATTRINT    ||
+                argTypes[iarg] == +ATTRREAL   ||
+                argTypes[iarg] == +ATTRREALSEN  ) {
+                strncat(message, " ",            256);
+                strncat(message, argNames[iarg], 256);
+//$$$                snprintf(message, 256, "%s %s", message, argNames[iarg]);
+            }
         }
+
+        printf(" udpSet: %s\n", message);
+    } else {
+        printf(" udpSet: Parameter \"%s\" not known.  should be one of:", name);
+        for (iarg = 0; iarg < NUMUDPARGS; iarg++) {
+            if (argTypes[iarg] == +ATTRSTRING ||
+                argTypes[iarg] == +ATTRINT    ||
+                argTypes[iarg] == +ATTRREAL   ||
+                argTypes[iarg] == +ATTRREALSEN  ) {
+                printf(" %s", argNames[iarg]);
+            }
+        }
+        printf("\n");
     }
-    printf("\n");
+
     return EGADS_INDEXERR;
 }
 
@@ -439,7 +461,8 @@ udpSet(char name[],                     /* (in)  argument name */
 int
 udpGet(ego    ebody,                    /* (in)  Body pointer */
        char   name[],                   /* (in)  argument name */
-       void   *value)                   /* (out) argument value (can be int* or double*) */
+       void   *value,                   /* (out) argument value (can be int* or double*) */
+       char   message[])
 {
     int  i, iudp, judp, iarg;
     char lowername[257];
@@ -447,6 +470,10 @@ udpGet(ego    ebody,                    /* (in)  Body pointer */
 #ifdef DEBUG
     printf("udpGet(ebody=%llx, name=%s)\n", (long long)ebody, name);
 #endif
+
+    if (message != NULL) {
+        message[0] = '\0';
+    }
 
     if (name == NULL) {
         return EGADS_NONAME;
@@ -491,14 +518,29 @@ udpGet(ego    ebody,                    /* (in)  Body pointer */
         }
     }
 
-    printf(" udpGet: Parameter \"%s\" not known.  should be one of:", name);
-    for (iarg = 0; iarg < NUMUDPARGS; iarg++) {
-        if (argTypes[iarg] == -ATTRINT ||
-            argTypes[iarg] == -ATTRREAL  ) {
-            printf(" %s", argNames[iarg]);
+    if (message != NULL) {
+        snprintf(message, 256, "Parameter \"%s\" not known.  should be one of:", name);
+        for (iarg = 0; iarg < NUMUDPARGS; iarg++) {
+            if (argTypes[iarg] == -ATTRINT ||
+                argTypes[iarg] == -ATTRREAL  ) {
+                strncat(message, " ",            256);
+                strncat(message, argNames[iarg], 256);
+//$$$                snprintf(message, 256, "%s %s", message, argNames[iarg]);
+            }
         }
+        
+        printf(" udpGet: %s\n", message);
+    } else {
+        printf(" udpGet: Parameter \"%s\" not known.  should be one of:", name);
+        for (iarg = 0; iarg < NUMUDPARGS; iarg++) {
+            if (argTypes[iarg] == -ATTRINT ||
+                argTypes[iarg] == -ATTRREAL  ) {
+                printf(" %s", argNames[iarg]);
+            }
+        }
+        printf("\n");
     }
-    printf("\n");
+
     return EGADS_INDEXERR;
 }
 

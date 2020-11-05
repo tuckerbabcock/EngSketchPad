@@ -82,7 +82,7 @@ udpExecute(ego  context,                /* (in)  EGADS context */
     printf("ysize( 0)   = %f\n", YSIZE( 0));
     printf("zsize( 0)   = %f\n", ZSIZE( 0));
     printf("nspoke(0)   = %d\n", NSPOKE(0));
-    for (iframe = 1; iframe < udps[0].arg[4].size; iframe++) {
+    for (iframe = 1; iframe < udps[0].arg[3].size; iframe++) {
         printf("xframe(0,%d) = %f\n", iframe, XFRAME(0,iframe));
     }
 #endif

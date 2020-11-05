@@ -465,7 +465,7 @@ setLineBody_dot( const double *x0,     /* (in)  coordinates of the first point  
   tdata_dot[0] = 0;
   tdata_dot[1] = (data[3]*data_dot[3] + data[4]*data_dot[4] + data[5]*data_dot[5])/tdata[1];
 
-  status = EG_setGeometry_dot(eedges[0], EDGE, TWONODE, NULL, tdata, tdata_dot);
+  status = EG_setRange_dot(eedges[0], EDGE, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   status = EGADS_SUCCESS;
@@ -731,7 +731,7 @@ setCircleBody_dot( const int btype,         /* (in)  WIREBODY or FACEBODY */
   tdata_dot[0] = 0;
   tdata_dot[1] = 0;
 
-  status = EG_setGeometry_dot(eedges[0], EDGE, ONENODE, NULL, tdata, tdata_dot);
+  status = EG_setRange_dot(eedges[0], EDGE, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   /* get the Node and the Circle from the Edge */
@@ -1077,7 +1077,7 @@ setArcBody_dot( const double *xcent,     /* (in)  Center          */
   tdata_dot[0] = 0;
   tdata_dot[1] = 0;
 
-  status = EG_setGeometry_dot(eedges[0], EDGE, TWONODE, NULL, tdata, tdata_dot);
+  status = EG_setRange_dot(eedges[0], EDGE, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   /* get the Node and the Circle from the Edge */
@@ -1368,7 +1368,7 @@ setLineEdge_dot( ego eedge )      /* (in/out) Edge with velocity */
   tdata_dot[0] = 0;
   tdata_dot[1] = (data[3]*data_dot[3] + data[4]*data_dot[4] + data[5]*data_dot[5])/tdata[1];
 
-  status = EG_setGeometry_dot(eedge, EDGE, TWONODE, NULL, tdata, tdata_dot);
+  status = EG_setRange_dot(eedge, EDGE, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   status = EGADS_SUCCESS;
@@ -2226,7 +2226,7 @@ setHolyPlaneBody_dot( const double *xcent,     /* (in)  Center          */
   tdata[0] = 0;
   tdata[1] = TWOPI;
 
-  status = EG_setGeometry_dot(eedges[0], EDGE, ONENODE, NULL, tdata, tdata_dot);
+  status = EG_setRange_dot(eedges[0], EDGE, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   /* get the Node from the Edge */
@@ -2286,7 +2286,7 @@ setHolyPlaneBody_dot( const double *xcent,     /* (in)  Center          */
   tdata[0] = 0;
   tdata[1] = TWOPI;
 
-  status = EG_setGeometry_dot(eedges[0], EDGE, ONENODE, NULL, tdata, tdata_dot);
+  status = EG_setRange_dot(eedges[0], EDGE, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   /* get the Node from the Edge */
@@ -2343,13 +2343,13 @@ setHolyPlaneBody_dot( const double *xcent,     /* (in)  Center          */
   tdata[0] = 0;
   tdata[1] = TWOPI/2;
 
-  status = EG_setGeometry_dot(eedges[0], EDGE, TWONODE, NULL, tdata, tdata_dot);
+  status = EG_setRange_dot(eedges[0], EDGE, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   tdata[0] = TWOPI/2;
   tdata[1] = TWOPI;
 
-  status = EG_setGeometry_dot(eedges[1], EDGE, TWONODE, NULL, tdata, tdata_dot);
+  status = EG_setRange_dot(eedges[1], EDGE, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   /* get the Nodes from the Edge */
@@ -2419,13 +2419,13 @@ setHolyPlaneBody_dot( const double *xcent,     /* (in)  Center          */
   tdata[0] = 0;
   tdata[1] = TWOPI/2;
 
-  status = EG_setGeometry_dot(eedges[0], EDGE, TWONODE, NULL, tdata, tdata_dot);
+  status = EG_setRange_dot(eedges[0], EDGE, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   tdata[0] = TWOPI/2;
   tdata[1] = TWOPI;
 
-  status = EG_setGeometry_dot(eedges[1], EDGE, TWONODE, NULL, tdata, tdata_dot);
+  status = EG_setRange_dot(eedges[1], EDGE, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   /* get the Nodes from the Edge */

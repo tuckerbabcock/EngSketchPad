@@ -59,8 +59,8 @@ static double argDdefs[NUMUDPARGS] = {0.,          0.,          0.,         0., 
 
 /* prototype for function defined below */
 static int editAttrs(ego ebody, char attrname[], char input[], char output[],
-                     int overwrite, int *nchange);
-static int processFile(ego context, ego ebody, char filename[], int *nchange);
+                     int overwrite, char message[], int *nchange);
+static int processFile(ego context, ego ebody, char filename[], char message[], int *nchange);
 static int matches(char pattern[], const char string[]);
 static int editEgo(const char attrname[], int atype, int alen,
                      const int *tempIlist, const double *tempRlist, const char *tempClist,
@@ -87,6 +87,7 @@ udpExecute(ego  emodel,                 /* (in)  Model containing Body */
 
     int     oclass, mtype, nchild, *senses, nchange;
     double  data[4];
+    char    *message;
     ego     context, eref, *ebodys;
 
     ROUTINE(udpExecute);
@@ -107,6 +108,9 @@ udpExecute(ego  emodel,                 /* (in)  Model containing Body */
     *ebody  = NULL;
     *nMesh  = 0;
     *string = NULL;
+
+    message = (char *) EG_alloc(100*sizeof(char));
+    message[0] = '\0';
 
     /* check that Model was input that contains one Body */
     status = EG_getTopology(emodel, &eref, &oclass, &mtype,
@@ -134,18 +138,18 @@ udpExecute(ego  emodel,                 /* (in)  Model containing Body */
         if        (STRLEN(INPUT( 0)) == 1) {
         } else if (STRLEN(OUTPUT(0)) == 1) {
         } else if (STRLEN(INPUT( 0)) != STRLEN(OUTPUT(0))) {
-            printf(" udpExecute: input and output should be same length\n");
+            snprintf(message, 100, "input and output should be same length");
             status  = EGADS_RANGERR;
             goto cleanup;
         }
 
         if        (udps[0].arg[3].size >= 2) {
-            printf(" udpExecute: overwrite should be a scalar\n");
+            snprintf(message, 100, "overwrite should be a scalar");
             status  = EGADS_RANGERR;
             goto cleanup;
 
         } else if (NINT(OVERWRITE(0)) < 0 && NINT(OVERWRITE(1)) > 4) {
-            printf(" udpExecute: overwrite = %d should be between 0 and 4\n", OVERWRITE(0));
+            snprintf(message, 100, "overwrite = %d should be between 0 and 4", OVERWRITE(0));
             status  = EGADS_RANGERR;
             goto cleanup;
 
@@ -175,13 +179,13 @@ udpExecute(ego  emodel,                 /* (in)  Model containing Body */
 
     /* edit the attributes */
     if (STRLEN(FILENAME(numUdp)) > 0) {
-        status = processFile(context, *ebody, FILENAME(numUdp), &nchange);
+        status = processFile(context, *ebody, FILENAME(numUdp), message, &nchange);
         if (status < 0) {
             printf(" udpExecute: problem in processFile\n");
             goto cleanup;
         }
     } else {
-        status = editAttrs(*ebody, ATTRNAME(numUdp), INPUT(numUdp), OUTPUT(numUdp), OVERWRITE(numUdp), &nchange);
+        status = editAttrs(*ebody, ATTRNAME(numUdp), INPUT(numUdp), OUTPUT(numUdp), OVERWRITE(numUdp), message, &nchange);
         if (status < 0) {
             printf(" udpExecute: problem in editAttrs\n");
             goto cleanup;
@@ -205,8 +209,14 @@ udpExecute(ego  emodel,                 /* (in)  Model containing Body */
     udps[numUdp].ebody = *ebody;
 
 cleanup:
-    if (status != EGADS_SUCCESS) {
+    if (strlen(message) > 0) {
+        *string = message;
+        printf("%s\n", message);
+    } else if (status != EGADS_SUCCESS) {
+        EG_free(message);
         *string = udpErrorStr(status);
+    } else {
+        EG_free(message);
     }
 
     return status;
@@ -270,6 +280,7 @@ editAttrs(ego    ebody,                 /* (in)  EGADS Body */
                                         /*       =2        use smaller value */
                                         /*       =3        use larger  value */
                                         /*       =4        use sum or concatenation */
+          char   message[],             /* (out) error message */
           int    *nchange)              /* (out) number of changes */
 {
     int       status = 0;               /* (out) return status */
@@ -397,7 +408,7 @@ editAttrs(ego    ebody,                 /* (in)  EGADS Body */
                     }
                 }
             } else {
-                printf(" outype=%c is not valid for intype=D\n", outtype);
+                snprintf(message, 100, "outype=%c is not valid for intype=D", outtype);
                 status = OCSM_UDP_ERROR1;
                 goto cleanup;
             }
@@ -444,7 +455,7 @@ editAttrs(ego    ebody,                 /* (in)  EGADS Body */
                         }
 
                     } else {
-                        printf(" outtype=%c is not valid for intype=B\n", outtype);
+                        snprintf(message, 100, "outtype=%c is not valid for intype=B", outtype);
                         status = OCSM_UDP_ERROR1;
                         goto cleanup;
                     }
@@ -504,7 +515,7 @@ editAttrs(ego    ebody,                 /* (in)  EGADS Body */
                             elist = NULL;
 
                         } else {
-                            printf(" outtype=%c is not valid for intype=N\n", outtype);
+                            snprintf(message, 100, "outtype=%c is not valid for intype=N", outtype);
                             status = OCSM_UDP_ERROR1;
                             goto cleanup;
                         }
@@ -565,7 +576,7 @@ editAttrs(ego    ebody,                 /* (in)  EGADS Body */
                             elist = NULL;
 
                         } else {
-                            printf(" outtype=%c is not valid for intype=E\n", outtype);
+                            snprintf(message, 100, "outtype=%c is not valid for intype=E", outtype);
                             status = OCSM_UDP_ERROR1;
                             goto cleanup;
                         }
@@ -626,7 +637,7 @@ editAttrs(ego    ebody,                 /* (in)  EGADS Body */
                         } else if (outtype == 'f' || outtype == 'F') {
 
                         } else {
-                            printf(" outtype=%c is not valid for intype=F\n", outtype);
+                            snprintf(message, 100, "outtype=%c is not valid for intype=F", outtype);
                             status = OCSM_UDP_ERROR1;
                             goto cleanup;
                         }
@@ -635,7 +646,7 @@ editAttrs(ego    ebody,                 /* (in)  EGADS Body */
             }
 
         } else {
-            printf(" intype=%c is not valid\n", intype);
+            snprintf(message, 100, "intype=%c is not valid", intype);
             status = OCSM_UDP_ERROR1;
             goto cleanup;
         }
@@ -663,6 +674,7 @@ static int
 processFile(ego    context,             /* (in)  EGADS context */
             ego    ebody,               /* (in)  EGADS Body */
             char   filename[],          /* (in)  file that contains directives */
+            char   message[],           /* (out) error message */
             int    *nchange)            /* (out) number of changes */
 {
     int       status = 0;               /* (out) return status */
@@ -735,7 +747,7 @@ processFile(ego    context,             /* (in)  EGADS context */
     /* open the file */
     fp = fopen(filename, "r");
     if (fp == NULL) {
-        printf(" processFile: could not open file \"%s\"\n", filename);
+        snprintf(message, 100, "processFile: could not open file \"%s\"", filename);
         status = EGADS_NOTFOUND;
         goto cleanup;
     }
@@ -754,9 +766,9 @@ processFile(ego    context,             /* (in)  EGADS context */
 
         if (outLevel >= 1) {
             if (iskip <= 0) {
-                printf("    processing: %s", templine);
+                printf("    processing: %s\n", templine);
             } else {
-                printf("    skipping:   %s", templine);
+                printf("    skipping:   %s\n", templine);
             }
         }
 
@@ -815,7 +827,7 @@ processFile(ego    context,             /* (in)  EGADS context */
             if (npat < 9) {
                 npat++;
             } else {
-                printf(" udpExecute: PATBEGs nested too deeply\n");
+                snprintf(message, 100, "PATBEGs nested too deeply");
                 status = EGADS_RANGERR;
                 goto cleanup;
             }
@@ -850,11 +862,11 @@ processFile(ego    context,             /* (in)  EGADS context */
             status = getToken(templine, 1, ' ', 255, token2);
             if (status < EGADS_SUCCESS) goto cleanup;
 
-            status = ocsmFindPmtr(modl, token2, OCSM_INTERNAL, 1, 1, &pat_pmtr[npat]);
+            status = ocsmFindPmtr(modl, token2, OCSM_LOCALVAR, 1, 1, &pat_pmtr[npat]);
             if (status < EGADS_SUCCESS) goto cleanup;
 
             if (pat_pmtr[npat] <= npmtr_save) {
-                printf(" udpExecute: cannot use \"%s\" as pattern variable since it was previously defined in current scope\n", token2);
+                snprintf(message, 100, "cannot use \"%s\" as pattern variable since it was previously defined in current scope", token2);
                 status = EGADS_NONAME;
                 goto cleanup;
             }
@@ -871,7 +883,7 @@ processFile(ego    context,             /* (in)  EGADS context */
             }
 
             if (pat_end[npat] < 0) {
-                printf(" udpExecute: PATEND without PATBEG\n");
+                snprintf(message, 100, "PATEND without PATBEG");
                 status = EGADS_RANGERR;
                 goto cleanup;
             }
@@ -952,7 +964,7 @@ processFile(ego    context,             /* (in)  EGADS context */
             if        (nsel   == 0) {
                 printf("                    *** AND being skipped since nothing is selected\n");
             } else if (istype == 0) {
-                printf(" processFile: AND has to follow NODE, EDGE, FACE, or AND\n");
+                snprintf(message, 100, "processFile: AND has to follow NODE, EDGE, FACE, or AND");
                 status = OCSM_UDP_ERROR2;
                 goto cleanup;
             }
@@ -964,7 +976,7 @@ processFile(ego    context,             /* (in)  EGADS context */
             if        (nsel   == 0) {
                 printf("                    *** ANDNOT being skipped since nothing is selected\n");
             } else if (istype == 0) {
-                printf(" processFile: ANDNOT has to follow NODE, EDGE, FACE, or AND\n");
+                snprintf(message, 100, "processFile: ANDNOT has to follow NODE, EDGE, FACE, or AND");
                 status = OCSM_UDP_ERROR2;
                 goto cleanup;
             }
@@ -983,7 +995,7 @@ processFile(ego    context,             /* (in)  EGADS context */
                 status2 = getToken(token3, 1, '=', 255, attrValu);
 
                 if (status1 <= 0) {
-                    printf(" processFile: token is not name=value or name=\n");
+                    snprintf(message, 100, "processFile: token is not name=value or name=");
                     status = OCSM_UDP_ERROR3;
                     goto cleanup;
                 } else if (istype == 0) {
@@ -997,7 +1009,7 @@ processFile(ego    context,             /* (in)  EGADS context */
                 if (attrName[0] == '!') {
                     status = ocsmEvalExpr(modl, attrName, &value, &dot, str);
                     if (status < EGADS_SUCCESS) {
-                        printf(" processFile: unable to evaluate \"%s\"\n", attrName);
+                        snprintf(message, 100, "processFile: unable to evaluate \"%s\"", attrName);
                         status = EGADS_NONAME;
                         goto cleanup;
                     }
@@ -1017,7 +1029,7 @@ processFile(ego    context,             /* (in)  EGADS context */
                 } else if (attrValu[0] == '!') {
                     status = ocsmEvalExpr(modl, attrValu, &value, &dot, str);
                     if (status < EGADS_SUCCESS) {
-                        printf(" processFile: unable to evaluate \"%s\"\n", attrValu);
+                        snprintf(message, 100, "processFile: unable to evaluate \"%s\"", attrValu);
                         status = EGADS_NONAME;
                         goto cleanup;
                     }
@@ -1068,7 +1080,7 @@ processFile(ego    context,             /* (in)  EGADS context */
                 status2 = getToken(token3, 1, '=', 255, attrValu);
 
                 if (status1 <= 0 || status2 <= 0) {
-                    printf(" processFile: token is not name=value\n");
+                    snprintf(message, 100, "processFile: token is not name=value");
                     status = OCSM_UDP_ERROR3;
                     goto cleanup;
                 } else if (istype == 0) {
@@ -1082,7 +1094,7 @@ processFile(ego    context,             /* (in)  EGADS context */
                 if (attrName[0] == '!') {
                     status = ocsmEvalExpr(modl, attrName, &value, &dot, str);
                     if (status < EGADS_SUCCESS) {
-                        printf(" processFile: unable to evaluate \"%s\"\n", attrName);
+                        snprintf(message, 100, "processFile: unable to evaluate \"%s\"", attrName);
                         status = EGADS_NONAME;
                         goto cleanup;
                     }
@@ -1094,7 +1106,7 @@ processFile(ego    context,             /* (in)  EGADS context */
                 if (attrValu[0] == '!') {
                     status = ocsmEvalExpr(modl, attrValu, &value, &dot, str);
                     if (status < EGADS_SUCCESS) {
-                        printf(" processFile: unable to evaluate \"%s\"\n", attrValu);
+                        snprintf(message, 100, "processFile: unable to evaluate \"%s\"", attrValu);
                         status = EGADS_NONAME;
                         goto cleanup;
                     }
@@ -1109,7 +1121,7 @@ processFile(ego    context,             /* (in)  EGADS context */
                             if (status == EGADS_SUCCESS && atype == ATTRSTRING) {
                                 snprintf(newValu, 255, "%s;%s", tempClist, str);
                             } else if (status == EGADS_SUCCESS) {
-                                printf(" processFile: cannot concatenate a string to a non-string\n");
+                                snprintf(message, 100, "processFile: cannot concatenate a string to a non-string");
                                 status = OCSM_UDP_ERROR3;
                                 goto cleanup;
                             } else {
@@ -1141,7 +1153,7 @@ processFile(ego    context,             /* (in)  EGADS context */
                                 newList[alen] = value;
                                 alen++;
                             } else if (status == EGADS_SUCCESS) {
-                                printf(" processFile: cannot concatenate a non-string to a string\n");
+                                snprintf(message, 100, "processFile: cannot concatenate a non-string to a string");
                                 status = OCSM_UDP_ERROR3;
                                 goto cleanup;
                             } else {
@@ -1173,7 +1185,7 @@ processFile(ego    context,             /* (in)  EGADS context */
                         if (status == EGADS_SUCCESS && atype == ATTRSTRING) {
                             snprintf(newValu, 255, "%s;%s", tempClist, attrValu);
                         } else if (status == EGADS_SUCCESS) {
-                            printf(" processFile: cannot concatenate a string to a string\n");
+                            snprintf(message, 100, "processFile: cannot concatenate a string to a string");
                             status = OCSM_UDP_ERROR3;
                             goto cleanup;
                         } else {
@@ -1192,7 +1204,7 @@ processFile(ego    context,             /* (in)  EGADS context */
 
         /* command type is not known */
         } else {
-            printf(" processFile: unexpected command \"%s\"\n", token1);
+            snprintf(message, 100, "processFile: unexpected command \"%s\"", token1);
             status =  EGADS_NONAME;
             goto cleanup;
         }
@@ -1243,7 +1255,7 @@ processFile(ego    context,             /* (in)  EGADS context */
 
         /* unknown specifier */
         } else {
-            printf(" processFile: illegal specifier (not HAS, ADJ2NODE, ADJ2EDGE, or ADJ2FACE");
+            snprintf(message, 100, "processFile: illegal specifier (not HAS, ADJ2NODE, ADJ2EDGE, or ADJ2FACE");
             status = OCSM_UDP_ERROR4;
             goto cleanup;
         }
@@ -1259,7 +1271,7 @@ processFile(ego    context,             /* (in)  EGADS context */
             status2 = getToken(token3, 1, '=', 255, attrValu);
 
             if (status1 <= 0 || status2 <= 0) {
-                printf(" processFile: token is not name=value\n");
+                snprintf(message, 100, "processFile: token is not name=value");
                 status = OCSM_UDP_ERROR3;
                 goto cleanup;
             }
@@ -1269,7 +1281,7 @@ processFile(ego    context,             /* (in)  EGADS context */
             if (attrName[0] == '!') {
                 status = ocsmEvalExpr(modl, attrName, &value, &dot, str);
                 if (status < EGADS_SUCCESS) {
-                    printf(" processFile: unable to evaluate \"%s\"\n", attrName);
+                    snprintf(message, 100, "processFile: unable to evaluate \"%s\"", attrName);
                     status = EGADS_NONAME;
                     goto cleanup;
                 }
@@ -1281,7 +1293,7 @@ processFile(ego    context,             /* (in)  EGADS context */
             if (attrValu[0] == '!') {
                 status = ocsmEvalExpr(modl, attrValu, &value, &dot, str);
                 if (status < EGADS_SUCCESS) {
-                    printf(" processFile: unable to evaluate \"%s\"\n", attrValu);
+                    snprintf(message, 100, "processFile: unable to evaluate \"%s\"", attrValu);
                     status = EGADS_NONAME;
                     goto cleanup;
                 }

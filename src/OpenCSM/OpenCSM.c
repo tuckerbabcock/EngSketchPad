@@ -40,11 +40,10 @@
 //#define FORCE_FINITE_DIFFS  1           /* uncomment to force finite differences */
 //#define SHOW_SPLINES        1           /* uncomment to show splines with GRAFIC */
 //#define USE_FUSESHEETS      1           /* uncomment to use EG_fuseSheets */
-//#define PRINT_TIMES         1           /* uncomment to print boolean user/system times */
 //#define PRINT_FAULTS        1           /* uncomment to print page faults per Branch */
 //#define PRINT_PROGRESS      1           /* uncomment to print progress at end of each Branch */
 #define USE_VELOCITYOFEDGE  1           /* uncomment to get Node velocities from Edges */
-#define INTERP_VEL          2           /* =0 use eggMorph, =1 use MVC, =2 use VR-MVC, =3 use RBF */
+#define INTERP_VEL          5           /* =0 use eggMorph, =1 use MVC, =2 use VR-MVC, =3 use RBF, =4 use smoothing, =5 use Laplace */
 #define MORPH_GRID          1           /* =0 use EG_mapTessBody, =1 use EGG_morph if possible */
 //#define EDGE_HIST_TRANSFORM 1           /* uncomment to add _hist to edges for sensitvity transform */
 
@@ -55,12 +54,6 @@
 #include "OpenCSM.h"
 #include "udp.h"
 #include "egg.h"
-
-#ifdef  PRINT_TIMES
-    #include <sys/time.h>
-    #include <sys/resource.h>
-    static double  bool_user_time=0, bool_sys_time=0, bool_wall_time=0;
-#endif
 
 #ifdef  PRINT_FAULTS
     #include <sys/resource.h>
@@ -149,7 +142,7 @@ typedef struct {
     int    ibeg;                       /* Branch number of patbeg, ifthen, catbeg, or recall */
     int    iend;                       /* Branch number of patend, endif,  catend */
     int    ncopy;                      /* total number of copies */
-    int    icopy;                      /* current instance number (1->ncopy) */
+    int    icopy;                      /* current instance number (1:ncopy) */
     int    ipmtr;                      /* Parameter index of iterator */
 } patn_T;
 
@@ -272,6 +265,7 @@ static int checkForFiniteDifferences(modl_T *modl, int ibody);
 static int colorizeEdge(modl_T *modl, int ibody, int iedge);
 static int colorizeFace(modl_T *modl, int ibody, int iface);
 static int colorizeNode(modl_T *modl, int ibody, int inode);
+static int computeMassPropsDot(modl_T *modl);
 static int createPerturbation(modl_T *modl);
        int createTessVels(modl_T *modl, int ibody);
 static int delPmtrByName(modl_T *modl, char name[]);
@@ -291,6 +285,7 @@ static int joinWireBodys(modl_T *modl, ego ebodyl, ego ebodyr, double toler, ego
 static int makeEdge(modl_T *modl, ego ebeg, ego eend, ego *eedge);
 static int makeFace(modl_T *modl, ego eedges[], int fillstyle, int dirn, ego *eface);
 static int matches(char pattern[], const char string[]);
+static int matchValue(varg_T arg, int itype, int nlist, CINT *tempIlist, CDOUBLE *tempRlist, CCHAR *tempClist);
 static int matsol(double A[], double b[], int n, double x[]);
 static int mvcInterp(int nloop, CINT nper[], CDOUBLE uvframe[], CDOUBLE uv[], double weights[]);
 static int newBody(modl_T *modl, int ibrch, int brtype, int ileft, int irite, varg_T args[], int hasdots, int botype, int *ibody);
@@ -321,6 +316,7 @@ static int setEgoAttribute(modl_T *modl, int ibrch, ego eobject);
 static int setFaceAttribute(modl_T *modl, int ibody, int iface, int jbody, int jford, int npatn, patn_T *patn);
 static int setupAtPmtrs(modl_T *modl, int havesel);
 static void signalError(void *modl, int status, char format[], ...);
+static void signalError2(void *modl, int status, char filename[], int linenum, char format[], ...);
 static int solidBoolean(modl_T *modl, ego ebodyl, ego ebodyr, int type, double maxtol, ego *emodel);
 static int solveSketch(modl_T *modl, sket_T *sket);
 static int solveSketchLM(modl_T *modl, sket_T *sket);
@@ -330,6 +326,7 @@ static int splineVelocityOfNode(void* usrData, /*@unused@*/const ego secs[], int
 static int storeCsystem(modl_T *modl, int ibody);
 static int str2rpn(char str[], rpn_T *rpn);
 static int str2val(char expr[], modl_T *modl, double *val, double *dot, char str[]);
+static int str2valNoSignal(char expr[], modl_T *modl, double *val, double *dot, char str[]);
 static int str2vals(char expr[], modl_T *modl, int *nrow, int *ncol, double *vals[], double *dots[], char str[]);
 static int solsvd(double A[], double b[], int mrow, int ncol, double W[], double x[]);
 static int tessellate(modl_T *modl, int ibody);
@@ -340,6 +337,9 @@ static double wendland(CDOUBLE uv1[], CDOUBLE uv2[], double srad2);
 static int writeAsciiStl(modl_T *modl, int nstack, int stack[], char filename[]);
 static int writeAsciiUgrid(modl_T *modl, int ibody, char filename[]);
 static int writeBinaryStl(modl_T *modl, int nstack, int stack[], char filename[]);
+static int writePlotFile(modl_T *modl, int ibody, char filename[]);
+static int writeSensFile(modl_T *modl, int ibody, char filename[]);
+static int writeTessFile(modl_T *modl, int ibody, char filename[]);
 static int xformFaceToOriginal(modl_T *modl, int ibody, int iface, double mat[], double *scale);
 static int xformFaceVelocity(modl_T *modl, int ibody, int iface, int nxyz, double xyz_pnt[], int ndxyz, double dxyz[]);
 static int xformToOriginal(modl_T *modl, int ibody, int jbody, double mat[]);
@@ -347,6 +347,8 @@ static int xformVelocity(modl_T *modl, int jbody, int nxyz, double xyz_pnt[], in
 
 #ifdef GRAFIC
 static void plotFace(int*, void*, void*, void*, void*, void*,
+                           void*, void*, void*, void*, void*, float*, char*, int);
+static void plotVels(int*, void*, void*, void*, void*, void*,
                            void*, void*, void*, void*, void*, float*, char*, int);
 #endif
 
@@ -370,17 +372,6 @@ extern int EG_spline1dTan(int imaxx, const double *t1, const double *xyz, const 
 
 static int outLevel  = 1;     /* global since it needs to be settable
                                  before a MODL is created */
-
-/* method for interpolating (dU,dV) into interior of Faces:
-   =0 use eggMorph (if egg is enabled)
-   =1 to use MVC
-   =2 to use VR-MVC */
-//#define INTERP_VEL 2
-
-/* method for mapping perturbed grid in interior of Faces:
-   =0 use EG_mapTessBody
-   =1 use EGG_morph if exists */
-//#define MORPH_GRID 1
 
 /*
  ************************************************************************
@@ -642,21 +633,29 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
     int       npatn = 0;
 
     int       filelen, filetype, linenum[11], numudc;
-    int       i, j, k, inquote, narg, irow, icol, indx, count, imatch, itoken;
-    int       ibrch, ipmtr, jpmtr, icount, jcount, insolver, itmp;
-    double    rows, cols, despmtr, value, dot, bound;
+    int       i, j, k, inquote, narg, irow, nrow, icol, ncol, indx, count;
+    int       ibrch, jbrch, ipmtr, jpmtr, icount, jcount, insolver, itmp;
+    double    value, dot, bound;
     char      *templine=NULL, *nextline=NULL, *command=NULL, *esp_root, *str=NULL;
     char      *str1=NULL, *str2=NULL, *str3=NULL;
     char      *str4=NULL, *str5=NULL, *str6=NULL;
     char      *str7=NULL, *str8=NULL, *str9=NULL;
     char      defn[MAX_EXPR_LEN], tmpfilename[MAX_EXPR_LEN], pathname[MAX_EXPR_LEN];
-    char      pmtrName[MAX_EXPR_LEN], token[MAX_EXPR_LEN];
+    char      pmtrName[MAX_EXPR_LEN];
     char      filenames[11][MAX_FILENAME_LEN];
     void      *temp;
 
     FILE      *csm_file[11];
 
     ROUTINE(ocsmLoad);
+
+#define CHECK_STATUS2(X)                                                \
+    if (status < SUCCESS) {                                             \
+        signalError2(MODL, status,                                      \
+                     filenames[MODL->level], linenum[MODL->level],      \
+                     "error detected in %s during ocsmLoad()", #X);     \
+        goto cleanup;                                                   \
+    }
 
     /* --------------------------------------------------------------- */
 
@@ -670,9 +669,6 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
         SPRINT0(0, "WARNING:: ***************************************");
     #endif
 
-    if (INTERP_VEL != 2) {
-        SPRINT1(0, "INTERP_VEL = %d", INTERP_VEL);
-    }
     if (MORPH_GRID != 1) {
         SPRINT1(0, "MORPH_GRID = %d", MORPH_GRID);
     }
@@ -734,10 +730,11 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             filenames[i][0] = '\0';
         }
 
-        MODL->filelist = NULL;
-        MALLOC(MODL->filelist, char, STRLEN(filename)+2);
-        strcpy(MODL->filelist, filename);
-        strcat(MODL->filelist, "|");
+        if (STRLEN(filename) == 0) {
+            MODL->filename[0] = '\0';
+        } else {
+            STRNCPY(MODL->filename, filename, MAX_FILENAME_LEN);
+        }
 
         MODL->nattr = 0;
         MODL->attr  = NULL;
@@ -757,11 +754,16 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
         MODL->mbody = 0;
         MODL->body  = NULL;
 
-        MODL->perturb  = NULL;
-        MODL->basemodl = NULL;
-        MODL->dtime    = 0;
+        MODL->numdots   = 0;
+        MODL->needMPdot = 0;
+        MODL->perturb   = NULL;
+        MODL->basemodl  = NULL;
+        MODL->dtime     = 0;
 
         MODL->context     = NULL;
+        MODL->userdata    = NULL;
+        MODL->mesgCB      = NULL;
+        MODL->sizeCB      = NULL;
         MODL->eggname[0]  = '\0';
         MODL->eggGenerate = NULL;
         MODL->eggMorph    = NULL;
@@ -785,8 +787,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
 
         /* ensure that we are not reading a .vfy file without
            having already read a .csm or .cpc file */
-        assert (MODL           != NULL);
-        assert (MODL->filelist != NULL);
+        assert (MODL != NULL);
+        assert (STRLEN(MODL->filename) > 0);
 
         MODL->level = 0;
     }
@@ -799,7 +801,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
     }
 
     if (STRLEN(filename) > MAX_FILENAME_LEN) {
-        signalError(MODL, OCSM_ILLEGAL_ARGUMENT,
+        status = OCSM_ILLEGAL_ARGUMENT;
+        signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                     "filename has more than %d characters", MAX_FILENAME_LEN);
         goto cleanup;
     }
@@ -812,6 +815,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
         filetype = -1;
     } else if (filelen < 5) {
         status = OCSM_ILLEGAL_VALUE;
+        signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                     "illegal filename (%s)", filename);
         goto cleanup;
     } else if (filename[filelen-4] == '.' && filename[filelen-3] == 'c' &&
                filename[filelen-2] == 's' && filename[filelen-1] == 'm'   ) {
@@ -827,6 +832,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
         filetype = 0;
     } else {
         status = OCSM_ILLEGAL_VALUE;
+        signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                     "illegal filename (%s)", filename);
         goto cleanup;
     }
 
@@ -852,7 +859,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
                 (MODL->nwarn)++;
                 status = SUCCESS;
             } else {
-                signalError(MODL, OCSM_FILE_NOT_FOUND,
+                status = OCSM_FILE_NOT_FOUND;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "file \"%s\" not found", filename);
                 goto cleanup;
             }
@@ -872,6 +880,7 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
     /*   note that we should not use feof here since we will
          prematurely exit loop if last line does not end with CR/LF */
     while (1) {
+
         /* read the next line */
         temp = fgets(templine, MAX_LINE_LEN, csm_file[MODL->level]);
         linenum[MODL->level]++;
@@ -895,7 +904,7 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
                 /* create a new Branch and decrement the level */
                 status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_END, filenames[MODL->level], linenum[MODL->level],
                                      NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
-                CHECK_STATUS(ocsmNewBrch);
+                CHECK_STATUS2(ocsmNewBrch);
 
                 (MODL->level)--;
 
@@ -942,7 +951,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
                 }
 
                 if (j >= MAX_LINE_LEN-2) {
-                    signalError(MODL, OCSM_ILLEGAL_STATEMENT,
+                    status = OCSM_ILLEGAL_STATEMENT;
+                    signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                                 "input line is too long");
                     goto cleanup;
                 }
@@ -976,11 +986,13 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
         } else if (strcmp(command, "applycsys") == 0 ||
                    strcmp(command, "APPLYCSYS") == 0   ) {
             if (nskpt > 0) {
-                signalError(MODL, OCSM_SKETCH_IS_OPEN,
+                status = OCSM_SKETCH_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "APPLYCSYS cannot be in SKBEG/SKEND");
                 goto cleanup;
             } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "APPLYCSYS cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             }
@@ -990,7 +1002,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             narg = sscanf(nextline, "%*s %2046s %2047s\n",
                           &(str1[1]), str2);
             if (narg < 1) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "APPLYCSYS requires at least 1 argument");
                 goto cleanup;
             }
@@ -1001,7 +1014,7 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_APPLYCSYS, filenames[MODL->level], linenum[MODL->level],
                                  str1, str2, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
         /* input is: "assert arg1 arg2 toler=0 verify=0" */
         } else if (strcmp(command, "assert") == 0 ||
@@ -1011,7 +1024,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             narg = sscanf(nextline, "%*s %2047s %2047s %2047s %2047s\n",
                           str1, str2, str3, str4);
             if (narg < 2) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "ASSERT requires at least 2 arguments");
                 goto cleanup;
             }
@@ -1025,17 +1039,19 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_ASSERT, filenames[MODL->level], linenum[MODL->level],
                                  str1, str2, str3, str4, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
         /* input is: "arc xend yend zend dist $plane=xy" */
         } else if (strcmp(command, "arc") == 0 ||
                    strcmp(command, "ARC") == 0   ) {
             if (nskpt == 0) {
-                signalError(MODL, OCSM_SKETCH_IS_NOT_OPEN,
+                status = OCSM_SKETCH_IS_NOT_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "ARC must be in SKBEG/SKEND");
                 goto cleanup;
             } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "ARC cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             }
@@ -1054,12 +1070,14 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
                 } else if (strcmp(str5, "$zx") == 0 || strcmp(str5, "$ZX") == 0) {
                     STRNCPY(str5, "$zx", MAX_EXPR_LEN);
                 } else {
-                    signalError(MODL, OCSM_ILLEGAL_VALUE,
+                    status = OCSM_ILLEGAL_VALUE;
+                    signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                                 "PLANE must be XY, YZ, or ZX");
                     goto cleanup;
                 }
             } else {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "ARC requires at least 4 arguments");
                 goto cleanup;
             }
@@ -1067,7 +1085,7 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_ARC, filenames[MODL->level], linenum[MODL->level],
                                  str1, str2, str3, str4, str5, str6, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
             /* increment the number of Sketch points */
             nskpt++; nskpt++;
@@ -1076,14 +1094,23 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
         } else if (strcmp(command, "attribute") == 0 ||
                    strcmp(command, "ATTRIBUTE") == 0   ) {
 
-            /* previous Branch will be attributed */
-            ibrch = MODL->nbrch;
+            /* determine which Branch should be attributed, or if it is
+               a global Attribute (ibrch=0) */
+            ibrch = 0;
+            for (jbrch = MODL->nbrch; jbrch > 0; jbrch--) {
+                if (MODL->brch[jbrch].type != OCSM_SET      &&
+                    MODL->brch[jbrch].type != OCSM_DIMENSION  ) {
+                    ibrch = jbrch;
+                    break;
+                }
+            }
 
             /* extract arguments */
             narg = sscanf(nextline, "%*s %2047s %2047s\n",
                           str1, str2);
             if (narg != 2) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "ATTRIBUTE requires 2 arguments");
                 goto cleanup;
             }
@@ -1091,18 +1118,10 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* set the Branch's Attribute */
             if        (ibrch == 0) {
                 status = ocsmSetAttr(MODL, ibrch, str1, str2);
-                CHECK_STATUS(ocsmSetAttr);
-            } else if (MODL->ngroup == 0                 &&
-                       MODL->brch[ibrch].type == OCSM_SET  ) {
-                status = ocsmSetAttr(MODL, ibrch, str1, str2);
-                CHECK_STATUS(ocsmSetAttr);
+                CHECK_STATUS2(ocsmSetAttr);
             } else if (MODL->brch[ibrch].type == OCSM_ASSERT    ||
                        MODL->brch[ibrch].type == OCSM_CATBEG    ||
                        MODL->brch[ibrch].type == OCSM_CATEND    ||
-//                     MODL->brch[ibrch].type == OCSM_CFGPMTR   ||
-//                     MODL->brch[ibrch].type == OCSM_CONPMTR   ||
-//                     MODL->brch[ibrch].type == OCSM_DESPMTR   ||
-//                     MODL->brch[ibrch].type == OCSM_OUTPMTR   ||
                        MODL->brch[ibrch].type == OCSM_DIMENSION ||
                        MODL->brch[ibrch].type == OCSM_ELSE      ||
                        MODL->brch[ibrch].type == OCSM_ELSEIF    ||
@@ -1128,27 +1147,31 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
                        MODL->brch[ibrch].type == OCSM_SOLBEG    ||
                        MODL->brch[ibrch].type == OCSM_SOLEND    ||
                        MODL->brch[ibrch].type == OCSM_STORE     ||
+                       MODL->brch[ibrch].type == OCSM_MESSAGE   ||
                        MODL->brch[ibrch].type == OCSM_SPECIAL   ||
                        MODL->brch[ibrch].type == OCSM_THROW     ||
 //                     MODL->brch[ibrch].type == OCSM_UBOUND    ||
                        MODL->brch[ibrch].type == OCSM_UDPARG      ) {
-                signalError(MODL, OCSM_ILLEGAL_ATTRIBUTE,
+                status = OCSM_ILLEGAL_ATTRIBUTE;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "a \"%s\" Branch cannot be attributed", ocsmGetText(MODL->brch[ibrch].type));
                 goto cleanup;
             } else {
                 status = ocsmSetAttr(MODL, ibrch, str1, str2);
-                CHECK_STATUS(ocsmSetAttr);
+                CHECK_STATUS2(ocsmSetAttr);
             }
 
         /* input is: "bezier x y z" */
         } else if (strcmp(command, "bezier") == 0 ||
                    strcmp(command, "BEZIER") == 0   ) {
             if (nskpt == 0) {
-                signalError(MODL, OCSM_SKETCH_IS_NOT_OPEN,
+                status = OCSM_SKETCH_IS_NOT_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "BEZIER must be in SKBEG/SKEND");
                 goto cleanup;
             } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "BEZIER cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             }
@@ -1157,7 +1180,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             narg = sscanf(nextline, "%*s %2047s %2047s %2047s\n",
                           str1, str2, str3);
             if (narg != 3) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "BEZIRE requires 3 arguments");
                 goto cleanup;
             }
@@ -1165,27 +1189,29 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_BEZIER, filenames[MODL->level], linenum[MODL->level],
                                  str1, str2, str3, NULL, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
             /* increment the number of Sketch points */
             nskpt++;
 
-        /* input is: "blend begList=0 endList=0 reorder=0 oneFace=0" */
+        /* input is: "blend begList=0 endList=0 reorder=0 oneFace=0 periodic=0" */
         } else if (strcmp(command, "blend") == 0 ||
                    strcmp(command, "BLEND") == 0   ) {
             if (nskpt > 0) {
-                signalError(MODL, OCSM_SKETCH_IS_OPEN,
+                status = OCSM_SKETCH_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "BLEND cannot be in SKBEG/SKEND");
                 goto cleanup;
             } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "BLEND cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             }
 
             /* extract arguments */
-            narg = sscanf(nextline, "%*s %2047s %2047s %2047s %2047s\n",
-                          str1, str2, str3, str4);
+            narg = sscanf(nextline, "%*s %2047s %2047s %2047s %2047s %2047s\n",
+                          str1, str2, str3, str4, str5);
             if   (narg < 1) {
                 STRNCPY(str1, "0", MAX_EXPR_LEN);
             }
@@ -1198,21 +1224,26 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             if (narg < 4) {
                 STRNCPY(str4, "0", MAX_EXPR_LEN);
             }
+            if (narg < 5) {
+                STRNCPY(str5, "0", MAX_EXPR_LEN);
+            }
 
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_BLEND, filenames[MODL->level], linenum[MODL->level],
-                                 str1, str2, str3, str4, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+                                 str1, str2, str3, str4, str5, NULL, NULL, NULL, NULL);
+            CHECK_STATUS2(ocsmNewBrch);
 
         /* input is: "box xbase ybase zbase dx dy dz" */
         } else if (strcmp(command, "box") == 0 ||
                    strcmp(command, "BOX") == 0   ) {
             if (nskpt > 0) {
-                signalError(MODL, OCSM_SKETCH_IS_OPEN,
+                status = OCSM_SKETCH_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "BOX cannot be in SKBEG/SKEND");
                 goto cleanup;
             } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "BOX cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             }
@@ -1221,7 +1252,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             narg = sscanf(nextline, "%*s %2047s %2047s %2047s %2047s %2047s %2047s\n",
                           str1, str2, str3, str4, str5, str6);
             if (narg != 6) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "BOX requires 6 arguments");
                 goto cleanup;
             }
@@ -1229,7 +1261,7 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_BOX, filenames[MODL->level], linenum[MODL->level],
                                  str1, str2, str3, str4, str5, str6, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
         /* input is: "catbeg sigCode" */
         } else if (strcmp(command, "catbeg") == 0 ||
@@ -1239,7 +1271,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             narg = sscanf(nextline, "%*s %2047s\n",
                           str1);
             if (narg != 1) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "CATBEG requires 1 argument");
                 goto cleanup;
             }
@@ -1247,7 +1280,7 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_CATBEG, filenames[MODL->level], linenum[MODL->level],
                                  str1, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
         /* input is: "catend" */
         } else if (strcmp(command, "catend") == 0 ||
@@ -1266,7 +1299,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
                 }
             }
             if (ibrch <= 0) {
-                signalError(MODL, OCSM_IMPROPER_NESTING,
+                status = OCSM_IMPROPER_NESTING;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "CATEND must follow a CATBEG");
                 goto cleanup;
             }
@@ -1276,7 +1310,7 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_CATEND, filenames[MODL->level], linenum[MODL->level],
                                  NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
             npatn--;
 
@@ -1284,15 +1318,18 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
         } else if (strcmp(command, "cfgpmtr") == 0 ||
                    strcmp(command, "CFGPMTR") == 0   ) {
             if (nskpt > 0) {
-                signalError(MODL, OCSM_SKETCH_IS_OPEN,
+                status = OCSM_SKETCH_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "CFGPMTR cannot be in SKBEG/SKEND");
                 goto cleanup;
             } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "CFGPMTR cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             } else if (MODL->scope[MODL->level] > 0) {
-                signalError(MODL, OCSM_ILLEGAL_STATEMENT,
+                status = OCSM_ILLEGAL_STATEMENT;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "CFGPMTR not allowed in function-type .udc file");
                 goto cleanup;
             }
@@ -1301,410 +1338,16 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             narg = sscanf(nextline, "%*s %2047s %2047s\n",
                           str1, str2);
             if (narg != 2) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "CFGPMTR requires 2 arguments");
                 goto cleanup;
             }
 
             /* do not allow pmtrName to start with '@' */
             if (str1[0] == '@') {
-                signalError(MODL, OCSM_ILLEGAL_PMTR_NAME,
-                            "pmtrName cannot start with an at-sign");
-                goto cleanup;
-            }
-
-            /* do not allow pmtrName to contain a subscript */
-            if (strstr(str1, "[") != NULL) {
-                signalError(MODL, OCSM_ILLEGAL_PMTR_NAME,
-                            "pmtrName cannot contain a subscript");
-                goto cleanup;
-            }
-
-            /* make sure value is a valid number */
-            if (sscanf(str2, "%lf", &value) == 0) {
-                signalError(MODL, OCSM_ILLEGAL_VALUE,
-                            "values must be a number");
-                goto cleanup;
-            }
-
-            /* if it does not exist, create it now */
-            status = ocsmFindPmtr(MODL, str1, OCSM_CONFIG, 1, 1, &ipmtr);
-            if (status == OCSM_NAME_ALREADY_DEFINED) {
-                if (MODL->pmtr[ipmtr].type == OCSM_INTERNAL) {
-                    signalError(MODL, OCSM_PMTR_IS_INTERNAL,
-                                "%s is an internal parameter", str1);
-                    goto cleanup;
-                } else if (MODL->pmtr[ipmtr].type == OCSM_OUTPUT) {
-                    signalError(MODL, OCSM_PMTR_IS_OUTPUT,
-                                "%s is an OUTPMTR", str1);
-                    goto cleanup;
-                } else if (MODL->pmtr[ipmtr].type == OCSM_CONSTANT) {
-                    signalError(MODL, OCSM_PMTR_IS_CONSTANT,
-                                "%s is a CONPMTR", str1);
-                    goto cleanup;
-                } else if (MODL->pmtr[ipmtr].type == OCSM_EXTERNAL) {
-                    signalError(MODL, OCSM_PMTR_IS_CONSTANT,
-                                "%s is a DESPMTR", str1);
-                    goto cleanup;
-                }
-            }
-            CHECK_STATUS(ocsmFindPmtr);
-
-            status = ocsmSetValuD(MODL, ipmtr, 1, 1, value);
-            CHECK_STATUS(ocsmSetValu);
-
-        /* input is: "chamfer radius edgeList=0 listStyle=0" */
-        } else if (strcmp(command, "chamfer") == 0 ||
-                   strcmp(command, "CHAMFER") == 0   ) {
-            if (nskpt > 0) {
-                signalError(MODL, OCSM_SKETCH_IS_OPEN,
-                            "CHAMFER cannot be in SKBEG/SKEND");
-                goto cleanup;
-            } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
-                            "CHAMFER cannot be in SOLBEG/SOLEND");
-                goto cleanup;
-            }
-
-            /* extract arguments */
-            narg = sscanf(nextline, "%*s %2047s %2047s %2047s\n",
-                          str1, str2, str3);
-            if        (narg < 1) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
-                            "CHAMFER requires at least 1 argument");
-                goto cleanup;
-            } else if (narg < 2) {
-                STRNCPY(str2, "0", MAX_EXPR_LEN);
-                STRNCPY(str3, "0", MAX_EXPR_LEN);
-            } else if (narg < 3) {
-                STRNCPY(str3, "0", MAX_EXPR_LEN);
-            }
-
-            /* create the new Branch */
-            status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_CHAMFER, filenames[MODL->level], linenum[MODL->level],
-                                 str1, str2, str3, NULL, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
-
-        /* input is: "cirarc xon yon zon xend yend zend" */
-        } else if (strcmp(command, "cirarc") == 0 ||
-                   strcmp(command, "CIRARC") == 0   ) {
-            if (nskpt == 0) {
-                signalError(MODL, OCSM_SKETCH_IS_NOT_OPEN,
-                            "CIRARC msut be in SKBEG/SKEND");
-                goto cleanup;
-            } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
-                            "CIRARC cannot be in SOLBEG/SOLEND");
-                goto cleanup;
-            }
-
-            /* extract arguments */
-            narg = sscanf(nextline, "%*s %2047s %2047s %2047s %2047s %2047s %2047s\n",
-                          str1, str2, str3, str4, str5, str6);
-
-            if (narg != 6) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
-                            "CIRARC requires 6 arguments");
-                goto cleanup;
-            }
-
-            /* create the new Branch */
-            status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_CIRARC, filenames[MODL->level], linenum[MODL->level],
-                                 str1, str2, str3, str4, str5, str6, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
-
-            /* increment the number of Sketch points */
-            nskpt++; nskpt++;
-
-        /* input is: "combine toler=0" */
-        } else if (strcmp(command, "combine") == 0 ||
-                   strcmp(command, "COMBINE") == 0   ) {
-            if (nskpt > 0) {
-                signalError(MODL, OCSM_SKETCH_IS_OPEN,
-                            "COMBINE cannot be in SKBEG/SKEND");
-                goto cleanup;
-            } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
-                            "COMBINE cannot be in SOLBEG/SOLEND");
-                goto cleanup;
-            }
-
-            /* extract arguments */
-            narg = sscanf(nextline, "%*s %2047s\n",
-                          str1);
-            if (narg < 1) {
-                STRNCPY(str1, "0", MAX_EXPR_LEN);
-            }
-
-            /* create the new Branch */
-            status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_COMBINE, filenames[MODL->level], linenum[MODL->level],
-                                 str1, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
-
-        /* input is: "cone xvrtx yvrtx zvrtx xbase ybase zbase radius" */
-        } else if (strcmp(command, "cone") == 0 ||
-                   strcmp(command, "CONE") == 0   ) {
-            if (nskpt > 0) {
-                signalError(MODL, OCSM_SKETCH_IS_OPEN,
-                            "CONE cannot be in SKBEG/SKEND");
-                goto cleanup;
-            } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
-                            "CONE cannot be in SOLBEG/SOLEND");
-                goto cleanup;
-            }
-
-            /* extract arguments */
-            narg = sscanf(nextline, "%*s %2047s %2047s %2047s %2047s %2047s %2047s %2047s\n",
-                          str1, str2, str3, str4, str5, str6, str7);
-            if (narg != 7) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
-                            "CONE requires 7 arguments");
-                goto cleanup;
-            }
-
-            /* create the new Branch */
-            status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_CONE, filenames[MODL->level], linenum[MODL->level],
-                                 str1, str2, str3, str4, str5, str6, str7, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
-
-        /* input is: "connect faceList1 faceList2 edgeList1=0 edgeList2=0" */
-        } else if (strcmp(command, "connect") == 0 ||
-                   strcmp(command, "CONNECT") == 0   ) {
-            if (nskpt > 0) {
-                signalError(MODL, OCSM_SKETCH_IS_OPEN,
-                            "CONNECT cannot be in SKBEG/SKEND");
-                goto cleanup;
-            } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
-                            "CONNECT cannot be in SOLBEG/SOLEND");
-                goto cleanup;
-            }
-
-            /* extract arguments */
-            narg = sscanf(nextline, "%*s %2047s %2047s %2047s %2047s\n",
-                          str1, str2, str3, str4);
-            if (narg < 2) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
-                            "CONNECT requires 2 arguments");
-                goto cleanup;
-            }
-            if (narg < 3) {
-                strcpy(str3, "0");
-            }
-            if (narg < 4) {
-                strcpy(str4, "0");
-            }
-
-            /* create the new Branch */
-            status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_CONNECT, filenames[MODL->level], linenum[MODL->level],
-                                 str1, str2, str3, str4, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
-
-        /* input is: "conpmtr $pmtrName expression" */
-        } else if (strcmp(command, "conpmtr") == 0 ||
-                   strcmp(command, "CONPMTR") == 0   ) {
-            if (nskpt > 0) {
-                signalError(MODL, OCSM_SKETCH_IS_OPEN,
-                            "CONPMTR cannot be in SKBEG/SKEND");
-                goto cleanup;
-            } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
-                            "CONPMTR cannot be in SOLBEG/SOLEND");
-                goto cleanup;
-            } else if (MODL->level > 0) {
-                signalError(MODL, OCSM_ILLEGAL_STATEMENT,
-                            "CONPMTR not allowed in .udc file");
-                goto cleanup;
-            }
-
-            /* extract arguments */
-            narg = sscanf(nextline, "%*s %2047s %2047s\n",
-                          str1, str2);
-            if (narg != 2) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
-                            "CONPMTR requires 2 arguments");
-                goto cleanup;
-            }
-
-            /* do not allow pmtrName to start with '@' */
-            if (str1[0] == '@') {
-                signalError(MODL, OCSM_ILLEGAL_PMTR_NAME,
-                            "pmtrName cannot start with an at-sign");
-                goto cleanup;
-            }
-
-            /* check if pmtrName already exists, and if it does
-               ensure that it is a CONSTANT parameter */
-            ipmtr = -1;
-            for (jpmtr = 1; jpmtr <= MODL->npmtr; jpmtr++) {
-                if (strcmp(MODL->pmtr[jpmtr].name, &(str1[1])) == 0) {
-
-                    if (MODL->pmtr[jpmtr].type == OCSM_CONSTANT) {
-                        ipmtr = jpmtr;
-                        break;
-                    } else if (MODL->pmtr[jpmtr].type == OCSM_INTERNAL) {
-                        signalError(MODL, OCSM_PMTR_IS_INTERNAL,
-                                    "%s is an internal parameter", str1);
-                        goto cleanup;
-                    } else if (MODL->pmtr[jpmtr].type == OCSM_OUTPUT) {
-                        signalError(MODL, OCSM_PMTR_IS_OUTPUT,
-                                    "%s is a OUTPMTR", str1);
-                        goto cleanup;
-                    } else if (MODL->pmtr[jpmtr].type == OCSM_EXTERNAL ||
-                               MODL->pmtr[jpmtr].type == OCSM_CONFIG     ) {
-                        signalError(MODL, OCSM_PMTR_IS_EXTERNAL,
-                                    "%s is a CFGPMTR or CFGPMTR", str1);
-                        goto cleanup;
-                    }
-                }
-            }
-
-            /* create the Parameter (if it does not already exist) */
-            if (ipmtr < 0) {
-                status = ocsmNewPmtr(MODL, str1, OCSM_CONSTANT, 1, 1);
-                CHECK_STATUS(ocsmNewPmtr);
-
-                ipmtr = MODL->npmtr;
-            }
-
-
-            /* store the value */
-            status = str2val(str2, NULL, &value, &dot, str);
-            CHECK_STATUS(str2val);
-            if (STRLEN(str) > 0) {
-                signalError(MODL, OCSM_WRONG_PMTR_TYPE,
-                            "expression must evaluate to a number");
-                goto cleanup;
-            } else if (fabs(MODL->pmtr[ipmtr].value[0]+HUGEQ) < EPS06) {
-                status = ocsmSetValu(MODL, ipmtr, 1, 1, str2);
-                CHECK_STATUS(ocsmSetValu);
-            } else if (fabs(MODL->pmtr[ipmtr].value[0]-value) < EPS06) {
-                /* value already defined */
-            } else {
-                /* already defined with a different value */
-                signalError(MODL, OCSM_NAME_ALREADY_DEFINED,
-                            "%s is already defined with a different value", str1);
-                goto cleanup;
-            }
-
-        /* input is: "csystem $csysName csysList */
-        } else if (strcmp(command, "csystem") == 0 ||
-                   strcmp(command, "CSYSTEM") == 0   ) {
-
-            /* Csystem will aplied to previous Branch */
-            ibrch = MODL->nbrch;
-
-            /* extract arguments */
-            narg = sscanf(nextline, "%*s %2047s %2047s\n",
-                          str1, str2);
-            if (narg != 2) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
-                            "CSYSTEM requires 2 arguments");
-                goto cleanup;
-            }
-
-            /* set the Branch's csystem */
-            if (MODL->brch[ibrch].type == OCSM_ASSERT    ||
-                MODL->brch[ibrch].type == OCSM_CATBEG    ||
-                MODL->brch[ibrch].type == OCSM_CATEND    ||
-//              MODL->brch[ibrch].type == OCSM_CFGPMTR   ||
-//              MODL->brch[ibrch].type == OCSM_CONPMTR   ||
-//              MODL->brch[ibrch].type == OCSM_DESPMTR   ||
-//              MODL->brch[ibrch].type == OCSM_OUTPMTR   ||
-                MODL->brch[ibrch].type == OCSM_DIMENSION ||
-                MODL->brch[ibrch].type == OCSM_ELSE      ||
-                MODL->brch[ibrch].type == OCSM_ELSEIF    ||
-                MODL->brch[ibrch].type == OCSM_END       ||
-                MODL->brch[ibrch].type == OCSM_ENDIF     ||
-                MODL->brch[ibrch].type == OCSM_IFTHEN    ||
-                MODL->brch[ibrch].type == OCSM_INTERFACE ||
-//              MODL->brch[ibrch].type == OCSM_LBOUND    ||
-                MODL->brch[ibrch].type == OCSM_MACBEG    ||
-                MODL->brch[ibrch].type == OCSM_MACEND    ||
-                MODL->brch[ibrch].type == OCSM_MARK      ||
-                MODL->brch[ibrch].type == OCSM_PATBEG    ||
-                MODL->brch[ibrch].type == OCSM_PATBREAK  ||
-                MODL->brch[ibrch].type == OCSM_PATEND    ||
-                MODL->brch[ibrch].type == OCSM_PROJECT   ||
-//              MODL->brch[ibrch].type == OCSM_SELECT    ||
-                MODL->brch[ibrch].type == OCSM_SET       ||
-                MODL->brch[ibrch].type == OCSM_EVALUATE  ||
-                MODL->brch[ibrch].type == OCSM_GETATTR   ||
-                MODL->brch[ibrch].type == OCSM_SKBEG     ||
-                MODL->brch[ibrch].type == OCSM_SKCON     ||
-                MODL->brch[ibrch].type == OCSM_SKVAR     ||
-                MODL->brch[ibrch].type == OCSM_SOLBEG    ||
-                MODL->brch[ibrch].type == OCSM_SOLEND    ||
-                MODL->brch[ibrch].type == OCSM_STORE     ||
-                MODL->brch[ibrch].type == OCSM_SPECIAL   ||
-                MODL->brch[ibrch].type == OCSM_THROW     ||
-//              MODL->brch[ibrdh].type == OCSM_UBOUND    ||
-                MODL->brch[ibrch].type == OCSM_UDPARG      ) {
-                signalError(MODL, OCSM_ILLEGAL_CSYSTEM,
-                            "a \"%s\" Branch cannot get Csystem", ocsmGetText(MODL->brch[ibrch].type));
-                goto cleanup;
-            } else {
-                status = ocsmSetCsys(MODL, ibrch, str1, str2);
-                CHECK_STATUS(ocsmSetCsys);
-            }
-
-        /* input is: "cylinder xbeg ybeg zbeg xend yend zend radius" */
-        } else if (strcmp(command, "cylinder") == 0 ||
-                   strcmp(command, "CYLINDER") == 0   ) {
-            if (nskpt > 0) {
-                signalError(MODL, OCSM_SKETCH_IS_OPEN,
-                            "CYLINDER cannot be in SKBEG/SKEND");
-                goto cleanup;
-            } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
-                            "CYLINDER cannot be in SOLBEG/SOLEND");
-                goto cleanup;
-            }
-
-            /* extract arguments */
-            narg = sscanf(nextline, "%*s %2047s %2047s %2047s %2047s %2047s %2047s %2047s\n",
-                          str1, str2, str3, str4, str5, str6, str7);
-            if (narg != 7) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
-                            "CYLINDER requires 7 arguments");
-                goto cleanup;
-            }
-
-            /* create the new Branch */
-            status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_CYLINDER, filenames[MODL->level], linenum[MODL->level],
-                                 str1, str2, str3, str4, str5, str6, str7, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
-
-        /* input is: "despmtr $pmtrName values" */
-        } else if (strcmp(command, "despmtr") == 0 ||
-                   strcmp(command, "DESPMTR") == 0   ) {
-            if (nskpt > 0) {
-                signalError(MODL, OCSM_SKETCH_IS_OPEN,
-                            "DESPMTR cannot be in SKBEG/SKEND");
-                goto cleanup;
-            } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
-                            "DESPMTR cannot be in SOLBEG/SOLEND");
-                goto cleanup;
-            } else if (MODL->scope[MODL->level] > 0) {
-                signalError(MODL, OCSM_ILLEGAL_STATEMENT,
-                            "DESPMTR not allowed in function-type .udc file");
-                goto cleanup;
-            }
-
-            /* extract arguments */
-            narg = sscanf(nextline, "%*s %2047s %2047s\n",
-                          str1, str2);
-            if (narg != 2) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
-                            "DESPMTR requires 2 arguments");
-                goto cleanup;
-            }
-
-            /* do not allow pmtrName to start with '@' */
-            if (str1[0] == '@') {
-                signalError(MODL, OCSM_ILLEGAL_PMTR_NAME,
+                status = OCSM_ILLEGAL_PMTR_NAME;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "pmtrName cannot start with an at-sign");
                 goto cleanup;
             }
@@ -1728,7 +1371,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
 
                 /* check for a valid number */
                 if (sscanf(defn, "%lf", &value) == 0) {
-                    signalError(MODL, OCSM_ILLEGAL_VALUE,
+                    status = OCSM_ILLEGAL_VALUE;
+                    signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                                 "values must only contain numbers");
                     goto cleanup;
                 }
@@ -1736,29 +1380,38 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
 
             /* break str1 into pmtrName[irow,icol] */
             status = parseName(MODL, str1, pmtrName, &ipmtr, &irow, &icol);
-            CHECK_STATUS(parseName);
+            CHECK_STATUS2(parseName);
 
             /* if it does not exist, create it now */
             if (ipmtr == 0) {
-                status = ocsmNewPmtr(MODL, pmtrName, OCSM_EXTERNAL, 1, 1);
-                CHECK_STATUS(ocsmNewPmtr);
+                status = ocsmNewPmtr(MODL, pmtrName, OCSM_CFGPMTR, 1, 1);
+                CHECK_STATUS2(ocsmNewPmtr);
                 ipmtr = MODL->npmtr;
 
-            /* make sure that Parameter is EXTERNAL */
-            } else if (MODL->pmtr[ipmtr].type == OCSM_INTERNAL) {
-                signalError(MODL, OCSM_PMTR_IS_INTERNAL,
+            /* if it exists and is UNKNOWN (because of a DIMENSION statemet),
+               convert to a CFGPMTR */
+            } else if (MODL->pmtr[ipmtr].type == OCSM_UNKNOWN) {
+                MODL->pmtr[ipmtr].type = OCSM_CFGPMTR;
+
+            /* make sure that Parameter is CFGPMTR */
+            } else if (MODL->pmtr[ipmtr].type == OCSM_LOCALVAR) {
+                status = OCSM_PMTR_IS_LOCALVAR;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "%s is an internal parameter", str1);
                 goto cleanup;
-            } else if (MODL->pmtr[ipmtr].type == OCSM_OUTPUT) {
-                signalError(MODL, OCSM_PMTR_IS_OUTPUT,
+            } else if (MODL->pmtr[ipmtr].type == OCSM_OUTPMTR) {
+                status = OCSM_PMTR_IS_OUTPMTR;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "%s is an OUTPMTR", str1);
                 goto cleanup;
-            } else if (MODL->pmtr[ipmtr].type == OCSM_CONSTANT) {
-                signalError(MODL, OCSM_PMTR_IS_CONSTANT,
+            } else if (MODL->pmtr[ipmtr].type == OCSM_CONPMTR) {
+                status = OCSM_PMTR_IS_CONPMTR;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "%s is a CONPMTR", str1);
                 goto cleanup;
-            } else if (MODL->pmtr[ipmtr].type == OCSM_CONFIG) {
-                signalError(MODL, OCSM_PMTR_IS_EXTERNAL,
+            } else if (MODL->pmtr[ipmtr].type == OCSM_DESPMTR) {
+                status = OCSM_PMTR_IS_DESPMTR;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "%s is a CFGPMTR", str1);
                 goto cleanup;
             }
@@ -1784,7 +1437,7 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
                         }
 
                         status = ocsmGetValu(MODL, ipmtr, irow, icol, &value, &dot);
-                        CHECK_STATUS(ocsmGetValu);
+                        CHECK_STATUS2(ocsmGetValu);
 
                         if (fabs(value+HUGEQ) > 1 && fabs(dot+HUGEQ) > 1) {
                             SPRINT0(1, "WARNING:: value not overwritten");
@@ -1792,7 +1445,7 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
                         } else {
                             if (strcmp(defn, "") != 0) {
                                 status = ocsmSetValu(MODL, ipmtr, irow, icol, defn);
-                                CHECK_STATUS(ocsmSetValu);
+                                CHECK_STATUS2(ocsmSetValu);
                             }
                         }
                     }
@@ -1817,7 +1470,7 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
                     }
 
                     status = ocsmGetValu(MODL, ipmtr, irow, icol, &value, &dot);
-                    CHECK_STATUS(ocsmGetValu);
+                    CHECK_STATUS2(ocsmGetValu);
 
                     if (fabs(value+HUGEQ) > 1 && fabs(dot+HUGEQ) > 1) {
                         SPRINT0(1, "WARNING:: value not overwritten");
@@ -1825,7 +1478,7 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
                     } else {
                         if (strcmp(defn, "") != 0) {
                             status = ocsmSetValu(MODL, ipmtr, irow, icol, defn);
-                            CHECK_STATUS(ocsmSetValu);
+                            CHECK_STATUS2(ocsmSetValu);
                         }
                     }
                 }
@@ -1849,7 +1502,7 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
                     }
 
                     status = ocsmGetValu(MODL, ipmtr, irow, icol, &value, &dot);
-                    CHECK_STATUS(ocsmGetValu);
+                    CHECK_STATUS2(ocsmGetValu);
 
                     if (fabs(value+HUGEQ) > 1 && fabs(dot+HUGEQ) > 1) {
                         SPRINT0(1, "WARNING:: value not overwritten");
@@ -1857,7 +1510,7 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
                     } else {
                         if (strcmp(defn, "") != 0) {
                             status = ocsmSetValu(MODL, ipmtr, irow, icol, defn);
-                            CHECK_STATUS(ocsmSetValu);
+                            CHECK_STATUS2(ocsmSetValu);
                         }
                     }
                 }
@@ -1883,7 +1536,7 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
                 }
 
                 status = ocsmGetValu(MODL, ipmtr, irow, icol, &value, &dot);
-                CHECK_STATUS(ocsmGetValu);
+                CHECK_STATUS2(ocsmGetValu);
 
                 if (fabs(value+HUGEQ) > 1 && fabs(dot+HUGEQ) > 1) {
                     SPRINT0(1, "WARNING:: value not overwritten");
@@ -1891,96 +1544,696 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
                 } else {
                     if (strcmp(defn, "") != 0) {
                         status = ocsmSetValu(MODL, ipmtr, irow, icol, defn);
-                        CHECK_STATUS(ocsmSetValu);
+                        CHECK_STATUS2(ocsmSetValu);
                     }
                 }
             }
 
-        /* input is: "dimension $pmtrName nrow ncol despmtr=0" */
+        /* input is: "chamfer radius edgeList=0 listStyle=0" */
+        } else if (strcmp(command, "chamfer") == 0 ||
+                   strcmp(command, "CHAMFER") == 0   ) {
+            if (nskpt > 0) {
+                status = OCSM_SKETCH_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                            "CHAMFER cannot be in SKBEG/SKEND");
+                goto cleanup;
+            } else if (insolver != 0) {
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                            "CHAMFER cannot be in SOLBEG/SOLEND");
+                goto cleanup;
+            }
+
+            /* extract arguments */
+            narg = sscanf(nextline, "%*s %2047s %2047s %2047s\n",
+                          str1, str2, str3);
+            if        (narg < 1) {
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                            "CHAMFER requires at least 1 argument");
+                goto cleanup;
+            } else if (narg < 2) {
+                STRNCPY(str2, "0", MAX_EXPR_LEN);
+                STRNCPY(str3, "0", MAX_EXPR_LEN);
+            } else if (narg < 3) {
+                STRNCPY(str3, "0", MAX_EXPR_LEN);
+            }
+
+            /* create the new Branch */
+            status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_CHAMFER, filenames[MODL->level], linenum[MODL->level],
+                                 str1, str2, str3, NULL, NULL, NULL, NULL, NULL, NULL);
+            CHECK_STATUS2(ocsmNewBrch);
+
+        /* input is: "cirarc xon yon zon xend yend zend" */
+        } else if (strcmp(command, "cirarc") == 0 ||
+                   strcmp(command, "CIRARC") == 0   ) {
+            if (nskpt == 0) {
+                status = OCSM_SKETCH_IS_NOT_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                            "CIRARC msut be in SKBEG/SKEND");
+                goto cleanup;
+            } else if (insolver != 0) {
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                            "CIRARC cannot be in SOLBEG/SOLEND");
+                goto cleanup;
+            }
+
+            /* extract arguments */
+            narg = sscanf(nextline, "%*s %2047s %2047s %2047s %2047s %2047s %2047s\n",
+                          str1, str2, str3, str4, str5, str6);
+
+            if (narg != 6) {
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                            "CIRARC requires 6 arguments");
+                goto cleanup;
+            }
+
+            /* create the new Branch */
+            status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_CIRARC, filenames[MODL->level], linenum[MODL->level],
+                                 str1, str2, str3, str4, str5, str6, NULL, NULL, NULL);
+            CHECK_STATUS2(ocsmNewBrch);
+
+            /* increment the number of Sketch points */
+            nskpt++; nskpt++;
+
+        /* input is: "combine toler=0" */
+        } else if (strcmp(command, "combine") == 0 ||
+                   strcmp(command, "COMBINE") == 0   ) {
+            if (nskpt > 0) {
+                status = OCSM_SKETCH_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                            "COMBINE cannot be in SKBEG/SKEND");
+                goto cleanup;
+            } else if (insolver != 0) {
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                            "COMBINE cannot be in SOLBEG/SOLEND");
+                goto cleanup;
+            }
+
+            /* extract arguments */
+            narg = sscanf(nextline, "%*s %2047s\n",
+                          str1);
+            if (narg < 1) {
+                STRNCPY(str1, "0", MAX_EXPR_LEN);
+            }
+
+            /* create the new Branch */
+            status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_COMBINE, filenames[MODL->level], linenum[MODL->level],
+                                 str1, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+            CHECK_STATUS2(ocsmNewBrch);
+
+        /* input is: "cone xvrtx yvrtx zvrtx xbase ybase zbase radius" */
+        } else if (strcmp(command, "cone") == 0 ||
+                   strcmp(command, "CONE") == 0   ) {
+            if (nskpt > 0) {
+                status = OCSM_SKETCH_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                            "CONE cannot be in SKBEG/SKEND");
+                goto cleanup;
+            } else if (insolver != 0) {
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                            "CONE cannot be in SOLBEG/SOLEND");
+                goto cleanup;
+            }
+
+            /* extract arguments */
+            narg = sscanf(nextline, "%*s %2047s %2047s %2047s %2047s %2047s %2047s %2047s\n",
+                          str1, str2, str3, str4, str5, str6, str7);
+            if (narg != 7) {
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                            "CONE requires 7 arguments");
+                goto cleanup;
+            }
+
+            /* create the new Branch */
+            status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_CONE, filenames[MODL->level], linenum[MODL->level],
+                                 str1, str2, str3, str4, str5, str6, str7, NULL, NULL);
+            CHECK_STATUS2(ocsmNewBrch);
+
+        /* input is: "connect faceList1 faceList2 edgeList1=0 edgeList2=0" */
+        } else if (strcmp(command, "connect") == 0 ||
+                   strcmp(command, "CONNECT") == 0   ) {
+            if (nskpt > 0) {
+                status = OCSM_SKETCH_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                            "CONNECT cannot be in SKBEG/SKEND");
+                goto cleanup;
+            } else if (insolver != 0) {
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                            "CONNECT cannot be in SOLBEG/SOLEND");
+                goto cleanup;
+            }
+
+            /* extract arguments */
+            narg = sscanf(nextline, "%*s %2047s %2047s %2047s %2047s\n",
+                          str1, str2, str3, str4);
+            if (narg < 2) {
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                            "CONNECT requires 2 arguments");
+                goto cleanup;
+            }
+            if (narg < 3) {
+                strcpy(str3, "0");
+            }
+            if (narg < 4) {
+                strcpy(str4, "0");
+            }
+
+            /* create the new Branch */
+            status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_CONNECT, filenames[MODL->level], linenum[MODL->level],
+                                 str1, str2, str3, str4, NULL, NULL, NULL, NULL, NULL);
+            CHECK_STATUS2(ocsmNewBrch);
+
+        /* input is: "conpmtr $pmtrName expression" */
+        } else if (strcmp(command, "conpmtr") == 0 ||
+                   strcmp(command, "CONPMTR") == 0   ) {
+            if (nskpt > 0) {
+                status = OCSM_SKETCH_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                            "CONPMTR cannot be in SKBEG/SKEND");
+                goto cleanup;
+            } else if (insolver != 0) {
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                            "CONPMTR cannot be in SOLBEG/SOLEND");
+                goto cleanup;
+            } else if (MODL->level > 0) {
+                status = OCSM_ILLEGAL_STATEMENT;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                            "CONPMTR not allowed in function-type .udc file");
+                goto cleanup;
+            }
+
+            /* extract arguments */
+            narg = sscanf(nextline, "%*s %2047s %2047s\n",
+                          str1, str2);
+            if (narg != 2) {
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                            "CONPMTR requires 2 arguments");
+                goto cleanup;
+            }
+
+            /* do not allow pmtrName to start with '@' */
+            if (str1[0] == '@') {
+                status = OCSM_ILLEGAL_PMTR_NAME;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                            "pmtrName cannot start with an at-sign");
+                goto cleanup;
+            }
+
+            /* check if pmtrName already exists, and if it does
+               ensure that it is a CONPMTR parameter */
+            ipmtr = -1;
+            for (jpmtr = 1; jpmtr <= MODL->npmtr; jpmtr++) {
+                if (strcmp(MODL->pmtr[jpmtr].name, &(str1[1])) == 0) {
+
+                    if (MODL->pmtr[jpmtr].type == OCSM_CONPMTR) {
+                        ipmtr = jpmtr;
+                        break;
+                    } else if (MODL->pmtr[jpmtr].type == OCSM_LOCALVAR) {
+                        status = OCSM_PMTR_IS_LOCALVAR;
+                        signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                                    "%s is an internal parameter", str1);
+                        goto cleanup;
+                    } else if (MODL->pmtr[jpmtr].type == OCSM_OUTPMTR) {
+                        status = OCSM_PMTR_IS_OUTPMTR;
+                        signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                                    "%s is a OUTPMTR", str1);
+                        goto cleanup;
+                    } else if (MODL->pmtr[jpmtr].type == OCSM_DESPMTR ||
+                               MODL->pmtr[jpmtr].type == OCSM_CFGPMTR   ) {
+                        status = OCSM_PMTR_IS_DESPMTR;
+                        signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                                    "%s is a CFGPMTR or CFGPMTR", str1);
+                        goto cleanup;
+                    }
+                }
+            }
+
+            /* create the Parameter (if it does not already exist) */
+            if (ipmtr < 0) {
+                status = ocsmNewPmtr(MODL, str1, OCSM_CONPMTR, 1, 1);
+                CHECK_STATUS2(ocsmNewPmtr);
+
+                ipmtr = MODL->npmtr;
+            }
+
+            /* store the value */
+            status = str2val(str2, NULL, &value, &dot, str);
+            CHECK_STATUS2(str2val);
+            if (STRLEN(str) > 0) {
+                status = OCSM_WRONG_PMTR_TYPE;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                            "expression must evaluate to a number");
+                goto cleanup;
+            } else if (fabs(MODL->pmtr[ipmtr].value[0]+HUGEQ) < EPS06) {
+                status = ocsmSetValu(MODL, ipmtr, 1, 1, str2);
+                CHECK_STATUS2(ocsmSetValu);
+            } else if (fabs(MODL->pmtr[ipmtr].value[0]-value) < EPS06) {
+                /* value already defined */
+            } else {
+                /* already defined with a different value */
+                status = OCSM_NAME_ALREADY_DEFINED;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                            "%s is already defined with a different value", str1);
+                goto cleanup;
+            }
+
+        /* input is: "csystem $csysName csysList */
+        } else if (strcmp(command, "csystem") == 0 ||
+                   strcmp(command, "CSYSTEM") == 0   ) {
+
+            /* Csystem will aplied to previous Branch */
+            ibrch = MODL->nbrch;
+
+            /* extract arguments */
+            narg = sscanf(nextline, "%*s %2047s %2047s\n",
+                          str1, str2);
+            if (narg != 2) {
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                            "CSYSTEM requires 2 arguments");
+                goto cleanup;
+            }
+
+            /* set the Branch's csystem */
+            if (MODL->brch[ibrch].type == OCSM_ASSERT    ||
+                MODL->brch[ibrch].type == OCSM_CATBEG    ||
+                MODL->brch[ibrch].type == OCSM_CATEND    ||
+                MODL->brch[ibrch].type == OCSM_DIMENSION ||
+                MODL->brch[ibrch].type == OCSM_ELSE      ||
+                MODL->brch[ibrch].type == OCSM_ELSEIF    ||
+                MODL->brch[ibrch].type == OCSM_END       ||
+                MODL->brch[ibrch].type == OCSM_ENDIF     ||
+                MODL->brch[ibrch].type == OCSM_IFTHEN    ||
+                MODL->brch[ibrch].type == OCSM_INTERFACE ||
+//              MODL->brch[ibrch].type == OCSM_LBOUND    ||
+                MODL->brch[ibrch].type == OCSM_MACBEG    ||
+                MODL->brch[ibrch].type == OCSM_MACEND    ||
+                MODL->brch[ibrch].type == OCSM_MARK      ||
+                MODL->brch[ibrch].type == OCSM_PATBEG    ||
+                MODL->brch[ibrch].type == OCSM_PATBREAK  ||
+                MODL->brch[ibrch].type == OCSM_PATEND    ||
+                MODL->brch[ibrch].type == OCSM_PROJECT   ||
+//              MODL->brch[ibrch].type == OCSM_SELECT    ||
+                MODL->brch[ibrch].type == OCSM_SET       ||
+                MODL->brch[ibrch].type == OCSM_EVALUATE  ||
+                MODL->brch[ibrch].type == OCSM_GETATTR   ||
+                MODL->brch[ibrch].type == OCSM_SKBEG     ||
+                MODL->brch[ibrch].type == OCSM_SKCON     ||
+                MODL->brch[ibrch].type == OCSM_SKVAR     ||
+                MODL->brch[ibrch].type == OCSM_SOLBEG    ||
+                MODL->brch[ibrch].type == OCSM_SOLEND    ||
+                MODL->brch[ibrch].type == OCSM_STORE     ||
+                MODL->brch[ibrch].type == OCSM_MESSAGE   ||
+                MODL->brch[ibrch].type == OCSM_SPECIAL   ||
+                MODL->brch[ibrch].type == OCSM_THROW     ||
+//              MODL->brch[ibrdh].type == OCSM_UBOUND    ||
+                MODL->brch[ibrch].type == OCSM_UDPARG      ) {
+                status = OCSM_ILLEGAL_CSYSTEM;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                            "a \"%s\" Branch cannot get Csystem", ocsmGetText(MODL->brch[ibrch].type));
+                goto cleanup;
+            } else {
+                status = ocsmSetCsys(MODL, ibrch, str1, str2);
+                CHECK_STATUS2(ocsmSetCsys);
+            }
+
+        /* input is: "cylinder xbeg ybeg zbeg xend yend zend radius" */
+        } else if (strcmp(command, "cylinder") == 0 ||
+                   strcmp(command, "CYLINDER") == 0   ) {
+            if (nskpt > 0) {
+                status = OCSM_SKETCH_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                            "CYLINDER cannot be in SKBEG/SKEND");
+                goto cleanup;
+            } else if (insolver != 0) {
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                            "CYLINDER cannot be in SOLBEG/SOLEND");
+                goto cleanup;
+            }
+
+            /* extract arguments */
+            narg = sscanf(nextline, "%*s %2047s %2047s %2047s %2047s %2047s %2047s %2047s\n",
+                          str1, str2, str3, str4, str5, str6, str7);
+            if (narg != 7) {
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                            "CYLINDER requires 7 arguments");
+                goto cleanup;
+            }
+
+            /* create the new Branch */
+            status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_CYLINDER, filenames[MODL->level], linenum[MODL->level],
+                                 str1, str2, str3, str4, str5, str6, str7, NULL, NULL);
+            CHECK_STATUS2(ocsmNewBrch);
+
+        /* input is: "despmtr $pmtrName values" */
+        } else if (strcmp(command, "despmtr") == 0 ||
+                   strcmp(command, "DESPMTR") == 0   ) {
+            if (nskpt > 0) {
+                status = OCSM_SKETCH_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                            "DESPMTR cannot be in SKBEG/SKEND");
+                goto cleanup;
+            } else if (insolver != 0) {
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                            "DESPMTR cannot be in SOLBEG/SOLEND");
+                goto cleanup;
+            } else if (MODL->scope[MODL->level] > 0) {
+                status = OCSM_ILLEGAL_STATEMENT;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                            "DESPMTR not allowed in function-type .udc file");
+                goto cleanup;
+            }
+
+            /* extract arguments */
+            narg = sscanf(nextline, "%*s %2047s %2047s\n",
+                          str1, str2);
+            if (narg != 2) {
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                            "DESPMTR requires 2 arguments");
+                goto cleanup;
+            }
+
+            /* do not allow pmtrName to start with '@' */
+            if (str1[0] == '@') {
+                status = OCSM_ILLEGAL_PMTR_NAME;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                            "pmtrName cannot start with an at-sign");
+                goto cleanup;
+            }
+
+            /* make sure that values is a semicolon-separated list of numbers */
+            icount = 0;
+            while (icount < STRLEN(str2)) {
+                jcount = 0;
+
+                while (icount < STRLEN(str2)) {
+                    if (str2[icount] == ';') {
+                        icount++;
+                        break;
+                    } else {
+                        defn[jcount  ] =str2[icount];
+                        defn[jcount+1] = '\0';
+                        icount++;
+                        jcount++;
+                    }
+                }
+
+                /* check for a valid number */
+                if (sscanf(defn, "%lf", &value) == 0) {
+                    status = OCSM_ILLEGAL_VALUE;
+                    signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                                "values must only contain numbers");
+                    goto cleanup;
+                }
+            }
+
+            /* break str1 into pmtrName[irow,icol] */
+            status = parseName(MODL, str1, pmtrName, &ipmtr, &irow, &icol);
+            CHECK_STATUS2(parseName);
+
+            /* if it does not exist, create it now */
+            if (ipmtr == 0) {
+                status = ocsmNewPmtr(MODL, pmtrName, OCSM_DESPMTR, 1, 1);
+                CHECK_STATUS2(ocsmNewPmtr);
+                ipmtr = MODL->npmtr;
+
+            /* if it exists and is UNKNOWN (because of a DIMENSION statemet),
+               convert to a DESPMTR */
+            } else if (MODL->pmtr[ipmtr].type == OCSM_UNKNOWN) {
+                MODL->pmtr[ipmtr].type = OCSM_DESPMTR;
+
+            /* make sure that Parameter is DESPMTR */
+            } else if (MODL->pmtr[ipmtr].type == OCSM_LOCALVAR) {
+                status = OCSM_PMTR_IS_LOCALVAR;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                            "%s is an internal parameter", str1);
+                goto cleanup;
+            } else if (MODL->pmtr[ipmtr].type == OCSM_OUTPMTR) {
+                status = OCSM_PMTR_IS_OUTPMTR;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                            "%s is an OUTPMTR", str1);
+                goto cleanup;
+            } else if (MODL->pmtr[ipmtr].type == OCSM_CONPMTR) {
+                status = OCSM_PMTR_IS_CONPMTR;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                            "%s is a CONPMTR", str1);
+                goto cleanup;
+            } else if (MODL->pmtr[ipmtr].type == OCSM_CFGPMTR) {
+                status = OCSM_PMTR_IS_DESPMTR;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],     // OCSM_PMTR_IS_CFGPMTR is not defined
+                            "%s is a CFGPMTR", str1);
+                goto cleanup;
+            }
+
+            /* store the values for the whole Parameter */
+            if ((irow ==    0 && icol ==    0) ||
+                (irow == -999 && icol == -999)   ) {
+                icount = 0;
+                for (irow = 1; irow <= MODL->pmtr[ipmtr].nrow; irow++) {
+                    for (icol = 1; icol <= MODL->pmtr[ipmtr].ncol; icol++) {
+                        jcount = 0;
+
+                        while (icount < STRLEN(str2)) {
+                            if (str2[icount] == ';') {
+                                icount++;
+                                break;
+                            } else {
+                                defn[jcount  ] = str2[icount];
+                                defn[jcount+1] = '\0';
+                                icount++;
+                                jcount++;
+                            }
+                        }
+
+                        status = ocsmGetValu(MODL, ipmtr, irow, icol, &value, &dot);
+                        CHECK_STATUS2(ocsmGetValu);
+
+                        if (fabs(value+HUGEQ) > 1 && fabs(dot+HUGEQ) > 1) {
+                            SPRINT0(1, "WARNING:: value not overwritten");
+                            (MODL->nwarn)++;
+                        } else {
+                            if (strcmp(defn, "") != 0) {
+                                status = ocsmSetValu(MODL, ipmtr, irow, icol, defn);
+                                CHECK_STATUS2(ocsmSetValu);
+                            }
+                        }
+                    }
+                }
+
+            /* store the values for all rows of the Parameter */
+            } else if (irow == -999) {
+                icount = 0;
+                for (irow = 1; irow <= MODL->pmtr[ipmtr].nrow; irow++) {
+                    jcount = 0;
+
+                    while (icount < STRLEN(str2)) {
+                        if (str2[icount] == ';') {
+                            icount++;
+                            break;
+                        } else {
+                            defn[jcount  ] = str2[icount];
+                            defn[jcount+1] = '\0';
+                            icount++;
+                            jcount++;
+                        }
+                    }
+
+                    status = ocsmGetValu(MODL, ipmtr, irow, icol, &value, &dot);
+                    CHECK_STATUS2(ocsmGetValu);
+
+                    if (fabs(value+HUGEQ) > 1 && fabs(dot+HUGEQ) > 1) {
+                        SPRINT0(1, "WARNING:: value not overwritten");
+                        (MODL->nwarn)++;
+                    } else {
+                        if (strcmp(defn, "") != 0) {
+                            status = ocsmSetValu(MODL, ipmtr, irow, icol, defn);
+                            CHECK_STATUS2(ocsmSetValu);
+                        }
+                    }
+                }
+
+            /* store the values for all columns of the Parameter */
+            } else if (icol == -999) {
+                icount = 0;
+                for (icol = 1; icol <= MODL->pmtr[ipmtr].ncol; icol++) {
+                    jcount = 0;
+
+                    while (icount < STRLEN(str2)) {
+                        if (str2[icount] == ';') {
+                            icount++;
+                            break;
+                        } else {
+                            defn[jcount  ] = str2[icount];
+                            defn[jcount+1] = '\0';
+                            icount++;
+                            jcount++;
+                        }
+                    }
+
+                    status = ocsmGetValu(MODL, ipmtr, irow, icol, &value, &dot);
+                    CHECK_STATUS2(ocsmGetValu);
+
+                    if (fabs(value+HUGEQ) > 1 && fabs(dot+HUGEQ) > 1) {
+                        SPRINT0(1, "WARNING:: value not overwritten");
+                        (MODL->nwarn)++;
+                    } else {
+                        if (strcmp(defn, "") != 0) {
+                            status = ocsmSetValu(MODL, ipmtr, irow, icol, defn);
+                            CHECK_STATUS2(ocsmSetValu);
+                        }
+                    }
+                }
+
+            /* store a single value into the Parameter */
+            } else {
+                if (irow <= 0) irow = 1;
+                if (icol <= 0) icol = 1;
+
+                icount = 0;
+                jcount = 0;
+
+                while (icount < STRLEN(str2)) {
+                    if (str2[icount] == ';') {
+                        icount++;
+                        break;
+                    } else {
+                        defn[jcount  ] = str2[icount];
+                        defn[jcount+1] = '\0';
+                        icount++;
+                        jcount++;
+                    }
+                }
+
+                status = ocsmGetValu(MODL, ipmtr, irow, icol, &value, &dot);
+                CHECK_STATUS2(ocsmGetValu);
+
+                if (fabs(value+HUGEQ) > 1 && fabs(dot+HUGEQ) > 1) {
+                    SPRINT0(1, "WARNING:: value not overwritten");
+                    (MODL->nwarn)++;
+                } else {
+                    if (strcmp(defn, "") != 0) {
+                        status = ocsmSetValu(MODL, ipmtr, irow, icol, defn);
+                        CHECK_STATUS2(ocsmSetValu);
+                    }
+                }
+            }
+
+        /* input is: "dimension $pmtrName nrow ncol" */
         } else if (strcmp(command, "dimension") == 0 ||
                    strcmp(command, "DIMENSION") == 0   ) {
             if (nskpt > 0) {
-                signalError(MODL, OCSM_SKETCH_IS_OPEN,
+                status = OCSM_SKETCH_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "DIMENSION cannot be in SKBEG/SKEND");
                 goto cleanup;
             } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "DIMENSION cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             }
 
             /* extract arguments */
             strcpy(str1, "$");
-            narg = sscanf(nextline, "%*s %2046s %2047s %2047s %2047s\n",
-                          &(str1[1]), str2, str3, str4);
+            narg = sscanf(nextline, "%*s %2046s %2047s %2047s\n",
+                          &(str1[1]), str2, str3);
             if (narg < 3) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "DIMENSION requires at least 3 arguments");
                 goto cleanup;
+            } else if (narg >= 4) {
+                SPRINT0(1, "WARNING:: despmtr argument is obsolete and will be ignored");
+                (MODL->nwarn)++;
             }
 
             /* do not allow pmtrName to start with '@' */
             if (str1[1] == '@') {
-                signalError(MODL, OCSM_ILLEGAL_PMTR_NAME,
+                status = OCSM_ILLEGAL_PMTR_NAME;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "pmtrName cannot start with an at-sign");
                 goto cleanup;
             }
 
-            if (narg == 4) {
-                status = str2val(str4, MODL, &despmtr, &dot, str);
-                CHECK_STATUS(str2val:despmtr);
-                if (STRLEN(str) > 0) {
-                    signalError(MODL, OCSM_WRONG_PMTR_TYPE,
-                                "despmtr must evaluate to a number");
-                    goto cleanup;
+            /*  create a Branch */
+            status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_DIMENSION, filenames[MODL->level], linenum[MODL->level],
+                                 str1, str2, str3, NULL, NULL, NULL, NULL, NULL, NULL);
+            CHECK_STATUS2(ocsmNewBrch);
+
+            /* create an UNKNOWN Parameter if one does not already exist and str2 and str3
+               both can be evaluated to a number
+
+               notes:  1. the type will get changed from UNKNOWN to DESPMTR by a DESPMTR statement
+                       2. the type will get changed from UNKNOWN to CFGPMTR by a CFGPMTR statement
+                       3. the type will get changed from UNKNOWN to OUTPMTR by a OUTPMTR statement
+                       4. all UNKNOWNs will be deleted at the end of ocsmLoad
+            */
+            ipmtr = -1;
+            for (jpmtr = 1; jpmtr <= MODL->npmtr; jpmtr++) {
+                if (strcmp(&str1[1], MODL->pmtr[jpmtr].name) == 0) {
+                    ipmtr = jpmtr;
+                    break;
                 }
-            } else {
-                despmtr = 0;
             }
 
-            /* for an internal Parameter, create a Branch */
-            if (NINT(despmtr) == 0) {
-                status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_DIMENSION, filenames[MODL->level], linenum[MODL->level],
-                                     str1, str2, str3, NULL, NULL, NULL, NULL, NULL, NULL);
-                CHECK_STATUS(ocsmNewBrch);
-
-            /* for an external Parameter, create the despmtr now (no Branch) */
-            } else {
-                if (MODL->level > 0) {
-                    signalError(MODL, OCSM_ILLEGAL_STATEMENT,
-                                "DIMENSION not allowed in .udc file");
-                    goto cleanup;
+            if (ipmtr < 0) {
+                status = str2valNoSignal(str2, MODL, &value, &dot, str);
+                if (status == SUCCESS && strlen(str) == 0) {
+                    nrow = NINT(value);
+                    if (nrow <= 0) {
+                        signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                                     "nrow is not positive");
+                        goto cleanup;
+                    }
+                } else {
+                    nrow = -1;
                 }
 
-                status = str2val(str2, MODL, &rows, &dot, str);
-                CHECK_STATUS(str2val:rows);
-                if (STRLEN(str) > 0) {
-                    signalError(MODL, OCSM_WRONG_PMTR_TYPE,
-                                "nrow must evaluate to a number");
-                    goto cleanup;
+                status = str2valNoSignal(str3, MODL, &value, &dot, str);
+                if (status == SUCCESS && strlen(str) == 0) {
+                    ncol = NINT(value);
+                    if (ncol <= 0) {
+                        signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                                     "ncol is not positive");
+                        goto cleanup;
+                    }
+                } else {
+                    ncol = -1;
                 }
 
-                status = str2val(str3, MODL, &cols, &dot, str);
-                CHECK_STATUS(str2val:cols);
-                if (STRLEN(str) > 0) {
-                    signalError(MODL, OCSM_WRONG_PMTR_TYPE,
-                                "ncol must evaluate to a number");
-                    goto cleanup;
-                }
+                status = SUCCESS;
 
-                status = ocsmNewPmtr(MODL, &(str1[1]), OCSM_EXTERNAL, NINT(rows), NINT(cols));
-                CHECK_STATUS(ocsmNewPmtr);
+                if (nrow > 0 && ncol > 0) {
+                    status = ocsmNewPmtr(MODL, &(str1[1]), OCSM_UNKNOWN, nrow, ncol);
+                    CHECK_STATUS2(ocsmNewPmtr);
+                }
             }
 
         /* input is: "dump $filename remove=0 toMark=0" */
         } else if (strcmp(command, "dump") == 0 ||
                    strcmp(command, "DUMP") == 0   ) {
             if (nskpt > 0) {
-                signalError(MODL, OCSM_SKETCH_IS_OPEN,
+                status = OCSM_SKETCH_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "DUMP cannot be in SKBEG/SKEND");
                 goto cleanup;
             } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "DUMP cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             }
@@ -1990,7 +2243,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             narg = sscanf(nextline, "%*s %2046s %2047s %2047s\n",
                           &(str1[1]), str2, str3);
             if (narg < 1) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "DUMP requires at least 1 argument");
                 goto cleanup;
             }
@@ -2017,7 +2271,7 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_DUMP, filenames[MODL->level], linenum[MODL->level],
                                  str1, str2, str3, NULL, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
         /* input is: "else" */
         } else if (strcmp(command, "else") == 0 ||
@@ -2028,7 +2282,7 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_ELSE, filenames[MODL->level], linenum[MODL->level],
                                  NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
         /* input is: "elseif val1 op1 val2 op2=and val3=0 op3=eq val4=0" */
         } else if (strcmp(command, "elseif") == 0 ||
@@ -2042,7 +2296,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             narg = sscanf(nextline, "%*s %2047s %2046s %2047s %2046s %2047s %2046s %2047s\n",
                           str1, &(str2[1]), str3, &(str4[1]), str5, &(str6[1]), str7);
             if (narg < 3) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "ELSEIF requires at least 3 arguments");
                 goto cleanup;
             }
@@ -2066,14 +2321,16 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
                 strcmp(str2, "$ge") != 0 && strcmp(str2, "$GE") != 0 &&
                 strcmp(str2, "$gt") != 0 && strcmp(str2, "$GT") != 0 &&
                 strcmp(str2, "$ne") != 0 && strcmp(str2, "$NE") != 0   ) {
-                signalError(MODL, OCSM_ILLEGAL_VALUE,
+                status = OCSM_ILLEGAL_VALUE;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "op1 must be LT, LE, EQ, GE, GT, or NE");
                 goto cleanup;
             }
             if (strcmp(str4, "$or" ) != 0 && strcmp(str4, "$OR" ) != 0 &&
                 strcmp(str4, "$and") != 0 && strcmp(str4, "$AND") != 0 &&
                 strcmp(str4, "$xor") != 0 && strcmp(str4, "$XOR") != 0   ) {
-                signalError(MODL, OCSM_ILLEGAL_VALUE,
+                status = OCSM_ILLEGAL_VALUE;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "op2 must be OR, AND, or XOR");
                 goto cleanup;
             }
@@ -2083,7 +2340,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
                 strcmp(str6, "$ge") != 0 && strcmp(str6, "$GE") != 0 &&
                 strcmp(str6, "$gt") != 0 && strcmp(str6, "$GT") != 0 &&
                 strcmp(str6, "$ne") != 0 && strcmp(str6, "$NE") != 0   ) {
-                signalError(MODL, OCSM_ILLEGAL_VALUE,
+                status = OCSM_ILLEGAL_VALUE;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "op3 must be LT, LE, EQ, GE, GT, or NE");
                 goto cleanup;
             }
@@ -2091,17 +2349,19 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_ELSEIF, filenames[MODL->level], linenum[MODL->level],
                                  str1, str2, str3, str4, str5, str6, str7, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
         /* input is: "end" */
         } else if (strcmp(command, "end") == 0 ||
                    strcmp(command, "END") == 0   ) {
             if (nskpt > 0) {
-                signalError(MODL, OCSM_SKETCH_IS_OPEN,
+                status = OCSM_SKETCH_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "END cannot be in SKBEG/SKEND");
                 goto cleanup;
             } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "END cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             }
@@ -2120,7 +2380,7 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
                 /* create a new Branch and decrement the level */
                 status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_END, filenames[MODL->level], linenum[MODL->level],
                                      NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
-                CHECK_STATUS(ocsmNewBrch);
+                CHECK_STATUS2(ocsmNewBrch);
 
                 numudc--;
 
@@ -2131,7 +2391,7 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
                 /* create a new Branch and decrement the level */
                 status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_END, filenames[MODL->level], linenum[MODL->level],
                                      NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
-                CHECK_STATUS(ocsmNewBrch);
+                CHECK_STATUS2(ocsmNewBrch);
 
                 (MODL->level)--;
 
@@ -2156,7 +2416,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
                 }
             }
             if (ibrch <= 0) {
-                signalError(MODL, OCSM_IMPROPER_NESTING,
+                status = OCSM_IMPROPER_NESTING;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "ENDIF must follow IFTHEN");
                 goto cleanup;
             }
@@ -2166,7 +2427,7 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_ENDIF, filenames[MODL->level], linenum[MODL->level],
                                  NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
             npatn--;
 
@@ -2183,7 +2444,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             if        (strcmp(str1, "$node") == 0 ||
                        strcmp(str1, "$NODE") == 0   ) {
                 if (narg != 3) {
-                    signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                    status = OCSM_NOT_ENOUGH_ARGS;
+                    signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                                 "EVALUATE NODE requires 3 arguments");
                     goto cleanup;
                 }
@@ -2192,7 +2454,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             } else if (strcmp(str1, "$edge") == 0 ||
                        strcmp(str1, "$EDGE") == 0   ) {
                 if (narg != 4) {
-                    signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                    status = OCSM_NOT_ENOUGH_ARGS;
+                    signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                                 "EVALUATE EDGE requires 4 arguments");
                     goto cleanup;
                 }
@@ -2201,7 +2464,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             } else if (strcmp(str1, "$edgerng") == 0 ||
                        strcmp(str1, "$EDGERNG") == 0   ) {
                 if (narg != 3) {
-                    signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                    status = OCSM_NOT_ENOUGH_ARGS;
+                    signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                                 "EVALUATE EDGERNG requires 3 arguments");
                     goto cleanup;
                 }
@@ -2210,7 +2474,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             } else if (strcmp(str1, "$edgeinv") == 0 ||
                        strcmp(str1, "$EDGEINV") == 0   ) {
                 if (narg != 6) {
-                    signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                    status = OCSM_NOT_ENOUGH_ARGS;
+                    signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                                 "EVALUATE EDGEINV requires 6 arguments");
                     goto cleanup;
                 }
@@ -2219,7 +2484,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             } else if (strcmp(str1, "$face") == 0 ||
                        strcmp(str1, "$FACE") == 0   ) {
                 if (narg != 5) {
-                    signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                    status = OCSM_NOT_ENOUGH_ARGS;
+                    signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                                 "EVALUATE FACE requires 5 arguments");
                     goto cleanup;
                 }
@@ -2228,7 +2494,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             } else if (strcmp(str1, "$facerng") == 0 ||
                        strcmp(str1, "$FACERNG") == 0   ) {
                 if (narg != 3) {
-                    signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                    status = OCSM_NOT_ENOUGH_ARGS;
+                    signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                                 "EVALUATE FACERNG requires 3 arguments");
                     goto cleanup;
                 }
@@ -2237,12 +2504,14 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             } else if (strcmp(str1, "$faceinv") == 0 ||
                        strcmp(str1, "$FACEINV") == 0   ) {
                 if (narg != 6) {
-                    signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                    status = OCSM_NOT_ENOUGH_ARGS;
+                    signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                                 "EVALUATE FACEINV requires 6 arguments");
                     goto cleanup;
                 }
             } else {
-                signalError(MODL, OCSM_ILLEGAL_STATEMENT,
+                status = OCSM_ILLEGAL_STATEMENT;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "type must be NODE, EDGE, EDGERNG, EDGEINV, FACE, FACERNG, or FACEINV");
                 goto cleanup;
             }
@@ -2250,17 +2519,19 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_EVALUATE, filenames[MODL->level], linenum[MODL->level],
                                  str1, str2, str3, str4, str5, str6, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
         /* input is: "extract entList" */
         } else if (strcmp(command, "extract") == 0 ||
                    strcmp(command, "EXTRACT") == 0   ) {
             if (nskpt > 0) {
-                signalError(MODL, OCSM_SKETCH_IS_OPEN,
+                status = OCSM_SKETCH_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "EXTRACT cannot be in SKBEG/SKEND");
                 goto cleanup;
             } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "EXTRACT cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             }
@@ -2269,7 +2540,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             narg = sscanf(nextline, "%*s %2047s\n",
                           str1);
             if (narg != 1) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "EXTRACT requires 1 argument");
                 goto cleanup;
             }
@@ -2277,17 +2549,19 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_EXTRACT, filenames[MODL->level], linenum[MODL->level],
                                  str1, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
         /* input is: "extrude dx dy dz" */
         } else if (strcmp(command, "extrude") == 0 ||
                    strcmp(command, "EXTRUDE") == 0   ) {
             if (nskpt > 0) {
-                signalError(MODL, OCSM_SKETCH_IS_OPEN,
+                status = OCSM_SKETCH_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "EXTRUDE cannot be in SKBEG/SKEND");
                 goto cleanup;
             } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "EXTRUDE cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             }
@@ -2296,7 +2570,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             narg = sscanf(nextline, "%*s %2047s %2047s %2047s\n",
                           str1, str2, str3);
             if (narg != 3) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "EXTRUDE requires 3 arguments");
                 goto cleanup;
             }
@@ -2304,17 +2579,19 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_EXTRUDE, filenames[MODL->level], linenum[MODL->level],
                                  str1, str2, str3, NULL, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
         /* input is: "fillet radius edgeList=0 listStyle=0" */
         } else if (strcmp(command, "fillet") == 0 ||
                    strcmp(command, "FILLET") == 0   ) {
             if (nskpt > 0) {
-                signalError(MODL, OCSM_SKETCH_IS_OPEN,
+                status = OCSM_SKETCH_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "FILLET cannot be in SKBEG/SKEND");
                 goto cleanup;
             } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "FILLET cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             }
@@ -2323,7 +2600,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             narg = sscanf(nextline, "%*s %2047s %2047s %2047s\n",
                           str1, str2, str3);
             if        (narg < 1) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "ASSERT requires at least 1 argument");
                 goto cleanup;
             } else if (narg < 2) {
@@ -2336,7 +2614,7 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_FILLET, filenames[MODL->level], linenum[MODL->level],
                                  str1, str2, str3, NULL, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
         /* input is: "getattr $pmtrName attrID global=0" */
         } else if (strcmp(command, "getattr") == 0 ||
@@ -2347,7 +2625,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             narg = sscanf(nextline, "%*s %2046s %2047s %2047s\n",
                           &(str1[1]), str2, str3);
             if (narg < 2) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "GETATTR requires at least 2 arguments");
                 goto cleanup;
             }
@@ -2358,7 +2637,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
 
             /* do not allow pmtrName to start with '@' */
             if (str1[1] == '@') {
-                signalError(MODL, OCSM_ILLEGAL_PMTR_NAME,
+                status = OCSM_ILLEGAL_PMTR_NAME;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "pmtrName cannot start with an at-sign");
                 goto cleanup;
             }
@@ -2366,17 +2646,19 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_GETATTR, filenames[MODL->level], linenum[MODL->level],
                                  str1, str2, str3, NULL, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
         /* input is: "group nbody=0" */
         } else if (strcmp(command, "group") == 0 ||
                    strcmp(command, "GROUP") == 0   ) {
             if (nskpt > 0) {
-                signalError(MODL, OCSM_SKETCH_IS_OPEN,
+                status = OCSM_SKETCH_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "GROUP cannot be in SKBEG/SKEND");
                 goto cleanup;
             } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "GROUP cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             }
@@ -2391,17 +2673,19 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_GROUP, filenames[MODL->level], linenum[MODL->level],
                                  str1, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
         /* input is: "hollow thick=0 entList=0 listStyle=0" */
         } else if (strcmp(command, "hollow") == 0 ||
                    strcmp(command, "HOLLOW") == 0   ) {
             if (nskpt > 0) {
-                signalError(MODL, OCSM_SKETCH_IS_OPEN,
+                status = OCSM_SKETCH_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "HOLLOW cannot be in SKBEG/SKEND");
                 goto cleanup;
             } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "HOLLOW cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             }
@@ -2423,7 +2707,7 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_HOLLOW, filenames[MODL->level], linenum[MODL->level],
                                  str1, str2, str3, NULL, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
         /* input is: "ifthen val1 $op1 val2 $op2=and val3=0 $op3=eq val4=0" */
         } else if (strcmp(command, "ifthen") == 0 ||
@@ -2437,7 +2721,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             narg = sscanf(nextline, "%*s %2047s %2046s %2047s %2046s %2047s %2046s %2047s\n",
                           str1, &(str2[1]), str3, &(str4[1]), str5, &(str6[1]), str7);
             if (narg < 3) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "IFTHEN requires at least 3 arguments");
                 goto cleanup;
             }
@@ -2461,14 +2746,16 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
                 strcmp(str2, "$ge") != 0 && strcmp(str2, "$GE") != 0 &&
                 strcmp(str2, "$gt") != 0 && strcmp(str2, "$GT") != 0 &&
                 strcmp(str2, "$ne") != 0 && strcmp(str2, "$NE") != 0   ) {
-                signalError(MODL, OCSM_ILLEGAL_VALUE,
+                status = OCSM_ILLEGAL_VALUE;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "op1 must be LT, LE, EQ, GE, GT, or NE");
                 goto cleanup;
             }
             if (strcmp(str4, "$or" ) != 0 && strcmp(str4, "$OR" ) != 0 &&
                 strcmp(str4, "$and") != 0 && strcmp(str4, "$AND") != 0 &&
                 strcmp(str4, "$xor") != 0 && strcmp(str4, "$XOR") != 0   ) {
-                signalError(MODL, OCSM_ILLEGAL_VALUE,
+                status = OCSM_ILLEGAL_VALUE;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "op2 must be OR, AND, or XOR");
                 goto cleanup;
             }
@@ -2478,7 +2765,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
                 strcmp(str6, "$ge") != 0 && strcmp(str6, "$GE") != 0 &&
                 strcmp(str6, "$gt") != 0 && strcmp(str6, "$GT") != 0 &&
                 strcmp(str6, "$ne") != 0 && strcmp(str6, "$NE") != 0   ) {
-                signalError(MODL, OCSM_ILLEGAL_VALUE,
+                status = OCSM_ILLEGAL_VALUE;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "op3 must be LT, LE, EQ, GE, GT, or NE");
                 goto cleanup;
             }
@@ -2486,17 +2774,19 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_IFTHEN, filenames[MODL->level], linenum[MODL->level],
                                  str1, str2, str3, str4, str5, str6, str7, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
         /* input is: "import $filename bodynumber=1" */
         } else if (strcmp(command, "import") == 0 ||
                    strcmp(command, "IMPORT") == 0   ) {
             if (nskpt > 0) {
-                signalError(MODL, OCSM_SKETCH_IS_OPEN,
+                status = OCSM_SKETCH_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "IMPORT cannot be in SKBEG/SKEND");
                 goto cleanup;
             } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "IMPORT cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             }
@@ -2508,7 +2798,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             if        (narg == 1) {
                 STRNCPY(str2, "1", MAX_EXPR_LEN);
             } else if (narg != 2) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "IMPORT requires at least 1 argument");
                 goto cleanup;
             }
@@ -2539,13 +2830,14 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_IMPORT, filenames[MODL->level], linenum[MODL->level],
                                  str1, str2, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
         /* input is: "interface $argName $argType default=0" */
         } else if (strcmp(command, "interface") == 0 ||
                    strcmp(command, "INTERFACE") == 0   ) {
             if (filetype == 0 && MODL->level <= 0) {
-                signalError(MODL, OCSM_ILLEGAL_STATEMENT,
+                status = OCSM_ILLEGAL_STATEMENT;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "INTERFACE not allowed in .csm file");
                 goto cleanup;
             }
@@ -2557,7 +2849,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             if        (narg == 2) {
                 STRNCPY(str3, "0", MAX_EXPR_LEN);
             } else if (narg != 3) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "INTERFACE requires at least 2 arguments");
                 goto cleanup;
             }
@@ -2567,7 +2860,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
                 (strcmp(str2, "$out") != 0) && (strcmp(str2, "$OUT") != 0) &&
                 (strcmp(str2, "$dim") != 0) && (strcmp(str2, "$DIM") != 0) &&
                 (strcmp(str2, "$all") != 0) && (strcmp(str2, "$ALL") != 0)   ) {
-                signalError(MODL, OCSM_ILLEGAL_VALUE,
+                status = OCSM_ILLEGAL_VALUE;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "argType must be IN, OUT, DIM, or ALL");
                 goto cleanup;
             }
@@ -2581,17 +2875,19 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_INTERFACE, filenames[MODL->level], linenum[MODL->level],
                                  str1, str2, str3, NULL, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
         /* input is: "intersect $order=none index=1 maxtol=0" */
         } else if (strcmp(command, "intersect") == 0 ||
                    strcmp(command, "INTERSECT") == 0   ) {
             if (nskpt > 0) {
-                signalError(MODL, OCSM_SKETCH_IS_OPEN,
+                status = OCSM_SKETCH_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "INTERSECT cannot be in SKBEG/SKEND");
                 goto cleanup;
             } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "INTERSECT cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             }
@@ -2613,17 +2909,19 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_INTERSECT, filenames[MODL->level], linenum[MODL->level],
                                  str1, str2, str3, NULL, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
         /* input is: "join toler=0 toMark=0" */
         } else if (strcmp(command, "join") == 0 ||
                    strcmp(command, "JOIN") == 0   ) {
             if (nskpt > 0) {
-                signalError(MODL, OCSM_SKETCH_IS_OPEN,
+                status = OCSM_SKETCH_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "JOIN cannot be in SKBEG/SKEND");
                 goto cleanup;
             } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "JOIN cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             }
@@ -2641,21 +2939,24 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_JOIN, filenames[MODL->level], linenum[MODL->level],
                                  str1, str2, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
         /* input is: "lbound $pmtrName expression" */
         } else if (strcmp(command, "lbound") == 0 ||
                    strcmp(command, "LBOUND") == 0   ) {
             if (nskpt > 0) {
-                signalError(MODL, OCSM_SKETCH_IS_OPEN,
+                status = OCSM_SKETCH_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "LBOUND cannot be in SKBEG/SKEND");
                 goto cleanup;
             } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "LBOUND cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             } else if (MODL->scope[MODL->level] > 0) {
-                signalError(MODL, OCSM_ILLEGAL_STATEMENT,
+                status = OCSM_ILLEGAL_STATEMENT;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "LBOUND not allowed in function-type .udc file");
                 goto cleanup;
             }
@@ -2664,14 +2965,16 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             narg = sscanf(nextline, "%*s %2047s %2047s\n",
                           str1, str2);
             if (narg != 2) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "LBOUND requires 2 arguments");
                 goto cleanup;
             }
 
             /* do not allow pmtrName to start with '@' */
             if (str1[0] == '@') {
-                signalError(MODL, OCSM_ILLEGAL_PMTR_NAME,
+                status = OCSM_ILLEGAL_PMTR_NAME;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "pmtrName cannot start with an at-sign");
                 goto cleanup;
             }
@@ -2695,7 +2998,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
 
                 /* check for a valid number */
                 if (sscanf(defn, "%lf", &value) == 0) {
-                    signalError(MODL, OCSM_WRONG_PMTR_TYPE,
+                    status = OCSM_WRONG_PMTR_TYPE;
+                    signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                                 "expression must evaluate to a number");
                     goto cleanup;
                 }
@@ -2703,31 +3007,36 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
 
             /* break str1 into pmtrName[irow,icol] */
             status = parseName(MODL, str1, pmtrName, &ipmtr, &irow, &icol);
-            CHECK_STATUS(parseName);
+            CHECK_STATUS2(parseName);
 
-            /* if it does not exist, create it now */
+            /* if it does not exist, signal error */
             if (ipmtr == 0) {
-                status = ocsmNewPmtr(MODL, pmtrName, OCSM_EXTERNAL, 1, 1);
-                CHECK_STATUS(ocsmNewPmtr);
-                ipmtr = MODL->npmtr;
+                status = OCSM_ILLEGAL_PMTR_NAME;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                             "\"%s\" does not exist", pmtrName);
+                goto cleanup;
 
-            /* make sure that Parameter is EXTERNAL */
-            } else if (MODL->pmtr[ipmtr].type == OCSM_INTERNAL) {
-                signalError(MODL, OCSM_PMTR_IS_INTERNAL,
+            /* make sure that Parameter is DESPMTR or CFGPMTR */
+            } else if (MODL->pmtr[ipmtr].type == OCSM_LOCALVAR) {
+                status = OCSM_PMTR_IS_LOCALVAR;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "%s is an internal parameter", str1);
                 goto cleanup;
-            } else if (MODL->pmtr[ipmtr].type == OCSM_OUTPUT) {
-                signalError(MODL, OCSM_PMTR_IS_OUTPUT,
+            } else if (MODL->pmtr[ipmtr].type == OCSM_OUTPMTR) {
+                status = OCSM_PMTR_IS_OUTPMTR;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "%s is an OUTPMTR", str1);
                 goto cleanup;
-            } else if (MODL->pmtr[ipmtr].type == OCSM_CONSTANT) {
-                signalError(MODL, OCSM_PMTR_IS_CONSTANT,
+            } else if (MODL->pmtr[ipmtr].type == OCSM_CONPMTR) {
+                status = OCSM_PMTR_IS_CONPMTR;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "%s is a CONPMTR", str1);
                 goto cleanup;
-//$$$            } else if (MODL->pmtr[ipmtr].type == OCSM_CONFIG) {
-//$$$                signalError(MODL, OCSM_PMTR_IS_CONSTANT,
-//$$$                            "%s is a CFGPMTR parameter", str1);
-//$$$                goto cleanup;
+            } else if (MODL->pmtr[ipmtr].type == OCSM_UNKNOWN) {
+                status = OCSM_ILLEGAL_PMTR_NAME;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                            "%s is an unknown type", str1);
+                goto cleanup;
             }
 
             /* store the bounds for the whole Parameter */
@@ -2750,11 +3059,12 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
                             }
                         }
 
-                        status = str2val(defn, NULL, &bound, &dot, str);
-                        CHECK_STATUS(str2val);
+                        status = str2val(defn, MODL, &bound, &dot, str);
+                        CHECK_STATUS2(str2val);
                         if (STRLEN(str) > 0) {
-                            signalError(MODL, OCSM_WRONG_PMTR_TYPE,
-                                        "expression must be a number");
+                            status = OCSM_WRONG_PMTR_TYPE;
+                            signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                                        "expression must evaluate to a number");
                             goto cleanup;
                         }
 
@@ -2781,11 +3091,12 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
                         }
                     }
 
-                    status = str2val(defn, NULL, &bound, &dot, str);
-                    CHECK_STATUS(str2val);
+                    status = str2val(defn, MODL, &bound, &dot, str);
+                    CHECK_STATUS2(str2val);
                     if (STRLEN(str) > 0) {
-                        signalError(MODL, OCSM_WRONG_PMTR_TYPE,
-                                    "expression must be a number");
+                        status = OCSM_WRONG_PMTR_TYPE;
+                        signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                                    "expression must evaluate to a number");
                         goto cleanup;
                     }
 
@@ -2811,11 +3122,12 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
                         }
                     }
 
-                    status = str2val(defn, NULL, &bound, &dot, str);
-                    CHECK_STATUS(str2val);
+                    status = str2val(defn, MODL, &bound, &dot, str);
+                    CHECK_STATUS2(str2val);
                     if (STRLEN(str) > 0) {
-                        signalError(MODL, OCSM_WRONG_PMTR_TYPE,
-                                    "expression must be a number");
+                        status = OCSM_WRONG_PMTR_TYPE;
+                        signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                                    "expression must evaluate to a number");
                         goto cleanup;
                     }
 
@@ -2843,11 +3155,12 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
                     }
                 }
 
-                status = str2val(defn, NULL, &bound, &dot, str);
-                CHECK_STATUS(str2val);
+                status = str2val(defn, MODL, &bound, &dot, str);
+                CHECK_STATUS2(str2val);
                 if (STRLEN(str) > 0) {
-                    signalError(MODL, OCSM_WRONG_PMTR_TYPE,
-                                "expression must be a number");
+                    status = OCSM_WRONG_PMTR_TYPE;
+                    signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                                "expression must evaluate to a number");
                     goto cleanup;
                 }
 
@@ -2859,11 +3172,13 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
         } else if (strcmp(command, "linseg") == 0 ||
                    strcmp(command, "LINSEG") == 0   ) {
             if (nskpt == 0) {
-                signalError(MODL, OCSM_SKETCH_IS_NOT_OPEN,
+                status = OCSM_SKETCH_IS_NOT_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "LINSEG must be in SKBEG/SKEND");
                 goto cleanup;
             } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "LINSEG cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             }
@@ -2872,7 +3187,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             narg = sscanf(nextline, "%*s %2047s %2047s %2047s\n",
                           str1, str2, str3);
             if (narg != 3) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "LINSEG requires 3 arguments");
                 goto cleanup;
             }
@@ -2880,7 +3196,7 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_LINSEG, filenames[MODL->level], linenum[MODL->level],
                                  str1, str2, str3, NULL, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
             /* increment the number of Sketch points */
             nskpt++;
@@ -2889,11 +3205,13 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
         } else if (strcmp(command, "loft") == 0 ||
                    strcmp(command, "LOFT") == 0   ) {
             if (nskpt > 0) {
-                signalError(MODL, OCSM_SKETCH_IS_OPEN,
+                status = OCSM_SKETCH_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "LOFT cannot be in SKBEG/SKEND");
                 goto cleanup;
             } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "LOFT cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             }
@@ -2902,7 +3220,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             narg = sscanf(nextline, "%*s %2047s\n",
                           str1);
             if (narg != 1) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "LOFT requires 1 argument");
                 goto cleanup;
             }
@@ -2910,17 +3229,19 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_LOFT, filenames[MODL->level], linenum[MODL->level],
                                  str1, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
         /* input is: "macbeg imacro" */
         } else if (strcmp(command, "macbeg") == 0 ||
                    strcmp(command, "MACBEG") == 0   ) {
             if (nskpt > 0) {
-                signalError(MODL, OCSM_SKETCH_IS_OPEN,
+                status = OCSM_SKETCH_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "MACBEG cannot be in SKBEG/SKEND");
                 goto cleanup;
             } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "MACBEG cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             }
@@ -2929,7 +3250,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             narg = sscanf(nextline, "%*s %2047s\n",
                           str1);
             if (narg != 1) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "MACBEG requires 1 argument");
                 goto cleanup;
             }
@@ -2937,13 +3259,14 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_MACBEG, filenames[MODL->level], linenum[MODL->level],
                                  str1, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
         /* input is: "macend" */
         } else if (strcmp(command, "macend") == 0 ||
                    strcmp(command, "MACEND") == 0   ) {
             if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "MACEND cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             }
@@ -2953,17 +3276,19 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_MACEND, filenames[MODL->level], linenum[MODL->level],
                                  NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
         /* input is: "mark" */
         } else if (strcmp(command, "mark") == 0 ||
                    strcmp(command, "MARK") == 0   ) {
             if (nskpt > 0) {
-                signalError(MODL, OCSM_SKETCH_IS_OPEN,
+                status = OCSM_SKETCH_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "MARK cannot be in SKBEG/SKEND");
                 goto cleanup;
             } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "MARK cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             }
@@ -2973,17 +3298,43 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_MARK, filenames[MODL->level], linenum[MODL->level],
                                  NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
+
+        /* input is: "message $text $schar=_" */
+        } else if (strcmp(command, "message") == 0 ||
+                   strcmp(command, "MESSAGE") == 0   ) {
+
+            /* extract argument */
+            strcpy(str1, "$");
+            strcpy(str2, "$");
+            narg = sscanf(nextline, "%*s %2046s %2046s\n",
+                          &(str1[1]), &(str2[1]));
+            if (narg < 1) {
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                            "MESSAGE requires at least 1 argument");
+                goto cleanup;
+            } else if (narg < 2) {
+                strcpy(str2, "$_");
+            }
+
+            /* create the new Branch */
+            status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_MESSAGE, filenames[MODL->level], linenum[MODL->level],
+                                 str1, str2, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+            CHECK_STATUS2(ocsmNewBrch);
+
 
         /* input is: "mirror nx ny nz dist=0" */
         } else if (strcmp(command, "mirror") == 0 ||
                    strcmp(command, "MIRROR") == 0   ) {
             if (nskpt > 0) {
-                signalError(MODL, OCSM_SKETCH_IS_OPEN,
+                status = OCSM_SKETCH_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "MIRROR cannot be in SKBEG/SKEND");
                 goto cleanup;
             } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "MIRROR cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             }
@@ -2994,7 +3345,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             if (narg == 3) {
                 STRNCPY(str4, "0", MAX_EXPR_LEN);
             } else if (narg != 4) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "MIRROR requires 4 arguments");
                 goto cleanup;
             }
@@ -3002,7 +3354,7 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_MIRROR, filenames[MODL->level], linenum[MODL->level],
                                  str1, str2, str3, str4, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
         /* input is: "name $branchName" */
         } else if (strcmp(command, "name") == 0 ||
@@ -3011,7 +3363,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* previous Branch will be named */
             ibrch = MODL->nbrch;
             if (ibrch < 1) {
-                signalError(MODL, OCSM_ILLEGAL_BRCH_INDEX,
+                status = OCSM_ILLEGAL_BRCH_INDEX;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "NAME must follow a Branch");
                 goto cleanup;
             }
@@ -3020,28 +3373,32 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             narg = sscanf(nextline, "%*s %2047s\n",
                           str1);
             if (narg != 1) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "NAME requires 1 argument");
                 goto cleanup;
             }
 
             /* set the Branch's name */
             status = ocsmSetName(MODL, ibrch, str1);
-            CHECK_STATUS(ocsmSetName);
+            CHECK_STATUS2(ocsmSetName);
 
         /* input is: "outpmtr $pmtrName" */
         } else if (strcmp(command, "outpmtr") == 0 ||
                    strcmp(command, "OUTPMTR") == 0   ) {
             if (nskpt > 0) {
-                signalError(MODL, OCSM_SKETCH_IS_OPEN,
+                status = OCSM_SKETCH_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "OUTPMTR cannot be in SKBEG/SKEND");
                 goto cleanup;
             } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "OUTPMTR cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             } else if (MODL->level > 0) {
-                signalError(MODL, OCSM_ILLEGAL_STATEMENT,
+                status = OCSM_ILLEGAL_STATEMENT;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "OUTPMTR not allowed in .udc file");
                 goto cleanup;
             }
@@ -3050,40 +3407,54 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             narg = sscanf(nextline, "%*s %2047s\n",
                           str1);
             if (narg != 1) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "OUTPMTR requires 1 argument");
                 goto cleanup;
             }
 
             /* do not allow pmtrName to start with '@' */
             if (str1[0] == '@') {
-                signalError(MODL, OCSM_ILLEGAL_PMTR_NAME,
+                status = OCSM_ILLEGAL_PMTR_NAME;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "pmtrName cannot start with an at-sign");
                 goto cleanup;
             }
 
             /* break str1 into pmtrName[irow,icol] */
             status = parseName(MODL, str1, pmtrName, &ipmtr, &irow, &icol);
-            CHECK_STATUS(parseName);
+            CHECK_STATUS2(parseName);
 
             /* if it does not exist, create it now */
             if (ipmtr == 0) {
-                status = ocsmNewPmtr(MODL, pmtrName, OCSM_OUTPUT, 1, 1);
-                CHECK_STATUS(ocsmNewPmtr);
+                status = ocsmNewPmtr(MODL, pmtrName, OCSM_OUTPMTR, 1, 1);
+                CHECK_STATUS2(ocsmNewPmtr);
                 ipmtr = MODL->npmtr;
 
-            /* make sure that Parameter is OUTPUT */
-            } else if (MODL->pmtr[ipmtr].type == OCSM_INTERNAL) {
-                signalError(MODL, OCSM_PMTR_IS_INTERNAL,
+            /* if it exists and is UNKNOWN (because of a DIMENSION statemet),
+               convert to a OUTPMTR */
+            } else if (MODL->pmtr[ipmtr].type == OCSM_UNKNOWN) {
+                MODL->pmtr[ipmtr].type = OCSM_OUTPMTR;
+
+            /* make sure that Parameter is OUTPMTR */
+            } else if (MODL->pmtr[ipmtr].type == OCSM_LOCALVAR) {
+                status = OCSM_PMTR_IS_LOCALVAR;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "%s is an internal parameter", str1);
                 goto cleanup;
-            } else if (MODL->pmtr[ipmtr].type == OCSM_EXTERNAL ||
-                       MODL->pmtr[ipmtr].type == OCSM_CONFIG     ) {
-                signalError(MODL, OCSM_PMTR_IS_EXTERNAL,
-                            "%s is a DESPMTR or CFGPMTR", str1);
+            } else if (MODL->pmtr[ipmtr].type == OCSM_DESPMTR) {
+                status = OCSM_PMTR_IS_DESPMTR;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                            "%s is a DESPMTR", str1);
                 goto cleanup;
-            } else if (MODL->pmtr[ipmtr].type == OCSM_CONSTANT) {
-                signalError(MODL, OCSM_PMTR_IS_CONSTANT,
+            } else if (MODL->pmtr[ipmtr].type == OCSM_CFGPMTR) {
+                status = OCSM_PMTR_IS_DESPMTR;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                            "%s is a CFGPMTR", str1);
+                goto cleanup;
+            } else if (MODL->pmtr[ipmtr].type == OCSM_CONPMTR) {
+                status = OCSM_PMTR_IS_CONPMTR;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "%s is a CONPMTR", str1);
                 goto cleanup;
             }
@@ -3092,11 +3463,13 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
         } else if (strcmp(command, "patbeg") == 0 ||
                    strcmp(command, "PATBEG") == 0   ) {
             if (npatn >= MAX_NESTING) {
-                signalError(MODL, OCSM_NESTED_TOO_DEEPLY,
+                status = OCSM_NESTED_TOO_DEEPLY;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "npatn=%d >0 MAX_NESTING=%d", npatn, MAX_NESTING);
                 goto cleanup;
             } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "PATBEG cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             } else {
@@ -3108,14 +3481,16 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             narg = sscanf(nextline, "%*s %2046s %2047s\n",
                           &(str1[1]), str2);
             if (narg != 2) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "PATBEG requires 2 arguments");
                 goto cleanup;
             }
 
             /* do not allow pmtrName to start with '@' */
             if (str1[1] == '@') {
-                signalError(MODL, OCSM_ILLEGAL_PMTR_NAME,
+                status = OCSM_ILLEGAL_PMTR_NAME;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "pmtrName cannot start with an at-sign");
                 goto cleanup;
             }
@@ -3123,14 +3498,15 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_PATBEG, filenames[MODL->level], linenum[MODL->level],
                                  str1, str2, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
         /* input is: "patbreak expr" */
         } else if (strcmp(command, "patbreak") == 0 ||
                    strcmp(command, "PATBREAK") == 0   ) {
 
             if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "PATBREAK cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             }
@@ -3148,7 +3524,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
                 }
             }
             if (ibrch <= 0) {
-                signalError(MODL, OCSM_IMPROPER_NESTING,
+                status = OCSM_IMPROPER_NESTING;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "PATBREAK must follow a PATBEG");
                 goto cleanup;
             }
@@ -3157,7 +3534,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             narg = sscanf(nextline, "%*s %2047s\n",
                           str1);
             if (narg != 1) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "PATBREAK requires 1 argument");
                 goto cleanup;
             }
@@ -3165,13 +3543,14 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_PATBREAK, filenames[MODL->level], linenum[MODL->level],
                                  str1, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
         /* input is: "patend" */
         } else if (strcmp(command, "patend") == 0 ||
                    strcmp(command, "PATEND") == 0   ) {
             if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "PATEND cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             }
@@ -3189,7 +3568,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
                 }
             }
             if (ibrch <= 0) {
-                signalError(MODL, OCSM_IMPROPER_NESTING,
+                status = OCSM_IMPROPER_NESTING;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "PATEND must follow a PATBEG");
                 goto cleanup;
             }
@@ -3199,7 +3579,7 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_PATEND, filenames[MODL->level], linenum[MODL->level],
                                  NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
             npatn--;
 
@@ -3207,11 +3587,13 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
         } else if (strcmp(command, "point") == 0 ||
                    strcmp(command, "POINT") == 0   ) {
             if (nskpt > 0) {
-                signalError(MODL, OCSM_SKETCH_IS_OPEN,
+                status = OCSM_SKETCH_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "POINT cannot be in SKBEG/SKEND");
                 goto cleanup;
             } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "POINT cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             }
@@ -3220,7 +3602,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             narg = sscanf(nextline, "%*s %2047s %2047s %2047s\n",
                           str1, str2, str3);
             if (narg != 3) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "POINT requires 3 arguments");
                 goto cleanup;
             }
@@ -3228,17 +3611,19 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_POINT, filenames[MODL->level], linenum[MODL->level],
                                  str1, str2, str3, NULL, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
         /* input is: "project x y z dx dy dz useEdges=0" */
         } else if (strcmp(command, "project") == 0 ||
                    strcmp(command, "PROJECT") == 0   ) {
             if (nskpt > 0) {
-                signalError(MODL, OCSM_SKETCH_IS_OPEN,
+                status = OCSM_SKETCH_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "PROJECT cannot be in SKBEG/SKEND");
                 goto cleanup;
             } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "PROJECT cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             }
@@ -3247,7 +3632,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             narg = sscanf(nextline, "%*s %2047s %2047s %2047s %2047s %2047s %2047s %2047s\n",
                           str1, str2, str3, str4, str5, str6, str7);
             if (narg < 6) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "PROJECT requires at least 6 arguments");
                 goto cleanup;
             }
@@ -3258,17 +3644,19 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_PROJECT, filenames[MODL->level], linenum[MODL->level],
                                  str1, str2, str3, str4, str5, str6, str7, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
         /* input is: "recall imacro" */
         } else if (strcmp(command, "recall") == 0 ||
                    strcmp(command, "RECALL") == 0   ) {
             if (nskpt > 0) {
-                signalError(MODL, OCSM_SKETCH_IS_OPEN,
+                status = OCSM_SKETCH_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "RECALL cannot be in SKBEG/SKEND");
                 goto cleanup;
             } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "RECALL cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             }
@@ -3277,7 +3665,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             narg = sscanf(nextline, "%*s %2047s\n",
                           str1);
             if (narg != 1) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "RECALL requires 1 argument");
                 goto cleanup;
             }
@@ -3285,17 +3674,19 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_RECALL, filenames[MODL->level], linenum[MODL->level],
                                  str1, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
         /* input is: "reorder ishift iflip=0" */
         } else if (strcmp(command, "reorder") == 0 ||
                    strcmp(command, "REORDER") == 0   ) {
             if (nskpt > 0) {
-                signalError(MODL, OCSM_SKETCH_IS_OPEN,
+                status = OCSM_SKETCH_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "REORDER cannot be in SKBEG/SKEND");
                 goto cleanup;
             } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "REORDER cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             }
@@ -3306,7 +3697,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             if (narg == 1) {
                 STRNCPY(str2, "0", MAX_EXPR_LEN);
             } else if (narg != 2) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "REORDER requires at least 1 argument");
                 goto cleanup;
             }
@@ -3314,17 +3706,19 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_REORDER, filenames[MODL->level], linenum[MODL->level],
                                  str1, str2, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
         /* input is: "restore $name index=0" */
         } else if (strcmp(command, "restore") == 0 ||
                    strcmp(command, "RESTORE") == 0   ) {
             if (nskpt > 0) {
-                signalError(MODL, OCSM_SKETCH_IS_OPEN,
+                status = OCSM_SKETCH_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "RESTORE cannot be in SKBEG/SKEND");
                 goto cleanup;
             } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "RESTORE cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             }
@@ -3336,7 +3730,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             if (narg == 1) {
                 STRNCPY(str2, "0", MAX_EXPR_LEN);
             } else if (narg != 2) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "RESTORE requires at least 1 argument");
                 goto cleanup;
             }
@@ -3344,17 +3739,19 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_RESTORE, filenames[MODL->level], linenum[MODL->level],
                                  str1, str2, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
         /* input is: "revolve xorig yorig zorig dxaxis dyaxis dzaxis angDeg" */
         } else if (strcmp(command, "revolve") == 0 ||
                    strcmp(command, "REVOLVE") == 0   ) {
             if (nskpt > 0) {
-                signalError(MODL, OCSM_SKETCH_IS_OPEN,
+                status = OCSM_SKETCH_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "REVOLVE cannot be in SKBEG/SKEND");
                 goto cleanup;
             } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "REVOLVE cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             }
@@ -3363,7 +3760,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             narg = sscanf(nextline, "%*s %2047s %2047s %2047s %2047s %2047s %2047s %2047s\n",
                           str1, str2, str3, str4, str5, str6, str7);
             if (narg != 7) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "REVOLVE requires 7 arguments");
                 goto cleanup;
             }
@@ -3371,17 +3769,19 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_REVOLVE, filenames[MODL->level], linenum[MODL->level],
                                  str1, str2, str3, str4, str5, str6, str7, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
         /* input is: "rotatex angDeg yaxis zaxis" */
         } else if (strcmp(command, "rotatex") == 0 ||
                    strcmp(command, "ROTATEX") == 0   ) {
             if (nskpt > 0) {
-                signalError(MODL, OCSM_SKETCH_IS_OPEN,
+                status = OCSM_SKETCH_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "ROTATEX cannot be in SKBEG/SKEND");
                 goto cleanup;
             } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "ROTATEX cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             }
@@ -3390,7 +3790,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             narg = sscanf(nextline, "%*s %2047s %2047s %2047s\n",
                           str1, str2, str3);
             if (narg != 3) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "ROTATEX requires 3 arguments");
                 goto cleanup;
             }
@@ -3398,17 +3799,19 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_ROTATEX, filenames[MODL->level], linenum[MODL->level],
                                  str1, str2, str3, NULL, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
         /* input is: "rotatey angDeg zaxis xaxis" */
         } else if (strcmp(command, "rotatey") == 0 ||
                    strcmp(command, "ROTATEY") == 0   ) {
             if (nskpt > 0) {
-                signalError(MODL, OCSM_SKETCH_IS_OPEN,
+                status = OCSM_SKETCH_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "ROTATEY cannot be in SKBEG/SKEND");
                 goto cleanup;
             } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "ROTATEY cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             }
@@ -3417,7 +3820,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             narg = sscanf(nextline, "%*s %2047s %2047s %2047s\n",
                           str1, str2, str3);
             if (narg != 3) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "ROTATEY requires 3 arguments");
                 goto cleanup;
             }
@@ -3425,17 +3829,19 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_ROTATEY, filenames[MODL->level], linenum[MODL->level],
                                  str1, str2, str3, NULL, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
         /* input is: "rotatez angDeg xaxis yaxis" */
         } else if (strcmp(command, "rotatez") == 0 ||
                    strcmp(command, "ROTATEZ") == 0   ) {
             if (nskpt > 0) {
-                signalError(MODL, OCSM_SKETCH_IS_OPEN,
+                status = OCSM_SKETCH_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "ROTATEZ cannot be in SKBEG/SKEND");
                 goto cleanup;
             } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "ROTATEZ cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             }
@@ -3444,7 +3850,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             narg = sscanf(nextline, "%*s %2047s %2047s %2047s\n",
                           str1, str2, str3);
             if (narg != 3) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "ROTATEZ requires 3 arguments");
                 goto cleanup;
             }
@@ -3452,42 +3859,49 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_ROTATEZ, filenames[MODL->level], linenum[MODL->level],
                                  str1, str2, str3, NULL, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
-        /* input is: "rule reorder=0" */
+        /* input is: "rule reorder=0 periodic=0 " */
         } else if (strcmp(command, "rule") == 0 ||
                    strcmp(command, "RULE") == 0   ) {
             if (nskpt > 0) {
-                signalError(MODL, OCSM_SKETCH_IS_OPEN,
+                status = OCSM_SKETCH_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "RULE cannot be in SKBEG/SKEND");
                 goto cleanup;
             } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "RULE cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             }
 
             /* extract arguments */
-            narg = sscanf(nextline, "%*s %2047s\n",
-                          str1);
+            narg = sscanf(nextline, "%*s %2047s %2047s\n",
+                          str1, str2);
             if (narg < 1) {
                 STRNCPY(str1, "0", MAX_EXPR_LEN);
+            }
+            if (narg < 2) {
+                STRNCPY(str2, "0", MAX_EXPR_LEN);
             }
 
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_RULE, filenames[MODL->level], linenum[MODL->level],
-                                 str1, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+                                 str1, str2, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+            CHECK_STATUS2(ocsmNewBrch);
 
         /* input is: "scale fact xcent=0 ycent=0 zcent=0" */
         } else if (strcmp(command, "scale") == 0 ||
                    strcmp(command, "SCALE") == 0   ) {
             if (nskpt > 0) {
-                signalError(MODL, OCSM_SKETCH_IS_OPEN,
+                status = OCSM_SKETCH_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "SCALE cannot be in SKBEG/SKEND");
                 goto cleanup;
             } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "SCALE cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             }
@@ -3498,7 +3912,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             narg = sscanf(nextline, "%*s %2047s %2047s %2047s %2047s\n",
                           str1, str2, str3, str4);
             if (narg < 1) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "SCALE requires at least 1 argument");
                 goto cleanup;
             }
@@ -3515,7 +3930,7 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_SCALE, filenames[MODL->level], linenum[MODL->level],
                                  str1, str2, str3, str4, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
         /* input is: "select $type arg1 ..." */
         } else if (strcmp(command, "select") == 0 ||
@@ -3528,7 +3943,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
 
             /* create the new Branch */
             if        (narg < 1) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "SELECT requires at least 1 argument");
                 goto cleanup;
             } else if (strcmp(str1, "$body") == 0 || strcmp(str1, "$BODY") == 0) {
@@ -3553,7 +3969,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
                     status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_SELECT, filenames[MODL->level], linenum[MODL->level],
                                          str1, str2, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
                 } else {
-                    signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                    status = OCSM_NOT_ENOUGH_ARGS;
+                    signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                                 "SELECT BODY requires 1, 2, 3, 5, or 7 arguments");
                     goto cleanup;
                 }
@@ -3578,11 +3995,11 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
                 } else if (narg == 2) {
                     status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_SELECT, filenames[MODL->level], linenum[MODL->level],
                                          str1, str2, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
-                /* face ibody1 iford1 */
+                /* face ibody1 iford1 (0 for any) */
                 } else if (narg == 3) {
                     status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_SELECT, filenames[MODL->level], linenum[MODL->level],
                                          str1, str2, str3, NULL, NULL, NULL, NULL, NULL, NULL);
-                /* face ibody1 iford1 iseq=1 */
+                /* face ibody1 iford1 iseq=1 (0 for any) */
                 } else if (narg == 3 || narg == 4) {
                     status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_SELECT, filenames[MODL->level], linenum[MODL->level],
                                          str1, str2, str3, str4, NULL, NULL, NULL, NULL, NULL);
@@ -3593,7 +4010,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
                                          str1, str2, str3, str4, str5, str6, str7, NULL, NULL);
 
                 } else {
-                    signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                    status = OCSM_NOT_ENOUGH_ARGS;
+                    signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                                 "SELECT FACE requires 1, 2, 3, 4, 5, or 7 arguments");
                     goto cleanup;
                 }
@@ -3618,11 +4036,11 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
                 } else if (narg == 2) {
                     status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_SELECT, filenames[MODL->level], linenum[MODL->level],
                                          str1, str2, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
-                /* edge ibody1 iford1 ibody2 iford2 */
+                /* edge ibody1 iford1 ibody2 iford2 (0 for any) */
                 } else if (narg == 5) {
                     status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_SELECT, filenames[MODL->level], linenum[MODL->level],
                                          str1, str2, str3, str4, str5, NULL, NULL, NULL, NULL);
-                /* edge ibody1 iford1 ibody2 iford2 iseq=1 */
+                /* edge ibody1 iford1 ibody2 iford2 iseq=1 (0 for any) */
                 } else if (narg == 5 || narg == 6) {
                     status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_SELECT, filenames[MODL->level], linenum[MODL->level],
                                          str1, str2, str3, str4, str5, str6, NULL, NULL, NULL);
@@ -3637,7 +4055,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
                                          str1, str2, str3, str4, str5, str6, str7, NULL, NULL);
 
                 } else {
-                    signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                    status = OCSM_NOT_ENOUGH_ARGS;
+                    signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                                 "SELECT EDGE requires 1, 2, 3, 4, 5, 6, or 7 arguments");
                     goto cleanup;
                 }
@@ -3673,7 +4092,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
                                          str1, str2, str3, str4, str5, str6, str7, NULL, NULL);
 
                 } else {
-                    signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                    status = OCSM_NOT_ENOUGH_ARGS;
+                    signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                                 "SELECT NODE requires 1, 2, 3, 4, 5, or 7 arguments");
                     goto cleanup;
                 }
@@ -3716,7 +4136,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
                                          str1, str2, str3, str4, str5, str6, NULL, NULL, NULL);
 
                 } else {
-                    signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                    status = OCSM_NOT_ENOUGH_ARGS;
+                    signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                                 "SELECT ADD has wrong number of arguments");
                     goto cleanup;
                 }
@@ -3759,7 +4180,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
                                          str1, str2, str3, str4, str5, str6, NULL, NULL, NULL);
 
                 } else {
-                    signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                    status = OCSM_NOT_ENOUGH_ARGS;
+                    signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "SELECT SUB has wrong number of arguments");
                     goto cleanup;
                 }
@@ -3769,22 +4191,25 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
                     status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_SELECT, filenames[MODL->level], linenum[MODL->level],
                                          str1, str2, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
                 } else {
-                    signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                    status = OCSM_NOT_ENOUGH_ARGS;
+                    signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "SELECT SORT has wrong number of arguments");
                     goto cleanup;
                 }
             } else {
-                signalError(MODL, OCSM_ILLEGAL_TYPE,
+                status = OCSM_ILLEGAL_TYPE;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "type must be BODY, FACE, EDGE, NODE, ADD, SUB, or SORT");
                 goto cleanup;
             }
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
         /* input is: "set $pmtrName exprs" */
         } else if (strcmp(command, "set") == 0 ||
                    strcmp(command, "SET") == 0   ) {
             if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "SET cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             }
@@ -3794,14 +4219,16 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             narg = sscanf(nextline, "%*s %2046s %2047s\n",
                           &(str1[1]), str2);
             if (narg != 2) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "SET requires 2 arguments");
                 goto cleanup;
             }
 
             /* do not allow pmtrName to start with '@' */
             if (str1[1] == '@') {
-                signalError(MODL, OCSM_ILLEGAL_PMTR_NAME,
+                status = OCSM_ILLEGAL_PMTR_NAME;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "pmtrName cannot start with an at-sign");
                 goto cleanup;
             }
@@ -3809,17 +4236,19 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_SET, filenames[MODL->level], linenum[MODL->level],
                                  str1, str2, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
         /* input is: "skbeg x y z relative=0" */
         } else if (strcmp(command, "skbeg") == 0 ||
                    strcmp(command, "SKBEG") == 0   ) {
             if (nskpt > 0) {
-                signalError(MODL, OCSM_SKETCH_IS_OPEN,
+                status = OCSM_SKETCH_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "SKBEG cannot be in SKBEG/SKEND");
                 goto cleanup;
             } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "SKBEG cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             }
@@ -3828,7 +4257,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             narg = sscanf(nextline, "%*s %2047s %2047s %2047s %2047s\n",
                           str1, str2, str3, str4);
             if (narg < 3) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "SKBEG requires at least 3 arguments");
                 goto cleanup;
             }
@@ -3839,7 +4269,7 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_SKBEG, filenames[MODL->level], linenum[MODL->level],
                                  str1, str2, str3, str4, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
             /* increment the number of Sketch points */
             nskpt++;
@@ -3848,11 +4278,13 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
         } else if (strcmp(command, "skcon") == 0 ||
                    strcmp(command, "SKCON") == 0   ) {
             if (nskpt <= 0) {
-                signalError(MODL, OCSM_SKETCH_IS_NOT_OPEN,
+                status = OCSM_SKETCH_IS_NOT_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "SKCON must be in SKBEG/SKEND");
                 goto cleanup;
             } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "SKCON cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             }
@@ -3860,7 +4292,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* make sure that this follows a skvar or skcon statement */
             if (MODL->brch[MODL->nbrch].type != OCSM_SKVAR &&
                 MODL->brch[MODL->nbrch].type != OCSM_SKCON   ) {
-                signalError(MODL, OCSM_ILLEGAL_STATEMENT,
+                status = OCSM_ILLEGAL_STATEMENT;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "only SKVAR or SKCON can preceed SKCON statement");
                 goto cleanup;
             }
@@ -3871,7 +4304,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             narg = sscanf(nextline, "%*s %2046s %2047s %2047s %2046s\n",
                           &(str1[1]), str2, str3, &(str4[1]));
             if (narg < 2) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "SKCON requires 2 arguments");
                 goto cleanup;
             }
@@ -3897,7 +4331,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             } else if (strcmp(str1, "$R") == 0) {
             } else if (strcmp(str1, "$S") == 0) {
             } else {
-                signalError(MODL, OCSM_ILLEGAL_VALUE,
+                status = OCSM_ILLEGAL_VALUE;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "type must be X, Y, P, T, A, W, D, H, V, I, Z, L, R, or S");
                 goto cleanup;
             }
@@ -3905,21 +4340,24 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_SKCON, filenames[MODL->level], linenum[MODL->level],
                                  str1, str2, str3, str4, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
         /* input is: "skend wireonly=0" */
         } else if (strcmp(command, "skend") == 0 ||
                    strcmp(command, "SKEND") == 0   ) {
             if (nskpt < 1) {
-                signalError(MODL, OCSM_COLINEAR_SKETCH_POINTS,
+                status = OCSM_COLINEAR_SKETCH_POINTS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "all Sketch points are colinear");
                 goto cleanup;
             } else if (nskpt > MAX_SKETCH_SIZE) {
-                signalError(MODL, OCSM_TOO_MANY_SKETCH_POINTS,
+                status = OCSM_TOO_MANY_SKETCH_POINTS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "more than %d sketch points", MAX_SKETCH_SIZE);
                 goto cleanup;
             } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "SKEND cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             }
@@ -3934,7 +4372,7 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_SKEND, filenames[MODL->level], linenum[MODL->level],
                                  str1, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
             /* reset the number of Sketch points */
             nskpt = 0;
@@ -3943,18 +4381,21 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
         } else if (strcmp(command, "skvar") == 0 ||
                    strcmp(command, "SKVAR") == 0   ) {
             if (nskpt <= 0) {
-                signalError(MODL, OCSM_SKETCH_IS_NOT_OPEN,
+                status = OCSM_SKETCH_IS_NOT_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "SKBAR must be in SKBEG/SKEND");
                 goto cleanup;
             } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "SKVAR cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             }
 
             /* make sure that this follows a skbeg statement */
             if (MODL->brch[MODL->nbrch].type != OCSM_SKBEG) {
-                signalError(MODL, OCSM_ILLEGAL_STATEMENT,
+                status = OCSM_ILLEGAL_STATEMENT;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "only SKBEG can preceed SKVAR statement");
                 goto cleanup;
             }
@@ -3964,7 +4405,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             narg = sscanf(nextline, "%*s %2046s %2047s\n",
                           &(str1[1]), str2);
             if (narg < 2) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "SKVAR requires 2 arguments");
                 goto cleanup;
             }
@@ -3976,7 +4418,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             } else if (strcmp(str1, "$zx") == 0 || strcmp(str1, "$ZX") == 0) {
                 STRNCPY(str1, "$zx", MAX_EXPR_LEN);
             } else {
-                signalError(MODL, OCSM_ILLEGAL_VALUE,
+                status = OCSM_ILLEGAL_VALUE;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "PLANE must be XY, YZ, or ZX");
                 goto cleanup;
             }
@@ -3990,7 +4433,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             }
 
             if (count == 0 || count%3 != 0) {
-                signalError(MODL, OCSM_ILLEGAL_VALUE,
+                status = OCSM_ILLEGAL_VALUE;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "valList must contain triplets");
                 goto cleanup;
             }
@@ -3998,13 +4442,14 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_SKVAR, filenames[MODL->level], linenum[MODL->level],
                                  str1, str2, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
         /* input is: "solbeg $varList" */
         } else if (strcmp(command, "solbeg") == 0 ||
                    strcmp(command, "SOLBEG") == 0   ) {
             if (nskpt > 0) {
-                signalError(MODL, OCSM_SKETCH_IS_OPEN,
+                status = OCSM_SKETCH_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "SOLBEG cannot be in SKBEG/SKEND");
                 goto cleanup;
             }
@@ -4014,7 +4459,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             narg = sscanf(nextline, "%*s %2046s\n",
                           &(str1[1]));
             if (narg != 1) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "SOLBEG requires 1 argument");
                 goto cleanup;
             }
@@ -4025,13 +4471,14 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_SOLBEG, filenames[MODL->level], linenum[MODL->level],
                                  str1, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
         /* input is: "solcon $expr" */
         } else if (strcmp(command, "solcon") == 0 ||
                    strcmp(command, "SOLCON") == 0   ) {
             if (insolver != 1) {
-                signalError(MODL, OCSM_SOLVER_IS_NOT_OPEN,
+                status = OCSM_SOLVER_IS_NOT_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "SOLCON must be in SOLBEG/SOLEND");
                 goto cleanup;
             }
@@ -4041,7 +4488,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             narg = sscanf(nextline, "%*s %2046s\n",
                           &(str1[1]));
             if (narg != 1) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "SOLCON requires 1 argument");
                 goto cleanup;
             }
@@ -4049,13 +4497,14 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_SOLCON, filenames[MODL->level], linenum[MODL->level],
                                  str1, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
         /* input is: "solend" */
         } else if (strcmp(command, "solend") == 0 ||
                    strcmp(command, "SOLEND") == 0   ) {
             if (insolver != 1) {
-                signalError(MODL, OCSM_SOLVER_IS_NOT_OPEN,
+                status = OCSM_SOLVER_IS_NOT_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "SOLEND must be in SOLBEG/SOLEND");
                 goto cleanup;
             }
@@ -4068,7 +4517,7 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_SOLEND, filenames[MODL->level], linenum[MODL->level],
                                  NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
         /* input is: "special arg1 arg2 arg3 arg4 arg5 arg6 arg7 arg8 arg9" */
         } else if (strcmp(command, "special") == 0 ||
@@ -4078,7 +4527,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             narg = sscanf(nextline, "%*s %2047s %2047s %2047s %2047s %2047s %2047s %2047s %2047s %2047s\n",
                           str1, str2, str3, str4, str5, str6, str7, str8, str9);
             if (narg != 9) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "SPECIAL requires at 9 arguments");
                 goto cleanup;
             }
@@ -4086,17 +4536,19 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_SPECIAL, filenames[MODL->level], linenum[MODL->level],
                                  str1, str2, str3, str4, str5, str6, str7, str8, str9);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
         /* input is: "sphere xcent ycent zcent radius" */
         } else if (strcmp(command, "sphere") == 0 ||
                    strcmp(command, "SPHERE") == 0   ) {
             if (nskpt > 0) {
-                signalError(MODL, OCSM_SKETCH_IS_OPEN,
+                status = OCSM_SKETCH_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "SPHERE cannot be in SKBEG/SKEND");
                 goto cleanup;
             } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "SPHERE cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             }
@@ -4105,7 +4557,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             narg = sscanf(nextline, "%*s %2047s %2047s %2047s %2047s\n",
                           str1, str2, str3, str4);
             if (narg != 4) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "SPHERE requires at 4 arguments");
                 goto cleanup;
             }
@@ -4113,17 +4566,19 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_SPHERE, filenames[MODL->level], linenum[MODL->level],
                                  str1, str2, str3, str4, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
         /* input is: "spline x y z" */
         } else if (strcmp(command, "spline") == 0 ||
                    strcmp(command, "SPLINE") == 0   ) {
             if (nskpt == 0) {
-                signalError(MODL, OCSM_SKETCH_IS_NOT_OPEN,
+                status = OCSM_SKETCH_IS_NOT_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "SPLINE must be in SKBEG/SKEND");
                 goto cleanup;
             } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "SPLINE cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             }
@@ -4132,7 +4587,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             narg = sscanf(nextline, "%*s %2047s %2047s %2047s\n",
                           str1, str2, str3);
             if (narg != 3) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "SPLINE requires 3 arguments");
                 goto cleanup;
             }
@@ -4140,7 +4596,7 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_SPLINE, filenames[MODL->level], linenum[MODL->level],
                                  str1, str2, str3, NULL, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
             /* increment the number of Sketch points */
             nskpt++;
@@ -4149,11 +4605,13 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
         } else if (strcmp(command, "sslope") == 0 ||
                    strcmp(command, "SSLOPE") == 0   ) {
             if (nskpt == 0) {
-                signalError(MODL, OCSM_SKETCH_IS_NOT_OPEN,
+                status = OCSM_SKETCH_IS_NOT_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "SSLOPE must be in SKBEG/SKEND");
                 goto cleanup;
             } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "SSLOPE cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             }
@@ -4162,7 +4620,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             narg = sscanf(nextline, "%*s %2047s %2047s %2047s\n",
                           str1, str2, str3);
             if (narg != 3) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "SSLOPE requires 3 arguments");
                 goto cleanup;
             }
@@ -4170,7 +4629,7 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_SSLOPE, filenames[MODL->level], linenum[MODL->level],
                                  str1, str2, str3, NULL, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
             /* increment the number of Sketch points */
             nskpt++;
@@ -4179,11 +4638,13 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
         } else if (strcmp(command, "store") == 0 ||
                    strcmp(command, "STORE") == 0   ) {
             if (nskpt > 0) {
-                signalError(MODL, OCSM_SKETCH_IS_OPEN,
+                status = OCSM_SKETCH_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "STORE cannot be in SKBEG/SKEND");
                 goto cleanup;
             } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "STORE cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             }
@@ -4193,7 +4654,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             narg = sscanf(nextline, "%*s %2046s %2047s %2047s\n",
                           &(str1[1]), str2, str3);
             if (narg < 1) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "STORE requires at least 1 argument");
                 goto cleanup;
             }
@@ -4207,17 +4669,19 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_STORE, filenames[MODL->level], linenum[MODL->level],
                                  str1, str2, str3, NULL, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
         /* input is: "subtract $order=none index=1 maxtol=0" */
         } else if (strcmp(command, "subtract") == 0 ||
                    strcmp(command, "SUBTRACT") == 0   ) {
             if (nskpt > 0) {
-                signalError(MODL, OCSM_SKETCH_IS_OPEN,
+                status = OCSM_SKETCH_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "SUBTRACT cannot be in SKBEG/SKEND");
                 goto cleanup;
             } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "SUBTRACT cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             }
@@ -4239,17 +4703,19 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_SUBTRACT, filenames[MODL->level], linenum[MODL->level],
                                  str1, str2, str3, NULL, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
         /* input is: "sweep" */
         } else if (strcmp(command, "sweep") == 0 ||
                    strcmp(command, "SWEEP") == 0   ) {
             if (nskpt > 0) {
-                signalError(MODL, OCSM_SKETCH_IS_OPEN,
+                status = OCSM_SKETCH_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "SWEEP cannot be in SKBEG/SKEND");
                 goto cleanup;
             } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "SWEEP cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             }
@@ -4259,7 +4725,7 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_SWEEP, filenames[MODL->level], linenum[MODL->level],
                                  NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
         /* input is: "throw sigCode" */
         } else if (strcmp(command, "throw") == 0 ||
@@ -4269,7 +4735,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             narg = sscanf(nextline, "%*s %2047s\n",
                           str1);
             if (narg != 1) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "THROW requires 1 argument");
                 goto cleanup;
             }
@@ -4277,17 +4744,19 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_THROW, filenames[MODL->level], linenum[MODL->level],
                                  str1, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
         /* input is: "torus xcent ycent zcent dxaxis dyaxis dzaxis majorRad minorRad" */
         } else if (strcmp(command, "torus") == 0 ||
                    strcmp(command, "TORUS") == 0   ) {
             if (nskpt > 0) {
-                signalError(MODL, OCSM_SKETCH_IS_OPEN,
+                status = OCSM_SKETCH_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "TORUS cannot be in SKBEG/SKEND");
                 goto cleanup;
             } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "TORUS cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             }
@@ -4296,7 +4765,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             narg = sscanf(nextline, "%*s %2047s %2047s %2047s %2047s %2047s %2047s %2047s %2047s\n",
                           str1, str2, str3, str4, str5, str6, str7, str8);
             if (narg != 8) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "TORUS requires 8 arguments");
                 goto cleanup;
             }
@@ -4304,17 +4774,19 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_TORUS, filenames[MODL->level], linenum[MODL->level],
                                  str1, str2, str3, str4, str5, str6, str7, str8, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
         /* input is: "translate dx dy dz" */
         } else if (strcmp(command, "translate") == 0 ||
                    strcmp(command, "TRANSLATE") == 0   ) {
             if (nskpt > 0) {
-                signalError(MODL, OCSM_SKETCH_IS_OPEN,
+                status = OCSM_SKETCH_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "TRANSLATE cannot be in SKBEG/SKEND");
                 goto cleanup;
             } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "TRANSLATE cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             }
@@ -4323,7 +4795,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             narg = sscanf(nextline, "%*s %2047s %2047s %2047s\n",
                           str1, str2, str3);
             if (narg != 3) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "TRANSLATE requires 3 arguments");
                 goto cleanup;
             }
@@ -4331,21 +4804,24 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_TRANSLATE, filenames[MODL->level], linenum[MODL->level],
                                  str1, str2, str3, NULL, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
         /* input is: "ubound $pmtrName expression" */
         } else if (strcmp(command, "ubound") == 0 ||
                    strcmp(command, "UBOUND") == 0   ) {
             if (nskpt > 0) {
-                signalError(MODL, OCSM_SKETCH_IS_OPEN,
+                status = OCSM_SKETCH_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "UBOUND cannot be in SKBEG/SKEND");
                 goto cleanup;
             } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "UBOUND cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             } else if (MODL->scope[MODL->level] > 0) {
-                signalError(MODL, OCSM_ILLEGAL_STATEMENT,
+                status = OCSM_ILLEGAL_STATEMENT;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "UBOUND not allowed in function-type .udc file");
                 goto cleanup;
             }
@@ -4354,14 +4830,16 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             narg = sscanf(nextline, "%*s %2047s %2047s\n",
                           str1, str2);
             if (narg != 2) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "UBOUND requires 2 arguments");
                 goto cleanup;
             }
 
             /* do not allow pmtrName to start with '@' */
             if (str1[0] == '@') {
-                signalError(MODL, OCSM_ILLEGAL_PMTR_NAME,
+                status = OCSM_ILLEGAL_PMTR_NAME;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "pmtrName cannot start with an at-sign");
                 goto cleanup;
             }
@@ -4385,7 +4863,8 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
 
                 /* check for a valid number */
                 if (sscanf(defn, "%lf", &value) == 0) {
-                    signalError(MODL, OCSM_WRONG_PMTR_TYPE,
+                    status = OCSM_WRONG_PMTR_TYPE;
+                    signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                                 "expression must evaluate to a number");
                     goto cleanup;
                 }
@@ -4393,31 +4872,36 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
 
             /* break str1 into pmtrName[irow,icol] */
             status = parseName(MODL, str1, pmtrName, &ipmtr, &irow, &icol);
-            CHECK_STATUS(parseName);
+            CHECK_STATUS2(parseName);
 
-            /* if it does not exist, create it now */
+            /* if it does not exist, signal error */
             if (ipmtr == 0) {
-                status = ocsmNewPmtr(MODL, pmtrName, OCSM_EXTERNAL, 1, 1);
-                CHECK_STATUS(ocsmNewPmtr);
-                ipmtr = MODL->npmtr;
+                status = OCSM_ILLEGAL_PMTR_NAME;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                             "\"%s\" does not exist", pmtrName);
+                goto cleanup;
 
-            /* make sure that Parameter is EXTERNAL */
-            } else if (MODL->pmtr[ipmtr].type == OCSM_INTERNAL) {
-                signalError(MODL, OCSM_PMTR_IS_INTERNAL,
+            /* make sure that Parameter is DESPMTR or CFGPMTR */
+            } else if (MODL->pmtr[ipmtr].type == OCSM_LOCALVAR) {
+                status = OCSM_PMTR_IS_LOCALVAR;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "%s is an internal parameter", str1);
                 goto cleanup;
-            } else if (MODL->pmtr[ipmtr].type == OCSM_OUTPUT) {
-                signalError(MODL, OCSM_PMTR_IS_OUTPUT,
-                            "%s is a OUTPMTR", str1);
+            } else if (MODL->pmtr[ipmtr].type == OCSM_OUTPMTR) {
+                status = OCSM_PMTR_IS_OUTPMTR;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                            "%s is an OUTPMTR", str1);
                 goto cleanup;
-            } else if (MODL->pmtr[ipmtr].type == OCSM_CONSTANT) {
-                signalError(MODL, OCSM_PMTR_IS_CONSTANT,
+            } else if (MODL->pmtr[ipmtr].type == OCSM_CONPMTR) {
+                status = OCSM_PMTR_IS_CONPMTR;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "%s is a CONPMTR", str1);
                 goto cleanup;
-//$$$            } else if (MODL->pmtr[ipmtr].type == OCSM_CONFIG) {
-//$$$                signalError(MODL, OCSM_PMTR_IS_CONSTANT,
-//$$$                            "%s is a CFGPMTR parameter", str1);
-//$$$                goto cleanup;
+            } else if (MODL->pmtr[ipmtr].type == OCSM_UNKNOWN) {
+                status = OCSM_ILLEGAL_PMTR_NAME;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                            "%s is an unknown type", str1);
+                goto cleanup;
             }
 
             /* store the bounds for the whole Parameter */
@@ -4440,10 +4924,11 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
                             }
                         }
 
-                        status = str2val(defn, NULL, &bound, &dot, str);
-                        CHECK_STATUS(str2val);
+                        status = str2val(defn, MODL, &bound, &dot, str);
+                        CHECK_STATUS2(str2val);
                         if (STRLEN(str) > 0) {
-                            signalError(MODL, OCSM_WRONG_PMTR_TYPE,
+                            status = OCSM_WRONG_PMTR_TYPE;
+                            signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                                         "expression must evaluate to a number");
                             goto cleanup;
                         }
@@ -4471,10 +4956,11 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
                         }
                     }
 
-                    status = str2val(defn, NULL, &bound, &dot, str);
-                    CHECK_STATUS(str2val);
+                    status = str2val(defn, MODL, &bound, &dot, str);
+                    CHECK_STATUS2(str2val);
                     if (STRLEN(str) > 0) {
-                        signalError(MODL, OCSM_WRONG_PMTR_TYPE,
+                        status = OCSM_WRONG_PMTR_TYPE;
+                        signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                                     "expression must evaluate to a number");
                         goto cleanup;
                     }
@@ -4501,10 +4987,11 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
                         }
                     }
 
-                    status = str2val(defn, NULL, &bound, &dot, str);
-                    CHECK_STATUS(str2val);
+                    status = str2val(defn, MODL, &bound, &dot, str);
+                    CHECK_STATUS2(str2val);
                     if (STRLEN(str) > 0) {
-                        signalError(MODL, OCSM_WRONG_PMTR_TYPE,
+                        status = OCSM_WRONG_PMTR_TYPE;
+                        signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                                     "expression must evaluate to a number");
                         goto cleanup;
                     }
@@ -4533,10 +5020,11 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
                     }
                 }
 
-                status = str2val(defn, NULL, &bound, &dot, str);
-                CHECK_STATUS(str2val);
+                status = str2val(defn, MODL, &bound, &dot, str);
+                CHECK_STATUS2(str2val);
                 if (STRLEN(str) > 0) {
-                    signalError(MODL, OCSM_WRONG_PMTR_TYPE,
+                    status = OCSM_WRONG_PMTR_TYPE;
+                    signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                                 "expression must evaluate to a number");
                     goto cleanup;
                 }
@@ -4550,11 +5038,13 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
                    strcmp(command, "UDPARG") == 0   ) {
 
             if (nskpt > 0) {
-                signalError(MODL, OCSM_SKETCH_IS_OPEN,
+                status = OCSM_SKETCH_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "UDPARG cannot be in SKBEG/SKEND");
                 goto cleanup;
             } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "UDPARG cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             }
@@ -4565,11 +5055,13 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
                           &(str1[1]), &(str2[1]), str3, &(str4[1]), str5,
                                       &(str6[1]), str7, &(str8[1]), str9);
             if (narg < 1) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "UDPARG requires at least 1 argument");
                 goto cleanup;
             } else if (narg%2 != 1) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "UDPARG  requires 1, 3, 5, 7, or 9 arguments");
                 goto cleanup;
             }
@@ -4581,16 +5073,16 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
 
             /* adjust file spec or extract "inline" file */
             status = adjustFileSpec(csm_file[MODL->level], filenames[MODL->level], &(linenum[MODL->level]), str3);
-            CHECK_STATUS(adjustFileSpec);
+            CHECK_STATUS2(adjustFileSpec);
 
             status = adjustFileSpec(csm_file[MODL->level], filenames[MODL->level], &(linenum[MODL->level]), str5);
-            CHECK_STATUS(adjustFileSpec);
+            CHECK_STATUS2(adjustFileSpec);
 
             status = adjustFileSpec(csm_file[MODL->level], filenames[MODL->level], &(linenum[MODL->level]), str7);
-            CHECK_STATUS(adjustFileSpec);
+            CHECK_STATUS2(adjustFileSpec);
 
             status = adjustFileSpec(csm_file[MODL->level], filenames[MODL->level], &(linenum[MODL->level]), str9);
-            CHECK_STATUS(adjustFileSpec);
+            CHECK_STATUS2(adjustFileSpec);
 
             /* create the new Branch */
             if        (narg < 3) {
@@ -4609,17 +5101,19 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
                 status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_UDPARG, filenames[MODL->level], linenum[MODL->level],
                                      str1, str2, str3, str4, str5, str6, str7, str8, str9);
             }
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
         /* input is: "udprim $primtype $argName1 argValue1 $argName2 argValue2 $argName3 argValue3 $argName4 argValue4" */
         } else if (strcmp(command, "udprim") == 0 ||
                    strcmp(command, "UDPRIM") == 0   ) {
             if (nskpt > 0) {
-                signalError(MODL, OCSM_SKETCH_IS_OPEN,
+                status = OCSM_SKETCH_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "UDPRIM cannot be in SKBEG/SKEND");
                 goto cleanup;
             } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "UDPRIM cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             }
@@ -4630,11 +5124,13 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
                           &(str1[1]), &(str2[1]), str3, &(str4[1]), str5,
                                       &(str6[1]), str7, &(str8[1]), str9);
             if (narg < 1) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "UDPRIM requires at least 1 argument");
                 goto cleanup;
             } else if (narg%2 != 1) {
-                signalError(MODL, OCSM_NOT_ENOUGH_ARGS,
+                status = OCSM_NOT_ENOUGH_ARGS;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "UDPRIM requires 1, 3, 5, 7, or 9 arguments");
                 goto cleanup;
             }
@@ -4646,16 +5142,16 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
 
             /* adjust file spec or extract "inline" file */
             status = adjustFileSpec(csm_file[MODL->level], filenames[MODL->level], &(linenum[MODL->level]), str3);
-            CHECK_STATUS(adjustFileSpec);
+            CHECK_STATUS2(adjustFileSpec);
 
             status = adjustFileSpec(csm_file[MODL->level], filenames[MODL->level], &(linenum[MODL->level]), str5);
-            CHECK_STATUS(adjustFileSpec);
+            CHECK_STATUS2(adjustFileSpec);
 
             status = adjustFileSpec(csm_file[MODL->level], filenames[MODL->level], &(linenum[MODL->level]), str7);
-            CHECK_STATUS(adjustFileSpec);
+            CHECK_STATUS2(adjustFileSpec);
 
             status = adjustFileSpec(csm_file[MODL->level], filenames[MODL->level], &(linenum[MODL->level]), str9);
-            CHECK_STATUS(adjustFileSpec);
+            CHECK_STATUS2(adjustFileSpec);
 
             /* create the new Branch */
             if        (narg < 3) {
@@ -4674,7 +5170,7 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
                 status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_UDPRIM, filenames[MODL->level], linenum[MODL->level],
                                      str1, str2, str3, str4, str5, str6, str7, str8, str9);
             }
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
             /* if we are reading a .cpc file, increment numudc, and continue reading */
             if (filetype == 1) {
@@ -4716,32 +5212,19 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
                     if (csm_file[MODL->level] != NULL) {
                         SPRINT1(1, "\n>>> Diverting to file \"%s\"\n", filenames[MODL->level]);
                         linenum[MODL->level] = 0;
-
-                        assert (MODL->filelist != NULL);
-
-                        imatch = 0;
-                        for (itoken = 0; itoken < 0; itoken++) {   // arbitrary hard-coded limit
-                            getToken(MODL->filelist, itoken, '|', MAX_EXPR_LEN, token);
-                            if (STRLEN(token) == 0) {
-                                break;
-                            } else if (strcmp(filenames[MODL->level], token) == 0) {
-                                imatch = 1;
-                                break;
-                            }
-                        }
-                        if (imatch == 0) {
-                            RALLOC(MODL->filelist, char, STRLEN(MODL->filelist)+STRLEN(filenames[MODL->level])+2);
-                            strcat(MODL->filelist, filenames[MODL->level]);
-                            strcat(MODL->filelist, "|");
-                        }
                     } else {
-                        SPRINT1(0, "ERROR:: cannot open \"%s\"", filenames[MODL->level]);
-                        (MODL->level)--;
                         status = OCSM_FILE_NOT_FOUND;
+                        signalError2(MODL, status, filenames[MODL->level-1], linenum[MODL->level-1],
+                                     "UDC \"%s\" can not be found", filenames[MODL->level]);
+                        (MODL->level)--;
+//$$$                        SPRINT1(0, "ERROR:: cannot open \"%s\"", filenames[MODL->level]);
+//$$$                        (MODL->level)--;
+//$$$                        status = OCSM_FILE_NOT_FOUND;
                         goto cleanup;
                     }
                 } else {
-                    signalError(MODL, OCSM_NESTED_TOO_DEEPLY,
+                    status = OCSM_NESTED_TOO_DEEPLY;
+                    signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                                 "maximum file depth reached");
                 }
             }
@@ -4750,11 +5233,13 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
         } else if (strcmp(command, "union") == 0 ||
                    strcmp(command, "UNION") == 0   ) {
             if (nskpt > 0) {
-                signalError(MODL, OCSM_SKETCH_IS_OPEN,
+                status = OCSM_SKETCH_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "UNION cannot be in SKBEG/SKEND");
                 goto cleanup;
             } else if (insolver != 0) {
-                signalError(MODL, OCSM_SOLVER_IS_OPEN,
+                status = OCSM_SOLVER_IS_OPEN;
+                signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
                             "UNION cannot be in SOLBEG/SOLEND");
                 goto cleanup;
             }
@@ -4775,17 +5260,30 @@ ocsmLoad(char   filename[],             /* (in)  file to be read (with .csm) */
             /* create the new Branch */
             status = ocsmNewBrch(MODL, MODL->nbrch, OCSM_UNION, filenames[MODL->level], linenum[MODL->level],
                                  str1, str2, str3, NULL, NULL, NULL, NULL, NULL, NULL);
-            CHECK_STATUS(ocsmNewBrch);
+            CHECK_STATUS2(ocsmNewBrch);
 
         /* illegal command */
         } else {
-            signalError(MODL, OCSM_ILLEGAL_STATEMENT,
-                        "unrecognized command \"%s\"", command);
+            status = OCSM_ILLEGAL_STATEMENT;
+            signalError2(MODL, status, filenames[MODL->level], linenum[MODL->level],
+                         "unrecognized command \"%s\"", command);
             goto cleanup;
         }
     }
 
+    /* remove all UNKNOWN Parameters, no matter its scope (since they were created by a DIMENSION
+       statement in preparation for a DESPMTR, CFGPMTR, or OUTPMTR statement) */
+    for (ipmtr = MODL->npmtr; ipmtr > 0; ipmtr--) {
+        if (MODL->pmtr[ipmtr].type == OCSM_UNKNOWN) {
+            MODL->pmtr[ipmtr].scope = MODL->scope[MODL->level];
+            status = ocsmDelPmtr(MODL, ipmtr);
+            CHECK_STATUS2(ocsmDelPmtr);
+        }
+    }
+
 cleanup:
+#undef CHECK_STATUS2
+
     if (MODL != NULL) {
         if (status == 0) {
             status = MODL->sigCode;
@@ -4871,9 +5369,9 @@ ocsmLoadDict(void   *modl,              /* (in)  pointer to MODL */
             goto cleanup;
         }
 
-        status = ocsmNewPmtr(MODL, pmtrName, OCSM_CONSTANT, 1, 1);
+        status = ocsmNewPmtr(MODL, pmtrName, OCSM_UNKNOWN, 1, 1);
         if (status == OCSM_NAME_ALREADY_DEFINED) {
-            status = ocsmFindPmtr(MODL, pmtrName, OCSM_CONSTANT, 1, 1, &ipmtr);
+            status = ocsmFindPmtr(MODL, pmtrName, OCSM_CONPMTR, 1, 1, &ipmtr);
             if (status != SUCCESS) {
                 SPRINT1(0, "ERROR:: \"%s\" is already defined", pmtrName);
                 status = OCSM_ILLEGAL_PMTR_NAME;
@@ -4905,6 +5403,7 @@ ocsmLoadDict(void   *modl,              /* (in)  pointer to MODL */
                 status = OCSM_ILLEGAL_VALUE;
                 goto cleanup;
             }
+            MODL->pmtr[MODL->npmtr].type = OCSM_CONPMTR;
         }
     }
 
@@ -4921,7 +5420,7 @@ cleanup:
 /*
  ************************************************************************
  *                                                                      *
- *  ocsmUpdateDespmtrs - update DESPMTRs from filename                  *
+ *  ocsmUpdateDespmtrs - update CFGPMTRs and DESPMTRs from filename     *
  *                                                                      *
  ************************************************************************
  */
@@ -4932,9 +5431,9 @@ ocsmUpdateDespmtrs(void   *modl,        /* (in)  pointer to MODL */
 {
     int       status = SUCCESS;         /* (out) return status */
 
-    int       ipmtr, jpmtr, type, nrow, ncol;
+    int       ipmtr, irow, icol;
     double    pmtrvalue;
-    char      pmtrname[MAX_NAME_LEN], name[MAX_NAME_LEN];
+    char      pname[MAX_NAME_LEN], pmtrname[MAX_NAME_LEN];
     FILE      *fp=NULL;
 
     modl_T    *MODL = (modl_T*)modl;
@@ -4966,32 +5465,55 @@ ocsmUpdateDespmtrs(void   *modl,        /* (in)  pointer to MODL */
 
     /* read lines in the form pmtrname pmtrvalue */
     while (1) {
-        status = fscanf(fp, "%s %lf\n", pmtrname, &pmtrvalue);
+        status = fscanf(fp, "%s %lf\n", pname, &pmtrvalue);
         if (status < 2) break;
 
-        /* find the DESPMTR index of pmtrname */
-        ipmtr = 0;
-        for (jpmtr = 1; jpmtr <= MODL->npmtr; jpmtr++) {
-            status = ocsmGetPmtr(MODL, jpmtr, &type, &nrow, &ncol, name);
-            if (status < EGADS_SUCCESS) goto cleanup;
+        /* break pname into pmtrName[irow,icol] */
+        status = parseName(MODL, pname, pmtrname, &ipmtr, &irow, &icol);
+        if (status < EGADS_SUCCESS) goto cleanup;
 
-            if (strcmp(pmtrname, name) == 0 && type == OCSM_EXTERNAL) {
-                ipmtr = jpmtr;
-                break;
-            }
-        }
-
+        /* make sure we found a valid DESPMTR */
         if (ipmtr <= 0) {
-            SPRINT1(0, "ERROR:: \"%s\" is not a valid DESPMTR", pmtrname);
+            SPRINT1(0, "ERROR:: \"%s\" is not a valid DESPMTR or CFGPMTR", pname);
+            status = OCSM_ILLEGAL_PMTR_NAME;
+            goto cleanup;
+        } else if (MODL->pmtr[ipmtr].type != OCSM_DESPMTR &&
+                   MODL->pmtr[ipmtr].type != OCSM_CFGPMTR   ) {
+            SPRINT1(0, "ERROR:: \"%s\" is not a valid DESPMTR or CFGPMTR", pname);
             status = OCSM_ILLEGAL_PMTR_NAME;
             goto cleanup;
         }
 
+        if (irow == 0 && icol == 0) {
+            if (MODL->pmtr[ipmtr].nrow != 1 || MODL->pmtr[ipmtr].ncol != 1) {
+                SPRINT1(0, "ERROR:: \"%s\" is not a scalar DESPMTR or CFGPMTR", MODL->pmtr[ipmtr].name);
+                status = OCSM_ILLEGAL_PMTR_NAME;
+                goto cleanup;
+            }
+
+            irow = 1;
+            icol = 1;
+        } else if (irow <= 0 || irow > MODL->pmtr[ipmtr].nrow) {
+            SPRINT2(0, "ERROR:: row %d is not in range for \"%s\"", irow, MODL->pmtr[ipmtr].name);
+            status = OCSM_ILLEGAL_PMTR_INDEX;
+            goto cleanup;
+        } else if (icol <= 0 || icol > MODL->pmtr[ipmtr].ncol) {
+            SPRINT2(0, "ERROR:: column %d is not in range for \"%s\"", icol, MODL->pmtr[ipmtr].name);
+            status = OCSM_ILLEGAL_PMTR_INDEX;
+            goto cleanup;
+        }
+
         /* set the DESPMTR value */
-        status = ocsmSetValuD(MODL, ipmtr, 1, 1, pmtrvalue);
+        status = ocsmSetValuD(MODL, ipmtr, irow, icol, pmtrvalue);
         if (status < EGADS_SUCCESS) goto cleanup;
 
-        SPRINT2(0, "    updating DESPMTR %32s = %12.6f", pmtrname, pmtrvalue);
+        if (MODL->pmtr[ipmtr].type == OCSM_DESPMTR) {
+            SPRINT4(0, "    updating DESPMTR %-32s[%2d,%2d] = %12.6f",
+                    pmtrname, irow, icol, pmtrvalue);
+        } else {
+            SPRINT4(0, "    updating CFGPMTR %-32s[%2d,%2d] = %12.6f",
+                    pmtrname, irow, icol, pmtrvalue);
+        }
     }
 
     /* getting here means that we succeeded */
@@ -5029,10 +5551,12 @@ ocsmGetFilelist(void   *modl,           /* (in)  pointer to MODL */
     /* --------------------------------------------------------------- */
 
     /* initialize filelist */
-    lenFilelist = 1000;
+    lenFilelist = MAX_FILENAME_LEN + 1000;
     MALLOC(myFilelist, char, lenFilelist);
 
-    myFilelist[0] = '\0';
+    /* start with .csm or .cpc file */
+    STRNCPY(myFilelist, MODL->filename, MAX_FILENAME_LEN);
+    strcat(myFilelist, "|");
 
     /* look through all Branches and its filename if not already in filelist */
     for (ibrch = 1; ibrch <= MODL->nbrch; ibrch++) {
@@ -5077,7 +5601,7 @@ ocsmSave(void   *modl,                  /* (in)  pointer to MODL */
     modl_T    *MODL = (modl_T*)modl;
 
     int       filelen, filetype, i, j;
-    int       ipmtr, ibrch, jbrch, kbrch=-1, iattr, irow, icol, index, indent, nindent=0;
+    int       ipmtr, jpmtr, ibrch, jbrch, kbrch=-1, iattr, irow, icol, index, indent, nindent=0;
     char      udcname[MAX_EXPR_LEN], templine[MAX_LINE_LEN];
     FILE      *csm_file, *fp_inline;
 
@@ -5160,22 +5684,22 @@ ocsmSave(void   *modl,                  /* (in)  pointer to MODL */
     fprintf(csm_file, "# %s written by ocsmSave (v%d.%02d)\n",
             filename, OCSM_MAJOR_VERSION, OCSM_MINOR_VERSION);
 
-    /* write the constant, output, and design (external) Parameters */
+    /* write the constant, output, and design Parameters */
     if (filetype == 0 || filetype == 1) {
         fprintf(csm_file, "\n# Constant, Design, and Output Parameters:\n");
         for (ipmtr = 1; ipmtr <= MODL->npmtr; ipmtr++) {
-            if (MODL->pmtr[ipmtr].type  == OCSM_CONSTANT) {
+            if (MODL->pmtr[ipmtr].type  == OCSM_CONPMTR) {
 
                 fprintf(csm_file, "conpmtr   %s   %11.5f\n",
                         MODL->pmtr[ipmtr].name, MODL->pmtr[ipmtr].value[0]);
-            } else if (MODL->pmtr[ipmtr].type  == OCSM_OUTPUT) {
+            } else if (MODL->pmtr[ipmtr].type  == OCSM_OUTPMTR) {
 
                 fprintf(csm_file, "outpmtr   %s\n",
                         MODL->pmtr[ipmtr].name);
-            } else if (MODL->pmtr[ipmtr].type  == OCSM_EXTERNAL) {
+            } else if (MODL->pmtr[ipmtr].type  == OCSM_DESPMTR) {
 
                 if (MODL->pmtr[ipmtr].nrow*MODL->pmtr[ipmtr].ncol > 1) {
-                    fprintf(csm_file, "dimension %s   %d   %d   1\n",
+                    fprintf(csm_file, "dimension %s   %d   %d\n",
                             MODL->pmtr[ipmtr].name,
                             MODL->pmtr[ipmtr].nrow,
                             MODL->pmtr[ipmtr].ncol);
@@ -5213,7 +5737,7 @@ ocsmSave(void   *modl,                  /* (in)  pointer to MODL */
                         index++;
                     }
                 }
-            } else if (MODL->pmtr[ipmtr].type == OCSM_CONFIG) {
+            } else if (MODL->pmtr[ipmtr].type == OCSM_CFGPMTR) {
                 fprintf(csm_file, "cfgpmtr   %s   %11.5f\n",
                             MODL->pmtr[ipmtr].name, MODL->pmtr[ipmtr].value[0]);
             }
@@ -5279,11 +5803,12 @@ ocsmSave(void   *modl,                  /* (in)  pointer to MODL */
                     MODL->brch[ibrch].arg2,
                     MODL->brch[ibrch].arg3);
         } else if (MODL->brch[ibrch].type == OCSM_BLEND) {
-            fprintf(csm_file, "blend     %s   %s   %s   %s\n",
+            fprintf(csm_file, "blend     %s   %s   %s   %s   %s\n",
                     MODL->brch[ibrch].arg1,
                     MODL->brch[ibrch].arg2,
                     MODL->brch[ibrch].arg3,
-                    MODL->brch[ibrch].arg4);
+                    MODL->brch[ibrch].arg4,
+                    MODL->brch[ibrch].arg5);
         } else if (MODL->brch[ibrch].type == OCSM_BOX) {
             fprintf(csm_file, "box       %s   %s   %s   %s   %s   %s\n",
                     MODL->brch[ibrch].arg1,
@@ -5338,10 +5863,23 @@ ocsmSave(void   *modl,                  /* (in)  pointer to MODL */
                     MODL->brch[ibrch].arg6,
                     MODL->brch[ibrch].arg7);
         } else if (MODL->brch[ibrch].type == OCSM_DIMENSION) {
-            fprintf(csm_file, "dimension %s   %s   %s   0\n",
-                  &(MODL->brch[ibrch].arg1[1]),
-                    MODL->brch[ibrch].arg2,
-                    MODL->brch[ibrch].arg3);
+            ipmtr = 0;
+            for (jpmtr = 1; jpmtr <= MODL->npmtr; jpmtr++) {
+                if (strcmp(MODL->pmtr[jpmtr].name, &(MODL->brch[ibrch].arg1[1])) == 0) {
+                    if (MODL->pmtr[jpmtr].type == OCSM_DESPMTR ||
+                        MODL->pmtr[jpmtr].type == OCSM_CFGPMTR   ) {
+                        ipmtr = jpmtr;
+                        break;
+                    }
+                }
+            }
+
+            if (ipmtr == 0) {
+                fprintf(csm_file, "dimension %s   %s   %s\n",
+                      &(MODL->brch[ibrch].arg1[1]),
+                        MODL->brch[ibrch].arg2,
+                        MODL->brch[ibrch].arg3);
+            }
         } else if (MODL->brch[ibrch].type == OCSM_DUMP) {
             fprintf(csm_file, "dump      %s   %s   %s\n",
                   &(MODL->brch[ibrch].arg1[1]),
@@ -5483,6 +6021,10 @@ ocsmSave(void   *modl,                  /* (in)  pointer to MODL */
             fprintf(csm_file, "macend\n");
         } else if (MODL->brch[ibrch].type == OCSM_MARK) {
             fprintf(csm_file, "mark\n");
+        } else if (MODL->brch[ibrch].type == OCSM_MESSAGE) {
+            fprintf(csm_file, "message   %s   %s\n",
+                 &(MODL->brch[ibrch].arg1[1]),
+                 &(MODL->brch[ibrch].arg2[1]));
         } else if (MODL->brch[ibrch].type == OCSM_MIRROR) {
             fprintf(csm_file, "mirror    %s   %s   %s   %s\n",
                     MODL->brch[ibrch].arg1,
@@ -5548,8 +6090,9 @@ ocsmSave(void   *modl,                  /* (in)  pointer to MODL */
                     MODL->brch[ibrch].arg2,
                     MODL->brch[ibrch].arg3);
         } else if (MODL->brch[ibrch].type == OCSM_RULE) {
-            fprintf(csm_file, "rule      %s\n",
-                    MODL->brch[ibrch].arg1);
+            fprintf(csm_file, "rule      %s   %s\n",
+                    MODL->brch[ibrch].arg1,
+                    MODL->brch[ibrch].arg2);
         } else if (MODL->brch[ibrch].type == OCSM_SCALE) {
             fprintf(csm_file, "scale     %s   %s   %s   %s\n",
                     MODL->brch[ibrch].arg1,
@@ -5825,6 +6368,83 @@ cleanup:
 /*
  ************************************************************************
  *                                                                      *
+ *  ocsmSaveDespmtrs - save CFGPMTRs and DESPMTRs to filename           *
+ *                                                                      *
+ ************************************************************************
+ */
+
+int
+ocsmSaveDespmtrs(void   *modl,          /* (in)  pointer to MODL */
+                 char   filename[])     /* (in)  file to write */
+{
+    int       status = SUCCESS;         /* (out) return status */
+
+    int       ipmtr, irow, icol, index;
+    FILE      *fp=NULL;
+
+    modl_T    *MODL = (modl_T*)modl;
+
+    ROUTINE(ocsmSaveDespmtrs);
+
+    /* --------------------------------------------------------------- */
+
+    /* check magic number */
+    if (MODL == NULL) {
+        status = OCSM_NOT_MODL_STRUCTURE;
+        goto cleanup;
+    } else if (MODL->magic != OCSM_MAGIC) {
+        status = OCSM_NOT_MODL_STRUCTURE;
+        goto cleanup;
+    }
+
+    /* create the file */
+    fp = fopen(filename, "w");
+    if (fp == NULL) {
+        SPRINT1(0, "ERROR:: DESPMTR file \"%s\" could not be created", filename);
+        status = OCSM_FILE_NOT_FOUND;
+        goto cleanup;
+    }
+
+    /* loop through the CFGPMTRS */
+    for (ipmtr = 1; ipmtr <= MODL->npmtr; ipmtr++) {
+        if (MODL->pmtr[ipmtr].type != OCSM_CFGPMTR) continue;
+
+        index = 0;
+        for (irow = 1; irow <= MODL->pmtr[ipmtr].nrow; irow++) {
+            for (icol = 1; icol <= MODL->pmtr[ipmtr].ncol; icol++) {
+                fprintf(fp, "%s[%d,%d]  %15.8e\n",
+                        MODL->pmtr[ipmtr].name, irow, icol,
+                        MODL->pmtr[ipmtr].value[index]);
+                index++;
+            }
+        }
+    }
+
+    /* loop through the DESPMTRS */
+    for (ipmtr = 1; ipmtr <= MODL->npmtr; ipmtr++) {
+        if (MODL->pmtr[ipmtr].type != OCSM_DESPMTR) continue;
+
+        index = 0;
+        for (irow = 1; irow <= MODL->pmtr[ipmtr].nrow; irow++) {
+            for (icol = 1; icol <= MODL->pmtr[ipmtr].ncol; icol++) {
+                fprintf(fp, "%s[%d,%d]  %15.8e\n",
+                        MODL->pmtr[ipmtr].name, irow, icol,
+                        MODL->pmtr[ipmtr].value[index]);
+                index++;
+            }
+        }
+    }
+
+cleanup:
+    if (fp != NULL) fclose(fp);
+
+    return status;
+}
+
+
+/*
+ ************************************************************************
+ *                                                                      *
  *   ocsmCopy - copy a MODL                                             *
  *                                                                      *
  ************************************************************************
@@ -5885,9 +6505,7 @@ ocsmCopy(void   *srcModl,               /* (in)  pointer to source MODL */
         NEW_MODL->scope[i] = SRC_MODL->scope[i];
     }
 
-    NEW_MODL->filelist = NULL;
-    MALLOC(NEW_MODL->filelist, char, STRLEN(SRC_MODL->filelist)+1);
-    strcpy(NEW_MODL->filelist, SRC_MODL->filelist);
+    strcpy(NEW_MODL->filename, SRC_MODL->filename);
 
     NEW_MODL->nattr = 0;
     NEW_MODL->attr  = NULL;
@@ -5907,11 +6525,16 @@ ocsmCopy(void   *srcModl,               /* (in)  pointer to source MODL */
     NEW_MODL->mbody = 0;
     NEW_MODL->body  = NULL;
 
-    NEW_MODL->perturb  = NULL;
-    NEW_MODL->basemodl = NULL;
-    NEW_MODL->dtime    = 0;
+    NEW_MODL->numdots   = 0;
+    NEW_MODL->needMPdot = 0;
+    NEW_MODL->perturb   = NULL;
+    NEW_MODL->basemodl  = NULL;
+    NEW_MODL->dtime     = 0;
 
     NEW_MODL->context     = SRC_MODL->context;
+    NEW_MODL->userdata    = SRC_MODL->userdata;
+    NEW_MODL->mesgCB      = SRC_MODL->mesgCB;
+    NEW_MODL->sizeCB      = SRC_MODL->sizeCB;
     strcpy(NEW_MODL->eggname, SRC_MODL->eggname);
     NEW_MODL->eggGenerate = SRC_MODL->eggGenerate;
     NEW_MODL->eggMorph    = SRC_MODL->eggMorph;
@@ -6002,7 +6625,7 @@ ocsmCopy(void   *srcModl,               /* (in)  pointer to source MODL */
                     NEW_MODL->pmtr[ipmtr].value[index] = SRC_MODL->pmtr[ipmtr].value[index];
                     NEW_MODL->pmtr[ipmtr].dot[  index] = SRC_MODL->pmtr[ipmtr].dot[  index];
 
-                    if (SRC_MODL->pmtr[ipmtr].type == OCSM_EXTERNAL) {
+                    if (SRC_MODL->pmtr[ipmtr].type == OCSM_DESPMTR) {
                         NEW_MODL->pmtr[ipmtr].lbnd[ index] = SRC_MODL->pmtr[ipmtr].lbnd[ index];
                         NEW_MODL->pmtr[ipmtr].ubnd[ index] = SRC_MODL->pmtr[ipmtr].ubnd[ index];
                     }
@@ -6175,15 +6798,6 @@ ocsmFree(
 
         status = freeBody(MODL, ibody);
         CHECK_STATUS(freeBody);
-//$$$
-//$$$        if (MODL->body[ibody].sens != 0) {
-//$$$            SPRINT1(2, "resetting .sens for ibody=%d", ibody);
-//$$$
-//$$$            status = EG_setGeometry_dot(MODL->body[ibody].ebody, 0, 0,  NULL, NULL, NULL);
-//$$$            CHECK_STATUS(EG_setGeometry_dot);
-//$$$
-//$$$            MODL->body[ibody].sens = 0;
-//$$$        }
     }
 
     FREE(MODL->body);
@@ -6243,9 +6857,6 @@ ocsmFree(
 
     /* free up the message buffer */
     FREE(MODL->sigMesg);
-
-    /* free up the file list */
-    FREE(MODL->filelist);
 
     /* free up the MODL structure */
     FREE(MODL);
@@ -6316,7 +6927,7 @@ ocsmCheck(void   *modl)                 /* (in)  pointer to MODL */
     modl_T    *MODL = (modl_T*)modl;
 
     int       ibrch, ipass, indent;
-    int       inest[MAX_NESTING], jnest, nnest, ifound;
+    int       inest[MAX_NESTING], jnest[MAX_NESTING], knest, nnest, ifound;
 
     ROUTINE(ocsmCheck);
 
@@ -6335,11 +6946,11 @@ ocsmCheck(void   *modl)                 /* (in)  pointer to MODL */
     /* check magic number */
     if (MODL == NULL) {
         signalError(MODL, OCSM_NOT_MODL_STRUCTURE,
-                    "");
+                    "MODL=NULL");
         goto cleanup;
     } else if (MODL->magic != OCSM_MAGIC) {
         signalError(MODL, OCSM_NOT_MODL_STRUCTURE,
-                    "");
+                    "bad magic number");
         goto cleanup;
     }
 
@@ -6361,11 +6972,13 @@ ocsmCheck(void   *modl)                 /* (in)  pointer to MODL */
                 goto cleanup;
             }
 
-            inest[nnest++] = OCSM_PATBEG;
+            inest[nnest] = OCSM_PATBEG;
+            jnest[nnest] = ibrch;
+            nnest++;
         } else if (MODL->brch[ibrch].type == OCSM_PATBREAK) {
             ifound = 0;
-            for (jnest = nnest-1; jnest >= 0; jnest--) {
-                if (inest[jnest] == OCSM_PATBEG) {
+            for (knest = nnest-1; knest >= 0; knest--) {
+                if (inest[knest] == OCSM_PATBEG) {
                     ifound++;
                     break;
                 }
@@ -6373,17 +6986,19 @@ ocsmCheck(void   *modl)                 /* (in)  pointer to MODL */
 
             if (ifound == 0) {
                 signalError(MODL, OCSM_IMPROPER_NESTING,
-                            "PATBREAK is improperly nested");
+                            "PATBREAK is improperly nested (follows \"%s\" on line %d)",
+                            ocsmGetText(inest[knest]),MODL->brch[jnest[knest]].linenum);
                 goto cleanup;
             }
         } else if (MODL->brch[ibrch].type == OCSM_PATEND) {
             if (nnest <= 0) {
                 signalError(MODL, OCSM_IMPROPER_NESTING,
-                            "PATEND is improerly nested");
+                            "PATEND without matching PATBEG");
                 goto cleanup;
             } else if (inest[nnest-1] != OCSM_PATBEG) {
                 signalError(MODL, OCSM_IMPROPER_NESTING,
-                            "PATEND is improperly nested");
+                            "PATEND is improperly nested (follows \"%s\" on line %d)",
+                            ocsmGetText(inest[nnest-1]),MODL->brch[jnest[nnest-1]].linenum);
                 goto cleanup;
             }
 
@@ -6395,38 +7010,44 @@ ocsmCheck(void   *modl)                 /* (in)  pointer to MODL */
                 goto cleanup;
             }
 
-            inest[nnest++] = OCSM_IFTHEN;
+            inest[nnest] = OCSM_IFTHEN;
+            jnest[nnest] = ibrch;
+            nnest++;
         } else if (MODL->brch[ibrch].type == OCSM_ELSEIF) {
             if (nnest <= 0) {
                 signalError(MODL, OCSM_IMPROPER_NESTING,
-                            "ELSEIF is improperly nested");
+                            "ELSEIF without matching IFTHEN");
                 goto cleanup;
             } else if (inest[nnest-1] != OCSM_IFTHEN) {
                 signalError(MODL, OCSM_IMPROPER_NESTING,
-                            "ELSEIF is improperly nested");
+                            "ELSEIF is improperly nested (follows \"%s\" on line %d)",
+                            ocsmGetText(inest[nnest-1]),MODL->brch[jnest[nnest-1]].linenum);
                 goto cleanup;
             }
         } else if (MODL->brch[ibrch].type == OCSM_ELSE) {
             if (nnest <= 0) {
                 signalError(MODL, OCSM_IMPROPER_NESTING,
-                            "ELSE is improperly nested");
+                            "ELSE without matching IFTHEN");
                 goto cleanup;
             } else if (inest[nnest-1] != OCSM_IFTHEN) {
                 signalError(MODL, OCSM_IMPROPER_NESTING,
-                            "ELSE is improperly nested");
+                            "ELSE is improperly nested (follows \"%s\" on line %d)",
+                            ocsmGetText(inest[nnest-1]),MODL->brch[jnest[nnest-1]].linenum);
                 goto cleanup;
             }
 
             inest[nnest-1] = OCSM_ELSE;
+            jnest[nnest-1] = ibrch;
         } else if (MODL->brch[ibrch].type == OCSM_ENDIF) {
             if (nnest <= 0) {
                 signalError(MODL, OCSM_IMPROPER_NESTING,
-                            "ENDIF is improperly nested");
+                            "ENDIF without matching IFTHEN");
                 goto cleanup;
             } else if (inest[nnest-1] != OCSM_IFTHEN &&
                        inest[nnest-1] != OCSM_ELSE     ) {
                 signalError(MODL, OCSM_IMPROPER_NESTING,
-                            "ENDIF is improperly nested");
+                            "ENDIF is improperly nested (follows \"%s\" on line %d)",
+                            ocsmGetText(inest[nnest-1]),MODL->brch[jnest[nnest-1]].linenum);
                 goto cleanup;
             }
 
@@ -6438,15 +7059,18 @@ ocsmCheck(void   *modl)                 /* (in)  pointer to MODL */
                 goto cleanup;
             }
 
-            inest[nnest++] = OCSM_CATBEG;
+            inest[nnest] = OCSM_CATBEG;
+            jnest[nnest] = ibrch;
+            nnest++;
         } else if (MODL->brch[ibrch].type == OCSM_CATEND) {
             if (nnest <= 0) {
                 signalError(MODL, OCSM_IMPROPER_NESTING,
-                            "CATEND is improperly nested");
+                            "CATEND without matching CATBEG");
                 goto cleanup;
             } else if (inest[nnest-1] != OCSM_CATBEG) {
                 signalError(MODL, OCSM_IMPROPER_NESTING,
-                            "CATEND is improperly nested");
+                            "CATEND is improperly nested (follows \"%s\" on line %d)",
+                            ocsmGetText(inest[nnest-1]), MODL->brch[jnest[nnest-1]].linenum);
                 goto cleanup;
             }
 
@@ -6456,7 +7080,8 @@ ocsmCheck(void   *modl)                 /* (in)  pointer to MODL */
 
     if (nnest > 0) {
         signalError(MODL, OCSM_NESTING_NOT_CLOSED,
-                    "%d block(s) are still open", nnest);
+                    "%d block(s) are still open (last one is \"%s\" on line %d)",
+                    nnest, ocsmGetText(inest[nnest-1]), MODL->brch[jnest[nnest-1]].linenum);
         goto cleanup;
     }
 
@@ -6557,6 +7182,78 @@ cleanup:
 /*
  ************************************************************************
  *                                                                      *
+ *   ocsmRegMesgCB - register callback function for exporting mesgs     *
+ *                                                                      *
+ ************************************************************************
+ */
+
+int
+ocsmRegMesgCB(void   *modl,             /* (in)  pointer to MODL */
+              void   (*callback)(char*))
+                                        /* (in)  handle of callback function */
+{
+    int       status = SUCCESS;         /* (out) return status */
+
+    modl_T    *MODL = (modl_T*)modl;
+
+    /* --------------------------------------------------------------- */
+
+    /* check magic number */
+    if (MODL == NULL) {
+        status = OCSM_NOT_MODL_STRUCTURE;
+        goto cleanup;
+    } else if (MODL->magic != OCSM_MAGIC) {
+        status = OCSM_NOT_MODL_STRUCTURE;
+        goto cleanup;
+    }
+
+    /* store pointer to callback */
+    MODL->mesgCB = callback;
+
+cleanup:
+    return status;
+}
+
+
+/*
+ ************************************************************************
+ *                                                                      *
+ *   ocsmRegSizeCB - register callback function for DESPMTR size changes*
+ *                                                                      *
+ ************************************************************************
+ */
+
+int
+ocsmRegSizeCB(void   *modl,             /* (in)  pointer to MODL */
+              void   (*callback)(void*, int, int, int))
+                                        /* (in)  handle of callback function */
+{
+    int       status = SUCCESS;         /* (out) return status */
+
+    modl_T    *MODL = (modl_T*)modl;
+
+    /* --------------------------------------------------------------- */
+
+    /* check magic number */
+    if (MODL == NULL) {
+        status = OCSM_NOT_MODL_STRUCTURE;
+        goto cleanup;
+    } else if (MODL->magic != OCSM_MAGIC) {
+        status = OCSM_NOT_MODL_STRUCTURE;
+        goto cleanup;
+    }
+
+    /* store pointer to callback */
+    MODL->sizeCB = callback;
+
+cleanup:
+    return status;
+}
+
+
+/*
+ ************************************************************************
+ *                                                                      *
  *   ocsmBuild - build Bodys by executing the MODL up to a given Branch *
  *                                                                      *
  ************************************************************************
@@ -6601,13 +7298,13 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
     int        ibrch, jbrch, type, ibrchl, i, j, iface, iedge, inode, nbodyMax;
     int        iattr, ipmtr, jpmtr, istor, jstor, icount, nmacro, ntemp, jstack, verify, icatch;
     int        ibody, jbody, jface, ibodyl, irow, nrow, icol, ncol, indx, itype, nlist, ilist, jlist,total_call;
-    int        *iblist=NULL, nblist, count, iseq;
+    int        *iblist=NULL, nblist, iseq;
     varg_T     args[10];
-    double     toler, value, dot, *values=NULL, *dots=NULL, *vels=NULL;
+    double     toler, value, dot, *values=NULL, *dots=NULL;
     char       pname[MAX_EXPR_LEN], pmtrName[MAX_EXPR_LEN], thisArg[MAX_LINE_LEN], str[MAX_STRVAL_LEN], temp[MAX_STRVAL_LEN];
 
     CINT       *tempIlist;
-    CDOUBLE    *tempRlist, *Vels;
+    CDOUBLE    *tempRlist;
     CCHAR      *tempClist, *aname;
 
     int        imajor, iminor, iarg, ival, hasdots, istack, igroup, ngroup, nattr;
@@ -6757,10 +7454,10 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
 
     status = SUCCESS;
 
-    /* errors if any EXTERNAL Parameters are out of bounds.  this can
+    /* errors if any DESPMTR Parameters are out of bounds.  this can
        only happen based upon values in the .csm file */
     for (ipmtr = 1; ipmtr <= MODL->npmtr; ipmtr++) {
-        if (MODL->pmtr[ipmtr].type  != OCSM_EXTERNAL) continue;
+        if (MODL->pmtr[ipmtr].type  != OCSM_DESPMTR) continue;
 
         indx = 0;
         for (irow = 0; irow < MODL->pmtr[ipmtr].nrow; irow++) {
@@ -6792,9 +7489,26 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
         }
     }
 
-    /* reinitailize values of all OUTPUT Parameters */
+    /* count number of non-zero dots associated with DESPMTRs */
+    MODL->numdots = 0;
     for (ipmtr = 1; ipmtr <= MODL->npmtr; ipmtr++) {
-        if (MODL->pmtr[ipmtr].type  != OCSM_OUTPUT) continue;
+        if (MODL->pmtr[ipmtr].type  != OCSM_DESPMTR) continue;
+
+        indx = 0;
+        for (irow = 0; irow < MODL->pmtr[ipmtr].nrow; irow++) {
+            for (icol = 0; icol < MODL->pmtr[ipmtr].ncol; icol++) {
+                if (MODL->pmtr[ipmtr].dot[indx] != 0) {
+                    (MODL->numdots)++;
+                }
+
+                indx++;
+            }
+        }
+    }
+
+    /* reinitailize values of all OUTPMTR Parameters */
+    for (ipmtr = 1; ipmtr <= MODL->npmtr; ipmtr++) {
+        if (MODL->pmtr[ipmtr].type  != OCSM_OUTPMTR) continue;
 
         if (MODL->pmtr[ipmtr].str != NULL) {
             MODL->pmtr[ipmtr].str[0] = '\0';
@@ -6813,8 +7527,8 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
        has a string value into a scalar (so that rebuilding will start with
        exactly the same assumptions as the first build) */
     for (ipmtr = MODL->npmtr; ipmtr > 0; ipmtr--) {
-        if (MODL->pmtr[ipmtr].type != OCSM_INTERNAL &&
-            MODL->pmtr[ipmtr].type != OCSM_OUTPUT     ) continue;
+        if (MODL->pmtr[ipmtr].type != OCSM_LOCALVAR &&
+            MODL->pmtr[ipmtr].type != OCSM_OUTPMTR    ) continue;
 
         if (strcmp(MODL->pmtr[ipmtr].name, "@edata") == 0 ||
             strcmp(MODL->pmtr[ipmtr].name, "@stack") == 0   ) continue;
@@ -6835,8 +7549,8 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
             MODL->pmtr[ipmtr].value[0] = -HUGEQ;
             MODL->pmtr[ipmtr].dot[  0] = 0;
 
-            if (MODL->pmtr[ipmtr].type == OCSM_EXTERNAL ||
-                MODL->pmtr[ipmtr].type == OCSM_CONFIG     ) {
+            if (MODL->pmtr[ipmtr].type == OCSM_DESPMTR ||
+                MODL->pmtr[ipmtr].type == OCSM_CFGPMTR   ) {
                 MALLOC(MODL->pmtr[ipmtr].lbnd,  double, 1);
                 MALLOC(MODL->pmtr[ipmtr].ubnd,  double, 1);
 
@@ -6889,15 +7603,6 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
                 status = freeBody(MODL, jbody);
                 CHECK_STATUS(freeBody);
 
-//$$$                if (MODL->body[jbody].sens != 0) {
-//$$$                    SPRINT1(2, "resetting .sens for jbody=%d", jbody);
-//$$$
-//$$$                    status = EG_setGeometry_dot(MODL->body[jbody].ebody, 0, 0, NULL, NULL, NULL);
-//$$$                    CHECK_STATUS(EG_setGeometry_dot);
-//$$$
-//$$$                    MODL->body[jbody].sens = 0;
-//$$$                }
-//$$$
                 if (MODL->body[jbody].etess != NULL) {
                     status = EG_deleteObject(MODL->body[jbody].etess);
                     CHECK_STATUS(EG_deleteObject);
@@ -7054,11 +7759,59 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
                     SET_STATUS(OCSM_NESTED_TOO_DEEPLY, patbeg);
                 }
 
+            /* if this is the end of a UDC, remove it and the variables at the
+               local scope from the pattern list */
+            } else if (type == OCSM_END) {
+                if (MODL->level > 0 && MODL->scope[MODL->level] > MODL->scope[MODL->level-1]) {
+                    for (ipmtr = 1; ipmtr <= MODL->npmtr; ipmtr++) {
+                        if (MODL->pmtr[ipmtr].scope >= MODL->scope[MODL->level]) {
+                            FREE(MODL->pmtr[ipmtr].name );
+                            FREE(MODL->pmtr[ipmtr].value);
+                            FREE(MODL->pmtr[ipmtr].dot  );
+                            FREE(MODL->pmtr[ipmtr].lbnd );
+                            FREE(MODL->pmtr[ipmtr].ubnd );
+                            FREE(MODL->pmtr[ipmtr].str  );
+
+                            for (jpmtr = ipmtr+1; jpmtr <= MODL->npmtr; jpmtr++) {
+
+                                /* copy jpmtr over jpmtr-1 */
+                                MODL->pmtr[jpmtr-1].name  = MODL->pmtr[jpmtr].name;
+                                MODL->pmtr[jpmtr-1].type  = MODL->pmtr[jpmtr].type;
+                                MODL->pmtr[jpmtr-1].scope = MODL->pmtr[jpmtr].scope;
+                                MODL->pmtr[jpmtr-1].flag  = MODL->pmtr[jpmtr].flag;
+                                MODL->pmtr[jpmtr-1].nrow  = MODL->pmtr[jpmtr].nrow;
+                                MODL->pmtr[jpmtr-1].ncol  = MODL->pmtr[jpmtr].ncol;
+                                MODL->pmtr[jpmtr-1].value = MODL->pmtr[jpmtr].value;
+                                MODL->pmtr[jpmtr-1].dot   = MODL->pmtr[jpmtr].dot;
+                                MODL->pmtr[jpmtr-1].lbnd  = MODL->pmtr[jpmtr].lbnd;
+                                MODL->pmtr[jpmtr-1].ubnd  = MODL->pmtr[jpmtr].ubnd;
+                                MODL->pmtr[jpmtr-1].str   = MODL->pmtr[jpmtr].str;
+                            }
+
+                            ipmtr--;            /* revisit imptr in next trip through loop */
+
+                            MODL->pmtr[MODL->npmtr].name  = NULL;
+                            MODL->pmtr[MODL->npmtr].value = NULL;
+                            MODL->pmtr[MODL->npmtr].dot   = NULL;
+                            MODL->pmtr[MODL->npmtr].lbnd  = NULL;
+                            MODL->pmtr[MODL->npmtr].ubnd  = NULL;
+                            MODL->pmtr[MODL->npmtr].str   = NULL;
+                            (MODL->npmtr)--;
+                        }
+                    }
+
+                    /* decrement the level */
+                    (MODL->level)--;
+                }
+
+                npatn--;
+                npatn_sig = MIN(npatn_sig, npatn);
+                continue;
+
             /* if this is the end of a block, remove it from the pattern list */
             } else if (type == OCSM_PATEND ||
                        type == OCSM_ENDIF  ||
-                       type == OCSM_MACEND ||
-                       type == OCSM_END      ) {
+                       type == OCSM_MACEND   ) {
                 npatn--;
                 npatn_sig = MIN(npatn_sig, npatn);
                 continue;
@@ -7234,9 +7987,9 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
             if (MODL->sigCode != SUCCESS) goto next_branch;
             CATCH_STATUS(buildSolver);
 
-        /* execute: "dimension $pmtrName nrow ncol 0" */
+        /* execute: "dimension $pmtrName nrow ncol" */
         } else if (type == OCSM_DIMENSION) {
-            SPRINT4(1, "    executing [%4d] dimension:     %s  %11.5f  %11.5f  0",
+            SPRINT4(1, "    executing [%4d] dimension:     %s  %11.5f  %11.5f",
                     ibrch, args[1].str, args[2].val[0], args[3].val[0]);
 
             status = ocsmNewPmtr(MODL, args[1].str, OCSM_UNKNOWN,
@@ -7263,16 +8016,20 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
 
             /* if it does not exist, create it now */
             if (jpmtr == 0) {
-                status = ocsmNewPmtr(MODL, pmtrName, OCSM_INTERNAL, 1, 1);
+                status = ocsmNewPmtr(MODL, pmtrName, OCSM_LOCALVAR, 1, 1);
                 CHECK_STATUS(ocsmNewPmtr);
                 jpmtr = MODL->npmtr;
 
-            /* make sure that Parameter is INTERNAL or OUTPUT */
-            } else if (MODL->pmtr[jpmtr].type == OCSM_EXTERNAL ||
-                       MODL->pmtr[jpmtr].type == OCSM_CONFIG     ) {
-                SET_STATUS(OCSM_PMTR_IS_EXTERNAL, set);
-            } else if (MODL->pmtr[jpmtr].type == OCSM_CONSTANT) {
-                SET_STATUS(OCSM_PMTR_IS_CONSTANT, set);
+            /* make sure that Parameter is INTERNAL or OUTPMTR */
+            } else if (MODL->pmtr[jpmtr].type == OCSM_DESPMTR ||
+                       MODL->pmtr[jpmtr].type == OCSM_CFGPMTR   ) {
+                SET_STATUS(OCSM_PMTR_IS_DESPMTR, set);
+            } else if (MODL->pmtr[jpmtr].type == OCSM_CONPMTR) {
+                SET_STATUS(OCSM_PMTR_IS_CONPMTR, set);
+
+            /* convert UNKNOWN to LOCALVAR */
+            } else if (MODL->pmtr[jpmtr].type == OCSM_UNKNOWN) {
+                MODL->pmtr[jpmtr].type = OCSM_LOCALVAR;
             }
 
             /* string-value mode (expression evaluates to string) */
@@ -7349,6 +8106,29 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
                         SPRINT3(1, "                          %s = %11.5f %11.5f",
                                 pmtrName, args[2].val[0], args[2].dot[0]);
                     }
+                } else if (icol == 0) {
+                    if (irow < 1 || irow > MODL->pmtr[jpmtr].nrow*MODL->pmtr[jpmtr].ncol) {
+                        status = OCSM_ILLEGAL_PMTR_INDEX;
+                        signalError(MODL, status,
+                                    "index must be between 1 and %d", MODL->pmtr[jpmtr].nrow);
+                    } else {
+                        status = ocsmSetValuD(MODL, jpmtr, irow, icol, args[2].val[0]);
+                        CATCH_STATUS(ocsmSetValuD);
+
+                        status = ocsmSetVelD( MODL, jpmtr, irow, icol, args[2].dot[0]);
+                        CATCH_STATUS(ocsmSetVelD);
+
+                        SPRINT3(1, "                          %s = %11.5f %11.5f",
+                                pmtrName, args[2].val[0], args[2].dot[0]);
+                    }
+                } else if (irow < 1 || irow > MODL->pmtr[jpmtr].nrow) {
+                    status = OCSM_ILLEGAL_PMTR_INDEX;
+                    signalError(MODL, status,
+                                "row index must be between 1 and %d", MODL->pmtr[jpmtr].nrow);
+                } else if (icol < 1 || icol > MODL->pmtr[jpmtr].ncol) {
+                    status = OCSM_ILLEGAL_PMTR_INDEX;
+                    signalError(MODL, status,
+                                "column index must be between 1 and %d", MODL->pmtr[jpmtr].ncol);
                 } else {
                     status = ocsmSetValuD(MODL, jpmtr, irow, icol, args[2].val[0]);
                     CATCH_STATUS(ocsmSetValuD);
@@ -7389,11 +8169,21 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
                         CATCH_STATUS(ocsmSetVelD);
 
                         if (icount < args[2].nval) {
-                            SPRINT5(1, "                          %s[%d,%d] = %11.5f %11.5f",
-                                    pmtrName, irow, icol, value, dot);
+                            if (value != -HUGEQ) {
+                                SPRINT5(1, "                          %s[%d,%d] = %11.5f %11.5f",
+                                        pmtrName, irow, icol, value, dot);
+                            } else {
+                                SPRINT3(1, "                          %s[%d,%d] = undefined",
+                                        pmtrName, irow, icol);
+                            }
                         } else {
-                            SPRINT5(1, "                          %s[%d,%d] = %11.5f %11.5f (extended)",
-                                    pmtrName, irow, icol, value, dot);
+                            if (value != -HUGEQ) {
+                                SPRINT5(1, "                          %s[%d,%d] = %11.5f %11.5f (extended)",
+                                        pmtrName, irow, icol, value, dot);
+                            } else {
+                                SPRINT3(1, "                          %s[%d,%d] = undefined (extended)",
+                                        pmtrName, irow, icol);
+                            }
                         }
 
                         icount++;
@@ -7430,9 +8220,9 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
             /* "evaluate $node ibody inode" */
             if (strcmp(args[1].str, "node") == 0 ||
                 strcmp(args[1].str, "NODE") == 0   ) {
-                SPRINT4(1, "    executing [%4d] evaluate:       %s  %s  %s",
-                        ibrch, args[1].str, MODL->brch[ibrch].arg2,
-                                            MODL->brch[ibrch].arg3);
+                SPRINT4(1, "    executing [%4d] evaluate:       %s  %11.5f  %11.5f",
+                        ibrch, args[1].str, args[2].val[0],
+                                            args[3].val[0]);
 
                 ibody = NINT(args[2].val[0]);
                 inode = NINT(args[3].val[0]);
@@ -7458,10 +8248,10 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
             /* "evaluate $edge ibody iedge t" */
             } else if (strcmp(args[1].str, "edge") == 0 ||
                        strcmp(args[1].str, "EDGE") == 0   ) {
-                SPRINT5(1, "    executing [%4d] evaluate:       %s  %s  %s  %s",
-                        ibrch, args[1].str, MODL->brch[ibrch].arg2,
-                                            MODL->brch[ibrch].arg3,
-                                            MODL->brch[ibrch].arg4);
+                SPRINT5(1, "    executing [%4d] evaluate:       %s  %11.5f  %11.5f  %11.5f",
+                        ibrch, args[1].str, args[2].val[0],
+                                            args[3].val[0],
+                                            args[4].val[0]);
 
                 ibody = NINT(args[2].val[0]);
                 iedge = NINT(args[3].val[0]);
@@ -7512,9 +8302,9 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
             /* "evaluate $edgerng ibody iedge" */
             } else if (strcmp(args[1].str, "edgerng") == 0 ||
                        strcmp(args[1].str, "EDGERNG") == 0   ) {
-                SPRINT4(1, "    executing [%4d] evaluate:       %s  %s  %s",
-                        ibrch, args[1].str, MODL->brch[ibrch].arg2,
-                                            MODL->brch[ibrch].arg3);
+                SPRINT4(1, "    executing [%4d] evaluate:       %s  %11.5f  %11.5f",
+                        ibrch, args[1].str, args[2].val[0],
+                                            args[3].val[0]);
 
                 ibody = NINT(args[2].val[0]);
                 iedge = NINT(args[3].val[0]);
@@ -7542,12 +8332,12 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
             /* "evaluate $edgeinv ibody iedge x y z" */
             } else if (strcmp(args[1].str, "edgeinv") == 0 ||
                        strcmp(args[1].str, "EDGEINV") == 0   ) {
-                SPRINT7(1, "    executing [%4d] evaluate:       %s  %s  %s  %s  %s  %s",
-                        ibrch, args[1].str, MODL->brch[ibrch].arg2,
-                                            MODL->brch[ibrch].arg3,
-                                            MODL->brch[ibrch].arg4,
-                                            MODL->brch[ibrch].arg5,
-                                            MODL->brch[ibrch].arg6);
+                SPRINT7(1, "    executing [%4d] evaluate:       %s  %11.5f  %11.5f  %11.5f  %11.5f  %11.5f",
+                        ibrch, args[1].str, args[2].val[0],
+                                            args[3].val[0],
+                                            args[4].val[0],
+                                            args[5].val[0],
+                                            args[6].val[0]);
 
                 ibody = NINT(args[2].val[0]);
                 iedge = NINT(args[3].val[0]);
@@ -7581,11 +8371,11 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
             /* "evaluate $face ibody iface u v" */
             } else if (strcmp(args[1].str, "face") == 0 ||
                        strcmp(args[1].str, "FACE") == 0   ) {
-                SPRINT6(1, "    executing [%4d] evaluate:       %s  %s  %s  %s  %s",
-                        ibrch, args[1].str, MODL->brch[ibrch].arg2,
-                                            MODL->brch[ibrch].arg3,
-                                            MODL->brch[ibrch].arg4,
-                                            MODL->brch[ibrch].arg5);
+                SPRINT6(1, "    executing [%4d] evaluate:       %s  %11.5f  %11.5f  %11.5f  %11.5f",
+                        ibrch, args[1].str, args[2].val[0],
+                                            args[3].val[0],
+                                            args[4].val[0],
+                                            args[5].val[0]);
 
                 ibody = NINT(args[2].val[0]);
                 iface = NINT(args[3].val[0]);
@@ -7650,9 +8440,9 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
             /* "evaluate $facerng ibody iface" */
             } else if (strcmp(args[1].str, "facerng") == 0 ||
                        strcmp(args[1].str, "FACERNG") == 0   ) {
-                SPRINT4(1, "    executing [%4d] evaluate:       %s  %s  %s",
-                        ibrch, args[1].str, MODL->brch[ibrch].arg2,
-                                            MODL->brch[ibrch].arg3);
+                SPRINT4(1, "    executing [%4d] evaluate:       %s  %11.5f  %11.5f",
+                        ibrch, args[1].str, args[2].val[0],
+                                            args[3].val[0]);
 
                 ibody = NINT(args[2].val[0]);
                 iface = NINT(args[3].val[0]);
@@ -7682,12 +8472,12 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
             /* "evaluate $faceinv ibody iface x y z" */
             } else if (strcmp(args[1].str, "faceinv") == 0 ||
                        strcmp(args[1].str, "FACEINV") == 0   ) {
-                SPRINT7(1, "    executing [%4d] evaluate:       %s  %s  %s  %s  %s  %s",
-                        ibrch, args[1].str, MODL->brch[ibrch].arg2,
-                                            MODL->brch[ibrch].arg3,
-                                            MODL->brch[ibrch].arg4,
-                                            MODL->brch[ibrch].arg5,
-                                            MODL->brch[ibrch].arg6);
+                SPRINT7(1, "    executing [%4d] evaluate:       %s  %11.5f  %11.5f  %11.5f  %11.5f  %11.5f",
+                        ibrch, args[1].str, args[2].val[0],
+                                            args[3].val[0],
+                                            args[4].val[0],
+                                            args[5].val[0],
+                                            args[6].val[0]);
 
                 ibody = NINT(args[2].val[0]);
                 iface = NINT(args[3].val[0]);
@@ -7740,13 +8530,13 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
                            MODL->pmtr[ipmtr].scope == MODL->scope[MODL->level]  ) {
                     jpmtr = ipmtr;
 
-                    /* if the Parameter is CONSTANT, EXTERNAL, or CONFIG we have a problem */
-                    if        (MODL->pmtr[jpmtr].type == OCSM_EXTERNAL ||
-                               MODL->pmtr[jpmtr].type == OCSM_CONFIG     ) {
-                        status = OCSM_PMTR_IS_EXTERNAL;
+                    /* if the Parameter is CONPMTR, DESPMTR, or CFGPMTR we have a problem */
+                    if        (MODL->pmtr[jpmtr].type == OCSM_DESPMTR ||
+                               MODL->pmtr[jpmtr].type == OCSM_CFGPMTR   ) {
+                        status = OCSM_PMTR_IS_DESPMTR;
                         CATCH_STATUS(getattr);
-                    } else if (MODL->pmtr[jpmtr].type == OCSM_CONSTANT) {
-                        status = OCSM_PMTR_IS_CONSTANT;
+                    } else if (MODL->pmtr[jpmtr].type == OCSM_CONPMTR) {
+                        status = OCSM_PMTR_IS_CONPMTR;
                         CATCH_STATUS(getattr);
                     }
 
@@ -7797,7 +8587,7 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
 
                 /* if pmtrName does not exist, make it now */
                 if (jpmtr < 0) {
-                    status = ocsmNewPmtr(MODL, args[1].str, OCSM_INTERNAL, 0, 0);
+                    status = ocsmNewPmtr(MODL, args[1].str, OCSM_LOCALVAR, 0, 0);
                     CATCH_STATUS(ocsmNewPmtr);
                     jpmtr = MODL->npmtr;
 
@@ -7834,7 +8624,7 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
 
                 /* if pmtrName does not exist, make it now */
                 if (jpmtr < 0) {
-                    status = ocsmNewPmtr(MODL, args[1].str, OCSM_INTERNAL, 1, 1);
+                    status = ocsmNewPmtr(MODL, args[1].str, OCSM_LOCALVAR, 1, 1);
                     CATCH_STATUS(ocsmNewPmtr);
                     jpmtr = MODL->npmtr;
 
@@ -7854,6 +8644,10 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
                 }
 
                 /* store the result */
+                if (MODL->pmtr[jpmtr].type == OCSM_UNKNOWN) {
+                    MODL->pmtr[jpmtr].type =  OCSM_LOCALVAR;
+                }
+
                 status = ocsmSetValuD(MODL, jpmtr, 1, 1, (double)nattr);
                 CATCH_STATUS(ocsmSetValuD);
 
@@ -7913,10 +8707,10 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
                 /* if pmtrName does not exist, create it now */
                 if (jpmtr < 0) {
                     if (itype == ATTRINT || itype == ATTRREAL || itype == ATTRCSYS) {
-                        status = ocsmNewPmtr(MODL, args[1].str, OCSM_INTERNAL, 1, nlist);
+                        status = ocsmNewPmtr(MODL, args[1].str, OCSM_LOCALVAR, 1, nlist);
                         CATCH_STATUS(ocsmNewPmtr);
                     } else {
-                        status = ocsmNewPmtr(MODL, args[1].str, OCSM_INTERNAL, 0, 0);
+                        status = ocsmNewPmtr(MODL, args[1].str, OCSM_LOCALVAR, 0, 0);
                         CATCH_STATUS(ocsmNewPmtr);
                     }
                     jpmtr = MODL->npmtr;
@@ -7953,6 +8747,10 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
                 }
 
                 /* store the values in jpmtr */
+                if (MODL->pmtr[jpmtr].type == OCSM_UNKNOWN) {
+                    MODL->pmtr[jpmtr].type =  OCSM_LOCALVAR;
+                }
+
                 if (itype == ATTRINT) {
                     for (ilist = 0; ilist < nlist; ilist++) {
                         status = ocsmSetValuD(MODL, jpmtr, 1, ilist+1, (double)tempIlist[ilist]);
@@ -8076,21 +8874,9 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
                         status = EG_attributeNum(MODL->body[jbody].ebody, &nattr);
                         CHECK_STATUS(EG_attributeNum);
 
-                        if (strcmp(args[2].str, "*") == 0) {
-                            match1 = 1;
-                        } else {
-                            match1 = 0;
-                        }
-                        if (strcmp(args[4].str, "*") == 0) {
-                            match2 = 1;
-                        } else {
-                            match2 = 0;
-                        }
-                        if (strcmp(args[6].str, "*") == 0) {
-                            match3 = 1;
-                        } else {
-                            match3 = 0;
-                        }
+                        match1 = 0;
+                        match2 = 0;
+                        match3 = 0;
 
                         for (iattr = 1; iattr <= nattr; iattr++) {
                             status = EG_attributeGet(MODL->body[jbody].ebody,
@@ -8098,99 +8884,15 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
                             CHECK_STATUS(EG_attributeGet);
 
                             if (match1 == 0 && matches((char*)args[2].str, aname) == 1) {
-                                if (strcmp(args[3].str, "*") == 0) {
-                                    match1 = 1;
-                                } else if (itype == ATTRSTRING) {
-                                    if (matches((char*)args[3].str, tempClist) == 1) {
-                                        match1 = 1;
-                                    }
-                                } else if (itype == ATTRINT && nlist == args[3].nval) {
-                                    for (i = 0; i < nlist; i++) {
-                                        if (NINT(args[3].val[i]) == tempIlist[i]) match1++;
-                                    }
-                                    if (match1 == nlist) {
-                                        match1 = 1;
-                                    } else {
-                                        match1 = 0;
-                                    }
-                                } else if (itype == ATTRREAL && nlist == args[3].nval) {
-                                    for (i = 0; i < nlist; i++) {
-                                        if (fabs(args[3].val[i]-tempRlist[i]) < EPS06) match1++;
-                                    }
-                                    if (match1 == nlist) {
-                                        match1 = 1;
-                                    } else {
-                                        match1 = 0;
-                                    }
-                                } else if (itype != ATTRCSYS) {
-                                    if (matches((char*)args[3].str, "*") == 1) {
-                                        match1 = 1;
-                                    }
-                                }
+                                match1 = matchValue(args[3], itype, nlist, tempIlist, tempRlist, tempClist);
                             }
 
                             if (match2 == 0 && matches((char*)args[4].str, aname) == 1) {
-                                if (strcmp(args[5].str, "*") == 0) {
-                                    match2 = 1;
-                                } else if (itype == ATTRSTRING) {
-                                    if (matches((char*)args[5].str, tempClist) == 1) {
-                                        match2 = 1;
-                                    }
-                                } else if (itype == ATTRINT && nlist == args[5].nval) {
-                                    for (i = 0; i < nlist; i++) {
-                                        if (NINT(args[5].val[i]) == tempIlist[i]) match2++;
-                                    }
-                                    if (match2 == nlist) {
-                                        match2 = 1;
-                                    } else {
-                                        match2 = 0;
-                                    }
-                                } else if (itype == ATTRREAL && nlist == args[5].nval) {
-                                    for (i = 0; i < nlist; i++) {
-                                        if (fabs(args[5].val[i]-tempRlist[i]) < EPS06) match2++;
-                                    }
-                                    if (match2 == nlist) {
-                                        match2 = 1;
-                                    } else {
-                                        match2 = 0;
-                                    }
-                                } else if (itype != ATTRCSYS) {
-                                    if (matches((char*)args[5].str, "*") == 1) {
-                                        match2 = 1;
-                                    }
-                                }
+                                match2 = matchValue(args[5], itype, nlist, tempIlist, tempRlist, tempClist);
                             }
 
                             if (match3 == 0 && matches((char*)args[6].str, aname) == 1) {
-                                if (strcmp(args[7].str, "*") == 0) {
-                                    match3 = 1;
-                                } else if (itype == ATTRSTRING) {
-                                    if (matches((char*)args[7].str, tempClist) == 1) {
-                                        match3 = 1;
-                                    }
-                                } else if (itype == ATTRINT && nlist == args[7].nval) {
-                                    for (i = 0; i < nlist; i++) {
-                                        if (NINT(args[7].val[i]) == tempIlist[i]) match3++;
-                                    }
-                                    if (match3 == nlist) {
-                                        match3 = 1;
-                                    } else {
-                                        match3 = 0;
-                                    }
-                                } else if (itype == ATTRREAL && nlist == args[7].nval) {
-                                    for (i = 0; i < nlist; i++) {
-                                        if (fabs(args[7].val[i]-tempRlist[i]) < EPS06) match3++;
-                                    }
-                                    if (match3 == nlist) {
-                                        match3 = 1;
-                                    } else {
-                                        match3 = 0;
-                                    }
-                                } else if (itype != ATTRCSYS) {
-                                    if (matches((char*)args[7].str, "*") == 1) {
-                                        match3 = 1;
-                                    }
-                                }
+                                match3 = matchValue(args[7], itype, nlist, tempIlist, tempRlist, tempClist);
                             }
                         }
 
@@ -8281,12 +8983,18 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
                         goto next_branch;
                     }
 
-                /* "face 0      iford1" */
-                /* "face ibody1 0"      */
-                } else if (MODL->brch[ibrch].narg == 3 && (NINT(args[2].val[0]) == 0 ||
-                                                           NINT(args[3].val[0]) == 0   )) {
+                /* "face ibody1 iford1 iseq=1" (0 for any) */
+                } else if (MODL->brch[ibrch].narg == 3 || MODL->brch[ibrch].narg == 4) {
                     MODL->seltype = 2;
                     MODL->selsize = 0;
+
+                    if (MODL->brch[ibrch].narg == 4) {
+                        iseq = NINT(args[4].val[0]);
+                    } else if (NINT(args[2].val[0]) == 0 || NINT(args[3].val[0]) == 0) {
+                        iseq = 0;
+                    } else {
+                        iseq = 1;
+                    }
 
                     for (iface = 1; iface <= MODL->body[MODL->selbody].nface; iface++) {
                         status = EG_attributeRet(MODL->body[MODL->selbody].face[iface].eface,
@@ -8295,7 +9003,8 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
                         CATCH_STATUS(EG_attributeRet);
 
                         if ((NINT(args[2].val[0]) == 0 || NINT(args[2].val[0]) == tempIlist[0]) &&
-                            (NINT(args[3].val[0]) == 0 || NINT(args[3].val[0]) == tempIlist[1])   ) {
+                            (NINT(args[3].val[0]) == 0 || NINT(args[3].val[0]) == tempIlist[1]) &&
+                            (                iseq == 0 ||                 iseq == tempIlist[2])   ) {
                             MODL->selsize++;
                         }
                     }
@@ -8312,48 +9021,14 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
                             CATCH_STATUS(EG_attributeRet);
 
                             if ((NINT(args[2].val[0]) == 0 || NINT(args[2].val[0]) == tempIlist[0]) &&
-                                (NINT(args[3].val[0]) == 0 || NINT(args[3].val[0]) == tempIlist[1])   ) {
+                                (NINT(args[3].val[0]) == 0 || NINT(args[3].val[0]) == tempIlist[1]) &&
+                                (                iseq == 0 ||                 iseq == tempIlist[2])    ) {
                                 MODL->sellist[i] = iface;
+
                                 i++;
                             }
                         }
                     } else {
-                        status = OCSM_FACE_NOT_FOUND;
-                        signalError(MODL, status,
-                                    "SELECT specified nonexistant Face");
-                        goto next_branch;
-                    }
-
-                /* "face ibody1 iford1 iseq=1" */
-                } else if (MODL->brch[ibrch].narg == 3 || MODL->brch[ibrch].narg == 4) {
-                    MODL->seltype = 2;
-                    MODL->selsize = 1;
-
-                    FREE(  MODL->sellist);
-                    MALLOC(MODL->sellist, int, MODL->selsize);
-                    MODL->sellist[0] = -1;
-
-                    if (MODL->brch[ibrch].narg == 3) {
-                        iseq = 1;
-                    } else {
-                        iseq = NINT(args[4].val[0]);
-                    }
-
-                    for (iface = 1; iface <= MODL->body[MODL->selbody].nface; iface++) {
-                        status = EG_attributeRet(MODL->body[MODL->selbody].face[iface].eface,
-                                                 "_faceID", &itype, &nlist,
-                                                 &tempIlist, &tempRlist, &tempClist);
-                        CATCH_STATUS(EG_attributeRet);
-
-                        if (NINT(args[2].val[0]) == tempIlist[0] &&
-                            NINT(args[3].val[0]) == tempIlist[1] &&
-                                            iseq == tempIlist[2]   ) {
-                            MODL->sellist[0] = iface;
-                            break;
-                        }
-                    }
-
-                    if (MODL->sellist[0] < 0) {
                         status = OCSM_FACE_NOT_FOUND;
                         signalError(MODL, status,
                                     "SELECT specified nonexistant Face");
@@ -8416,21 +9091,9 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
                         status = EG_attributeNum(MODL->body[MODL->selbody].face[iface].eface, &nattr);
                         CHECK_STATUS(EG_attributeNum);
 
-                        if (strcmp(args[2].str, "*") == 0) {
-                            match1 = 1;
-                        } else {
-                            match1 = 0;
-                        }
-                        if (strcmp(args[4].str, "*") == 0) {
-                            match2 = 1;
-                        } else {
-                            match2 = 0;
-                        }
-                        if (strcmp(args[6].str, "*") == 0) {
-                            match3 = 1;
-                        } else {
-                            match3 = 0;
-                        }
+                        match1 = 0;
+                        match2 = 0;
+                        match3 = 0;
 
                         for (iattr = 1; iattr <= nattr; iattr++) {
                             status = EG_attributeGet(MODL->body[MODL->selbody].face[iface].eface,
@@ -8438,99 +9101,15 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
                             CHECK_STATUS(EG_attributeGet);
 
                             if (match1 == 0 && matches((char*)args[2].str, aname) == 1) {
-                                if (strcmp(args[3].str, "*") == 0) {
-                                    match1 = 1;
-                                } else if (itype == ATTRSTRING) {
-                                    if (matches((char*)args[3].str, tempClist) == 1) {
-                                        match1 = 1;
-                                    }
-                                } else if (itype == ATTRINT && nlist == args[3].nval) {
-                                    for (i = 0; i < nlist; i++) {
-                                        if (NINT(args[3].val[i]) == tempIlist[i]) match1++;
-                                    }
-                                    if (match1 == nlist) {
-                                        match1 = 1;
-                                    } else {
-                                        match1 = 0;
-                                    }
-                                } else if (itype == ATTRREAL && nlist == args[3].nval) {
-                                    for (i = 0; i < nlist; i++) {
-                                        if (fabs(args[3].val[i]-tempRlist[i]) < EPS06) match1++;
-                                    }
-                                    if (match1 == nlist) {
-                                        match1 = 1;
-                                    } else {
-                                        match1 = 0;
-                                    }
-                                } else if (itype != ATTRCSYS) {
-                                    if (matches((char*)args[3].str, "*") == 1) {
-                                        match1 = 1;
-                                    }
-                                }
+                                match1 = matchValue(args[3], itype, nlist, tempIlist, tempRlist, tempClist);
                             }
 
                             if (match2 == 0 && matches((char*)args[4].str, aname) == 1) {
-                                if (strcmp(args[5].str, "*") == 0) {
-                                    match2 = 1;
-                                } else if (itype == ATTRSTRING) {
-                                    if (matches((char*)args[5].str, tempClist) == 1) {
-                                        match2 = 1;
-                                    }
-                                } else if (itype == ATTRINT && nlist == args[5].nval) {
-                                    for (i = 0; i < nlist; i++) {
-                                        if (NINT(args[5].val[i]) == tempIlist[i]) match2++;
-                                    }
-                                    if (match2 == nlist) {
-                                        match2 = 1;
-                                    } else {
-                                        match2 = 0;
-                                    }
-                                } else if (itype == ATTRREAL && nlist == args[5].nval) {
-                                    for (i = 0; i < nlist; i++) {
-                                        if (fabs(args[5].val[i]-tempRlist[i]) < EPS06) match2++;
-                                    }
-                                    if (match2 == nlist) {
-                                        match2 = 1;
-                                    } else {
-                                        match2 = 0;
-                                    }
-                                } else if (itype != ATTRCSYS) {
-                                    if (matches((char*)args[5].str, "*") == 1) {
-                                        match2 = 1;;
-                                    }
-                                }
+                                match2 = matchValue(args[5], itype, nlist, tempIlist, tempRlist, tempClist);
                             }
 
                             if (match3 == 0 && matches((char*)args[6].str, aname) == 1) {
-                                if (strcmp(args[7].str, "*") == 0) {
-                                    match3 = 1;
-                                } else if (itype == ATTRSTRING) {
-                                    if (matches((char*)args[7].str, tempClist) == 1) {
-                                        match3 = 1;
-                                    }
-                                } else if (itype == ATTRINT && nlist == args[7].nval) {
-                                    for (i = 0; i < nlist; i++) {
-                                        if (NINT(args[7].val[i]) == tempIlist[i]) match3++;
-                                    }
-                                    if (match3 == nlist) {
-                                        match3 = 1;
-                                    } else {
-                                        match3 = 0;
-                                    }
-                                } else if (itype == ATTRREAL && nlist == args[7].nval) {
-                                    for (i = 0; i < nlist; i++) {
-                                        if (fabs(args[7].val[i]-tempRlist[i]) < EPS06) match3++;
-                                    }
-                                    if (match3 == nlist) {
-                                        match3 = 1;
-                                    } else {
-                                        match3 = 0;
-                                    }
-                                } else if (itype != ATTRCSYS) {
-                                    if (matches((char*)args[7].str, "*") == 1) {
-                                        match3 = 1;
-                                    }
-                                }
+                                match3 = matchValue(args[7], itype, nlist, tempIlist, tempRlist, tempClist);
                             }
                         }
 
@@ -8589,16 +9168,25 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
                     }
 
 
-                /* "edge 0      iford1 ibody2 iford2" */
-                /* "edge ibody1 0      ibody2 iford2" */
-                /* "edge ibody1 iford1 0      iford2" */
-                /* "edge ibody1 iford1 ibody2 0"      */
-                } else if (MODL->brch[ibrch].narg == 5 && (NINT(args[2].val[0]) == 0 ||
-                                                           NINT(args[3].val[0]) == 0 ||
-                                                           NINT(args[4].val[0]) == 0 ||
-                                                           NINT(args[5].val[0]) == 0   )) {
+                /* "edge ibody1 iford1 ibody2 iford2 iseq=1" (0 for any) */
+                } else if (MODL->brch[ibrch].narg == 5 || MODL->brch[ibrch].narg == 6) {
                     MODL->seltype = 1;
                     MODL->selsize = 0;
+
+                    if (MODL->brch[ibrch].narg == 6) {
+                        iseq = NINT(args[6].val[0]);
+                    } else if (NINT(args[2].val[0]) == 0 || NINT(args[3].val[0]) == 0 ||
+                               NINT(args[4].val[0]) == 0 || NINT(args[5].val[0]) == 0   ) {
+                        iseq = 0;
+                    } else {
+                        iseq = 1;
+                    }
+
+                    if (NINT(args[2].val[0]) == 0 && NINT(args[3].val[0]) == 0 &&
+                        NINT(args[4].val[0]) != 0 && NINT(args[5].val[0]) != 0   ) {
+                        SPRINT0(1, "WARNING:: to SELECT non-manifold Edge, add \"SELECT SUB $_nface 2\" statement");
+                        (MODL->nwarn)++;
+                    }
 
                     for (iedge = 1; iedge <= MODL->body[MODL->selbody].nedge; iedge++) {
                         status = EG_attributeRet(MODL->body[MODL->selbody].edge[iedge].eedge,
@@ -8609,7 +9197,8 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
                         if ((NINT(args[2].val[0]) == 0 || NINT(args[2].val[0]) == tempIlist[0]) &&
                             (NINT(args[3].val[0]) == 0 || NINT(args[3].val[0]) == tempIlist[1]) &&
                             (NINT(args[4].val[0]) == 0 || NINT(args[4].val[0]) == tempIlist[2]) &&
-                            (NINT(args[5].val[0]) == 0 || NINT(args[5].val[0]) == tempIlist[3])   ) {
+                            (NINT(args[5].val[0]) == 0 || NINT(args[5].val[0]) == tempIlist[3]) &&
+                            (                iseq == 0 ||                 iseq == tempIlist[4])   ) {
                             MODL->selsize++;
                         }
                     }
@@ -8628,58 +9217,13 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
                             if ((NINT(args[2].val[0]) == 0 || NINT(args[2].val[0]) == tempIlist[0]) &&
                                 (NINT(args[3].val[0]) == 0 || NINT(args[3].val[0]) == tempIlist[1]) &&
                                 (NINT(args[4].val[0]) == 0 || NINT(args[4].val[0]) == tempIlist[2]) &&
-                                (NINT(args[5].val[0]) == 0 || NINT(args[5].val[0]) == tempIlist[3])   ) {
+                                (NINT(args[5].val[0]) == 0 || NINT(args[5].val[0]) == tempIlist[3]) &&
+                                (                iseq == 0 ||                 iseq == tempIlist[4])   ) {
                                 MODL->sellist[i] = iedge;
                                 i++;
                             }
                         }
                     } else {
-                        status = OCSM_EDGE_NOT_FOUND;
-                        signalError(MODL, status,
-                                    "SELECT specified nonexistant Edge");
-                        goto next_branch;
-                    }
-
-
-                /* "edge ibody1 iford1 ibody2 iford2 iseq=1" */
-                } else if (MODL->brch[ibrch].narg == 5 || MODL->brch[ibrch].narg == 6) {
-                    MODL->seltype = 1;
-                    MODL->selsize = 1;
-
-                    FREE(  MODL->sellist);
-                    MALLOC(MODL->sellist, int, MODL->selsize);
-                    MODL->sellist[0] = -1;
-
-                    if (MODL->brch[ibrch].narg == 5) {
-                        iseq = 1;
-                    } else {
-                        iseq = NINT(args[6].val[0]);
-                    }
-
-                    for (iedge = 1; iedge <= MODL->body[MODL->selbody].nedge; iedge++) {
-                        status = EG_attributeRet(MODL->body[MODL->selbody].edge[iedge].eedge,
-                                                 "_edgeID", &itype, &nlist,
-                                                 &tempIlist, &tempRlist, &tempClist);
-                        CATCH_STATUS(EG_attributeRet);
-
-                        if        (NINT(args[2].val[0]) == tempIlist[0] &&
-                                   NINT(args[3].val[0]) == tempIlist[1] &&
-                                   NINT(args[4].val[0]) == tempIlist[2] &&
-                                   NINT(args[5].val[0]) == tempIlist[3] &&
-                                                   iseq == tempIlist[4]   ) {
-                            MODL->sellist[0] = iedge;
-                            break;
-                        } else if (NINT(args[2].val[0]) == tempIlist[2] &&
-                                   NINT(args[3].val[0]) == tempIlist[3] &&
-                                   NINT(args[4].val[0]) == tempIlist[0] &&
-                                   NINT(args[5].val[0]) == tempIlist[1] &&
-                                                   iseq == tempIlist[4]   ) {
-                            MODL->sellist[0] = iedge;
-                            break;
-                        }
-                    }
-
-                    if (MODL->sellist[0] < 0) {
                         status = OCSM_EDGE_NOT_FOUND;
                         signalError(MODL, status,
                                     "SELECT specified nonexistant Edge");
@@ -8742,21 +9286,9 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
                         status = EG_attributeNum(MODL->body[MODL->selbody].edge[iedge].eedge, &nattr);
                         CHECK_STATUS(EG_attributeNum);
 
-                        if (strcmp(args[2].str, "*") == 0) {
-                            match1 = 1;
-                        } else {
-                            match1 = 0;
-                        }
-                        if (strcmp(args[4].str, "*") == 0) {
-                            match2 = 1;
-                        } else {
-                            match2 = 0;
-                        }
-                        if (strcmp(args[6].str, "*") == 0) {
-                            match3 = 1;
-                        } else {
-                            match3 = 0;
-                        }
+                        match1 = 0;
+                        match2 = 0;
+                        match3 = 0;
 
                         for (iattr = 1; iattr <= nattr; iattr++) {
                             status = EG_attributeGet(MODL->body[MODL->selbody].edge[iedge].eedge,
@@ -8764,117 +9296,15 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
                             CHECK_STATUS(EG_attributeGet);
 
                             if (match1 == 0 && matches((char*)args[2].str, aname) == 1) {
-                                if (strcmp(args[3].str, "*") == 0) {
-                                    match1 = 1;
-                                } else if (itype == ATTRSTRING) {
-                                    if (matches((char*)args[3].str, tempClist) == 1) {
-                                        match1 = 1;
-                                    }
-                                } else if (itype == ATTRINT && nlist == args[3].nval) {
-                                    for (i = 0; i < nlist; i++) {
-                                        if (NINT(args[3].val[i]) == tempIlist[i]) match1++;
-                                    }
-                                    if (match1 == nlist) {
-                                        match1 = 1;
-                                    } else {
-                                        match1 = 0;
-                                    }
-                                } else if (itype == ATTRREAL && nlist == args[3].nval) {
-                                    for (i = 0; i < nlist; i++) {
-                                        if (fabs(args[3].val[i]-tempRlist[i]) < EPS06) match1++;
-                                    }
-                                    if (match1 == nlist) {
-                                        match1 = 1;
-                                    } else {
-                                        match1 = 0;
-                                    }
-                                } else if (itype == ATTRINT && nlist == args[3].nval) {
-                                    for (i = 0; i < nlist; i++) {
-                                        if (NINT(args[3].val[i]) == tempIlist[i]) match1++;
-                                    }
-                                    if (match1 == nlist) {
-                                        match1 = 1;
-                                    } else {
-                                        match1 = 0;
-                                    }
-                                } else if (itype == ATTRREAL && nlist == args[3].nval) {
-                                    for (i = 0; i < nlist; i++) {
-                                        if (fabs(args[3].val[i]-tempRlist[i]) < EPS06) match1++;
-                                    }
-                                    if (match1 == nlist) {
-                                        match1 = 1;
-                                    } else {
-                                        match1 = 0;
-                                    }
-                                } else if (itype != ATTRCSYS) {
-                                    if (matches((char*)args[3].str, "*") == 1) {
-                                        match1 = 1;
-                                    }
-                                }
+                                match1 = matchValue(args[3], itype, nlist, tempIlist, tempRlist, tempClist);
                             }
 
                             if (match2 == 0 && matches((char*)args[4].str, aname) == 1) {
-                                if (strcmp(args[5].str, "*") == 0) {
-                                    match2 = 1;
-                                } else if (itype == ATTRSTRING) {
-                                    if (matches((char*)args[5].str, tempClist) == 1) {
-                                        match2 = 1;
-                                    }
-                                } else if (itype == ATTRINT && nlist == args[5].nval) {
-                                    for (i = 0; i < nlist; i++) {
-                                        if (NINT(args[5].val[i]) == tempIlist[i]) match2++;
-                                    }
-                                    if (match2 == nlist) {
-                                        match2 = 1;
-                                    } else {
-                                        match2 = 0;
-                                    }
-                                } else if (itype == ATTRREAL && nlist == args[5].nval) {
-                                    for (i = 0; i < nlist; i++) {
-                                        if (fabs(args[5].val[i]-tempRlist[i]) < EPS06) match2++;
-                                    }
-                                    if (match2 == nlist) {
-                                        match2 = 1;
-                                    } else {
-                                        match2 = 0;
-                                    }
-                                } else if (itype != ATTRCSYS) {
-                                    if (matches((char*)args[5].str, "*") == 1) {
-                                        match2 = 1;
-                                    }
-                                }
+                                match2 = matchValue(args[5], itype, nlist, tempIlist, tempRlist, tempClist);
                             }
 
                             if (match3 == 0 && matches((char*)args[6].str, aname) == 1) {
-                                if (strcmp(args[7].str, "*") == 0) {
-                                    match3 = 1;
-                                } else if (itype == ATTRSTRING) {
-                                    if (matches((char*)args[7].str, tempClist) == 1) {
-                                        match3 = 1;
-                                    }
-                                } else if (itype == ATTRINT && nlist == args[7].nval) {
-                                    for (i = 0; i < nlist; i++) {
-                                        if (NINT(args[7].val[i]) == tempIlist[i]) match3++;
-                                    }
-                                    if (match3 == nlist) {
-                                        match3 = 1;
-                                    } else {
-                                        match3 = 0;
-                                    }
-                                } else if (itype == ATTRREAL && nlist == args[7].nval) {
-                                    for (i = 0; i < nlist; i++) {
-                                        if (fabs(args[7].val[i]-tempRlist[i]) < EPS06) match3++;
-                                    }
-                                    if (match3 == nlist) {
-                                        match3 = 1;
-                                    } else {
-                                        match3 = 0;
-                                    }
-                                } else if (itype != ATTRCSYS) {
-                                    if (matches((char*)args[7].str, "*") == 1) {
-                                        match3 = 1;
-                                    }
-                                }
+                                match3 = matchValue(args[7], itype, nlist, tempIlist, tempRlist, tempClist);
                             }
                         }
 
@@ -9040,21 +9470,9 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
                         status = EG_attributeNum(MODL->body[MODL->selbody].node[inode].enode, &nattr);
                         CHECK_STATUS(EG_attributeNum);
 
-                        if (strcmp(args[2].str, "*") == 0) {
-                            match1 = 1;
-                        } else {
-                            match1 = 0;
-                        }
-                        if (strcmp(args[4].str, "*") == 0) {
-                            match2 = 1;
-                        } else {
-                            match2 = 0;
-                        }
-                        if (strcmp(args[6].str, "*") == 0) {
-                            match3 = 1;
-                        } else {
-                            match3 = 0;
-                        }
+                        match1 = 0;
+                        match2 = 0;
+                        match3 = 0;
 
                         for (iattr = 1; iattr <= nattr; iattr++) {
                             status = EG_attributeGet(MODL->body[MODL->selbody].node[inode].enode,
@@ -9062,99 +9480,15 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
                             CHECK_STATUS(EG_attributeGet);
 
                             if (match1 == 0 && matches((char*)args[2].str, aname) == 1) {
-                                if (strcmp(args[3].str, "*") == 0) {
-                                    match1 = 1;
-                                } else if (itype == ATTRSTRING) {
-                                    if (matches((char*)args[3].str, tempClist) == 1) {
-                                        match1 = 1;
-                                    }
-                                } else if (itype == ATTRINT && nlist == args[3].nval) {
-                                    for (i = 0; i < nlist; i++) {
-                                        if (NINT(args[3].val[i]) == tempIlist[i]) match1++;
-                                    }
-                                    if (match1 == nlist) {
-                                        match1 = 1;
-                                    } else {
-                                        match1 = 0;
-                                    }
-                                } else if (itype == ATTRREAL && nlist == args[3].nval) {
-                                    for (i = 0; i < nlist; i++) {
-                                        if (fabs(args[3].val[i]-tempRlist[i]) < EPS06) match1++;
-                                    }
-                                    if (match1 == nlist) {
-                                        match1 = 1;
-                                    } else {
-                                        match1 = 0;
-                                    }
-                                } else if (itype != ATTRCSYS) {
-                                    if (matches((char*)args[3].str, "*") == 1) {
-                                        match1 = 1;
-                                    }
-                                }
+                                match1 = matchValue(args[3], itype, nlist, tempIlist, tempRlist, tempClist);
                             }
 
                             if (match2 == 0 && matches((char*)args[4].str, aname) == 1) {
-                                if (strcmp(args[5].str, "*") == 0) {
-                                    match2 = 1;
-                                } else if (itype == ATTRSTRING) {
-                                    if (matches((char*)args[5].str, tempClist) == 1) {
-                                        match2 = 1;
-                                    }
-                                } else if (itype == ATTRINT && nlist == args[5].nval) {
-                                    for (i = 0; i < nlist; i++) {
-                                        if (NINT(args[5].val[i]) == tempIlist[i]) match2++;
-                                    }
-                                    if (match2 == nlist) {
-                                        match2 = 1;
-                                    } else {
-                                        match2 = 0;
-                                    }
-                                } else if (itype == ATTRREAL && nlist == args[5].nval) {
-                                    for (i = 0; i < nlist; i++) {
-                                        if (fabs(args[5].val[i]-tempRlist[i]) < EPS06) match2++;
-                                    }
-                                    if (match2 == nlist) {
-                                        match2 = 1;
-                                    } else {
-                                        match2 = 0;
-                                    }
-                                } else if (itype != ATTRCSYS) {
-                                    if (matches((char*)args[5].str, "*") == 1) {
-                                        match2 = 1;
-                                    }
-                                }
+                                match2 = matchValue(args[5], itype, nlist, tempIlist, tempRlist, tempClist);
                             }
 
                             if (match3 == 0 && matches((char*)args[6].str, aname) == 1) {
-                                if (strcmp(args[7].str, "*") == 0) {
-                                    match3 = 1;
-                                } else if (itype == ATTRSTRING) {
-                                    if (matches((char*)args[7].str, tempClist) == 1) {
-                                        match3 = 1;
-                                    }
-                                } else if (itype == ATTRINT && nlist == args[7].nval) {
-                                    for (i = 0; i < nlist; i++) {
-                                        if (NINT(args[7].val[i]) == tempIlist[i]) match3++;
-                                    }
-                                    if (match3 == nlist) {
-                                        match3 = 1;
-                                    } else {
-                                        match3 = 0;
-                                    }
-                                } else if (itype == ATTRREAL && nlist == args[7].nval) {
-                                    for (i = 0; i < nlist; i++) {
-                                        if (fabs(args[7].val[i]-tempRlist[i]) < EPS06) match3++;
-                                    }
-                                    if (match3 == nlist) {
-                                        match3 = 1;
-                                    } else {
-                                        match3 = 0;
-                                    }
-                                } else if (itype != ATTRCSYS) {
-                                    if (matches((char*)args[7].str, "*") == 1) {
-                                        match3 = 1;
-                                    }
-                                }
+                                match3 = matchValue(args[7], itype, nlist, tempIlist, tempRlist, tempClist);
                             }
                         }
 
@@ -9267,32 +9601,16 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
                                                          iattr, &aname, &itype, &nlist, &tempIlist, &tempRlist, &tempClist);
                                 CHECK_STATUS(EG_attributeGet);
 
-                                if (itype == ATTRSTRING) {
-                                    if (matches((char*)args[2].str, aname    ) == 1 &&
-                                        matches((char*)args[3].str, tempClist) == 1   ) {
-                                        match1 = 1;
-                                    }
-                                    if (matches((char*)args[4].str, aname    ) == 1 &&
-                                        matches((char*)args[5].str, tempClist) == 1   ) {
-                                        match2 = 1;
-                                    }
-                                    if (matches((char*)args[6].str, aname    ) == 1 &&
-                                        matches((char*)args[7].str, tempClist) == 1   ) {
-                                        match3 = 1;
-                                    }
-                                } else if (itype != ATTRCSYS) {
-                                    if (matches((char*)args[2].str, aname) == 1 &&
-                                        matches((char*)args[3].str, "*"  ) == 1   ) {
-                                        match1 = 1;
-                                    }
-                                    if (matches((char*)args[4].str, aname) == 1 &&
-                                        matches((char*)args[5].str, "*"  ) == 1   ) {
-                                        match2 = 1;
-                                    }
-                                    if (matches((char*)args[6].str, aname) == 1 &&
-                                        matches((char*)args[7].str, "*"  ) == 1   ) {
-                                        match3 = 1;
-                                    }
+                                if (match1 == 0 && matches((char*)args[2].str, aname) == 1) {
+                                    match1 = matchValue(args[3], itype, nlist, tempIlist, tempRlist, tempClist);
+                                }
+
+                                if (match2 == 0 && matches((char*)args[4].str, aname) == 1) {
+                                    match2 = matchValue(args[5], itype, nlist, tempIlist, tempRlist, tempClist);
+                                }
+
+                                if (match3 == 0 && matches((char*)args[6].str, aname) == 1) {
+                                    match3 = matchValue(args[7], itype, nlist, tempIlist, tempRlist, tempClist);
                                 }
                             }
 
@@ -9326,32 +9644,16 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
                                                          iattr, &aname, &itype, &nlist, &tempIlist, &tempRlist, &tempClist);
                                 CHECK_STATUS(EG_attributeGet);
 
-                                if (itype == ATTRSTRING) {
-                                    if (matches((char*)args[2].str, aname    ) == 1 &&
-                                        matches((char*)args[3].str, tempClist) == 1   ) {
-                                        match1 = 1;
-                                    }
-                                    if (matches((char*)args[4].str, aname    ) == 1 &&
-                                        matches((char*)args[5].str, tempClist) == 1   ) {
-                                        match2 = 1;
-                                    }
-                                    if (matches((char*)args[6].str, aname    ) == 1 &&
-                                        matches((char*)args[7].str, tempClist) == 1   ) {
-                                        match3 = 1;
-                                    }
-                                } else if (itype != ATTRCSYS) {
-                                    if (matches((char*)args[2].str, aname) == 1 &&
-                                        matches((char*)args[3].str, "*"  ) == 1   ) {
-                                        match1 = 1;
-                                    }
-                                    if (matches((char*)args[4].str, aname) == 1 &&
-                                        matches((char*)args[5].str, "*"  ) == 1   ) {
-                                        match2 = 1;
-                                    }
-                                    if (matches((char*)args[6].str, aname) == 1 &&
-                                        matches((char*)args[7].str, "*"  ) == 1   ) {
-                                        match3 = 1;
-                                    }
+                                if (match1 == 0 && matches((char*)args[2].str, aname) == 1) {
+                                    match1 = matchValue(args[3], itype, nlist, tempIlist, tempRlist, tempClist);
+                                }
+
+                                if (match2 == 0 && matches((char*)args[4].str, aname) == 1) {
+                                    match2 = matchValue(args[5], itype, nlist, tempIlist, tempRlist, tempClist);
+                                }
+
+                                if (match3 == 0 && matches((char*)args[6].str, aname) == 1) {
+                                    match3 = matchValue(args[7], itype, nlist, tempIlist, tempRlist, tempClist);
                                 }
                             }
 
@@ -9385,32 +9687,16 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
                                                          iattr, &aname, &itype, &nlist, &tempIlist, &tempRlist, &tempClist);
                                 CHECK_STATUS(EG_attributeGet);
 
-                                if (itype == ATTRSTRING) {
-                                    if (matches((char*)args[2].str, aname    ) == 1 &&
-                                        matches((char*)args[3].str, tempClist) == 1   ) {
-                                        match1 = 1;
-                                    }
-                                    if (matches((char*)args[4].str, aname    ) == 1 &&
-                                        matches((char*)args[5].str, tempClist) == 1   ) {
-                                        match2 = 1;
-                                    }
-                                    if (matches((char*)args[6].str, aname    ) == 1 &&
-                                        matches((char*)args[7].str, tempClist) == 1   ) {
-                                        match3 = 1;
-                                    }
-                                } else if (itype != ATTRCSYS) {
-                                    if (matches((char*)args[2].str, aname) == 1 &&
-                                        matches((char*)args[3].str, "*"  ) == 1   ) {
-                                        match1 = 1;
-                                    }
-                                    if (matches((char*)args[4].str, aname) == 1 &&
-                                        matches((char*)args[5].str, "*"  ) == 1   ) {
-                                        match2 = 1;
-                                    }
-                                    if (matches((char*)args[6].str, aname) == 1 &&
-                                        matches((char*)args[7].str, "*"  ) == 1   ) {
-                                        match3 = 1;
-                                    }
+                                if (match1 == 0 && matches((char*)args[2].str, aname) == 1) {
+                                    match1 = matchValue(args[3], itype, nlist, tempIlist, tempRlist, tempClist);
+                                }
+
+                                if (match2 == 0 && matches((char*)args[4].str, aname) == 1) {
+                                    match2 = matchValue(args[5], itype, nlist, tempIlist, tempRlist, tempClist);
+                                }
+
+                                if (match3 == 0 && matches((char*)args[6].str, aname) == 1) {
+                                    match3 = matchValue(args[7], itype, nlist, tempIlist, tempRlist, tempClist);
                                 }
                             }
 
@@ -9550,9 +9836,9 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
                     }
 
                 /* "sub attrName1 attrValue1 attrName2=$* attrValue2=$* attrName3=$* attrValue3=$*" */
-                } else if (MODL->brch[ibrch].narg == 7 && args[2].nval == 0 && args[3].nval == 0 &&
-                                                          args[4].nval == 0 && args[5].nval == 0 &&
-                                                          args[6].nval == 0 && args[7].nval == 0   ) {
+                } else if (MODL->brch[ibrch].narg == 7 && args[2].nval == 0 &&
+                                                          args[4].nval == 0 &&
+                                                          args[6].nval == 0   ) {
 
                     if (MODL->seltype == 2) {
                         for (ilist = 0; ilist < MODL->selsize; ilist++) {
@@ -9570,32 +9856,16 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
                                                          iattr, &aname, &itype, &nlist, &tempIlist, &tempRlist, &tempClist);
                                 CHECK_STATUS(EG_attributeGet);
 
-                                if (itype == ATTRSTRING) {
-                                    if (matches((char*)args[2].str, aname    ) == 1 &&
-                                        matches((char*)args[3].str, tempClist) == 1   ) {
-                                        match1 = 1;
-                                    }
-                                    if (matches((char*)args[4].str, aname    ) == 1 &&
-                                        matches((char*)args[5].str, tempClist) == 1   ) {
-                                        match2 = 1;
-                                    }
-                                    if (matches((char*)args[6].str, aname    ) == 1 &&
-                                        matches((char*)args[7].str, tempClist) == 1   ) {
-                                        match3 = 1;
-                                    }
-                                } else if (itype != ATTRCSYS) {
-                                    if (matches((char*)args[2].str, aname) == 1 &&
-                                        matches((char*)args[3].str, "*"  ) == 1   ) {
-                                        match1 = 1;
-                                    }
-                                    if (matches((char*)args[4].str, aname) == 1 &&
-                                        matches((char*)args[5].str, "*"  ) == 1   ) {
-                                        match2 = 1;
-                                    }
-                                    if (matches((char*)args[6].str, aname) == 1 &&
-                                        matches((char*)args[7].str, "*"  ) == 1   ) {
-                                        match3 = 1;
-                                    }
+                                if (match1 == 0 && matches((char*)args[2].str, aname) == 1) {
+                                    match1 = matchValue(args[3], itype, nlist, tempIlist, tempRlist, tempClist);
+                                }
+
+                                if (match2 == 0 && matches((char*)args[4].str, aname) == 1) {
+                                    match2 = matchValue(args[5], itype, nlist, tempIlist, tempRlist, tempClist);
+                                }
+
+                                if (match3 == 0 && matches((char*)args[6].str, aname) == 1) {
+                                    match3 = matchValue(args[7], itype, nlist, tempIlist, tempRlist, tempClist);
                                 }
                             }
 
@@ -9625,32 +9895,16 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
                                                          iattr, &aname, &itype, &nlist, &tempIlist, &tempRlist, &tempClist);
                                 CHECK_STATUS(EG_attributeGet);
 
-                                if (itype == ATTRSTRING) {
-                                    if (matches((char*)args[2].str, aname    ) == 1 &&
-                                        matches((char*)args[3].str, tempClist) == 1   ) {
-                                        match1 = 1;
-                                    }
-                                    if (matches((char*)args[4].str, aname    ) == 1 &&
-                                        matches((char*)args[5].str, tempClist) == 1   ) {
-                                        match2 = 1;
-                                    }
-                                    if (matches((char*)args[6].str, aname    ) == 1 &&
-                                        matches((char*)args[7].str, tempClist) == 1   ) {
-                                        match3 = 1;
-                                    }
-                                } else if (itype != ATTRCSYS) {
-                                    if (matches((char*)args[2].str, aname) == 1 &&
-                                        matches((char*)args[3].str, "*"  ) == 1   ) {
-                                        match1 = 1;
-                                    }
-                                    if (matches((char*)args[4].str, aname) == 1 &&
-                                        matches((char*)args[5].str, "*"  ) == 1   ) {
-                                        match2 = 1;
-                                    }
-                                    if (matches((char*)args[6].str, aname) == 1 &&
-                                        matches((char*)args[7].str, "*"  ) == 1   ) {
-                                        match3 = 1;
-                                    }
+                                if (match1 == 0 && matches((char*)args[2].str, aname) == 1) {
+                                    match1 = matchValue(args[3], itype, nlist, tempIlist, tempRlist, tempClist);
+                                }
+
+                                if (match2 == 0 && matches((char*)args[4].str, aname) == 1) {
+                                    match2 = matchValue(args[5], itype, nlist, tempIlist, tempRlist, tempClist);
+                                }
+
+                                if (match3 == 0 && matches((char*)args[6].str, aname) == 1) {
+                                    match3 = matchValue(args[7], itype, nlist, tempIlist, tempRlist, tempClist);
                                 }
                             }
 
@@ -9680,32 +9934,16 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
                                                          iattr, &aname, &itype, &nlist, &tempIlist, &tempRlist, &tempClist);
                                 CHECK_STATUS(EG_attributeGet);
 
-                                if (itype == ATTRSTRING) {
-                                    if (matches((char*)args[2].str, aname    ) == 1 &&
-                                        matches((char*)args[3].str, tempClist) == 1   ) {
-                                        match1 = 1;
-                                    }
-                                    if (matches((char*)args[4].str, aname    ) == 1 &&
-                                        matches((char*)args[5].str, tempClist) == 1   ) {
-                                        match2 = 1;
-                                    }
-                                    if (matches((char*)args[6].str, aname    ) == 1 &&
-                                        matches((char*)args[7].str, tempClist) == 1   ) {
-                                        match3 = 1;
-                                    }
-                                } else if (itype != ATTRCSYS) {
-                                    if (matches((char*)args[2].str, aname) == 1 &&
-                                        matches((char*)args[3].str, "*"  ) == 1   ) {
-                                        match1 = 1;
-                                    }
-                                    if (matches((char*)args[4].str, aname) == 1 &&
-                                        matches((char*)args[5].str, "*"  ) == 1   ) {
-                                        match2 = 1;
-                                    }
-                                    if (matches((char*)args[6].str, aname) == 1 &&
-                                        matches((char*)args[7].str, "*"  ) == 1   ) {
-                                        match3 = 1;
-                                    }
+                                if (match1 == 0 && matches((char*)args[2].str, aname) == 1) {
+                                    match1 = matchValue(args[3], itype, nlist, tempIlist, tempRlist, tempClist);
+                                }
+
+                                if (match2 == 0 && matches((char*)args[4].str, aname) == 1) {
+                                    match2 = matchValue(args[5], itype, nlist, tempIlist, tempRlist, tempClist);
+                                }
+
+                                if (match3 == 0 && matches((char*)args[6].str, aname) == 1) {
+                                    match3 = matchValue(args[7], itype, nlist, tempIlist, tempRlist, tempClist);
                                 }
                             }
 
@@ -10021,14 +10259,14 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
                as a constant or output Parameter */
             for (ipmtr = 1; ipmtr <= MODL->npmtr; ipmtr++) {
                 if        (strcmp(MODL->pmtr[ipmtr].name, args[1].str) == 0 &&
-                           MODL->pmtr[ipmtr].type == OCSM_CONSTANT            ) {
-                    status = OCSM_PMTR_IS_CONSTANT;
+                           MODL->pmtr[ipmtr].type == OCSM_CONPMTR            ) {
+                    status = OCSM_PMTR_IS_CONPMTR;
                     signalError(MODL, status,
                                 "INTERFACE variable \"%s\" cannot match CONPMTR", args[1].str);
                     goto next_branch;
                 } else if (strcmp(MODL->pmtr[ipmtr].name, args[1].str) == 0 &&
-                           MODL->pmtr[ipmtr].type == OCSM_OUTPUT              ) {
-                    status = OCSM_PMTR_IS_OUTPUT;
+                           MODL->pmtr[ipmtr].type == OCSM_OUTPMTR             ) {
+                    status = OCSM_PMTR_IS_OUTPMTR;
                     signalError(MODL, status,
                                 "INTERFACE variable \"%s\" cannot match OUTPMTR", args[1].str);
                     goto next_branch;
@@ -10220,32 +10458,32 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
             /* if any hits, store the results of the best in the @-parameters */
             if (ibest > 0) {
                 if (NINT(args[7].val[0]) == 0) {
-                    status = ocsmFindPmtr(MODL, "@iface", OCSM_INTERNAL, 1, 1, &AT_iface);
+                    status = ocsmFindPmtr(MODL, "@iface", OCSM_LOCALVAR, 1, 1, &AT_iface);
                     CATCH_STATUS(ocsmFindPmtr);
 
                     status = ocsmSetValuD(MODL, AT_iface, 1, 1, (double)ibest);
                     CATCH_STATUS(ocsmSetValuD);
                 } else {
-                    status = ocsmFindPmtr(MODL, "@iedge", OCSM_INTERNAL, 1, 1, &AT_iedge);
+                    status = ocsmFindPmtr(MODL, "@iedge", OCSM_LOCALVAR, 1, 1, &AT_iedge);
                     CATCH_STATUS(ocsmFindPmtr);
 
                     status = ocsmSetValuD(MODL, AT_iedge, 1, 1, (double)ibest);
                     CATCH_STATUS(ocsmSetValuD);
                 }
 
-                status = ocsmFindPmtr(MODL, "@xcg", OCSM_INTERNAL, 1, 1, &AT_xcg);
+                status = ocsmFindPmtr(MODL, "@xcg", OCSM_LOCALVAR, 1, 1, &AT_xcg);
                 CATCH_STATUS(ocsmFindPmtr);
 
                 status = ocsmSetValuD(MODL, AT_xcg, 1, 1, xbest);
                 CATCH_STATUS(ocsmSetValuD);
 
-                status = ocsmFindPmtr(MODL, "@ycg", OCSM_INTERNAL, 1, 1, &AT_ycg);
+                status = ocsmFindPmtr(MODL, "@ycg", OCSM_LOCALVAR, 1, 1, &AT_ycg);
                 CATCH_STATUS(ocsmFindPmtr);
 
                 status = ocsmSetValuD(MODL, AT_ycg, 1, 1, ybest);
                 CATCH_STATUS(ocsmSetValuD);
 
-                status = ocsmFindPmtr(MODL, "@zcg", OCSM_INTERNAL, 1, 1, &AT_zcg);
+                status = ocsmFindPmtr(MODL, "@zcg", OCSM_LOCALVAR, 1, 1, &AT_zcg);
                 CATCH_STATUS(ocsmFindPmtr);
 
                 status = ocsmSetValuD(MODL, AT_zcg, 1, 1, zbest);
@@ -10524,7 +10762,7 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
             }
 
             /* find the pmtrName */
-            status = ocsmFindPmtr(MODL, args[1].str, OCSM_INTERNAL, 1, 1,
+            status = ocsmFindPmtr(MODL, args[1].str, OCSM_LOCALVAR, 1, 1,
                                   &(patn[npatn].ipmtr));
             CATCH_STATUS(ocsmFindPmtr);
 
@@ -11032,6 +11270,8 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
                 icatch = OCSM_ILLEGAL_ATTRIBUTE;
             } else if (strcmp(MODL->brch[ibrch].arg1, "$illegal_csystem"            ) == 0) {
                 icatch = OCSM_ILLEGAL_CSYSTEM;
+            } else if (strcmp(MODL->brch[ibrch].arg1, "$illegal_pmtr_index"         ) == 0) {
+                icatch = OCSM_ILLEGAL_PMTR_INDEX;
             } else if (strcmp(MODL->brch[ibrch].arg1, "$illegal_pmtr_name"          ) == 0) {
                 icatch = OCSM_ILLEGAL_PMTR_NAME;
             } else if (strcmp(MODL->brch[ibrch].arg1, "$illegal_value"              ) == 0) {
@@ -11052,6 +11292,8 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
                 icatch = OCSM_SELF_INTERSECTING;
             } else if (strcmp(MODL->brch[ibrch].arg1, "$wrong_types_on_stack"       ) == 0) {
                 icatch = OCSM_WRONG_TYPES_ON_STACK;
+            } else if (strcmp(MODL->brch[ibrch].arg1, "$assert_failed"              ) == 0) {
+                icatch = OCSM_ASSERT_FAILED;
             } else {
                 status = OCSM_ILLEGAL_VALUE;
                 signalError(MODL, status,
@@ -11063,7 +11305,7 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
             if (icatch == 0 && MODL->sigCode != 0) {
                 SPRINT2(0, "    --> catching signal %d (%s)", MODL->sigCode, ocsmGetText(MODL->sigCode));
 
-                status = ocsmFindPmtr(MODL, "@signal", OCSM_INTERNAL, 1, 1, &ipmtr);
+                status = ocsmFindPmtr(MODL, "@signal", OCSM_LOCALVAR, 1, 1, &ipmtr);
                 CHECK_STATUS(ocsmFindPmtr);
 
                 status = ocsmSetValuD(MODL, ipmtr, 1, 1, (double)(MODL->sigCode));
@@ -11313,65 +11555,8 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
                     CHECK_STATUS(tessellate);
                 }
 
-                /* count unique points */
-                count = MODL->body[ibody].nnode;
-
-                for (iedge = 1; iedge <= MODL->body[ibody].nedge; iedge++) {
-                    status = EG_getTessEdge(MODL->body[ibody].etess, iedge,
-                                            &npnt, &xyz, &uv);
-                    CHECK_STATUS(EG_getTessEdge);
-
-                    count += (npnt - 2);
-                }
-
-                for (iface = 1; iface <= MODL->body[ibody].nface; iface++) {
-                    status = EG_getTessFace(MODL->body[ibody].etess, iface,
-                                            &npnt, &xyz, &uv, &pindx, &ptype,
-                                            &ntri, &tris, &tric);
-                    CHECK_STATUS(EG_getTessFace);
-
-                    for (ipnt = 0; ipnt < npnt; ipnt++) {
-                        if (ptype[ipnt] == -1) count++;
-                    }
-                }
-
-                fp = fopen(args[1].str, "w");
-                fprintf(fp, "%8d %8d %s\n", count, 0, args[1].str);
-
-                for (inode = 1; inode <= MODL->body[ibody].nnode; inode++) {
-                    fprintf(fp, "%22.15e %22.15e %22.15e\n",
-                            MODL->body[ibody].node[inode].x,
-                            MODL->body[ibody].node[inode].y,
-                            MODL->body[ibody].node[inode].z);
-                }
-
-                for (iedge = 1; iedge <= MODL->body[ibody].nedge; iedge++) {
-                    status = EG_getTessEdge(MODL->body[ibody].etess, iedge,
-                                            &npnt, &xyz, &uv);
-                    CHECK_STATUS(EG_getTessEdge);
-
-                    for (ipnt = 1; ipnt < npnt-1; ipnt++) {
-                        fprintf(fp, "%22.15e %22.15e %22.15e\n",
-                                xyz[3*ipnt], xyz[3*ipnt+1], xyz[3*ipnt+2]);
-                    }
-                }
-
-                for (iface = 1; iface <= MODL->body[ibody].nface; iface++) {
-                    status = EG_getTessFace(MODL->body[ibody].etess, iface,
-                                            &npnt, &xyz, &uv, &pindx, &ptype,
-                                            &ntri, &tris, &tric);
-                    CHECK_STATUS(EG_getTessFace);
-
-                    for (ipnt = 0; ipnt < npnt; ipnt++) {
-                        if (ptype[ipnt] == -1) {
-                            fprintf(fp, "%22.15e %22.15e %22.15e\n",
-                                    xyz[3*ipnt], xyz[3*ipnt+1], xyz[3*ipnt+2]);
-                        }
-                    }
-                }
-
-                fprintf(fp, "%8d %8d %s\n", 0, 0, "end");
-                fclose(fp);
+                status = writePlotFile(MODL, ibody, args[1].str);
+                CHECK_STATUS(writePlotFile);
 
             /* if the filetype is .tess, write tessellation file */
             } else if (strcmp(extension, ".tess") == 0 || strcmp(extension, ".TESS") == 0) {
@@ -11382,52 +11567,8 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
                     CHECK_STATUS(tessellate);
                 }
 
-                fp = fopen(args[1].str, "w");
-
-                fprintf(fp, "%8d %8d %8d\n",
-                        MODL->body[ibody].nnode,
-                        MODL->body[ibody].nedge,
-                        MODL->body[ibody].nface);
-
-                for (inode = 1; inode <= MODL->body[ibody].nnode; inode++) {
-                    fprintf(fp, "%22.15e %22.15e %22.15e\n",
-                            MODL->body[ibody].node[inode].x,
-                            MODL->body[ibody].node[inode].y,
-                            MODL->body[ibody].node[inode].z);
-                }
-
-                for (iedge = 1; iedge <= MODL->body[ibody].nedge; iedge++) {
-                    status = EG_getTessEdge(MODL->body[ibody].etess, iedge,
-                                            &npnt, &xyz, &uv);
-                    CHECK_STATUS(EG_getTessEdge);
-
-                    fprintf(fp, "%8d\n", npnt);
-                    for (ipnt = 0; ipnt < npnt; ipnt++) {
-                        fprintf(fp, "%22.15e %22.15e %22.15e %22.15e\n",
-                                xyz[3*ipnt], xyz[3*ipnt+1], xyz[3*ipnt+2], uv[ipnt]);
-                    }
-                }
-
-                for (iface = 1; iface <= MODL->body[ibody].nface; iface++) {
-                    status = EG_getTessFace(MODL->body[ibody].etess, iface,
-                                            &npnt, &xyz, &uv, &pindx, &ptype,
-                                            &ntri, &tris, &tric);
-                    CHECK_STATUS(EG_getTessFace);
-
-                    fprintf(fp, "%8d %8d\n", npnt, ntri);
-                    for (ipnt = 0; ipnt < npnt; ipnt++) {
-                        fprintf(fp, "%22.15e %22.15e %22.15e %22.15e %22.15e %8d %8d\n",
-                                xyz[3*ipnt], xyz[3*ipnt+1], xyz[3*ipnt+2],
-                                uv[ 2*ipnt], uv[ 2*ipnt+1], ptype[ipnt], pindx[ipnt]);
-                    }
-                    for (itri = 0; itri < ntri; itri++) {
-                        fprintf(fp, "%8d %8d %8d %8d %8d %8d\n",
-                                tris[3*itri], tris[3*itri+1], tris[3*itri+2],
-                                tric[3*itri], tric[3*itri+1], tric[3*itri+2]);
-                    }
-                }
-
-                fclose(fp);
+                status = writeTessFile(MODL, ibody, args[1].str);
+                CHECK_STATUS(writeTessFile);
 
             /* if the filetype is .sens, write sensitivity file */
             } else if (strcmp(extension, ".sens") == 0 || strcmp(extension, ".SENS") == 0) {
@@ -11448,92 +11589,8 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
                         CHECK_STATUS(tessellate);
                     }
 
-                    fp = fopen(args[1].str, "w");
-
-                    count = 0;
-                    for (ipmtr = 1; ipmtr <= MODL->npmtr; ipmtr++) {
-                        if (MODL->pmtr[ipmtr].type == OCSM_EXTERNAL) {
-                            count++;
-                        }
-                    }
-
-                    fprintf(fp, "%8d\n", count);
-
-                    for (ipmtr = 1; ipmtr <= MODL->npmtr; ipmtr++) {
-                        if (MODL->pmtr[ipmtr].type == OCSM_EXTERNAL) {
-                            fprintf(fp, "%8d %s\n",
-                                    MODL->pmtr[ipmtr].nrow*MODL->pmtr[ipmtr].ncol,
-                                    MODL->pmtr[ipmtr].name);
-
-                            for (i = 0; i < MODL->pmtr[ipmtr].nrow*MODL->pmtr[ipmtr].ncol; i++) {
-                                fprintf(fp, "     %22.15e %22.15e\n",
-                                        MODL->pmtr[ipmtr].value[i], MODL->pmtr[ipmtr].dot[i]);
-                            }
-                        }
-                    }
-
-                    fprintf(fp, "%8d %8d %8d\n",
-                            MODL->body[ibody].nnode,
-                            MODL->body[ibody].nedge,
-                            MODL->body[ibody].nface);
-
-                    for (inode = 1; inode <= MODL->body[ibody].nnode; inode++) {
-                        MALLOC(vels, double, 3);
-
-                        status = ocsmGetVel(MODL, ibody, OCSM_NODE, inode, 1, NULL, vels);
-                        CHECK_STATUS(ocsmGetVel);
-
-                        fprintf(fp, "%22.15e %22.15e %22.15e %22.15e %22.15e %22.15e\n",
-                                MODL->body[ibody].node[inode].x,
-                                MODL->body[ibody].node[inode].y,
-                                MODL->body[ibody].node[inode].z,
-                                vels[0], vels[1], vels[2]);
-
-                        FREE(vels);
-                    }
-
-                    for (iedge = 1; iedge <= MODL->body[ibody].nedge; iedge++) {
-                        status = EG_getTessEdge(MODL->body[ibody].etess, iedge,
-                                                &npnt, &xyz, &uv);
-                        CHECK_STATUS(EG_getTessEdge);
-
-                        status = ocsmGetTessVel(MODL, ibody, OCSM_EDGE, iedge, &Vels);
-                        CHECK_STATUS(ocsmGetTessVel);
-
-                        fprintf(fp, "%8d\n", npnt);
-                        for (ipnt = 0; ipnt < npnt; ipnt++) {
-                            fprintf(fp, "%22.15e %22.15e %22.15e %22.15e %22.15e %22.15e %22.15e\n",
-                                    xyz[ 3*ipnt], xyz[ 3*ipnt+1], xyz[ 3*ipnt+2],
-                                    Vels[3*ipnt], Vels[3*ipnt+1], Vels[3*ipnt+2],
-                                    uv[    ipnt]);
-                        }
-                    }
-
-                    for (iface = 1; iface <= MODL->body[ibody].nface; iface++) {
-                        status = EG_getTessFace(MODL->body[ibody].etess, iface,
-                                                &npnt, &xyz, &uv, &pindx, &ptype,
-                                                &ntri, &tris, &tric);
-                        CHECK_STATUS(EG_getTessFace);
-
-                        status = ocsmGetTessVel(MODL, ibody, OCSM_FACE, iface, &Vels);
-                        CHECK_STATUS(ocsmGetTessVel);
-
-                        fprintf(fp, "%8d %8d\n", npnt, ntri);
-                        for (ipnt = 0; ipnt < npnt; ipnt++) {
-                            fprintf(fp, "%22.15e %22.15e %22.15e %22.15e %22.15e %22.15e %22.15e %22.15e %8d %8d\n",
-                                    xyz[ 3*ipnt], xyz[ 3*ipnt+1], xyz[ 3*ipnt+2],
-                                    Vels[3*ipnt], Vels[3*ipnt+1], Vels[3*ipnt+2],
-                                    uv[  2*ipnt], uv[  2*ipnt+1],
-                                    ptype[ ipnt], pindx[ ipnt  ]);
-                        }
-                        for (itri = 0; itri < ntri; itri++) {
-                            fprintf(fp, "%8d %8d %8d %8d %8d %8d\n",
-                                    tris[3*itri], tris[3*itri+1], tris[3*itri+2],
-                                    tric[3*itri], tric[3*itri+1], tric[3*itri+2]);
-                        }
-                    }
-
-                    fclose(fp);
+                    status = writeSensFile(MODL, ibody, args[1].str);
+                    CHECK_STATUS(writeSensFile);
                 }
 
             /* if the filetype is .egg, write a EGG restart file */
@@ -11629,21 +11686,21 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
 
                 /* add the DESPMTRs, CFGPMTRs, and OUTPMTRs as Attributes on the Model */
                 for (ipmtr = 1; ipmtr <= MODL->npmtr; ipmtr++) {
-                    if (MODL->pmtr[ipmtr].type == OCSM_EXTERNAL)  {
+                    if (MODL->pmtr[ipmtr].type == OCSM_DESPMTR)  {
                         snprintf(pmtrName, MAX_EXPR_LEN, "_despmtr_%s", MODL->pmtr[ipmtr].name);
 
                         status = EG_attributeAdd(emodel, pmtrName, ATTRREAL,
                                                  MODL->pmtr[ipmtr].nrow*MODL->pmtr[ipmtr].ncol,
                                                  NULL, MODL->pmtr[ipmtr].value, NULL);
                         CATCH_STATUS(EG_attributeAdd);
-                    } else if (MODL->pmtr[ipmtr].type == OCSM_CONFIG)  {
+                    } else if (MODL->pmtr[ipmtr].type == OCSM_CFGPMTR)  {
                         snprintf(pmtrName, MAX_EXPR_LEN, "_cfgpmtr_%s", MODL->pmtr[ipmtr].name);
 
                         status = EG_attributeAdd(emodel, pmtrName, ATTRREAL,
                                                  MODL->pmtr[ipmtr].nrow*MODL->pmtr[ipmtr].ncol,
                                                  NULL, MODL->pmtr[ipmtr].value, NULL);
                         CATCH_STATUS(EG_attributeAdd);
-                    } else if (MODL->pmtr[ipmtr].type == OCSM_OUTPUT) {
+                    } else if (MODL->pmtr[ipmtr].type == OCSM_OUTPMTR) {
                         snprintf(pmtrName, MAX_EXPR_LEN, "_outpmtr_%s", MODL->pmtr[ipmtr].name);
 
                         if (MODL->pmtr[ipmtr].value != NULL) {
@@ -11722,7 +11779,7 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
                     snprintf(pmtrName, MAX_EXPR_LEN, "@@%s", &(MODL->brch[jbrch].arg1[1]));
 
                     if (STRLEN(str) == 0) {
-                        status = ocsmFindPmtr(MODL, pmtrName, OCSM_INTERNAL, 1, 1, &ipmtr);
+                        status = ocsmFindPmtr(MODL, pmtrName, OCSM_LOCALVAR, 1, 1, &ipmtr);
                         CATCH_STATUS(ocsmFindPmtr);
 
                         status = ocsmSetValuD(MODL, ipmtr, 1, 1, value);
@@ -11731,7 +11788,7 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
                         status = ocsmSetVelD(MODL, ipmtr, 1, 1, dot);
                         CATCH_STATUS(ocsmSetVelD);
                     } else {
-                        status = ocsmFindPmtr(MODL, pmtrName, OCSM_INTERNAL, 0, 0, &ipmtr);
+                        status = ocsmFindPmtr(MODL, pmtrName, OCSM_LOCALVAR, 0, 0, &ipmtr);
                         CATCH_STATUS(ocsmFindPmtr);
 
                         STRNCPY(temp, "$", MAX_STRVAL_LEN  );
@@ -11763,6 +11820,7 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
                             MODL->pmtr[jpmtr-1].name  = MODL->pmtr[jpmtr].name;
                             MODL->pmtr[jpmtr-1].type  = MODL->pmtr[jpmtr].type;
                             MODL->pmtr[jpmtr-1].scope = MODL->pmtr[jpmtr].scope;
+                            MODL->pmtr[jpmtr-1].flag  = MODL->pmtr[jpmtr].flag;
                             MODL->pmtr[jpmtr-1].nrow  = MODL->pmtr[jpmtr].nrow;
                             MODL->pmtr[jpmtr-1].ncol  = MODL->pmtr[jpmtr].ncol;
                             MODL->pmtr[jpmtr-1].value = MODL->pmtr[jpmtr].value;
@@ -11819,6 +11877,8 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
                         SPRINT1(0, " abs err = %20.8f",     (args[1].val[0]-args[2].val[0])               );
                     }
                     status = OCSM_ASSERT_FAILED;
+                    signalError(MODL, status,
+                                "ASSERT failed (%12.5e disagrees with %12.5e)", args[1].val[0], args[2].val[0]);
                     CATCH_STATUS(assert);
                 }
             } else {
@@ -11827,6 +11887,42 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
                                MODL->brch[ibrch].arg2,
                                MODL->brch[ibrch].arg3,
                                MODL->brch[ibrch].arg4);
+            }
+
+        /* execute: "message $text $schar=_" */
+        } else if (type == OCSM_MESSAGE) {
+            SPRINT3(1, "    executing [%4d] message:    %s  %s",
+                    ibrch, &(MODL->brch[ibrch].arg1[1]),
+                           &(MODL->brch[ibrch].arg2[1]));
+
+            if (args[1].nval != 0) {
+                status = OCSM_ILLEGAL_ARGUMENT;
+                signalError(MODL, status,
+                            "MESSAGE text is expected to be a string");
+            } else if (args[2].nval != 0) {
+                status = OCSM_ILLEGAL_ARGUMENT;
+                signalError(MODL, status,
+                            "MESSAGE schar is expected to be a single character");
+            } else if (strlen(args[2].str) != 1) {
+                status = OCSM_ILLEGAL_ARGUMENT;
+                signalError(MODL, status,
+                            "MESSAGE schar is expected to be a single character");
+            }
+
+            /* reuse the previous string */
+            STRNCPY(thisArg, args[1].str, MAX_LINE_LEN);
+
+            for (i = 0; i < strlen(thisArg); i++) {
+                if (thisArg[i] == args[2].str[0]) {
+                    thisArg[i] = ' ';
+                }
+            }
+
+            SPRINT1(0, "\nMESSAGE:: %s\n", thisArg);
+
+            /* send this message to the message callback routine (if defined) */
+            if (MODL->mesgCB != NULL) {
+                MODL->mesgCB(thisArg);
             }
 
         /* execute: "special arg1 arg2 arg3 arg4 arg5 arg6 arg7 arg8 arg9" */
@@ -11896,8 +11992,8 @@ ocsmBuild(void   *modl,                 /* (in)  pointer to MODL */
             status = getBodyTolerance(MODL->body[ibody].ebody, &toler);
             CHECK_STATUS(getBodyTolerance);
 
-            SPRINT2(1, "                          Body   %4d created  (toler=%11.4e)",
-                    ibody, toler);
+            SPRINT5(1, "                          Body   %4d created  (toler=%11.4e, nnode=%4d, nedge=%4d, nface=%4d)",
+                    ibody, toler, MODL->body[ibody].nnode, MODL->body[ibody].nedge, MODL->body[ibody].nface);
         }
 
         /* keep track of profile info */
@@ -12170,13 +12266,6 @@ finalize:
     }
     SPRINT2(1, "    Total                 %5d  %10.3f", total_call, (double)(total_time)/(double)(CLOCKS_PER_SEC));
 
-#ifdef PRINT_TIMES
-    SPRINT1(1, "Total user time in Booleans = %10.3f", bool_user_time);
-    SPRINT1(1, "Total sys  time in Booleans = %10.3f", bool_sys_time );
-    SPRINT1(1, "Total      time in Booleans = %10.3f", bool_user_time+bool_sys_time);
-    SPRINT1(1, "Total wall time in Booleans = %10.3f", bool_wall_time);
-#endif
-
 #ifdef PRINT_FAULTS
     SPRINT1(1, "Total minor page faults = %ld", new_minfaults);
     SPRINT1(1, "Total major page faults = %ld", new_majfaults);
@@ -12222,9 +12311,9 @@ cleanup:
 int
 ocsmPerturb(void   *modl,               /* (in)  pointer to MODL */
             int    npmtrs,              /* (in)  number of perturbed Parameters (or 0 to remove)*/
-  /*@null@*/int    ipmtrs[],            /* (in)  array of Parameter indices (1-npmtr) */
-  /*@null@*/int    irows[],             /* (in)  array of row       indices (1-nrow) */
-  /*@null@*/int    icols[],             /* (in)  array of column    indices (1-ncol) */
+  /*@null@*/int    ipmtrs[],            /* (in)  array of Parameter indices (1:npmtr) */
+  /*@null@*/int    irows[],             /* (in)  array of row       indices (1:nrow) */
+  /*@null@*/int    icols[],             /* (in)  array of column    indices (1:ncol) */
   /*@null@*/double values[])            /* (in)  array of perturbed values */
 {
     int       status = SUCCESS;         /* (out) return status */
@@ -12292,17 +12381,15 @@ ocsmPerturb(void   *modl,               /* (in)  pointer to MODL */
     CHECK_STATUS(ocsmBuild);
 
     /* check that base and ptrb have same number of Bodys */
-    if (MODL->nbody != PTRB->nbody) {
+    if (MODL->nbody > PTRB->nbody) {
         SPRINT0(1, "WARNING:: Base and perturbed models have different nbody");
         SPRINT1(1, "          MODL->nbody = %d", MODL->nbody);
         SPRINT1(1, "          PTRB->nbody = %d", PTRB->nbody);
         (MODL->nwarn)++;
-        status = OCSM_DID_NOT_CREATE_BODY;
-        goto cleanup;
     }
 
     /* check that base and ptrb Bodys match topologically */
-    for (ibody = 1; ibody <= MODL->nbody; ibody++) {
+    for (ibody = 1; ibody <= PTRB->nbody; ibody++) {
         if (MODL->body[ibody].onstack != 1) continue;
 
 //$$$        /* for now, assume that WireBodys map without checking */
@@ -12337,6 +12424,167 @@ ocsmPerturb(void   *modl,               /* (in)  pointer to MODL */
     }
 
 cleanup:
+    return status;
+}
+
+
+/*
+ ************************************************************************
+ *                                                                      *
+ *   ocsmUpdateTess - update a tessellation fo a file                   *
+ *                                                                      *
+ ************************************************************************
+ */
+
+int
+ocsmUpdateTess(void   *modl,            /* (in)  pointer to MODL */
+               int    ibody,            /* (in)  Body index (1:nbody) */
+               char   filename[])       /* (in)  name of .tess file */
+{
+    int       status = SUCCESS;         /* (out) return status */
+
+    int       nnode, inode, nedge, iedge, nface, iface, npnt, ipnt, ntri, itri;
+    int       ptype, pindx, state, npts;
+    int       *tris=NULL, tric0, tric1, tric2;
+    double    x, y, z, *xyz=NULL, *t=NULL, *uv=NULL;
+    ego       newTess;
+    FILE      *fp=NULL;
+
+    modl_T    *MODL = (modl_T*)modl;
+
+    ROUTINE(ocsmUpdateTess);
+
+    /* --------------------------------------------------------------- */
+
+    /* check magic number */
+    if (MODL == NULL) {
+        status = OCSM_NOT_MODL_STRUCTURE;
+        goto cleanup;
+    } else if (MODL->magic != OCSM_MAGIC) {
+        status = OCSM_NOT_MODL_STRUCTURE;
+        goto cleanup;
+    }
+
+    /* check that valid Body index was given */
+    if (ibody < 1 || ibody > MODL->nbody) {
+        status = OCSM_BODY_NOT_FOUND;
+        goto cleanup;
+    }
+
+    /* check that filename can be opened */
+    fp = fopen(filename, "r");
+    if (fp == NULL) {
+        status = OCSM_FILE_NOT_FOUND;
+        goto cleanup;
+    }
+
+    /* make sure that the number of Nodes, Edges, and Faces in file
+       match the Body */
+    fscanf(fp, "%d %d %d", &nnode, &nedge, &nface);
+
+    if        (nnode != MODL->body[ibody].nnode) {
+        SPRINT0(0, "ERROR:: nnode mismatch");
+        status = OCSM_ILLEGAL_VALUE;
+        goto cleanup;
+    } else if (nedge != MODL->body[ibody].nedge) {
+        SPRINT0(0, "ERROR:: nedge mismatch");
+        status = OCSM_ILLEGAL_VALUE;
+        goto cleanup;
+    } else if (nface != MODL->body[ibody].nface) {
+        SPRINT0(0, "ERROR:: nface mismatch");
+        status = OCSM_ILLEGAL_VALUE;
+        goto cleanup;
+    }
+
+    /* make sure there is a tessellation object */
+    if (MODL->body[ibody].etess == NULL) {
+        status = OCSM_NEED_TESSELLATION;
+        goto cleanup;
+    }
+
+    /* open the tessellation object for editing */
+    status = EG_initTessBody(MODL->body[ibody].ebody, &newTess);
+    CHECK_STATUS(EG_initTessBody);
+
+
+    /* make sure that the Node locations match */
+    for (inode = 1; inode <= MODL->body[ibody].nnode; inode++) {
+        fscanf(fp, "%lf %lf %lf", &x, &y, &z);
+
+        if (fabs(MODL->body[ibody].node[inode].x-x) > EPS06 ||
+            fabs(MODL->body[ibody].node[inode].y-y) > EPS06 ||
+            fabs(MODL->body[ibody].node[inode].z-z) > EPS06   ) {
+            SPRINT1(0, "ERROR:: Node %d mismatch", inode);
+            status = OCSM_ILLEGAL_VALUE;
+            goto cleanup;
+        }
+    }
+
+    /* read and update the tessellation associated with each Edge */
+    for (iedge = 1; iedge <= MODL->body[ibody].nedge; iedge++) {
+        fscanf(fp, "%d", &npnt);
+
+        MALLOC(xyz, double, 3*npnt);
+        MALLOC(t,   double,   npnt);
+
+        for (ipnt = 0; ipnt < npnt; ipnt++) {
+            fscanf(fp, "%lf %lf %lf %lf",
+                   &xyz[3*ipnt], &xyz[3*ipnt+1], &xyz[3*ipnt+2], &t[ipnt]);
+        }
+
+        status = EG_setTessEdge(newTess, iedge, npnt, xyz, t);
+        CHECK_STATUS(EG_setTessEdge);
+
+        FREE(xyz);
+        FREE(t  );
+    }
+
+    /* read and update the tessellation associated with each Face */
+    for (iface = 1; iface <= MODL->body[ibody].nface; iface++) {
+        fscanf(fp, "%d %d", &npnt, &ntri);
+
+        MALLOC(xyz,  double, 3*npnt);
+        MALLOC(uv,   double, 2*npnt);
+        MALLOC(tris, int,    3*ntri);
+
+        for (ipnt = 0; ipnt < npnt; ipnt++) {
+            fscanf(fp, "%lf %lf %lf %lf %lf %d %d",
+                   &xyz[3*ipnt], &xyz[3*ipnt+1], &xyz[3*ipnt+2],
+                   &uv[ 2*ipnt], &uv[ 2*ipnt+1], &ptype, &pindx);
+        }
+
+        for (itri = 0; itri < ntri; itri++) {
+            fscanf(fp, "%d %d %d %d %d %d",
+                   &tris[3*itri], &tris[3*itri+1], &tris[3*itri+2],
+                   &tric0, &tric1, &tric2);
+        }
+
+        status = EG_setTessFace(newTess, iface, npnt, xyz, uv, ntri, tris);
+        CHECK_STATUS(EG_setTessFace);
+
+        FREE(xyz );
+        FREE(uv  );
+        FREE(tris);
+    }
+
+    /* checking the status closes the tessellation */
+    status = EG_statusTessBody(newTess, &MODL->body[ibody].ebody, &state, &npts);
+    CHECK_STATUS(EG_statusTessBody);
+
+    /* get rid of old tessellation and attach new tessellation */
+    status = EG_deleteObject(MODL->body[ibody].etess);
+    CHECK_STATUS(EG_deleteObject);
+
+    MODL->body[ibody].etess = newTess;
+
+cleanup:
+    FREE(xyz );
+    FREE(t   );
+    FREE(uv  );
+    FREE(tris);
+
+    if (fp != NULL) fclose(fp);
+
     return status;
 }
 
@@ -12416,9 +12664,9 @@ ocsmNewBrch(void   *modl,               /* (in)  pointer to MODL */
         bclass = OCSM_SKETCH;
         narg   = 3;
         impstr = 0x000;
-    } else if (type == OCSM_BLEND) {         // begList=0 endList=0 reorder=0 oneFace=0
+    } else if (type == OCSM_BLEND) {         // begList=0 endList=0 reorder=0 oneFace=0 periodic=0
         bclass = OCSM_GROWN;
-        narg   = 4;
+        narg   = 5;
         impstr = 0x000;
     } else if (type == OCSM_BOX) {           // xbase ybase zbase dx dy dz
         bclass = OCSM_PRIMITIVE;
@@ -12456,7 +12704,7 @@ ocsmNewBrch(void   *modl,               /* (in)  pointer to MODL */
         bclass = OCSM_PRIMITIVE;
         narg   = 7;
         impstr = 0x000;
-    } else if (type == OCSM_DIMENSION) {     // $pmtrName nrow ncol despmtr=0
+    } else if (type == OCSM_DIMENSION) {     // $pmtrName nrow ncol
         bclass = OCSM_UTILITY;
         narg   = 3;
         impstr = 0x100;
@@ -12482,14 +12730,18 @@ ocsmNewBrch(void   *modl,               /* (in)  pointer to MODL */
         impstr = 0x000;
     } else if (type == OCSM_EVALUATE) {      // $type arg1 ...
         bclass = OCSM_UTILITY;
-        if        (strcmp(arg1, "$node") == 0 || strcmp(arg1, "$NODE") == 0) {
+        if        (strcmp(arg1, "$node"   ) == 0 || strcmp(arg1, "$NODE"   ) == 0) {
             narg = 3;
-        } else if (strcmp(arg1, "$edge") == 0 || strcmp(arg1, "$EDGE") == 0) {
+        } else if (strcmp(arg1, "$edge"   ) == 0 || strcmp(arg1, "$EDGE"   ) == 0) {
             narg = 4;
+        } else if (strcmp(arg1, "$edgerng") == 0 || strcmp(arg1, "$EDGERNG") == 0) {
+            narg = 3;
         } else if (strcmp(arg1, "$edgeinv") == 0 || strcmp(arg1, "$EDGEINV") == 0) {
             narg = 6;
-        } else if (strcmp(arg1, "$face") == 0 || strcmp(arg1, "$FACE") == 0) {
+        } else if (strcmp(arg1, "$face"   ) == 0 || strcmp(arg1, "$FACE"   ) == 0) {
             narg = 5;
+        } else if (strcmp(arg1, "$facerng") == 0 || strcmp(arg1, "$FACERNG") == 0) {
+            narg = 3;
         } else if (strcmp(arg1, "$faceinv") == 0 || strcmp(arg1, "$FACEINV") == 0) {
             narg = 6;
         } else {
@@ -12560,6 +12812,10 @@ ocsmNewBrch(void   *modl,               /* (in)  pointer to MODL */
         bclass = OCSM_UTILITY;
         narg   = 0;
         impstr = 0x000;
+    } else if (type == OCSM_MESSAGE) {       // $text $schar=
+        bclass = OCSM_UTILITY;
+        narg   = 2;
+        impstr = 0x180;
     } else if (type == OCSM_MIRROR) {        // nx ny nz dist=0
         bclass = OCSM_TRANSFORM;
         narg   = 4;
@@ -12612,9 +12868,9 @@ ocsmNewBrch(void   *modl,               /* (in)  pointer to MODL */
         bclass = OCSM_TRANSFORM;
         narg   = 3;
         impstr = 0x000;
-    } else if (type == OCSM_RULE) {          // reorder=0
+    } else if (type == OCSM_RULE) {          // reorder=0 periodic=0
         bclass = OCSM_GROWN;
-        narg   = 1;
+        narg   = 2;
         impstr = 0x000;
     } else if (type == OCSM_SCALE) {         // fact xcent=0 ycent=0 zcent=0
         bclass = OCSM_TRANSFORM;
@@ -12992,7 +13248,7 @@ cleanup:
 
 int
 ocsmGetBrch(void   *modl,               /* (in)  pointer to MODL */
-            int    ibrch,               /* (in)  Branch index (1-nbrch) */
+            int    ibrch,               /* (in)  Branch index (1:nbrch) */
             int    *type,               /* (out) Branch type */
             int    *bclass,             /* (out) Branch class */
             int    *actv,               /* (out) Branch Activity */
@@ -13060,7 +13316,7 @@ cleanup:
 
 int
 ocsmSetBrch(void   *modl,               /* (in)  pointer to MODL */
-            int    ibrch,               /* (in)  Branch index (1-nbrch) */
+            int    ibrch,               /* (in)  Branch index (1:nbrch) */
             int    actv)                /* (in)  Branch activity */
 {
     int       status = SUCCESS;         /* (out) return status */
@@ -13134,7 +13390,7 @@ cleanup:
 
 int
 ocsmDelBrch(void   *modl,               /* (in)  pointer to MODL */
-            int    ibrch)               /* (in)  Branch index (1-nbrch) */
+            int    ibrch)               /* (in)  Branch index (1:nbrch) */
 {
     int       status = SUCCESS;         /* (out) return status */
 
@@ -13271,13 +13527,14 @@ cleanup:
 
 int
 ocsmPrintBrchs(void   *modl,            /* (in)  pointer to MODL */
-               FILE   *fp)              /* (in)  pointer to FILE */
+               char   filename[])       /* (in)  file to which output is appended (or "" for stdout) */
 {
     int       status = SUCCESS;         /* (out) return status */
 
     modl_T    *MODL = (modl_T*)modl;
 
     int       ibrch, i, nindent, iattr;
+    FILE      *fp=NULL;
 
     ROUTINE(ocsmPrintBrchs);
 
@@ -13290,6 +13547,16 @@ ocsmPrintBrchs(void   *modl,            /* (in)  pointer to MODL */
     } else if (MODL->magic != OCSM_MAGIC) {
         status = OCSM_NOT_MODL_STRUCTURE;
         goto cleanup;
+    }
+
+    if (strlen(filename) == 0) {
+        fp = stdout;
+    } else {
+        fp = fopen(filename, "a");
+        if (fp == NULL) {
+            status = OCSM_FILE_NOT_FOUND;
+            goto cleanup;
+        }
     }
 
     /* run ocsmCheck to set up necessary linkages amongst Branches */
@@ -13394,6 +13661,8 @@ ocsmPrintBrchs(void   *modl,            /* (in)  pointer to MODL */
     }
 
 cleanup:
+    if (fp != NULL && strlen(filename) > 0) fclose(fp);
+
     return status;
 }
 
@@ -13408,8 +13677,8 @@ cleanup:
 
 int
 ocsmGetArg(void   *modl,                /* (in)  pointer to MODL */
-           int    ibrch,                /* (in)  Branch index (1-nbrch) */
-           int    iarg,                 /* (in)  Argument index (1-narg) */
+           int    ibrch,                /* (in)  Branch index (1:nbrch) */
+           int    iarg,                 /* (in)  Argument index (1:narg) */
            char   defn[],               /* (out) Argument definition (at least MAX_STRVAL_LEN long) */
            double *value,               /* (out) Argument value */
            double *dot)                 /* (out) Argument velocity */
@@ -13495,8 +13764,8 @@ cleanup:
 
 int
 ocsmSetArg(void   *modl,                /* (in)  pointer to MODL */
-           int    ibrch,                /* (in)  Branch index (1-nbrch) */
-           int    iarg,                 /* (in)  Argument index (1-narg) */
+           int    ibrch,                /* (in)  Branch index (1:nbrch) */
+           int    iarg,                 /* (in)  Argument index (1:narg) */
            char   defn[])               /* (in)  Argument definition */
 {
     int       status = SUCCESS;         /* (out) return status */
@@ -13611,8 +13880,8 @@ cleanup:
 
 int
 ocsmRetAttr(void   *modl,               /* (in)  pointer to MODL */
-            int    ibrch,               /* (in)  Branch index (1-nbrch) */
-            int    iattr,               /* (in)  Attribute index (1-nattr) */
+            int    ibrch,               /* (in)  Branch index (1:nbrch) */
+            int    iattr,               /* (in)  Attribute index (1:nattr) */
             char   aname[],             /* (out) Attribute name  (at least MAX_STRVAL_LEN long) */
             char   avalue[])            /* (out) Attribute value (at least MAX_STRVAL_LEN long) */
 {
@@ -13669,7 +13938,7 @@ cleanup:
 
 int
 ocsmGetAttr(void   *modl,               /* (in)  pointer to MODL */
-            int    ibrch,               /* (in)  Branch index (1-nbrch) */
+            int    ibrch,               /* (in)  Branch index (1:nbrch) */
             char   aname[],             /* (in)  Attribute name */
             char   avalue[])            /* (out) Attribute value (at least MAX_STRVAL_LEN long) */
 {
@@ -13757,7 +14026,7 @@ cleanup:
 
 int
 ocsmSetAttr(void   *modl,               /* (in)  pointer to MODL */
-            int    ibrch,               /* (in)  Branch index (1-nbrch) */
+            int    ibrch,               /* (in)  Branch index (1:nbrch) */
             char   aname[],             /* (in)  Attribute name */
             char   avalue[])            /* (in)  Attribute value (or blank to delete) */
 {
@@ -13933,8 +14202,8 @@ cleanup:
 
 int
 ocsmRetCsys(void   *modl,               /* (in)  pointer to MODL */
-            int    ibrch,               /* (in)  Branch index (1-nbrch) */
-            int    icsys,               /* (in)  Csystem index (1-nattr) */
+            int    ibrch,               /* (in)  Branch index (1:nbrch) */
+            int    icsys,               /* (in)  Csystem index (1:nattr) */
             char   cname[],             /* (out) Csystem name  (at least MAX_STRVAL_LEN long) */
             char   cvalue[])            /* (out) Csystem value (at least MAX_STRVAL_LEN long) */
 {
@@ -13991,7 +14260,7 @@ cleanup:
 
 int
 ocsmGetCsys(void   *modl,               /* (in)  pointer to MODL */
-            int    ibrch,               /* (in)  Branch index (1-nbrch) */
+            int    ibrch,               /* (in)  Branch index (1:nbrch) */
             char   cname[],             /* (in)  Csystem name */
             char   cvalue[])            /* (out) Csystem value (at least MAX_STRVAL_LEN long) */
 {
@@ -14054,7 +14323,7 @@ cleanup:
 
 int
 ocsmSetCsys(void   *modl,               /* (in)  pointer to MODL */
-            int    ibrch,               /* (in)  Branch index (1-nbrch) */
+            int    ibrch,               /* (in)  Branch index (1:nbrch) */
             char   cname[],             /* (in)  Csystem name */
             char   cvalue[])            /* (in)  Csystem value (or blank to delete) */
 {
@@ -14155,13 +14424,14 @@ cleanup:
 
 int
 ocsmPrintAttrs(void   *modl,            /* (in)  pointer to MODL */
-               FILE   *fp)              /* (in)  pointer to FILE */
+               char   filename[])       /* (in)  file to which output is appended (or "" for stdout) */
 {
     int       status = SUCCESS;         /* (out) return status */
 
     modl_T    *MODL = (modl_T*)modl;
 
     int       iattr;
+    FILE      *fp=NULL;
 
     ROUTINE(ocsmPrintAttrs);
 
@@ -14176,6 +14446,16 @@ ocsmPrintAttrs(void   *modl,            /* (in)  pointer to MODL */
         goto cleanup;
     }
 
+    if (strlen(filename) == 0) {
+        fp = stdout;
+    } else {
+        fp = fopen(filename, "a");
+        if (fp == NULL) {
+            status = OCSM_FILE_NOT_FOUND;
+            goto cleanup;
+        }
+    }
+
     for (iattr = 0; iattr < MODL->nattr; iattr++) {
         fprintf(fp, "    %-24s -> %24s\n",
                 MODL->attr[iattr].name,
@@ -14183,6 +14463,8 @@ ocsmPrintAttrs(void   *modl,            /* (in)  pointer to MODL */
     }
 
 cleanup:
+    if (fp != NULL && strlen(filename) > 0) fclose(fp);
+
     return status;
 }
 
@@ -14197,7 +14479,7 @@ cleanup:
 
 int
 ocsmGetName(void   *modl,               /* (in)  pointer to MODL */
-            int    ibrch,               /* (in)  Branch index (1-nbrch) */
+            int    ibrch,               /* (in)  Branch index (1:nbrch) */
             char   name[])              /* (out) Branch name (at least MAX_STRVAL_LEN long) */
 {
     int       status = SUCCESS;         /* (out) return status */
@@ -14244,7 +14526,7 @@ cleanup:
 
 int
 ocsmSetName(void   *modl,               /* (in)  pointer to MODL */
-            int    ibrch,               /* (in)  Branch index (1-nbrch) */
+            int    ibrch,               /* (in)  Branch index (1:nbrch) */
             char   name[])              /* (in)  Branch name */
 {
     int       status = SUCCESS;         /* (out) return status */
@@ -14313,7 +14595,7 @@ cleanup:
 
 int
 ocsmGetSketch(void   *modl,             /* (in)  pointer to MODL */
-              int    ibrch,             /* (in)  Branch index (1-nbrch) within Sketch */
+              int    ibrch,             /* (in)  Branch index (1:nbrch) within Sketch */
               int    maxlen,            /* (in)  length of begs, vars, cons, and segs */
               char   begs[],            /* (out) string with SKBEG variables */
               char   vars[],            /* (out) string with Sketch variables */
@@ -14629,19 +14911,19 @@ ocsmSolveSketch(void   *modl,           /* (in)  pointer to MODL */
     }
 
     /* make the new Sketch variables */
-    status = ocsmNewPmtr(MODL, "::x", OCSM_INTERNAL, 1, sket->size);
+    status = ocsmNewPmtr(MODL, "::x", OCSM_LOCALVAR, 1, sket->size);
     CHECK_STATUS(ocsmNewPmtr);
     sket->ix = MODL->npmtr;
 
-    status = ocsmNewPmtr(MODL, "::y", OCSM_INTERNAL, 1, sket->size);
+    status = ocsmNewPmtr(MODL, "::y", OCSM_LOCALVAR, 1, sket->size);
     CHECK_STATUS(ocsmNewPmtr);
     sket->iy = MODL->npmtr;
 
-    status = ocsmNewPmtr(MODL, "::z", OCSM_INTERNAL, 1, sket->size);
+    status = ocsmNewPmtr(MODL, "::z", OCSM_LOCALVAR, 1, sket->size);
     CHECK_STATUS(ocsmNewPmtr);
     sket->iz = MODL->npmtr;
 
-    status = ocsmNewPmtr(MODL, "::d", OCSM_INTERNAL, 1, sket->size);
+    status = ocsmNewPmtr(MODL, "::d", OCSM_LOCALVAR, 1, sket->size);
     CHECK_STATUS(ocsmNewPmtr);
     sket->id = MODL->npmtr;
 
@@ -14833,7 +15115,7 @@ ocsmSolveSketch(void   *modl,           /* (in)  pointer to MODL */
                     im1 = index1 - 1; if (im1 == 0           ) im1 = sket->size;
                     ip1 = index1 + 1; if (ip1 == sket->size+1) ip1 = 1;
                     snprintf(sket->con[sket->ncon++], MAX_EXPR_LEN,
-                             "(turnang(::x[%d],::y[%d],::d[%d],::x[%d],::y[%d],::d[%d],::x[%d],::y[%d])-(%s))/57.3",
+                             "(turnang(::x[%d],::y[%d],::d[%d],::x[%d],::y[%d],::d[%d],::x[%d],::y[%d])-smallang(%s))/57.3",
                              im1, im1, index1, index1, index1, ip1, ip1, ip1, value);
                 } else if (strcmp(type, "Z") == 0) {
                     sket->ctype[sket->ncon] = 'Z';
@@ -14887,7 +15169,7 @@ ocsmSolveSketch(void   *modl,           /* (in)  pointer to MODL */
                     sket->ip1[  sket->ncon] = index2;
 
                     snprintf(sket->con[sket->ncon++], MAX_EXPR_LEN,
-                             "(atan2d(::y[%d]-::y[%d],::x[%d]-::x[%d])-(%s))/57.3",
+                             "smallang(atan2d(::y[%d]-::y[%d],::x[%d]-::x[%d])-(%s))/57.3",
                              index2, index1, index2, index1, value);
                 } else if (strcmp(type, "L") == 0) {
                     sket->ctype[sket->ncon] = 'L';
@@ -15015,7 +15297,7 @@ cleanup:
 
 int
 ocsmSaveSketch(void   *modl,            /* (in)  pointer to MODL */
-               int    ibrch,            /* (in)  Branch index (1-nbrch) within Sketch */
+               int    ibrch,            /* (in)  Branch index (1:nbrch) within Sketch */
                char   vars[],           /* (in)  string with Sketch variables */
                char   cons[],           /* (in)  string with Sketch constraints */
                char   segs[])           /* (in)  string with Sketch segments */
@@ -15035,7 +15317,7 @@ ocsmSaveSketch(void   *modl,            /* (in)  pointer to MODL */
 
     if (outLevel >= 2) {
         SPRINT0(2, "ocsmSaveSketch: at beginning");
-        status = ocsmPrintBrchs(MODL, stdout);
+        status = ocsmPrintBrchs(MODL, "");
         CHECK_STATUS(ocsmPrintBrchs);
     }
 
@@ -15180,7 +15462,7 @@ ocsmSaveSketch(void   *modl,            /* (in)  pointer to MODL */
 
     if (outLevel >= 2) {
         SPRINT0(2, "ocsmSaveSketch: after additions");
-        status = ocsmPrintBrchs(MODL, stdout);
+        status = ocsmPrintBrchs(MODL, "");
         CHECK_STATUS(ocsmPrintBrchs);
     }
 
@@ -15215,7 +15497,7 @@ ocsmNewPmtr(void   *modl,               /* (in)  pointer to MODL */
 
     modl_T    *MODL = (modl_T*)modl;
 
-    int       ipmtr, i, irow, icol, indx;
+    int       ipmtr, i, old_nrow, old_ncol;
     int       resize=0;
 
     ROUTINE(ocsmNewPmtr);
@@ -15231,43 +15513,60 @@ ocsmNewPmtr(void   *modl,               /* (in)  pointer to MODL */
         goto cleanup;
     }
 
-    /* if an UNKNOWN, default to INTERNAL unless it already exists as another type */
-    if (type == OCSM_UNKNOWN) {
-        type = OCSM_INTERNAL;
-        for (ipmtr = 1; ipmtr <= MODL->npmtr; ipmtr++) {
-            if (strcmp(MODL->pmtr[ipmtr].name, name) == 0) {
-                type = MODL->pmtr[ipmtr].type;
-                break;
-            }
-        }
-    }
-
-    /* if a CONSTANT then nrow and ncol must both be 1 */
-    if (type == OCSM_CONSTANT) {
+    /* if a CONPMTR then nrow and ncol must both be 1 */
+    if (type == OCSM_CONPMTR) {
         if (nrow != 1 || ncol != 1) {
             status = OCSM_ILLEGAL_VALUE;
             goto cleanup;
         }
     }
 
-    /* if a CONSTANT, EXTERNAL, or CONFIG remove any INTERNAL Parameters
+    /* if an UNKNOWN and Parameter is already a DESPMTR or CFGPMTR, just return */
+    if (type == OCSM_UNKNOWN) {
+        for (ipmtr = 1; ipmtr <= MODL->npmtr; ipmtr++) {
+            if (strcmp(MODL->pmtr[ipmtr].name, name) == 0) {
+                if (MODL->pmtr[ipmtr].type == OCSM_DESPMTR ||
+                    MODL->pmtr[ipmtr].type == OCSM_CFGPMTR   ) {
+                    goto cleanup;
+                }
+            }
+        }
+    }
+
+    /* if an UNKNOWN and Parameter is already a OUTPMTR or LOCALVAR, update
+       the input type */
+    if (type == OCSM_UNKNOWN) {
+        for (ipmtr = 1; ipmtr <= MODL->npmtr; ipmtr++) {
+            if (strcmp(MODL->pmtr[ipmtr].name, name) == 0) {
+                if (MODL->pmtr[ipmtr].type == OCSM_OUTPMTR ||
+                    MODL->pmtr[ipmtr].type == OCSM_LOCALVAR   ) {
+                    type = MODL->pmtr[ipmtr].type;
+                    break;
+                }
+            }
+        }
+    }
+
+    /* if a CONPMTR, DESPMTR, or CFGPMTR remove any INTERNAL Parameters
        that might already exist (from a previous ocsmBuild) */
-    if (type == OCSM_CONSTANT || type == OCSM_EXTERNAL || type == OCSM_CONFIG) {
+    if (type == OCSM_CONPMTR || type == OCSM_DESPMTR || type == OCSM_CFGPMTR) {
         for (ipmtr = MODL->npmtr; ipmtr > 0; ipmtr--) {
-            if (MODL->pmtr[ipmtr].type == OCSM_INTERNAL) {
+            if (MODL->pmtr[ipmtr].type == OCSM_LOCALVAR) {
                 status = ocsmDelPmtr(MODL, ipmtr);
                 CHECK_STATUS(ocsmDelPmtr);
             }
         }
     }
 
-    /* check if an OUTPUT Parameter already exists */
-    if (type == OCSM_OUTPUT) {
+    /* if an OUTPMTR Parameter already exists, mark it as needing to be resized */
+    resize = 0;
+    if (type == OCSM_OUTPMTR) {
         for (ipmtr = 1; ipmtr <= MODL->npmtr; ipmtr++) {
-            if (strcmp(MODL->pmtr[ipmtr].name, name) == 0 &&
-                MODL->pmtr[ipmtr].type == OCSM_OUTPUT       ) {
-                resize = ipmtr;
-                break;
+            if (strcmp(MODL->pmtr[ipmtr].name, name) == 0) {
+                if (MODL->pmtr[ipmtr].type == OCSM_OUTPMTR) {
+                    resize = ipmtr;
+                    break;
+                }
             }
         }
 
@@ -15276,10 +15575,10 @@ ocsmNewPmtr(void   *modl,               /* (in)  pointer to MODL */
         for (ipmtr = 1; ipmtr <= MODL->npmtr; ipmtr++) {
             if (strcmp(MODL->pmtr[ipmtr].name, name) == 0                 &&
                 MODL->pmtr[ipmtr].scope == MODL->scope[MODL->level]  ) {
-                if (type == OCSM_INTERNAL && MODL->pmtr[ipmtr].nrow == nrow
+                if (type == OCSM_LOCALVAR && MODL->pmtr[ipmtr].nrow == nrow
                                           && MODL->pmtr[ipmtr].ncol == ncol) {
                     status = SUCCESS;
-                } else if (type == OCSM_INTERNAL) {
+                } else if (type == OCSM_LOCALVAR) {
                     resize = ipmtr;
                     break;
                 } else {
@@ -15313,8 +15612,8 @@ ocsmNewPmtr(void   *modl,               /* (in)  pointer to MODL */
     }
 
     /* check for a valid Parameter type */
-    if (type != OCSM_EXTERNAL && type != OCSM_CONFIG  &&type != OCSM_OUTPUT  &&
-        type != OCSM_INTERNAL && type != OCSM_CONSTANT                         ) {
+    if (type != OCSM_DESPMTR  && type != OCSM_CFGPMTR && type != OCSM_OUTPMTR &&
+        type != OCSM_LOCALVAR && type != OCSM_CONPMTR && type != OCSM_UNKNOWN   ) {
         status = OCSM_ILLEGAL_TYPE;
         goto cleanup;
     }
@@ -15351,46 +15650,86 @@ ocsmNewPmtr(void   *modl,               /* (in)  pointer to MODL */
     MALLOC( MODL->pmtr[ipmtr].name, char, (int)(STRLEN(name)+1));
     STRNCPY(MODL->pmtr[ipmtr].name, name,       STRLEN(name)+1 );
 
-    FREE(MODL->pmtr[ipmtr].value);
-    FREE(MODL->pmtr[ipmtr].dot  );
-    FREE(MODL->pmtr[ipmtr].lbnd );
-    FREE(MODL->pmtr[ipmtr].ubnd );
-    FREE(MODL->pmtr[ipmtr].str  );
+    if (nrow <= 0 || ncol <= 0) {
+        FREE(MODL->pmtr[ipmtr].value);
+        FREE(MODL->pmtr[ipmtr].dot  );
+        FREE(MODL->pmtr[ipmtr].lbnd );
+        FREE(MODL->pmtr[ipmtr].ubnd );
+        FREE(MODL->pmtr[ipmtr].str  );
 
-    if (nrow > 0 && ncol > 0) {
-        MALLOC(MODL->pmtr[ipmtr].value, double, nrow*ncol);
-        MALLOC(MODL->pmtr[ipmtr].dot,   double, nrow*ncol);
-
-        if (type == OCSM_EXTERNAL || type == OCSM_CONFIG) {
-            MALLOC(MODL->pmtr[ipmtr].lbnd,  double, nrow*ncol);
-            MALLOC(MODL->pmtr[ipmtr].ubnd,  double, nrow*ncol);
-        }
-    } else {
         MALLOC( MODL->pmtr[ipmtr].str,   char,   MAX_STRVAL_LEN);
 
         nrow = 0;
         ncol = 0;
+
+    } else if (resize == 0) {
+        FREE(MODL->pmtr[ipmtr].value);
+        FREE(MODL->pmtr[ipmtr].dot  );
+        FREE(MODL->pmtr[ipmtr].lbnd );
+        FREE(MODL->pmtr[ipmtr].ubnd );
+        FREE(MODL->pmtr[ipmtr].str  );
+
+        MALLOC(MODL->pmtr[ipmtr].value, double, nrow*ncol);
+        MALLOC(MODL->pmtr[ipmtr].dot,   double, nrow*ncol);
+
+        if (type == OCSM_DESPMTR || type == OCSM_CFGPMTR || type == OCSM_UNKNOWN) {
+            MALLOC(MODL->pmtr[ipmtr].lbnd,  double, nrow*ncol);
+            MALLOC(MODL->pmtr[ipmtr].ubnd,  double, nrow*ncol);
+        }
+
+        /* initialize to large values */
+        for (i = 0; i < nrow*ncol; i++) {
+            MODL->pmtr[ipmtr].value[i] = -HUGEQ;
+            MODL->pmtr[ipmtr].dot[  i] = 0;
+
+            if (type == OCSM_DESPMTR || type == OCSM_CFGPMTR || type == OCSM_UNKNOWN) {
+                MODL->pmtr[ipmtr].lbnd[i] = -HUGEQ;
+                MODL->pmtr[ipmtr].ubnd[i] = +HUGEQ;
+            }
+        }
+
+    } else {
+        FREE(MODL->pmtr[ipmtr].str);
+
+        old_nrow = MODL->pmtr[ipmtr].nrow;
+        old_ncol = MODL->pmtr[ipmtr].ncol;
+
+        RALLOC(MODL->pmtr[ipmtr].value, double, nrow*ncol);
+        RALLOC(MODL->pmtr[ipmtr].dot,   double, nrow*ncol);
+        if (type == OCSM_DESPMTR || type == OCSM_CFGPMTR || type == OCSM_UNKNOWN) {
+            RALLOC(MODL->pmtr[ipmtr].lbnd,  double, nrow*ncol);
+            RALLOC(MODL->pmtr[ipmtr].ubnd,  double, nrow*ncol);
+        }
+
+        /* if not previously an array, initialize to large values */
+        if (old_nrow == 0 || old_ncol == 0) {
+            for (i = 0; i < nrow*ncol; i++) {
+                MODL->pmtr[ipmtr].value[i] = -HUGEQ;
+                MODL->pmtr[ipmtr].dot[  i] = 0;
+                if (type == OCSM_DESPMTR || type == OCSM_CFGPMTR || type == OCSM_UNKNOWN) {
+                    MODL->pmtr[ipmtr].lbnd[i] = -HUGEQ;
+                    MODL->pmtr[ipmtr].ubnd[i] = +HUGEQ;
+                }
+            }
+
+        /* propagate last value if new array is larger */
+        } else {
+            for (i = old_nrow*old_ncol; i < nrow*ncol; i++) {
+                MODL->pmtr[ipmtr].value[i] = MODL->pmtr[ipmtr].value[i-1];
+                MODL->pmtr[ipmtr].dot[  i] = MODL->pmtr[ipmtr].dot[  i-1];
+                if (type == OCSM_DESPMTR || type == OCSM_CFGPMTR || type == OCSM_UNKNOWN) {
+                    MODL->pmtr[ipmtr].lbnd[i] = MODL->pmtr[ipmtr].lbnd[i-1];
+                    MODL->pmtr[ipmtr].ubnd[i] = MODL->pmtr[ipmtr].ubnd[i-1];
+                }
+            }
+        }
     }
 
     MODL->pmtr[ipmtr].scope = MODL->scope[MODL->level];
+    MODL->pmtr[ipmtr].flag  = 0;
     MODL->pmtr[ipmtr].type  = type;
     MODL->pmtr[ipmtr].nrow  = nrow;
     MODL->pmtr[ipmtr].ncol  = ncol;
-
-    /* set default values, lower and upper Bounds */
-    indx = 0;
-    for (irow = 0; irow < nrow; irow++) {
-        for (icol = 0; icol < ncol; icol++) {
-            MODL->pmtr[ipmtr].value[indx] = -HUGEQ;
-            MODL->pmtr[ipmtr].dot[  indx] = 0;
-
-            if (type == OCSM_EXTERNAL || type == OCSM_CONFIG) {
-                MODL->pmtr[ipmtr].lbnd[ indx] = -HUGEQ;
-                MODL->pmtr[ipmtr].ubnd[ indx] = +HUGEQ;
-            }
-            indx++;
-        }
-    }
 
 cleanup:
     return status;
@@ -15407,7 +15746,7 @@ cleanup:
 
 int
 ocsmDelPmtr(void   *modl,               /* (in)  pointer to MODL */
-            int    ipmtr)               /* (in)  Parameter index (bias-1) */
+            int    ipmtr)               /* (in)  Parameter index (1:npmtr) */
 {
     int       status = SUCCESS;         /* (out) return status */
 
@@ -15450,6 +15789,7 @@ ocsmDelPmtr(void   *modl,               /* (in)  pointer to MODL */
         MODL->pmtr[jpmtr].name  = MODL->pmtr[jpmtr+1].name;
         MODL->pmtr[jpmtr].type  = MODL->pmtr[jpmtr+1].type;
         MODL->pmtr[jpmtr].scope = MODL->pmtr[jpmtr+1].scope;
+        MODL->pmtr[jpmtr].flag  = MODL->pmtr[jpmtr+1].flag;
         MODL->pmtr[jpmtr].nrow  = MODL->pmtr[jpmtr+1].nrow;
         MODL->pmtr[jpmtr].ncol  = MODL->pmtr[jpmtr+1].ncol;
         MODL->pmtr[jpmtr].value = MODL->pmtr[jpmtr+1].value;
@@ -15487,10 +15827,10 @@ cleanup:
 int
 ocsmFindPmtr(void   *modl,              /* (in)  pointer to MODL */
              char   name[],             /* (in)  Parameter name */
-             int    type,               /* (in)  Parameter type */
+             int    type,               /* (in)  Parameter type    (or 0 to not create) */
              int    nrow,               /* (in)  number of rows */
              int    ncol,               /* (in)  number of columns */
-             int    *ipmtr)             /* (out) Parameter index (bias-1) */
+             int    *ipmtr)             /* (out) Parameter index (1:npmtr) (or 0 if not found) */
 {
     int       status = SUCCESS;         /* (out) return status */
 
@@ -15510,6 +15850,18 @@ ocsmFindPmtr(void   *modl,              /* (in)  pointer to MODL */
         goto cleanup;
     } else if (MODL->magic != OCSM_MAGIC) {
         status = OCSM_NOT_MODL_STRUCTURE;
+        goto cleanup;
+    }
+
+    /* if type is zero, just look for the name */
+    if (type == 0) {
+        for (jpmtr = 1; jpmtr <= MODL->npmtr; jpmtr++) {
+            if (strcmp(MODL->pmtr[jpmtr].name, name) == 0 &&
+                MODL->pmtr[jpmtr].scope == 0                ) {
+                *ipmtr = jpmtr;
+                break;
+            }
+        }
         goto cleanup;
     }
 
@@ -15551,7 +15903,7 @@ cleanup:
 
 int
 ocsmGetPmtr(void   *modl,               /* (in)  pointer to MODL */
-            int    ipmtr,               /* (in)  Parameter index (1-npmtr) */
+            int    ipmtr,               /* (in)  Parameter index (1:npmtr) */
             int    *type,               /* (out) Parameter type */
             int    *nrow,               /* (out) number of rows */
             int    *ncol,               /* (out) number of columns */
@@ -15603,20 +15955,22 @@ cleanup:
 /*
  ************************************************************************
  *                                                                      *
- *   ocsmPrintPmtrs - print external Parameters to file                 *
+ *   ocsmPrintPmtrs - print despmtrs and outpmtrs to file               *
  *                                                                      *
  ************************************************************************
  */
 
 int
 ocsmPrintPmtrs(void   *modl,            /* (in)  pointer to MODL */
-               FILE   *fp)              /* (in)  pointer to FILE */
+               char   filename[])       /* (in)  file to which output is appended (or "" for stdout) */
 {
     int       status = SUCCESS;         /* (out) return status */
 
     modl_T    *MODL = (modl_T*)modl;
 
     int       ipmtr, maxlen, irow, icol, index, count;
+    char      typeChar;
+    FILE      *fp=NULL;
 
     ROUTINE(ocsmPrintPmtrs);
 
@@ -15631,6 +15985,16 @@ ocsmPrintPmtrs(void   *modl,            /* (in)  pointer to MODL */
         goto cleanup;
     }
 
+    if (strlen(filename) == 0) {
+        fp = stdout;
+    } else {
+        fp = fopen(filename, "a");
+        if (fp == NULL) {
+            status = OCSM_FILE_NOT_FOUND;
+            goto cleanup;
+        }
+    }
+
     /* find maximum name length */
     maxlen = 0;
     for (ipmtr = 1; ipmtr <= MODL->npmtr; ipmtr++) {
@@ -15641,21 +16005,29 @@ ocsmPrintPmtrs(void   *modl,            /* (in)  pointer to MODL */
 
     /* loop through all constant Parameters and print its name and value */
     for (ipmtr = 1; ipmtr <= MODL->npmtr; ipmtr++) {
-        if (MODL->pmtr[ipmtr].type  == OCSM_CONSTANT) {
+        if (MODL->pmtr[ipmtr].type  == OCSM_CONPMTR) {
             fprintf(fp, "    %5d [c]  %-*s            %11.5f\n",
                     ipmtr, maxlen, MODL->pmtr[ipmtr].name, MODL->pmtr[ipmtr].value[0]);
         }
     }
 
-    /* loop through all EXTERNAL nad CONFIG  Parameters and print its name, value, and defn */
+    /* loop through all DESPMTR and CFGPMTR Parameters and print its name, value, and defn */
     count = 0;
     for (ipmtr = 1; ipmtr <= MODL->npmtr; ipmtr++) {
-        if (MODL->pmtr[ipmtr].type == OCSM_EXTERNAL) {
+        if (MODL->pmtr[ipmtr].type == OCSM_DESPMTR ||
+            MODL->pmtr[ipmtr].type == OCSM_CFGPMTR   ) {
+
+            if (MODL->pmtr[ipmtr].type == OCSM_DESPMTR) {
+                typeChar = 'd';
+            } else {
+                typeChar = 'f';
+            }
+
             index = 0;
             for (irow = 1; irow <= MODL->pmtr[ipmtr].nrow; irow++) {
                 for (icol = 1; icol <= MODL->pmtr[ipmtr].ncol; icol++) {
-                    fprintf(fp, "    %5d [e]  %-*s  [%3d,%3d] %11.5f %11.5f    >>",
-                            ipmtr, maxlen, MODL->pmtr[ipmtr].name,
+                    fprintf(fp, "    %5d [%c]  %-*s  [%3d,%3d] %11.5f %11.5f    >>",
+                            ipmtr, typeChar, maxlen, MODL->pmtr[ipmtr].name,
                             irow, icol, MODL->pmtr[ipmtr].value[index],
                                         MODL->pmtr[ipmtr].dot[  index]);
 
@@ -15675,11 +16047,6 @@ ocsmPrintPmtrs(void   *modl,            /* (in)  pointer to MODL */
                 }
             }
             count++;
-        } else if (MODL->pmtr[ipmtr].type == OCSM_CONFIG) {
-            fprintf(fp, "    %5d [f]  %-*s  [%3d,%3d] %11.5f\n",
-                    ipmtr, maxlen, MODL->pmtr[ipmtr].name,
-                    1, 1, MODL->pmtr[ipmtr].value[0]);
-            count++;
         }
     }
 
@@ -15690,6 +16057,8 @@ ocsmPrintPmtrs(void   *modl,            /* (in)  pointer to MODL */
     }
 
 cleanup:
+    if (fp != NULL && strlen(filename) > 0) fclose(fp);
+
     return status;
 }
 
@@ -15704,9 +16073,9 @@ cleanup:
 
 int
 ocsmGetValu(void   *modl,               /* (in)  pointer to MODL */
-            int    ipmtr,               /* (in)  Parameter index (1-npmtr) */
-            int    irow,                /* (in)  row    index (1-nrow) */
-            int    icol,                /* (in)  column index (1-ncol) */
+            int    ipmtr,               /* (in)  Parameter index (1:npmtr) */
+            int    irow,                /* (in)  row    index (1:nrow) */
+            int    icol,                /* (in)  column index (1:ncol) */
             double *value,              /* (out) Parameter value */
             double *dot)                /* (out) Parameter velocity */
 {
@@ -15736,6 +16105,8 @@ ocsmGetValu(void   *modl,               /* (in)  pointer to MODL */
     if (ipmtr < 1 || ipmtr > MODL->npmtr) {
         status = OCSM_ILLEGAL_PMTR_INDEX;
         goto cleanup;
+    } else if (MODL->pmtr[ipmtr].type == OCSM_CONPMTR) {
+
     } else if (MODL->pmtr[ipmtr].scope != MODL->scope[MODL->level]) {
         status = OCSM_ILLEGAL_PMTR_INDEX;
         goto cleanup;
@@ -15782,7 +16153,7 @@ cleanup:
 
 int
 ocsmGetValuS(void   *modl,              /* (in)  pointer to MODL */
-             int    ipmtr,              /* (in)  Parameter index (1-npmtr) */
+             int    ipmtr,              /* (in)  Parameter index (1:npmtr) */
              char   str[])              /* (out) Parameter value (at least MAX_STRVAL_LEN long) */
 {
     int       status = SUCCESS;         /* (out) return status */
@@ -15809,6 +16180,8 @@ ocsmGetValuS(void   *modl,              /* (in)  pointer to MODL */
     if (ipmtr < 1 || ipmtr > MODL->npmtr) {
         status = OCSM_ILLEGAL_PMTR_INDEX;
         goto cleanup;
+    } else if (MODL->pmtr[ipmtr].type == OCSM_CONPMTR) {
+
     } else if (MODL->pmtr[ipmtr].scope != MODL->scope[MODL->level]) {
         status = OCSM_ILLEGAL_PMTR_INDEX;
         goto cleanup;
@@ -15832,15 +16205,15 @@ cleanup:
 
 int
 ocsmSetValu(void   *modl,               /* (in)  pointer to MODL */
-            int    ipmtr,               /* (in)  Parameter index (1-npmtr) */
-            int    irow,                /* (in)  row    index (1-nrow) */
-            int    icol,                /* (in)  column index (1-nrow) or 0 for index */
+            int    ipmtr,               /* (in)  Parameter index (1:npmtr) */
+            int    irow,                /* (in)  row    index (1:nrow) */
+            int    icol,                /* (in)  column index (1:nrow) or 0 for index */
             char   defn[])              /* (in)  definition of Value */
 {
     int       status = SUCCESS;         /* (out) return status */
 
-    int       index;
-    double    value, dot;
+    int       index, ibrch, jpmtr, nrow, ncol, ibeg, ichange;
+    double    val, dot;
     char      str[MAX_STRVAL_LEN];
 
     modl_T    *MODL = (modl_T*)modl;
@@ -15862,14 +16235,14 @@ ocsmSetValu(void   *modl,               /* (in)  pointer to MODL */
     if (ipmtr < 1 || ipmtr > MODL->npmtr) {
         status = OCSM_ILLEGAL_PMTR_INDEX;
         goto cleanup;
-    } else if (MODL->pmtr[ipmtr].type == OCSM_OUTPUT) {
+    } else if (MODL->pmtr[ipmtr].type == OCSM_OUTPMTR) {
 
     } else if (MODL->pmtr[ipmtr].scope != MODL->scope[MODL->level]) {
         status = OCSM_ILLEGAL_PMTR_INDEX;
         goto cleanup;
     }
 
-    status = str2val(defn, MODL, &value, &dot, str);
+    status = str2val(defn, MODL, &val, &dot, str);
     CHECK_STATUS(str2val);
 
     /* special treatment for string values */
@@ -15927,29 +16300,84 @@ ocsmSetValu(void   *modl,               /* (in)  pointer to MODL */
     CHECK_STATUS(removeVels);
 
     /* evaluate the definition */
-    if (MODL->pmtr[ipmtr].type == OCSM_EXTERNAL ||
-        MODL->pmtr[ipmtr].type == OCSM_CONFIG   ||
-        MODL->pmtr[ipmtr].type == OCSM_CONSTANT   ) {
-        status = str2val(defn, NULL, &value, &dot, str);
+    if (MODL->pmtr[ipmtr].type == OCSM_DESPMTR ||
+        MODL->pmtr[ipmtr].type == OCSM_CFGPMTR ||
+        MODL->pmtr[ipmtr].type == OCSM_CONPMTR   ) {
+        status = str2val(defn, NULL, &val, &dot, str);
         CHECK_STATUS(str2val);
     } else {
-        status = str2val(defn, MODL, &value, &dot, str);
+        status = str2val(defn, MODL, &val, &dot, str);
         CHECK_STATUS(str2val);
     }
 
     /* make sure new value is in bounds */
-    if (MODL->pmtr[ipmtr].type == OCSM_EXTERNAL ||
-        MODL->pmtr[ipmtr].type == OCSM_CONFIG     ) {
-        if (value < MODL->pmtr[ipmtr].lbnd[index] ||
-            value > MODL->pmtr[ipmtr].ubnd[index]   ) {
+    if (MODL->pmtr[ipmtr].type == OCSM_DESPMTR ||
+        MODL->pmtr[ipmtr].type == OCSM_CFGPMTR   ) {
+        if (val < MODL->pmtr[ipmtr].lbnd[index] ||
+            val > MODL->pmtr[ipmtr].ubnd[index]   ) {
             status = OCSM_ILLEGAL_VALUE;
             goto cleanup;
         }
     }
 
     /* set pertinent information */
-    MODL->pmtr[ipmtr].value[index] = value;
+    MODL->pmtr[ipmtr].value[index] = val;
     MODL->pmtr[ipmtr].dot[  index] = 0;
+
+    if (MODL->pmtr[ipmtr].type != OCSM_CFGPMTR &&
+        MODL->pmtr[ipmtr].type != OCSM_DESPMTR   ) goto cleanup;
+
+    /* loop through all DIMENSION statements associated with either
+       a DESPMTR or CFGPMTR */
+    for (ibrch = 1; ibrch <= MODL->nbrch; ibrch++) {
+        if (MODL->brch[ibrch].type != OCSM_DIMENSION) continue;
+
+        for (jpmtr = 1; jpmtr <= MODL->npmtr; jpmtr++) {
+            if (MODL->pmtr[jpmtr].type != OCSM_DESPMTR &&
+                MODL->pmtr[jpmtr].type != OCSM_CFGPMTR   ) continue;
+
+            if (strcmp(MODL->pmtr[jpmtr].name, &(MODL->brch[ibrch].arg1[1])) != 0) continue;
+
+            /* determine the number of row and columns based
+               upon the current values */
+            status = str2val(MODL->brch[ibrch].arg2, MODL, &val, &dot, str);
+            CHECK_STATUS(str2val);
+            nrow = NINT(val);
+
+            status = str2val(MODL->brch[ibrch].arg3, MODL, &val, &dot, str);
+            CHECK_STATUS(str2val);
+            ncol = NINT(val);
+
+            /* if the new size is different, reallocate the arrays */
+            if (nrow*ncol != MODL->pmtr[jpmtr].nrow*MODL->pmtr[jpmtr].ncol) {
+                RALLOC(MODL->pmtr[jpmtr].value, double, nrow*ncol);
+                RALLOC(MODL->pmtr[jpmtr].dot,   double, nrow*ncol);
+                RALLOC(MODL->pmtr[jpmtr].lbnd,  double, nrow*ncol);
+                RALLOC(MODL->pmtr[jpmtr].ubnd,  double, nrow*ncol);
+                ichange = 1;
+            } else {
+                ichange = 0;
+            }
+
+            /* if there now more entries, repeat the last value */
+            ibeg = MODL->pmtr[jpmtr].nrow * MODL->pmtr[jpmtr].ncol;
+            for (index = ibeg; index < nrow*ncol; index++) {
+                MODL->pmtr[jpmtr].value[index] = MODL->pmtr[jpmtr].value[ibeg-1];
+                MODL->pmtr[jpmtr].dot[  index] = MODL->pmtr[jpmtr].dot[  ibeg-1];
+                MODL->pmtr[jpmtr].lbnd[ index] = MODL->pmtr[jpmtr].lbnd[ ibeg-1];
+                MODL->pmtr[jpmtr].ubnd[ index] = MODL->pmtr[jpmtr].ubnd[ ibeg-1];
+            }
+
+            /* finish the change */
+            MODL->pmtr[jpmtr].nrow = nrow;
+            MODL->pmtr[jpmtr].ncol = ncol;
+
+            /* make the callback if it exists and size has changed */
+            if (ichange > 0 && MODL->sizeCB != NULL) {
+                MODL->sizeCB(MODL, jpmtr, nrow, ncol);
+            }
+        }
+    }
 
 cleanup:
     return status;
@@ -15966,16 +16394,18 @@ cleanup:
 
 int
 ocsmSetValuD(void   *modl,              /* (in)  pointer to MODL */
-             int    ipmtr,              /* (in)  Parameter index (1-npmtr) */
-             int    irow,               /* (in)  row    index (1-nrow) */
-             int    icol,               /* (in)  column index (1-nrow) or 0 for index */
-             double value)              /* (in)  vlaue to set */
+             int    ipmtr,              /* (in)  Parameter index (1:npmtr) */
+             int    irow,               /* (in)  row    index (1:nrow) */
+             int    icol,               /* (in)  column index (1:nrow) or 0 for index */
+             double value)              /* (in)  value to set */
 {
     int       status = SUCCESS;         /* (out) return status */
 
     modl_T    *MODL = (modl_T*)modl;
 
-    int       index;
+    int       index, ibrch, jpmtr, nrow, ncol, ibeg, ichange;
+    double    val, dot;
+    char      str[MAX_STRVAL_LEN];
 
     ROUTINE(ocsmSetValuD);
 
@@ -15994,10 +16424,13 @@ ocsmSetValuD(void   *modl,              /* (in)  pointer to MODL */
     if (ipmtr < 1 || ipmtr > MODL->npmtr) {
         status = OCSM_ILLEGAL_PMTR_INDEX;
         goto cleanup;
-    } else if (MODL->pmtr[ipmtr].type  == OCSM_OUTPUT) {
+    } else if (MODL->pmtr[ipmtr].type  == OCSM_OUTPMTR) {
 
     } else if (MODL->pmtr[ipmtr].scope != MODL->scope[MODL->level]) {
         status = OCSM_ILLEGAL_PMTR_INDEX;
+        goto cleanup;
+    } else if (MODL->pmtr[ipmtr].type == OCSM_CONSTANT) {
+        status = OCSM_PMTR_IS_CONSTANT;
         goto cleanup;
     }
 
@@ -16029,8 +16462,8 @@ ocsmSetValuD(void   *modl,              /* (in)  pointer to MODL */
     CHECK_STATUS(removeVels);
 
     /* make sure new value is in bounds */
-    if (MODL->pmtr[ipmtr].type == OCSM_EXTERNAL ||
-        MODL->pmtr[ipmtr].type == OCSM_CONFIG     ) {
+    if (MODL->pmtr[ipmtr].type == OCSM_DESPMTR ||
+        MODL->pmtr[ipmtr].type == OCSM_CFGPMTR   ) {
         if (value < MODL->pmtr[ipmtr].lbnd[index] ||
             value > MODL->pmtr[ipmtr].ubnd[index]   ) {
             status = OCSM_ILLEGAL_VALUE;
@@ -16041,6 +16474,61 @@ ocsmSetValuD(void   *modl,              /* (in)  pointer to MODL */
     /* set pertinent information */
     MODL->pmtr[ipmtr].value[index] = value;
     MODL->pmtr[ipmtr].dot[  index] = 0;
+
+    if (MODL->pmtr[ipmtr].type != OCSM_CFGPMTR &&
+        MODL->pmtr[ipmtr].type != OCSM_DESPMTR   ) goto cleanup;
+
+    /* loop through all DIMENSION statements associated with either
+       a DESPMTR or CFGPMTR */
+    for (ibrch = 1; ibrch <= MODL->nbrch; ibrch++) {
+        if (MODL->brch[ibrch].type != OCSM_DIMENSION) continue;
+
+        for (jpmtr = 1; jpmtr <= MODL->npmtr; jpmtr++) {
+            if (MODL->pmtr[jpmtr].type != OCSM_DESPMTR &&
+                MODL->pmtr[jpmtr].type != OCSM_CFGPMTR   ) continue;
+
+            if (strcmp(MODL->pmtr[jpmtr].name, &(MODL->brch[ibrch].arg1[1])) != 0) continue;
+
+            /* determine the number of row and columns based
+               upon the current values */
+            status = str2val(MODL->brch[ibrch].arg2, MODL, &val, &dot, str);
+            CHECK_STATUS(str2val);
+            nrow = NINT(val);
+
+            status = str2val(MODL->brch[ibrch].arg3, MODL, &val, &dot, str);
+            CHECK_STATUS(str2val);
+            ncol = NINT(val);
+
+            /* if the new size is different, reallocate the arrays */
+            if (nrow*ncol != MODL->pmtr[jpmtr].nrow*MODL->pmtr[jpmtr].ncol) {
+                RALLOC(MODL->pmtr[jpmtr].value, double, nrow*ncol);
+                RALLOC(MODL->pmtr[jpmtr].dot,   double, nrow*ncol);
+                RALLOC(MODL->pmtr[jpmtr].lbnd,  double, nrow*ncol);
+                RALLOC(MODL->pmtr[jpmtr].ubnd,  double, nrow*ncol);
+                ichange = 1;
+            } else {
+                ichange = 0;
+            }
+
+            /* if there now more entries, repeat the last value */
+            ibeg = MODL->pmtr[jpmtr].nrow * MODL->pmtr[jpmtr].ncol;
+            for (index = ibeg; index < nrow*ncol; index++) {
+                MODL->pmtr[jpmtr].value[index] = MODL->pmtr[jpmtr].value[ibeg-1];
+                MODL->pmtr[jpmtr].dot[  index] = MODL->pmtr[jpmtr].dot[  ibeg-1];
+                MODL->pmtr[jpmtr].lbnd[ index] = MODL->pmtr[jpmtr].lbnd[ ibeg-1];
+                MODL->pmtr[jpmtr].ubnd[ index] = MODL->pmtr[jpmtr].ubnd[ ibeg-1];
+            }
+
+            /* finish the change */
+            MODL->pmtr[jpmtr].nrow = nrow;
+            MODL->pmtr[jpmtr].ncol = ncol;
+
+            /* make the callback if it exists and size has changed */
+            if (ichange > 0 && MODL->sizeCB != NULL) {
+                MODL->sizeCB(MODL, jpmtr, nrow, ncol);
+            }
+        }
+    }
 
 cleanup:
     return status;
@@ -16057,9 +16545,9 @@ cleanup:
 
 int
 ocsmGetBnds(void   *modl,               /* (in)  pointer to MODL */
-            int    ipmtr,               /* (in)  Parameter index (1-npmtr) */
-            int    irow,                /* (in)  row    index (1-nrow) */
-            int    icol,                /* (in)  column index (1-ncol) */
+            int    ipmtr,               /* (in)  Parameter index (1:npmtr) */
+            int    irow,                /* (in)  row    index (1:nrow) */
+            int    icol,                /* (in)  column index (1:ncol) */
             double *lbound,             /* (out) lower Bound */
             double *ubound)             /* (out) upper Bound */
 {
@@ -16092,6 +16580,9 @@ ocsmGetBnds(void   *modl,               /* (in)  pointer to MODL */
         goto cleanup;
     } else if (MODL->pmtr[ipmtr].scope != MODL->scope[MODL->level]) {
         status = OCSM_ILLEGAL_PMTR_INDEX;
+        goto cleanup;
+    } else if (MODL->pmtr[ipmtr].type == OCSM_CONSTANT) {
+        status = OCSM_PMTR_IS_CONSTANT;
         goto cleanup;
     } else if (icol == 0) {
         if (irow < 1 || irow > (MODL->pmtr[ipmtr].nrow)*(MODL->pmtr[ipmtr].ncol)) {
@@ -16131,9 +16622,9 @@ cleanup:
 
 int
 ocsmSetBnds(void   *modl,               /* (in)  pointer to MODL */
-            int    ipmtr,               /* (in)  Parameter index (1-npmtr) */
-            int    irow,                /* (in)  row    index (1-nrow) */
-            int    icol,                /* (in)  column index (1-ncol) */
+            int    ipmtr,               /* (in)  Parameter index (1:npmtr) */
+            int    irow,                /* (in)  row    index (1:nrow) */
+            int    icol,                /* (in)  column index (1:ncol) */
             double lbound,              /* (in)  lower Bound to set */
             double ubound)              /* (in)  upper Bound to set */
 {
@@ -16143,7 +16634,7 @@ ocsmSetBnds(void   *modl,               /* (in)  pointer to MODL */
 
     int       index;
 
-    ROUTINE(ocsmGetBnds);
+    ROUTINE(ocsmSetBnds);
 
     /* --------------------------------------------------------------- */
 
@@ -16188,8 +16679,8 @@ ocsmSetBnds(void   *modl,               /* (in)  pointer to MODL */
         index = (icol-1) + (irow-1) * (MODL->pmtr[ipmtr].ncol);
     }
 
-    /* check that ipmtr is an EXTERNAL parameter */
-    if (MODL->pmtr[ipmtr].type != OCSM_EXTERNAL) {
+    /* check that ipmtr is an DESPMTR parameter */
+    if (MODL->pmtr[ipmtr].type != OCSM_DESPMTR) {
         status = OCSM_ILLEGAL_PMTR_INDEX;
         goto cleanup;
     }
@@ -16270,9 +16761,9 @@ cleanup:
 
 int
 ocsmSetVel(void   *modl,                /* (in)  pointer to MODL */
-           int    ipmtr,                /* (in)  Parameter index (1-npmtr) or 0 for all */
-           int    irow,                 /* (in)  row    index (1-nrow)     or 0 for all */
-           int    icol,                 /* (in)  column index (1-nrow)     or 0 for index */
+           int    ipmtr,                /* (in)  Parameter index (1:npmtr) or 0 for all */
+           int    irow,                 /* (in)  row    index (1:nrow)     or 0 for all */
+           int    icol,                 /* (in)  column index (1:nrow)     or 0 for index */
            char   defn[])               /* (in)  definition of Velocity */
 {
     int       status = SUCCESS;         /* (out) return status */
@@ -16305,9 +16796,9 @@ ocsmSetVel(void   *modl,                /* (in)  pointer to MODL */
     } else if (ipmtr < 1 || ipmtr > MODL->npmtr) {
         status = OCSM_ILLEGAL_PMTR_INDEX;
         goto cleanup;
-    } else if (MODL->pmtr[ipmtr].type == OCSM_OUTPUT) {
+    } else if (MODL->pmtr[ipmtr].type == OCSM_OUTPMTR) {
 
-    } else if (MODL->pmtr[ipmtr].type == OCSM_CONFIG) {
+    } else if (MODL->pmtr[ipmtr].type == OCSM_CFGPMTR) {
         status = OCSM_ILLEGAL_PMTR_INDEX;
         goto cleanup;
     } else if (MODL->pmtr[ipmtr].scope != MODL->scope[MODL->level]) {
@@ -16386,9 +16877,9 @@ cleanup:
 
 int
 ocsmSetVelD(void   *modl,               /* (in)  pointer to MODL */
-            int    ipmtr,               /* (in)  Parameter index (1-npmtr) or 0 for all */
-            int    irow,                /* (in)  row    index (1-nrow)     or 0 for all */
-            int    icol,                /* (in)  column index (1-nrow)     or 0 for all */
+            int    ipmtr,               /* (in)  Parameter index (1:npmtr) or 0 for all */
+            int    irow,                /* (in)  row    index (1:nrow)     or 0 for all */
+            int    icol,                /* (in)  column index (1:nrow)     or 0 for all */
             double dot)                 /* (in)  velocity to set */
 {
     int       status = SUCCESS;         /* (out) return status */
@@ -16419,9 +16910,9 @@ ocsmSetVelD(void   *modl,               /* (in)  pointer to MODL */
     } else if (ipmtr < 1 || ipmtr > MODL->npmtr) {
         status = OCSM_ILLEGAL_PMTR_INDEX;
         goto cleanup;
-    } else if (MODL->pmtr[ipmtr].type == OCSM_OUTPUT) {
+    } else if (MODL->pmtr[ipmtr].type == OCSM_OUTPMTR) {
 
-    } else if (MODL->pmtr[ipmtr].type == OCSM_CONFIG) {
+    } else if (MODL->pmtr[ipmtr].type == OCSM_CFGPMTR) {
         status = OCSM_ILLEGAL_PMTR_INDEX;
         goto cleanup;
     } else if (MODL->pmtr[ipmtr].scope != MODL->scope[MODL->level]) {
@@ -16486,8 +16977,8 @@ cleanup:
 
 int
 ocsmGetUV(void   *modl,                 /* (in)  pointer to MODL */
-          int    ibody,                 /* (in)  Body index (bias-1) */
-          int    seltype,               /* (in)  OCSM_EDGE or OCSM_FACE (bias-1) */
+          int    ibody,                 /* (in)  Body index (1:nbody) */
+          int    seltype,               /* (in)  OCSM_EDGE or OCSM_FACE */
           int    iselect,               /* (in)  Edge of Face index (bias-1) */
           int    npnt,                  /* (in)  number of points */
 /*@null@*/double xyz[],                 /* (in)  coordinates (NULL or 3*npnt in length) */
@@ -16597,6 +17088,99 @@ cleanup:
 /*
  ************************************************************************
  *                                                                      *
+ *   ocsmGetEnt - get the entity number given FaceID or edgeID          *
+ *                                                                      *
+ ************************************************************************
+ */
+
+int
+ocsmGetEnt(void   *modl,                /* (in)  pointer to MODL */
+           int    ibody,                /* (in)  Body index (1:nbody) */
+           int    seltype,              /* (in)  OCSM_NODE, OCSM_EDGE, or OCSM_FACE */
+           int    entID[],              /* (in)  edgeID or faceID */
+           int    *ient)                /* (out) entity number */
+{
+    int       status = SUCCESS;         /* (out) return status */
+
+    modl_T    *MODL = (modl_T*)modl;
+
+    int       iedge, iface, itype, nlist;
+    CINT      *tempIlist;
+    CDOUBLE   *tempRlist;
+    CCHAR     *tempClist;
+
+    ROUTINE(ocsmGetEnt);
+
+    /* --------------------------------------------------------------- */
+
+    /* default return */
+    *ient = 0;
+
+    /* check magic number */
+    if (MODL == NULL) {
+        status = OCSM_NOT_MODL_STRUCTURE;
+        goto cleanup;
+    } else if (MODL->magic != OCSM_MAGIC) {
+        status = OCSM_NOT_MODL_STRUCTURE;
+        goto cleanup;
+    } else if (ibody < 1 || ibody > MODL->nbody) {
+        status = OCSM_ILLEGAL_BODY_INDEX;
+        goto cleanup;
+    }
+
+    /* OCSM_EDGE was prescribed */
+    if (seltype == OCSM_EDGE) {
+        for (iedge = 1; iedge <= MODL->body[ibody].nedge; iedge++) {
+            status = EG_attributeRet(MODL->body[ibody].edge[iedge].eedge,
+                                     "_edgeID", &itype, &nlist,
+                                     &tempIlist, &tempRlist, &tempClist);
+            if (status == EGADS_SUCCESS && itype == ATTRINT && nlist == 5) {
+                if (entID[0] == tempIlist[0] &&
+                    entID[1] == tempIlist[1] &&
+                    entID[2] == tempIlist[2] &&
+                    entID[3] == tempIlist[3] &&
+                    entID[4] == tempIlist[4]   ) {
+                    *ient = iedge;
+                    goto cleanup;
+                }
+            }
+        }
+
+        status = OCSM_EDGE_NOT_FOUND;
+
+    /* OCSM_FACE was prescribed */
+    } else if (seltype == OCSM_FACE) {
+        for (iface = 1; iface <= MODL->body[ibody].nface; iface++) {
+            status = EG_attributeRet(MODL->body[ibody].face[iface].eface,
+                                     "_faceID", &itype, &nlist,
+                                     &tempIlist, &tempRlist, &tempClist);
+            if (status == EGADS_SUCCESS && itype == ATTRINT && nlist == 3) {
+                if (entID[0] == tempIlist[0] &&
+                    entID[1] == tempIlist[1] &&
+                    entID[2] == tempIlist[2]   ) {
+                    *ient = iface;
+                    goto cleanup;
+                }
+            }
+        }
+
+        status = OCSM_FACE_NOT_FOUND;
+
+    /* bad value for seltype */
+    } else {
+        status = OCSM_ILLEGAL_ARGUMENT;
+        goto cleanup;
+    }
+
+cleanup:
+
+    return status;
+}
+
+
+/*
+ ************************************************************************
+ *                                                                      *
  *   ocsmGetXYZ - get the coordinates on a Node, Edge, or Face          *
  *                                                                      *
  ************************************************************************
@@ -16604,7 +17188,7 @@ cleanup:
 
 int
 ocsmGetXYZ(void   *modl,                /* (in)  pointer to MODL */
-           int    ibody,                /* (in)  Body index (bias-1) */
+           int    ibody,                /* (in)  Body index (1:nbody) */
            int    seltype,              /* (in)  OCSM_NODE, OCSM_EDGE, or OCSM_FACE */
            int    iselect,              /* (in)  Node, Edge, or Face index (bias-1) */
            int    npnt,                 /* (in)  number of points */
@@ -16751,8 +17335,8 @@ cleanup:
 
 int
 ocsmGetNorm(void   *modl,               /* (in)  pointer to MODL */
-            int    ibody,               /* (in)  Body index (bias-1) */
-            int    iface,               /* (in)  Face index (bias-1) */
+            int    ibody,               /* (in)  Body index (1:nbody) */
+            int    iface,               /* (in)  Face index (1:nface) */
             int    npnt,                /* (in)  number of points */
   /*@null@*/double uv[],                /* (in)  para coords (NULL or 2*npnt in length) */
             double norm[])              /* (out) normals (3*npnt in length) */
@@ -16849,7 +17433,7 @@ cleanup:
 
 int
 ocsmGetVel(void   *modl,                /* (in)  pointer to MODL */
-           int    ibody,                /* (in)  Body index (bias-1) */
+           int    ibody,                /* (in)  Body index (1:nbody) */
            int    seltype,              /* (in)  OCSM_NODE, OCSM_EDGE, or OCSM_FACE */
            int    iselect,              /* (in)  Node, Edge, or Face index (bias-1) */
            int    npnt,                 /* (in)  number of points */
@@ -17190,6 +17774,86 @@ cleanup:
 /*
  ************************************************************************
  *                                                                      *
+ *   ocsmGetTessNpnt - get the number of tess points on an Edge or Face *
+ *                                                                      *
+ ************************************************************************
+ */
+
+int
+ocsmGetTessNpnt(void   *modl,           /* (in)  pointer to MODL */
+                int    ibody,           /* (in)  Body index (1:nbody) */
+                int    seltype,         /* (in)  OCSM_EDGE or OCSM_FACE */
+                int    iselect,         /* (in)  Edges or Face index (bias-1) */
+                int    *npnt)           /* (out) number of points */
+{
+    int       status = SUCCESS;         /* (out) return status */
+
+    int       iedge, iface, ntri;
+    CINT      *ptype, *pindx, *tris, *tric;
+    CDOUBLE   *xyz, *t, *uv;
+
+    modl_T    *MODL = (modl_T*)modl;
+
+    ROUTINE(ocsmGetTessNpnt);
+
+    /* --------------------------------------------------------------- */
+
+    /* default return */
+    *npnt = 0;
+
+    /* check magic number */
+    if (MODL == NULL) {
+        status = OCSM_NOT_MODL_STRUCTURE;
+        goto cleanup;
+    } else if (MODL->magic != OCSM_MAGIC) {
+        status = OCSM_NOT_MODL_STRUCTURE;
+        goto cleanup;
+    } else if (ibody < 1 || ibody > MODL->nbody) {
+        status = OCSM_ILLEGAL_BODY_INDEX;
+        goto cleanup;
+    }
+
+    /* OCSM_EDGE */
+    if (seltype == OCSM_EDGE) {
+        iedge = iselect;
+
+        if (iedge < 1 || iedge > MODL->body[ibody].nedge) {
+            status = OCSM_EDGE_NOT_FOUND;
+            goto cleanup;
+        }
+
+        status = EG_getTessEdge(MODL->body[ibody].etess, iedge,
+                                npnt, &xyz, &t);
+        CHECK_STATUS(EG_getTessEdge);
+
+    /* OCSM_FACE */
+    } else if (seltype == OCSM_FACE) {
+        iface = iselect;
+
+        if (iface < 1 || iface > MODL->body[ibody].nface) {
+            status = OCSM_FACE_NOT_FOUND;
+            goto cleanup;
+        }
+
+        status = EG_getTessFace(MODL->body[ibody].etess, iface,
+                                npnt, &xyz, &uv, &ptype, &pindx,
+                                &ntri, &tris, &tric);
+        CHECK_STATUS(EG_getTessFace)
+
+    /* bad seltype */
+    } else {
+        status = OCSM_ILLEGAL_ARGUMENT;
+        goto cleanup;
+    }
+
+cleanup:
+    return status;
+}
+
+
+/*
+ ************************************************************************
+ *                                                                      *
  *   ocsmGetTessVel - get the tessellation velocities on Node, Edge, or Face *
  *                                                                      *
  ************************************************************************
@@ -17197,9 +17861,9 @@ cleanup:
 
 int
 ocsmGetTessVel(void   *modl,            /* (in)  pointer to MODL */
-               int    ibody,            /* (in)  Body index (bias-1) */
+               int    ibody,            /* (in)  Body index (1:nbody) */
                int    seltype,          /* (in)  OCSM_NODE, OCSM_EDGE, or OCSM_FACE */
-               int    iselect,          /* (in)  Node, Edges, or face index (bias-1) */
+               int    iselect,          /* (in)  Node, Edges, or Face index (bias-1) */
                CDOUBLE *dxyz[])         /* (out) pointer to storage containing velocities */
 {
     int       status = SUCCESS;         /* (out) return status */
@@ -17293,7 +17957,7 @@ cleanup:
 
 int
 ocsmGetBody(void   *modl,               /* (in)  pointer to MODL */
-            int    ibody,               /* (in)  Body index (1-nbody) */
+            int    ibody,               /* (in)  Body index (1:nbody) */
             int    *type,               /* (out) Branch type */
             int    *ichld,              /* (out) ibody of child (or 0 if root) */
             int    *ileft,              /* (out) ibody of left parent (or 0) */
@@ -17373,14 +18037,16 @@ cleanup:
 
 int
 ocsmPrintBodys(void   *modl,            /* (in)  pointer to MODL */
-               FILE   *fp)              /* (in)  pointer to FILE */
+               char   filename[])       /* (in)  file to which output is appended (or "" for stdout) */
 {
     int       status = SUCCESS;         /* (out) return status */
 
     modl_T    *MODL = (modl_T*)modl;
 
-    int       ibody, iarg;
-    double    CPU=0;
+    int       ibody, iarg, oclass, mtype, nchild, *senses;
+    double    data[4], CPU=0;
+    ego       eref, *echilds;
+    FILE      *fp=NULL;
 
     ROUTINE(ocsmPrintBodys);
 
@@ -17393,6 +18059,16 @@ ocsmPrintBodys(void   *modl,            /* (in)  pointer to MODL */
     } else if (MODL->magic != OCSM_MAGIC) {
         status = OCSM_NOT_MODL_STRUCTURE;
         goto cleanup;
+    }
+
+    if (strlen(filename) == 0) {
+        fp = stdout;
+    } else {
+        fp = fopen(filename, "a");
+        if (fp == NULL) {
+            status = OCSM_FILE_NOT_FOUND;
+            goto cleanup;
+        }
     }
 
     /* return message if no Bodys */
@@ -17438,11 +18114,49 @@ ocsmPrintBodys(void   *modl,            /* (in)  pointer to MODL */
         fprintf(fp, "\n");
 
         CPU += MODL->body[ibody].CPU;
+
+        /* check that to Bodys are actually the right type */
+        if        (MODL->body[ibody].botype == OCSM_WIRE_BODY) {
+            status = EG_getTopology(MODL->body[ibody].ebody, &eref, &oclass, &mtype,
+                                    data, &nchild, &echilds, &senses);
+            CHECK_STATUS(EG_getTopology);
+
+            if (oclass != BODY || mtype != WIREBODY) {
+                status = OCSM_INTERNAL_ERROR;
+                signalError(MODL, status,
+                            "bodyType mismatch: oclass=%d, mtype=%d", oclass, mtype);
+                goto cleanup;
+            }
+        } else if (MODL->body[ibody].botype == OCSM_SHEET_BODY) {
+            status = EG_getTopology(MODL->body[ibody].ebody, &eref, &oclass, &mtype,
+                                    data, &nchild, &echilds, &senses);
+            CHECK_STATUS(EG_getTopology);
+
+            if (oclass != BODY || (mtype != FACEBODY && mtype != SHEETBODY)) {
+                status = OCSM_INTERNAL_ERROR;
+                signalError(MODL, status,
+                            "bodyType mismatch: oclass=%d, mtype=%d", oclass, mtype);
+                goto cleanup;
+            }
+        } else if (MODL->body[ibody].botype == OCSM_SOLID_BODY) {
+            status = EG_getTopology(MODL->body[ibody].ebody, &eref, &oclass, &mtype,
+                                    data, &nchild, &echilds, &senses);
+            CHECK_STATUS(EG_getTopology);
+
+            if (oclass != BODY || mtype != SOLIDBODY) {
+                status = OCSM_INTERNAL_ERROR;
+                signalError(MODL, status,
+                            "bodyType mismatch: oclass=%d, mtype=%d", oclass, mtype);
+                goto cleanup;
+            }
+        }
     }
 
     fprintf(fp, "                                             total %8.3f\n", CPU);
 
 cleanup:
+    if (fp != NULL && strlen(filename) > 0) fclose(fp);
+
     return status;
 }
 
@@ -17457,8 +18171,8 @@ cleanup:
 
 int
 ocsmPrintBrep(void   *modl,             /* (in)  pointer to MODL */
-              int    ibody,             /* (in)  Body index (1-nbody) */
-              FILE   *fp)               /* (in)  pointer to FILE */
+              int    ibody,             /* (in)  Body index (1:nbody) */
+              char   filename[])        /* (in)  file to which output is appended (or "" for stdout) */
 {
     int       status = SUCCESS;         /* (out) return status */
 
@@ -17468,6 +18182,7 @@ ocsmPrintBrep(void   *modl,             /* (in)  pointer to MODL */
     CDOUBLE   *tempRlist;
     CCHAR     *tempClist, *attrName;
     ego       *enodes, *eedges, *efaces;
+    FILE      *fp=NULL;
 
     modl_T    *MODL = (modl_T*)modl;
 
@@ -17488,6 +18203,16 @@ ocsmPrintBrep(void   *modl,             /* (in)  pointer to MODL */
     if (ibody < 1 || ibody > MODL->nbody) {
         status = OCSM_ILLEGAL_BODY_INDEX;
         goto cleanup;
+    }
+
+    if (strlen(filename) == 0) {
+        fp = stdout;
+    } else {
+        fp = fopen(filename, "a");
+        if (fp == NULL) {
+            status = OCSM_FILE_NOT_FOUND;
+            goto cleanup;
+        }
     }
 
     /* print Body info */
@@ -17716,6 +18441,8 @@ ocsmPrintBrep(void   *modl,             /* (in)  pointer to MODL */
     }
 
 cleanup:
+    if (fp != NULL && strlen(filename) > 0) fclose(fp);
+
     return status;
 }
 
@@ -17836,6 +18563,17 @@ ocsmPrintEgo(
         SPRINT1(0, "EG_getContext -> status=%d", status);
     }
 
+    status = EG_getInfo(obj, &oclass0, &mtype0, &topref, &prev, &next);
+    if (status != EGADS_SUCCESS) {
+        return;
+    } else if (oclass0 == CURVE || oclass0 == PCURVE) {
+        SPRINT2(0, "oclass=%s, mtype=%s", classname[oclass0], mtypename1[mtype0]);
+        return;
+    } else if (oclass0 == SURFACE) {
+        SPRINT2(0, "oclass=%s, mtype=%s", classname[oclass0], mtypename2[mtype0]);
+        return;
+    }
+
     status = EG_getTopology(obj, &eref0, &oclass0, &mtype0,
                             data0, &nchild0, &ebodys0, &senses0);
     if (status != EGADS_SUCCESS) {
@@ -17867,7 +18605,9 @@ ocsmPrintEgo(
         SPRINT8(0, "oclass0=%3d (%s)  mtype0=%3d (%s)  obj=%llx,  eref0=%llx (%d:%d)",
                 oclass0, classname[oclass0], mtype0, mtypename, (long long)obj, (long long)eref0, oclass, mtype);
 
-        if (oclass0 == LOOP) {
+        if (oclass0 == EDGE) {
+            SPRINT2(0, "< trange=%10.5f %10.5f", data0[0], data0[1]);
+        } else if (oclass0 == LOOP) {
             SPRINT0x(0, "< senses=");
             for (i = 0; i < nchild0; i++) {
                 SPRINT1x(0, "%2d ", senses0[i]);
@@ -17949,7 +18689,9 @@ ocsmPrintEgo(
             SPRINT8(0, ". oclass1=%3d (%s)  mtype1=%3d (%s)  obj=%llx,  eref1=%llx (%d:%d)",
                     oclass1, classname[oclass1], mtype1, mtypename, (long long)(ebodys0[ichild0]), (long long)eref1, oclass, mtype);
 
-            if (oclass1 == LOOP) {
+            if (oclass1 == EDGE) {
+                SPRINT2(0, ". < trange=%10.5f %10.5f", data1[0], data1[1]);
+            } else if (oclass1 == LOOP) {
                 SPRINT0x(0, ". < senses=");
                 for (i = 0; i < nchild1; i++) {
                     SPRINT1x(0, "%2d ", senses1[i]);
@@ -18017,7 +18759,9 @@ ocsmPrintEgo(
                 SPRINT8(0, ". . oclass2=%3d (%s)  mtype2=%3d (%s)  obj=%llx,  eref2=%llx (%d:%d)",
                         oclass2, classname[oclass2], mtype2, mtypename, (long long)(ebodys1[ichild1]), (long long)eref2, oclass, mtype);
 
-                if (oclass2 == LOOP) {
+                if (oclass2 == EDGE) {
+                    SPRINT2(0, ". . < trange=%10.5f %10.5f", data2[0], data2[1]);
+                } else if (oclass2 == LOOP) {
                     SPRINT0x(0, ". . < senses=");
                     for (i=0; i < nchild2; i++) {
                         SPRINT1x(0, "%2d ", senses2[i]);
@@ -18085,7 +18829,9 @@ ocsmPrintEgo(
                     SPRINT8(0, ". . . oclass3=%3d (%s)  mtype3=%3d (%s)  obj=%llx,  eref3=%llx (%d:%d)",
                             oclass3, classname[oclass3], mtype3, mtypename, (long long)(ebodys2[ichild2]), (long long)eref3, oclass, mtype);
 
-                    if (oclass3 == LOOP) {
+                    if (oclass3 == EDGE) {
+                        SPRINT2(0, ". . . < trange=%10.5f %10.5f", data3[0], data3[1]);
+                    } else if (oclass3 == LOOP) {
                         SPRINT0x(0, ". . . < senses=");
                         for (i=0; i < nchild3; i++) {
                             SPRINT1x(0, "%2d ", senses3[i]);
@@ -18153,7 +18899,9 @@ ocsmPrintEgo(
                         SPRINT8(0, ". . . . oclass4=%3d (%s)  mtype4=%3d (%s)  obj=%llx,  eref4=%llx (%d:%d)",
                                 oclass4, classname[oclass4], mtype4, mtypename, (long long)(ebodys3[ichild3]), (long long)eref4, oclass, mtype);
 
-                        if (oclass4 == LOOP) {
+                        if (oclass4 == EDGE) {
+                            SPRINT2(0, ". . . . < trange=%10.5f %10.5f", data4[0], data4[1]);
+                        } else if (oclass4 == LOOP) {
                             SPRINT0x(0, ". . . . < senses=");
                             for (i=0; i < nchild4; i++) {
                                 SPRINT1x(0, "%2d ", senses4[i]);
@@ -18221,7 +18969,9 @@ ocsmPrintEgo(
                             SPRINT8(0, ". . . . . oclass5=%3d (%s)  mtype5=%3d (%s)  obj=%llx,  eref5=%llx (%d:%d)",
                                     oclass5, classname[oclass5], mtype5, mtypename, (long long)(ebodys4[ichild4]), (long long)eref5, oclass, mtype);
 
-                            if (oclass5 == LOOP) {
+                            if (oclass5 == EDGE) {
+                                SPRINT2(0, ". . . . . < trange=%10.5f %10.5f", data5[0], data5[1]);
+                            } else if (oclass5 == LOOP) {
                                 SPRINT0x(0, ". . . . . < senses=");
                                 for (i=0; i < nchild5; i++) {
                                     SPRINT1x(0, "%2d ", senses5[i]);
@@ -18289,8 +19039,10 @@ ocsmPrintEgo(
                                 SPRINT8(0, ". . . . . . oclass6=%3d (%s)  mtype6=%3d (%s)  obj=%llx,  eref6=%llx (%d:%d)",
                                         oclass6, classname[oclass6], mtype6, mtypename, (long long)(ebodys5[ichild5]), (long long)eref6, oclass, mtype);
 
-                                if (oclass6 == LOOP) {
-                                    SPRINT0x(0, ". . . . . < senses=");
+                                if (oclass6 == EDGE) {
+                                    SPRINT2(0, ". . . . . . < trange=%10.5f %10.5f", data6[0], data6[1]);
+                                } else if (oclass6 == LOOP) {
+                                    SPRINT0x(0, ". . . . . . < senses=");
                                     for (i=0; i < nchild6; i++) {
                                         SPRINT1x(0, "%2d ", senses6[i]);
                                     }
@@ -18349,10 +19101,6 @@ ocsmGetText(int    icode)               /* (in)  code to look up */
     static char    success[]                          = "success";
 
     static char    ocsm_dimension[]                   = "dimension";
-    static char    ocsm_cfgpmtr[]                     = "cfgpmtr";
-    static char    ocsm_conpmtr[]                     = "conpmtr";
-    static char    ocsm_despmtr[]                     = "despmtr";
-    static char    ocsm_outpmtr[]                     = "outpmtr";
     static char    ocsm_lbound[]                      = "lbound";
     static char    ocsm_ubound[]                      = "ubound";
     static char    ocsm_name[]                        = "name";
@@ -18438,6 +19186,7 @@ ocsmGetText(int    icode)               /* (in)  code to look up */
     static char    ocsm_group[]                       = "group";
     static char    ocsm_dump[]                        = "dump";
     static char    ocsm_assert[]                      = "assert";
+    static char    ocsm_message[]                     = "message";
     static char    ocsm_special[]                     = "special";
 
     static char    ocsm_primitive[]                   = "primitive";
@@ -18460,11 +19209,11 @@ ocsmGetText(int    icode)               /* (in)  code to look up */
     static char    ocsm_node_body[]                   = "node_body";
     static char    ocsm_null_body[]                   = "null_body";
 
-    static char    ocsm_external[]                    = "external";
-    static char    ocsm_config[]                      = "config";
-    static char    ocsm_constant[]                    = "constant";
-    static char    ocsm_internal[]                    = "internal";
-    static char    ocsm_output[]                      = "output";
+    static char    ocsm_despmtr[]                     = "despmtr";
+    static char    ocsm_cfgpmtr[]                     = "cfgpmtr";
+    static char    ocsm_conpmtr[]                     = "conpmtr";
+    static char    ocsm_localvar[]                    = "localvar";
+    static char    ocsm_outpmtr[]                     = "outpmtr";
     static char    ocsm_unknown[]                     = "unknown";
 
     static char    ocsm_node[]                        = "node";
@@ -18524,10 +19273,10 @@ ocsmGetText(int    icode)               /* (in)  code to look up */
 
     static char    ocsm_name_not_found[]              = "name_not_found";
     static char    ocsm_name_not_unique[]             = "name_not_unique";
-    static char    ocsm_pmtr_is_external[]            = "pmtr_is_external";
-    static char    ocsm_pmtr_is_internal[]            = "pmtr_is_internal";
-    static char    ocsm_pmtr_is_output[]              = "pmtr_is_output";
-    static char    ocsm_pmtr_is_constant[]            = "pmtr_is_constant";
+    static char    ocsm_pmtr_is_despmtr[]             = "pmtr_is_despmtr";
+    static char    ocsm_pmtr_is_localvar[]            = "pmtr_is_localvar";
+    static char    ocsm_pmtr_is_outpmtr[]             = "pmtr_is_outpmtr";
+    static char    ocsm_pmtr_is_conpmtr[]             = "pmtr_is_conpmtr";
     static char    ocsm_wrong_pmtr_type[]             = "wrong_pmtr_type";
     static char    ocsm_func_arg_out_of_bounds[]      = "func_arg_out_of_bounds";
     static char    ocsm_val_stack_underflow[]         = "val_stack_underflow";
@@ -18609,10 +19358,6 @@ ocsmGetText(int    icode)               /* (in)  code to look up */
 
     /* not branches */
     if (icode == OCSM_DIMENSION                  ) return ocsm_dimension;
-    if (icode == OCSM_CFGPMTR                    ) return ocsm_cfgpmtr;
-    if (icode == OCSM_CONPMTR                    ) return ocsm_conpmtr;
-    if (icode == OCSM_DESPMTR                    ) return ocsm_despmtr;
-    if (icode == OCSM_OUTPMTR                    ) return ocsm_outpmtr;
     if (icode == OCSM_LBOUND                     ) return ocsm_lbound;
     if (icode == OCSM_UBOUND                     ) return ocsm_ubound;
     if (icode == OCSM_NAME                       ) return ocsm_name;
@@ -18706,6 +19451,7 @@ ocsmGetText(int    icode)               /* (in)  code to look up */
     if (icode == OCSM_GROUP                      ) return ocsm_group;
     if (icode == OCSM_DUMP                       ) return ocsm_dump;
     if (icode == OCSM_ASSERT                     ) return ocsm_assert;
+    if (icode == OCSM_MESSAGE                    ) return ocsm_message;
     if (icode == OCSM_SPECIAL                    ) return ocsm_special;
 
     /* Branch classes */
@@ -18732,11 +19478,11 @@ ocsmGetText(int    icode)               /* (in)  code to look up */
     if (icode == OCSM_NULL_BODY                  ) return ocsm_null_body;
 
     /* Parameter types */
-    if (icode == OCSM_EXTERNAL                   ) return ocsm_external;
-    if (icode == OCSM_CONFIG                     ) return ocsm_config;
-    if (icode == OCSM_CONSTANT                   ) return ocsm_constant;
-    if (icode == OCSM_INTERNAL                   ) return ocsm_internal;
-    if (icode == OCSM_OUTPUT                     ) return ocsm_output;
+    if (icode == OCSM_DESPMTR                    ) return ocsm_despmtr;
+    if (icode == OCSM_CFGPMTR                    ) return ocsm_cfgpmtr;
+    if (icode == OCSM_CONPMTR                    ) return ocsm_conpmtr;
+    if (icode == OCSM_LOCALVAR                   ) return ocsm_localvar;
+    if (icode == OCSM_OUTPMTR                    ) return ocsm_outpmtr;
     if (icode == OCSM_UNKNOWN                    ) return ocsm_unknown;
 
     /* Selector types */
@@ -18797,10 +19543,10 @@ ocsmGetText(int    icode)               /* (in)  code to look up */
 
     if (icode == OCSM_NAME_NOT_FOUND             ) return ocsm_name_not_found;
     if (icode == OCSM_NAME_NOT_UNIQUE            ) return ocsm_name_not_unique;
-    if (icode == OCSM_PMTR_IS_EXTERNAL           ) return ocsm_pmtr_is_external;
-    if (icode == OCSM_PMTR_IS_INTERNAL           ) return ocsm_pmtr_is_internal;
-    if (icode == OCSM_PMTR_IS_OUTPUT             ) return ocsm_pmtr_is_output;
-    if (icode == OCSM_PMTR_IS_CONSTANT           ) return ocsm_pmtr_is_constant;
+    if (icode == OCSM_PMTR_IS_DESPMTR            ) return ocsm_pmtr_is_despmtr;
+    if (icode == OCSM_PMTR_IS_LOCALVAR           ) return ocsm_pmtr_is_localvar;
+    if (icode == OCSM_PMTR_IS_OUTPMTR            ) return ocsm_pmtr_is_outpmtr;
+    if (icode == OCSM_PMTR_IS_CONPMTR            ) return ocsm_pmtr_is_conpmtr;
     if (icode == OCSM_WRONG_PMTR_TYPE            ) return ocsm_wrong_pmtr_type;
     if (icode == OCSM_FUNC_ARG_OUT_OF_BOUNDS     ) return ocsm_func_arg_out_of_bounds;
     if (icode == OCSM_VAL_STACK_UNDERFLOW        ) return ocsm_val_stack_underflow;
@@ -18900,10 +19646,6 @@ ocsmGetCode(char   *text)               /* (in)  text to look up */
 
     /* not a branch */
     if (strcmp(text, "dimension" ) == 0) return OCSM_DIMENSION;
-    if (strcmp(text, "cfgpmtr"   ) == 0) return OCSM_CFGPMTR;
-    if (strcmp(text, "conpmtr"   ) == 0) return OCSM_CONPMTR;
-    if (strcmp(text, "despmtr"   ) == 0) return OCSM_DESPMTR;
-    if (strcmp(text, "outpmtr"   ) == 0) return OCSM_OUTPMTR;
     if (strcmp(text, "lbound"    ) == 0) return OCSM_LBOUND;
     if (strcmp(text, "ubound"    ) == 0) return OCSM_UBOUND;
     if (strcmp(text, "name"      ) == 0) return OCSM_NAME;
@@ -18998,6 +19740,7 @@ ocsmGetCode(char   *text)               /* (in)  text to look up */
     if (strcmp(text, "group"     ) == 0) return OCSM_GROUP;
     if (strcmp(text, "dump"      ) == 0) return OCSM_DUMP;
     if (strcmp(text, "assert"    ) == 0) return OCSM_ASSERT;
+    if (strcmp(text, "message"   ) == 0) return OCSM_MESSAGE;
     if (strcmp(text, "special"   ) == 0) return OCSM_SPECIAL;
 
     /* Branch classes */
@@ -19024,11 +19767,11 @@ ocsmGetCode(char   *text)               /* (in)  text to look up */
     if (strcmp(text, "null_body" ) == 0) return OCSM_NULL_BODY;
 
     /* Parameter types */
-    if (strcmp(text, "external"  ) == 0) return OCSM_EXTERNAL;
-    if (strcmp(text, "config"    ) == 0) return OCSM_CONFIG;
-    if (strcmp(text, "constant"  ) == 0) return OCSM_CONSTANT;
-    if (strcmp(text, "internal"  ) == 0) return OCSM_INTERNAL;
-    if (strcmp(text, "output"    ) == 0) return OCSM_OUTPUT;
+    if (strcmp(text, "despmtr"   ) == 0) return OCSM_DESPMTR;
+    if (strcmp(text, "cfgpmtr"   ) == 0) return OCSM_CFGPMTR;
+    if (strcmp(text, "conpmtr"   ) == 0) return OCSM_CONPMTR;
+    if (strcmp(text, "localvar"  ) == 0) return OCSM_LOCALVAR;
+    if (strcmp(text, "outpmtr"   ) == 0) return OCSM_OUTPMTR;
     if (strcmp(text, "unknown"   ) == 0) return OCSM_UNKNOWN;
 
     /* Selector type */
@@ -19059,7 +19802,7 @@ adjustFileSpec(FILE   *csm_file,        /* (in)  pointer to current .csm file */
 
     int       itmp, i;
     char      tmpfilename[MAX_LINE_LEN], tmpfileline[MAX_LINE_LEN];
-    char      pathname[MAX_EXPR_LEN];
+    char      pathname[MAX_EXPR_LEN], *thisChar;
     FILE      *tmp_file=NULL;
 
     ROUTINE(adjustFileSpec);
@@ -19085,7 +19828,11 @@ adjustFileSpec(FILE   *csm_file,        /* (in)  pointer to current .csm file */
                     (*linenum)++;
                     if (fgets(tmpfileline, MAX_LINE_LEN, csm_file) == NULL) break;
 
-                    if (strncmp(tmpfileline, ">>", 2) == 0) {
+                    thisChar = tmpfileline;
+                    while (*thisChar == ' ' || *thisChar == '\t') {
+                        thisChar++;
+                    }
+                    if (strncmp(thisChar, ">>", 2) == 0) {
                         break;
                     }
 
@@ -19132,7 +19879,7 @@ adjustFileSpec(FILE   *csm_file,        /* (in)  pointer to current .csm file */
 
 static int
 buildApplied(modl_T *modl,              /* (in)  pointer to MODL */
-             int    ibrch,              /* (in)  Branch index (bias-1) */
+             int    ibrch,              /* (in)  Branch index (1:nbrch) */
              varg_T args[],             /* (in)  array of arguments */
              int    *nstack,            /* (both) number of Bodys on stack */
              int    stack[],            /* (both) array  of Bodys on stack */
@@ -19524,8 +20271,8 @@ buildApplied(modl_T *modl,              /* (in)  pointer to MODL */
         status = getBodyTolerance(MODL->body[ibody].ebody, &toler);
         CHECK_STATUS(getBodyTolerance);
 
-        SPRINT2(1, "                          Body   %4d created  (toler=%11.4e)",
-                ibody, toler);
+        SPRINT5(1, "                          Body   %4d created  (toler=%11.4e, nnode=%4d, nedge=%4d, nface=%4d)",
+                ibody, toler, MODL->body[ibody].nnode, MODL->body[ibody].nedge, MODL->body[ibody].nface);
 
     /* execute: "chamfer radius edgeList=0 listStyle=0" */
     } else if (type == OCSM_CHAMFER) {
@@ -19893,8 +20640,8 @@ buildApplied(modl_T *modl,              /* (in)  pointer to MODL */
         status = getBodyTolerance(MODL->body[ibody].ebody, &toler);
         CHECK_STATUS(getBodyTolerance);
 
-        SPRINT2(1, "                          Body   %4d created  (toler=%11.4e)",
-                ibody, toler);
+        SPRINT5(1, "                          Body   %4d created  (toler=%11.4e, nnode=%4d, nedge=%4d, nface=%4d)",
+                ibody, toler, MODL->body[ibody].nnode, MODL->body[ibody].nedge, MODL->body[ibody].nface);
 
     /* execute: "hollow thick=0 entList=0 listStyle=0" */
     } else if (type == OCSM_HOLLOW) {
@@ -20006,7 +20753,11 @@ buildApplied(modl_T *modl,              /* (in)  pointer to MODL */
 
             /* note: facemap1 freed below */
             status = EG_hollowBody(ebodyl, nremove, eflist, args[1].val[0], 1, &ebody, &facemap1);
-            CHECK_STATUS(EG_hollowBody);
+            if (status != EGADS_SUCCESS) {
+                signalError(MODL, status,
+                            "HOLLOW failed to produce a Body");
+                goto cleanup;
+            }
 
             MODL->body[ibody].ebody = ebody;
 
@@ -20070,7 +20821,11 @@ buildApplied(modl_T *modl,              /* (in)  pointer to MODL */
             }
 
             status = EG_hollowBody(ebodyl, nremove, eelist, args[1].val[0], 1, &eface, NULL);
-            CHECK_STATUS(EG_hollowBody);
+            if (status != EGADS_SUCCESS) {
+                signalError(MODL, status,
+                            "HOLLOW failed to produce a Body");
+                goto cleanup;
+            }
 
             FREE(eelist);
 
@@ -20371,7 +21126,11 @@ buildApplied(modl_T *modl,              /* (in)  pointer to MODL */
 
                     if (imatch == 1) {
                         status = EG_hollowBody(efaces[iface], 0, NULL, args[1].val[0], 1, &eface, NULL);
-                        CHECK_STATUS(EG_hollowBody);
+                        if (status != EGADS_SUCCESS) {
+                            signalError(MODL, status,
+                                        "HOLLOW failed to produce a Body");
+                            goto cleanup;
+                        }
 
                         efaces[iface] = eface;
                     }
@@ -20524,8 +21283,8 @@ buildApplied(modl_T *modl,              /* (in)  pointer to MODL */
         status = getBodyTolerance(MODL->body[ibody].ebody, &toler);
         CHECK_STATUS(getBodyTolerance);
 
-        SPRINT2(1, "                          Body   %4d created  (toler=%11.4e)",
-                ibody, toler);
+        SPRINT5(1, "                          Body   %4d created  (toler=%11.4e, nnode=%4d, nedge=%4d, nface=%4d)",
+                ibody, toler, MODL->body[ibody].nnode, MODL->body[ibody].nedge, MODL->body[ibody].nface);
     }
 
 cleanup:
@@ -20552,7 +21311,7 @@ cleanup:
 
 static int
 buildBoolean(modl_T *modl,              /* (in)  pointer to MODL */
-             int    ibrch,              /* (in)  Branch index (bias-1) */
+             int    ibrch,              /* (in)  Branch index (1:nbrch) */
              varg_T args[],             /* (in)  array of arguments */
              int    *nstack,            /* (both) number of Bodys on stack */
              int    stack[],            /* (both) array  of Bodys on stack */
@@ -20578,9 +21337,6 @@ buildBoolean(modl_T *modl,              /* (in)  pointer to MODL */
     int         nnn, nEdgeList, nEdgeListl, nEdgeListr, iii, jjj, iadd;
     int         *sensesl, *sensesr, nFaceList;
 
-//$$$//fhr
-//$$$        int         parabool[10], para_inst;
-//$$$//fhr
     int         isub, nloopl, nloopr, *sensesc=NULL, *idatal, *idatar, npnt, ntri, nn, periodic;
     CINT        *ptype, *pindx, *tris, *tric, *tempIlist;
     double      data[20], xyz[3], dirn[4], matrix[12], area, bbox1[6], bbox2[6], length, dot;
@@ -20772,8 +21528,8 @@ buildBoolean(modl_T *modl,              /* (in)  pointer to MODL */
                     status = getBodyTolerance(MODL->body[ibody].ebody, &toler);
                     CHECK_STATUS(getBodyTolerance);
 
-                    SPRINT2(1, "                          Body   %4d created  (toler=%11.4e)",
-                            ibody, toler);
+                    SPRINT5(1, "                          Body   %4d created  (toler=%11.4e, nnode=%4d, nedge=%4d, nface=%4d)",
+                            ibody, toler, MODL->body[ibody].nnode, MODL->body[ibody].nedge, MODL->body[ibody].nface);
 
                     /* create the new Body */
                     status = newBody(MODL, ibrch, OCSM_INTERSECT, ibodyl, ibodyr,
@@ -20810,8 +21566,8 @@ buildBoolean(modl_T *modl,              /* (in)  pointer to MODL */
         status = getBodyTolerance(MODL->body[ibody].ebody, &toler);
         CHECK_STATUS(getBodyTolerance);
 
-        SPRINT2(1, "                          Body   %4d created  (toler=%11.4e)",
-                ibody, toler);
+        SPRINT5(1, "                          Body   %4d created  (toler=%11.4e, nnode=%4d, nedge=%4d, nface=%4d)",
+                ibody, toler, MODL->body[ibody].nnode, MODL->body[ibody].nedge, MODL->body[ibody].nface);
 
     /* execute: "subtract $order=none index=1 maxtol=0" */
     } else if (type == OCSM_SUBTRACT) {
@@ -20843,56 +21599,55 @@ buildBoolean(modl_T *modl,              /* (in)  pointer to MODL */
         index  = NINT(args[2].val[0]);
         maxtol =      args[3].val[0];
 
-//$$$//fhr
-//$$$        para_inst = 0;
-//$$$        if (MODL->body[ibodyl].brtype == OCSM_SUBTRACT) {
-//$$$            SPRINT0(1, "Parent is a Subtract");
-//$$$            status = EG_getBoundingBox(MODL->body[ibodyr].ebody, bbox1);
-//$$$            // Line below is temporary, need to get parabool working to use in for loop
-//$$$            status = EG_getBoundingBox(MODL->body[MODL->body[ibodyl].irite].ebody, bbox2);
-//$$$            /* This for loop is intended to go through the list of added booleans, to ensure
-//$$$               each object to be added is not intersecting with all others.*/
-//$$$            // Removed code that doesn't work without list of added bools
-//$$$            for (j=0; j<=9; j++) {
-//$$$                if (parabool[j] > 0) {
-//$$$                    //Compute bbox2 here
-//$$$                    if        (bbox2[0] > bbox1[3] || bbox2[3] < bbox1[0]) {
-//$$$                        // No intersection
-//$$$                        continue;
-//$$$                    } else if (bbox2[1] > bbox1[4] || bbox2[4] < bbox1[1]) {
-//$$$                        // No intersection
-//$$$                        continue;
-//$$$                    } else if (bbox2[2] > bbox1[5] || bbox2[5] < bbox1[2]) {
-//$$$                        // No intersection
-//$$$                        /* Must check whole list of parabool before
-//$$$                           adding this brch to list*/
-//$$$                        continue;
-//$$$                    } else {
-//$$$                        SPRINT0(1, "Intersected, complete chain and start new");
-//$$$                        // If none of above conditions are true, intersecting
-//$$$                        /* Test fails under non-axis-aligned condition */
-//$$$                        // Complete then clear parabool
-//$$$                        parabool[0] = ibrch; /* Doesn't work*/
-//$$$                        para_inst   = 1;
-//$$$                        break;
-//$$$                    }
-//$$$                }
-//$$$            }
-//$$$            if (para_inst == 0) {
-//$$$                parabool[j+1] = ibrch;
-//$$$            }
-//$$$        } else {
-//$$$            SPRINT0(1, "COMPLETE PREVIOUS CHAIN AND START NEW CHAIN")
-//$$$                /* Need to tell code to complete previous chain here */
-//$$$                /* Need to start a new chain of bools here           */
-//$$$                parabool[0] = ibrch; /* Doesn't work */
-//$$$        }
-//$$$//fhr
+        /* if ibodyl is not a NodeBody but ibodyr is a NodeBody,
+           split any Edges at the NodeBody */
+        if (MODL->body[ibodyl].botype != OCSM_NODE_BODY &&
+            MODL->body[ibodyr].botype == OCSM_NODE_BODY   ) {
+
+            /* create the new Body */
+            status = newBody(MODL, ibrch, OCSM_SUBTRACT, ibodyl, ibodyr,
+                             args, hasdots, MODL->body[ibodyl].botype, &ibody);
+            CHECK_STATUS(newBody);
+
+            MODL->body[ibody].ebody = NULL;
+
+            ebodyl = MODL->body[ibodyl].ebody;
+            ebodyr = MODL->body[ibodyr].ebody;
+
+            status = EG_generalBoolean(ebodyl, ebodyr, SPLITTER, maxtol, &emodel);
+            if (status < 0) {
+                signalError(MODL, OCSM_DID_NOT_CREATE_BODY,
+                            "SUBTRACT did not create a Body");
+
+                (void) freeBody(MODL, ibody);
+                goto cleanup;
+            }
+            CHECK_STATUS(EG_generalBoolean);
+
+            status = EG_getTopology(emodel, &eref, &oclass, &mtype,
+                                    data, &nchild, &ebodys, &senses);
+            CHECK_STATUS(EG_getTopology);
+
+            if (nchild < 1) {
+                signalError(MODL, OCSM_DID_NOT_CREATE_BODY,
+                            "SUBTRACT did not create a Body");
+
+                (void) freeBody(MODL, ibody);
+                goto cleanup;
+            }
+
+            status = EG_copyObject(ebodys[0], NULL, &ebody);
+            CHECK_STATUS(EG_copyObject);
+
+            status = EG_deleteObject(emodel);
+            CHECK_STATUS(EG_deleteObject);
+
+            MODL->body[ibody].ebody = ebody;
 
         /* if both ibodyl and ibodyr are SolidBodys, perform Boolean
            opertion */
-        if (MODL->body[ibodyl].botype == OCSM_SOLID_BODY &&
-            MODL->body[ibodyr].botype == OCSM_SOLID_BODY   ) {
+        } else if (MODL->body[ibodyl].botype == OCSM_SOLID_BODY &&
+                   MODL->body[ibodyr].botype == OCSM_SOLID_BODY   ) {
 
             /* create the new Body */
             status = newBody(MODL, ibrch, OCSM_SUBTRACT, ibodyl, ibodyr,
@@ -20968,8 +21723,8 @@ buildBoolean(modl_T *modl,              /* (in)  pointer to MODL */
                         status = getBodyTolerance(MODL->body[ibody].ebody, &toler);
                         CHECK_STATUS(getBodyTolerance);
 
-                        SPRINT2(1, "                          Body   %4d created  (toler=%11.4e)",
-                                ibody, toler);
+                        SPRINT5(1, "                          Body   %4d created  (toler=%11.4e, nnode=%4d, nedge=%4d, nface=%4d)",
+                                ibody, toler, MODL->body[ibody].nnode, MODL->body[ibody].nedge, MODL->body[ibody].nface);
 
                         /* create the new Body */
                         status = newBody(MODL, ibrch, OCSM_SUBTRACT, ibodyl, ibodyr,
@@ -21396,8 +22151,8 @@ buildBoolean(modl_T *modl,              /* (in)  pointer to MODL */
                         status = getBodyTolerance(MODL->body[ibody].ebody, &toler);
                         CHECK_STATUS(getBodyTolerance);
 
-                        SPRINT2(1, "                          Body   %4d created  (toler=%11.4e)",
-                                ibody, toler);
+                        SPRINT5(1, "                          Body   %4d created  (toler=%11.4e, nnode=%4d, nedge=%4d, nface=%4d)",
+                                ibody, toler, MODL->body[ibody].nnode, MODL->body[ibody].nedge, MODL->body[ibody].nface);
 
                         /* create the new Body */
                         status = newBody(MODL, ibrch, OCSM_SUBTRACT, ibodyl, ibodyr,
@@ -21451,8 +22206,8 @@ buildBoolean(modl_T *modl,              /* (in)  pointer to MODL */
         status = getBodyTolerance(MODL->body[ibody].ebody, &toler);
         CHECK_STATUS(getBodyTolerance);
 
-        SPRINT2(1, "                          Body   %4d created  (toler=%11.4e)",
-                ibody, toler);
+        SPRINT5(1, "                          Body   %4d created  (toler=%11.4e, nnode=%4d, nedge=%4d, nface=%4d)",
+                ibody, toler, MODL->body[ibody].nnode, MODL->body[ibody].nedge, MODL->body[ibody].nface);
 
     /* execute: "union toMark=0 trimList=0 maxtol=0" */
     } else if (type == OCSM_UNION) {
@@ -22194,8 +22949,8 @@ buildBoolean(modl_T *modl,              /* (in)  pointer to MODL */
         status = getBodyTolerance(MODL->body[ibody].ebody, &toler);
         CHECK_STATUS(getBodyTolerance);
 
-        SPRINT2(1, "                          Body   %4d created  (toler=%11.4e)",
-                ibody, toler);
+        SPRINT5(1, "                          Body   %4d created  (toler=%11.4e, nnode=%4d, nedge=%4d, nface=%4d)",
+                ibody, toler, MODL->body[ibody].nnode, MODL->body[ibody].nedge, MODL->body[ibody].nface);
 
     /* execute: "join toler=0 toMark=0" */
     } else if (type == OCSM_JOIN) {
@@ -22313,8 +23068,8 @@ buildBoolean(modl_T *modl,              /* (in)  pointer to MODL */
                         status = getBodyTolerance(MODL->body[ibody].ebody, &toler);
                         CHECK_STATUS(getBodyTolerance);
 
-                        SPRINT2(1, "                          Body   %4d created  (toler=%11.4e)",
-                                ibody, toler);
+                        SPRINT5(1, "                          Body   %4d created  (toler=%11.4e, nnode=%4d, nedge=%4d, nface=%4d)",
+                                ibody, toler, MODL->body[ibody].nnode, MODL->body[ibody].nedge, MODL->body[ibody].nface);
 
                         /* there is now one fewer Bodys since Mark.  Also, reprocess
                            stack entry i */
@@ -22519,8 +23274,8 @@ buildBoolean(modl_T *modl,              /* (in)  pointer to MODL */
         status = getBodyTolerance(MODL->body[ibody].ebody, &toler);
         CHECK_STATUS(getBodyTolerance);
 
-        SPRINT2(1, "                          Body   %4d created  (toler=%11.4e)",
-                ibody, toler);
+        SPRINT5(1, "                          Body   %4d created  (toler=%11.4e, nnode=%4d, nedge=%4d, nface=%4d)",
+                ibody, toler, MODL->body[ibody].nnode, MODL->body[ibody].nedge, MODL->body[ibody].nface);
 
     /* execute: "extract entList" */
     } else if (type == OCSM_EXTRACT) {
@@ -22772,8 +23527,8 @@ buildBoolean(modl_T *modl,              /* (in)  pointer to MODL */
         status = getBodyTolerance(MODL->body[ibody].ebody, &toler);
         CHECK_STATUS(getBodyTolerance);
 
-        SPRINT2(1, "                          Body   %4d created  (toler=%11.4e)",
-                ibody, toler);
+        SPRINT5(1, "                          Body   %4d created  (toler=%11.4e, nnode=%4d, nedge=%4d, nface=%4d)",
+                ibody, toler, MODL->body[ibody].nnode, MODL->body[ibody].nedge, MODL->body[ibody].nface);
 
     /* execute: "combine toler=0" */
     } else if (type == OCSM_COMBINE) {
@@ -22883,8 +23638,8 @@ buildBoolean(modl_T *modl,              /* (in)  pointer to MODL */
             status = getBodyTolerance(MODL->body[ibody].ebody, &toler);
             CHECK_STATUS(getBodyTolerance);
 
-            SPRINT2(1, "                          Body   %4d created  (toler=%11.4e)",
-                    ibody, toler);
+            SPRINT5(1, "                          Body   %4d created  (toler=%11.4e, nnode=%4d, nedge=%4d, nface=%4d)",
+                    ibody, toler, MODL->body[ibody].nnode, MODL->body[ibody].nedge, MODL->body[ibody].nface);
 
         /* combine WireBodys into a SheetBody */
         } else if (bodyType == OCSM_WIRE_BODY) {
@@ -22998,8 +23753,8 @@ buildBoolean(modl_T *modl,              /* (in)  pointer to MODL */
             status = getBodyTolerance(MODL->body[ibody].ebody, &toler);
             CHECK_STATUS(getBodyTolerance);
 
-            SPRINT2(1, "                          Body   %4d created  (toler=%11.4e)",
-                    ibody, toler);
+            SPRINT5(1, "                          Body   %4d created  (toler=%11.4e, nnode=%4d, nedge=%4d, nface=%4d)",
+                    ibody, toler, MODL->body[ibody].nnode, MODL->body[ibody].nedge, MODL->body[ibody].nface);
 
         /* convert single SheetBody into a SolidBody */
         } else if (bodyType == OCSM_SHEET_BODY && numBodys == 1) {
@@ -23042,38 +23797,48 @@ buildBoolean(modl_T *modl,              /* (in)  pointer to MODL */
             status = getBodyTolerance(MODL->body[ibody].ebody, &toler);
             CHECK_STATUS(getBodyTolerance);
 
-            SPRINT2(1, "                          Body   %4d created  (toler=%11.4e)",
-                    ibody, toler);
+            SPRINT5(1, "                          Body   %4d created  (toler=%11.4e, nnode=%4d, nedge=%4d, nface=%4d)",
+                    ibody, toler, MODL->body[ibody].nnode, MODL->body[ibody].nedge, MODL->body[ibody].nface);
 
         /* combine SheetBodys into a SolidBody */
         } else if (bodyType == OCSM_SHEET_BODY) {
 
-            /* make a list of the FaceBodys */
-            MALLOC(elist, ego, numBodys);
-
+            /* make a list of the Faces in the Bodys */
+            nlist = 0;
             for (i = 0; i < numBodys; i++) {
-                ebodyl = MODL->body[bodyList[i]].ebody;
+                status = EG_getBodyTopos(MODL->body[bodyList[i]].ebody, NULL, FACE,
+                                         &nface, &efaces);
+                CHECK_STATUS(EG_getBodyTopos);
 
-                status = EG_getTopology(ebodyl, &eref, &oclass, &mtype,
-                                        data, &nface, &efaces, &senses);
-                CHECK_STATUS(EG_getTopology);
+                nlist += nface;
 
-                if (nface != 1) {
-                    signalError(MODL, OCSM_WRONG_TYPES_ON_STACK,
-                                "SheetBody has more than one FACE (nface=%d)", nface);
-                    goto cleanup;
+                EG_free(efaces);
+            }
+
+            MALLOC(elist, ego, nlist);
+
+            nlist = 0;
+            for (i = 0; i < numBodys; i++) {
+                status = EG_getBodyTopos(MODL->body[bodyList[i]].ebody, NULL, FACE,
+                                         &nface, &efaces);
+                CHECK_STATUS(EG_getBodyTopos);
+
+                for (j = 0; j < nface; j++) {
+                    elist[nlist] = efaces[j];
+
+                    if (outLevel > 1) {
+                        SPRINT1(2, "elist[%d]:", nlist);
+                        (void) ocsmPrintEgo(elist[nlist]);
+                    }
+
+                    nlist++;
                 }
 
-                elist[i] = efaces[0];
-
-                if (outLevel > 1) {
-                    SPRINT1(2, "elist[%d]:", i);
-                    (void) ocsmPrintEgo(elist[i]);
-                }
+                EG_free(efaces);
             }
 
             /* sew them together into a Model using default tolerance */
-            status = EG_sewFaces(numBodys, elist, toler, 0, &emodel);
+            status = EG_sewFaces(nlist, elist, toler, 0, &emodel);
             CHECK_STATUS(EG_sewfaces);
 
             /* if the Model contains a single SolidBody, extract it */
@@ -23141,8 +23906,8 @@ buildBoolean(modl_T *modl,              /* (in)  pointer to MODL */
             status = getBodyTolerance(MODL->body[ibody].ebody, &toler);
             CHECK_STATUS(getBodyTolerance);
 
-            SPRINT2(1, "                          Body   %4d created  (toler=%11.4e)",
-                    ibody, toler);
+            SPRINT5(1, "                          Body   %4d created  (toler=%11.4e, nnode=%4d, nedge=%4d, nface=%4d)",
+                    ibody, toler, MODL->body[ibody].nnode, MODL->body[ibody].nedge, MODL->body[ibody].nface);
         }
 
     /* execute: "connect faceList1 faceList2 edgeList1=0 edgeList2=0" */
@@ -23679,8 +24444,8 @@ buildBoolean(modl_T *modl,              /* (in)  pointer to MODL */
         status = getBodyTolerance(MODL->body[ibody].ebody, &toler);
         CHECK_STATUS(getBodyTolerance);
 
-        SPRINT2(1, "                          Body   %4d created  (toler=%11.4e)",
-                ibody, toler);
+        SPRINT5(1, "                          Body   %4d created  (toler=%11.4e, nnode=%4d, nedge=%4d, nface=%4d)",
+                ibody, toler, MODL->body[ibody].nnode, MODL->body[ibody].nedge, MODL->body[ibody].nface);
     }
 
 cleanup:
@@ -23710,7 +24475,7 @@ cleanup:
 
 static int
 buildGrown(modl_T *modl,                /* (in)  pointer to MODL */
-           int    ibrch,                /* (in)  Branch index (bias-1) */
+           int    ibrch,                /* (in)  Branch index (1:nbrch) */
            varg_T args[],               /* (in)  array of arguments */
            int    *nstack,              /* (both) number of Bodys on stack */
            int    stack[],              /* (both) array  of Bodys on stack */
@@ -23726,7 +24491,7 @@ buildGrown(modl_T *modl,                /* (in)  pointer to MODL */
     int        nsketch, nstrip, ibody, ibodyl, ibodyr, npart, attrtype, attrlen;
     int        *isketch=NULL, *jsketch=NULL, *kstrip=NULL;
     int        oclass, mtype, *senses, iford1, nedges, nfaces, nchild, oneFace, nnode;
-    int        j, begPmtr, endPmtr, mode, nsew, *pinfo=NULL;
+    int        j, begPmtr, endPmtr, mode, nsew, *pinfo=NULL, periodic;
     CINT       *tempIlist;
     double     data[4], Rbeg[8], Rend[8], matrix[12];
     double     dx, dy, dz, cosx, sinx, cosy, siny, cosz, sinz;
@@ -23734,7 +24499,7 @@ buildGrown(modl_T *modl,                /* (in)  pointer to MODL */
     double     toler, dirn[3], alen, bbox0[6], bbox1[6], *vmin=NULL, uvlimits[4];
     CDOUBLE    *tempRlist;
     CCHAR      *tempClist;
-    ego        ebody, ebodyl, ebodyr, *enodes, *efaces=NULL, *echildren, *esketch=NULL;
+    ego        ebody, ebodyl, ebodyr, *enodes, *efaces, *echildren, *esketch=NULL;
     ego        eref, exform, etemp, *echilds, *esew=NULL, emodel;
 
     ROUTINE(buildGrown);
@@ -23764,7 +24529,7 @@ buildGrown(modl_T *modl,                /* (in)  pointer to MODL */
             goto cleanup;
         }
 
-        /* pop a Sketch from the stack */
+        /* pop a Xsect from the stack */
         if ((*nstack) < 1) {
             signalError(MODL, OCSM_INSUFFICIENT_BODYS_ON_STACK,
                         "EXTRUDE expects a Body on the stack");
@@ -23883,7 +24648,7 @@ buildGrown(modl_T *modl,                /* (in)  pointer to MODL */
         status = EG_getBodyTopos(ebody, NULL, FACE, &nface, &efaces);
         CHECK_STATUS(EG_getBodyTopos);
 
-        /* transfer Attributes from Sketch to beginning and ending Faces */
+        /* transfer Attributes from Xsect to beginning and ending Faces */
         if (MODL->body[ibodyl].botype == OCSM_SHEET_BODY) {
             status = EG_attributeDup(ebodyl, efaces[nface-2]);
             CHECK_STATUS(EG_attributeDup);
@@ -23923,8 +24688,8 @@ buildGrown(modl_T *modl,                /* (in)  pointer to MODL */
         status = getBodyTolerance(MODL->body[ibody].ebody, &toler);
         CHECK_STATUS(getBodyTolerance);
 
-        SPRINT2(1, "                          Body   %4d created  (toler=%11.4e)",
-                ibody, toler);
+        SPRINT5(1, "                          Body   %4d created  (toler=%11.4e, nnode=%4d, nedge=%4d, nface=%4d)",
+                ibody, toler, MODL->body[ibody].nnode, MODL->body[ibody].nedge, MODL->body[ibody].nface);
 
     /* execute: "revolve xorig yorig zorig dxaxis dyaxis dzaxis angDeg" */
     } else if (type == OCSM_REVOLVE) {
@@ -23956,7 +24721,7 @@ buildGrown(modl_T *modl,                /* (in)  pointer to MODL */
             goto cleanup;
         }
 
-        /* pop a Sketch from the stack */
+        /* pop a Xsect from the stack */
         if ((*nstack) < 1) {
             signalError(MODL, OCSM_INSUFFICIENT_BODYS_ON_STACK,
                         "REVOLVE expects a Body on the stack");
@@ -24233,7 +24998,7 @@ buildGrown(modl_T *modl,                /* (in)  pointer to MODL */
         status = EG_getBodyTopos(ebody, NULL, FACE, &nface, &efaces);
         CHECK_STATUS(EG_getBodyTopos);
 
-        /* transfer Attributes from Sketch to beginning and ending Faces */
+        /* transfer Attributes from Xsect to beginning and ending Faces */
         if (MODL->body[ibodyl].botype == OCSM_SHEET_BODY &&
             fabs(args[7].val[0]-360) > EPS06               ) {
             status = EG_attributeDup(ebodyl, efaces[nface-2]);
@@ -24276,13 +25041,15 @@ buildGrown(modl_T *modl,                /* (in)  pointer to MODL */
         status = getBodyTolerance(MODL->body[ibody].ebody, &toler);
         CHECK_STATUS(getBodyTolerance);
 
-        SPRINT2(1, "                          Body   %4d created  (toler=%11.4e)",
-                ibody, toler);
+        SPRINT5(1, "                          Body   %4d created  (toler=%11.4e, nnode=%4d, nedge=%4d, nface=%4d)",
+                ibody, toler, MODL->body[ibody].nnode, MODL->body[ibody].nedge, MODL->body[ibody].nface);
 
-    /* execute: "rule reorder=0" */
+    /* execute: "rule reorder=0 periodic=0" */
     } else if (type == OCSM_RULE) {
-        SPRINT2(1, "    executing [%4d] rule:       %11.5f",
-                ibrch, args[1].val[0]);
+        SPRINT3(1, "    executing [%4d] rule:       %11.5f  %11.5f",
+                ibrch, args[1].val[0], args[2].val[0]);
+
+        periodic = NINT(args[2].val[0]);
 
         /* recycle old Body if not dirty */
         status = recycleBody(MODL, ibrch, type, args, hasdots);
@@ -24299,10 +25066,10 @@ buildGrown(modl_T *modl,                /* (in)  pointer to MODL */
             goto cleanup;
         }
 
-        /* pop Sketches from the stack (until the Mark) and put them
+        /* pop Xsects from the stack (until the Mark) and put them
            into isketch from first to last */
-        MALLOC(isketch, int, (*nstack));
-        MALLOC(esketch, ego, (*nstack));
+        MALLOC(isketch, int, (*nstack+1));
+        MALLOC(esketch, ego, (*nstack+1));
 
         nsketch  =  0;
         nstrip   = -1;
@@ -24384,7 +25151,7 @@ buildGrown(modl_T *modl,                /* (in)  pointer to MODL */
                         "RULE expects 2 or more Bodys since mark");
             goto cleanup;
         } else {
-            SPRINT2(1, "                          ruling  %d Sketches with %d Strips each...",
+            SPRINT2(1, "                          ruling  %d Xsects with %d Strips each...",
                     nsketch, nstrip);
         }
 
@@ -24405,11 +25172,25 @@ buildGrown(modl_T *modl,                /* (in)  pointer to MODL */
                 fabs(bbox0[3]-bbox1[3]) < EPS06 &&
                 fabs(bbox0[4]-bbox1[4]) < EPS06 &&
                 fabs(bbox0[5]-bbox1[5]) < EPS06   ) {
+                SPRINT1(0, "WARNING:: repeated section in RULE (%d) ignored",
+                        isketch[i]);
+                (MODL->nwarn)++;
+            }
+        }
+
+        /* if the periodicity flag is set, connect the last and first
+           sections (as long as they are not NodeBodys) */
+        if (periodic == 1) {
+            if (MODL->body[isketch[0        ]].botype == OCSM_NODE_BODY ||
+                MODL->body[isketch[nsketch-1]].botype == OCSM_NODE_BODY   ) {
                 signalError(MODL, OCSM_WRONG_TYPES_ON_STACK,
-                            "RULE cannot have repeated sections (%d and %d)",
-                            isketch[i-1], isketch[i]);
+                            "First and last Sections cannot be NodeBodys if periodic");
                 goto cleanup;
             }
+
+            isketch[nsketch] = isketch[0];
+            esketch[nsketch] = esketch[0];
+            nsketch++;
         }
 
         /* create the Body (assume for now it is a SolidBody --- to be fixed below) */
@@ -24427,27 +25208,39 @@ buildGrown(modl_T *modl,                /* (in)  pointer to MODL */
         MODL->body[ibody].ileft = isketch[0];
         MODL->body[ibody].irite = isketch[nsketch-1];
 
-        /* first Sketch should be a NODE, WIREBODY, or FACE */
-        if (itypebeg == OCSM_SHEET_BODY) {
-            status = EG_getBodyTopos(esketch[0], NULL, FACE, &nfaces, &echildren);
+        /* first Xsect should be a NODE, WIREBODY, or FACE */
+        if (periodic == 0) {
+            if (itypebeg == OCSM_SHEET_BODY) {
+                status = EG_getBodyTopos(esketch[0], NULL, FACE, &nfaces, &echildren);
+                CHECK_STATUS(EG_getBodyTopos);
+
+                esketch[0] = echildren[0];
+
+                EG_free(echildren);
+            }
+
+            /* last Xsect should be a NODE, WIREBODY, or FACE */
+            if (itypeend == OCSM_SHEET_BODY) {
+                status = EG_getBodyTopos(esketch[nsketch-1], NULL, FACE, &nfaces, &echildren);
+                CHECK_STATUS(EG_getBodyTopos);
+
+                esketch[nsketch-1] = echildren[0];
+
+                EG_free(echildren);
+            }
+
+        /* convert first and last Xsects to Loops if periodic */
+        } else {
+            status = EG_getBodyTopos(esketch[0], NULL, LOOP, &nloops, &echildren);
             CHECK_STATUS(EG_getBodyTopos);
 
-            esketch[0] = echildren[0];
-
-            EG_free(echildren);
-        }
-
-        /* last Sketch should be a NODE, WIREBODY, or FACE */
-        if (itypeend == OCSM_SHEET_BODY) {
-            status = EG_getBodyTopos(esketch[nsketch-1], NULL, FACE, &nfaces, &echildren);
-            CHECK_STATUS(EG_getBodyTopos);
-
+            esketch[0        ] = echildren[0];
             esketch[nsketch-1] = echildren[0];
 
             EG_free(echildren);
         }
 
-        /* convert all the intermediate Sketches to LOOPs */
+        /* convert all the intermediate Xsects to LOOPs */
         for (i = 1; i < nsketch-1; i++) {
             status = EG_getBodyTopos(esketch[i], NULL, LOOP, &nloops, &echildren);
             CHECK_STATUS(EG_getBodyTopos);
@@ -24468,7 +25261,9 @@ buildGrown(modl_T *modl,                /* (in)  pointer to MODL */
                 ocsmPrintEgo(esketch[ii]);
             }
         }
+
         status = EG_ruled(nsketch, esketch, &ebody);
+
         if (status < SUCCESS) {
             signalError(MODL, status,
                         "EG_ruled returned an unexpected error");
@@ -24496,6 +25291,31 @@ buildGrown(modl_T *modl,                /* (in)  pointer to MODL */
             signalError(MODL, OCSM_INTERNAL_ERROR,
                         "EGO produced is not a Body");
             SET_STATUS(OCSM_INTERNAL_ERROR, rule);
+        }
+
+        /* update the Body type if periodic and the first and last
+           sections were both WireBodys */
+        if (periodic == 1) {
+            if (MODL->body[isketch[0        ]].botype == OCSM_WIRE_BODY &&
+                MODL->body[isketch[nsketch-2]].botype == OCSM_WIRE_BODY   ) {
+                status = EG_getTopology(ebody, &eref, &oclass, &mtype,
+                                        data, &nchild, &echilds, &senses);
+                CHECK_STATUS(EG_getTopology);
+
+                if (oclass == BODY || mtype == SOLIDBODY) {
+                    status = EG_makeTopology(MODL->context, NULL, BODY, SHEETBODY,
+                                             data, 1, echilds, senses, &emodel);
+                    CHECK_STATUS(EG_makeTopology);
+
+                    status = EG_deleteObject(ebody);
+                    CHECK_STATUS(EG_deleteBody);
+
+                    ebody = emodel;
+
+                    MODL->body[ibody].botype = OCSM_SHEET_BODY;
+                    MODL->body[ibody].ebody  = ebody;
+                }
+            }
         }
 
         /* update @-parameters (RULE) */
@@ -24534,8 +25354,8 @@ buildGrown(modl_T *modl,                /* (in)  pointer to MODL */
         status = getBodyTolerance(MODL->body[ibody].ebody, &toler);
         CHECK_STATUS(getBodyTolerance);
 
-        SPRINT2(1, "                          Body   %4d created  (toler=%11.4e)",
-                ibody, toler);
+        SPRINT5(1, "                          Body   %4d created  (toler=%11.4e, nnode=%4d, nedge=%4d, nface=%4d)",
+                ibody, toler, MODL->body[ibody].nnode, MODL->body[ibody].nedge, MODL->body[ibody].nface);
 
     /* execute: "loft smooth" */
     } else if (type == OCSM_LOFT) {
@@ -24557,7 +25377,7 @@ buildGrown(modl_T *modl,                /* (in)  pointer to MODL */
             goto cleanup;
         }
 
-        /* pop Sketches from the stack (until the Mark) and put them
+        /* pop Xsects from the stack (until the Mark) and put them
            into isketch from last to first */
         MALLOC(isketch, int, (*nstack));
         MALLOC(esketch, ego, (*nstack));
@@ -24609,7 +25429,7 @@ buildGrown(modl_T *modl,                /* (in)  pointer to MODL */
                         "UNION expects 2 or more Bodys since mark");
             goto cleanup;
         } else {
-            SPRINT1(1, "                          lofting %d Sketches...", nsketch);
+            SPRINT1(1, "                          lofting %d Xsects...", nsketch);
         }
         ibodyl = isketch[0];
 
@@ -24754,13 +25574,13 @@ buildGrown(modl_T *modl,                /* (in)  pointer to MODL */
         status = getBodyTolerance(MODL->body[ibody].ebody, &toler);
         CHECK_STATUS(getBodyTolerance);
 
-        SPRINT2(1, "                          Body   %4d created  (toler=%11.4e)",
-                ibody, toler);
+        SPRINT5(1, "                          Body   %4d created  (toler=%11.4e, nnode=%4d, nedge=%4d, nface=%4d)",
+                ibody, toler, MODL->body[ibody].nnode, MODL->body[ibody].nedge, MODL->body[ibody].nface);
 
-    /* execute: "blend begList=0 endList=0 reorder=0 oneFace=0" */
+    /* execute: "blend begList=0 endList=0 reorder=0 oneFace=0 periodic=0" */
     } else if (type == OCSM_BLEND) {
-        SPRINT5(1, "    executing [%4d] blend:      %s  %s  %11.5f  %11.5f",
-                ibrch, MODL->brch[ibrch].arg1, MODL->brch[ibrch].arg2, args[3].val[0], args[4].val[0]);
+        SPRINT6(1, "    executing [%4d] blend:      %s  %s  %11.5f  %11.5f  %11.5f",
+                ibrch, MODL->brch[ibrch].arg1, MODL->brch[ibrch].arg2, args[3].val[0], args[4].val[0], args[5].val[0]);
 
         for (ival = 0; ival < args[1].nval; ival++) {
             if (args[1].dot[ival] != 0) hasdots = 1;
@@ -24770,7 +25590,8 @@ buildGrown(modl_T *modl,                /* (in)  pointer to MODL */
             if (args[2].dot[ival] != 0) hasdots = 1;
         }
 
-        oneFace = NINT(args[4].val[0]);
+        oneFace  = NINT(args[4].val[0]);
+        periodic = NINT(args[5].val[0]);
 
         /* recycle old Body if not dirty */
         status = recycleBody(MODL, ibrch, type, args, hasdots);
@@ -24787,11 +25608,11 @@ buildGrown(modl_T *modl,                /* (in)  pointer to MODL */
             goto cleanup;
         }
 
-        /* pop Sketches from the stack (until the Mark) and put them
+        /* pop Xsects from the stack (until the Mark) and put them
            into isketch from first to last */
-        MALLOC(isketch, int, (*nstack));
-        MALLOC(jsketch, int, (*nstack));
-        MALLOC(esketch, ego, (*nstack));
+        MALLOC(isketch, int, (*nstack)+1);
+        MALLOC(jsketch, int, (*nstack)+1);
+        MALLOC(esketch, ego, (*nstack)+1);
 
         nsketch  =  0;
         nstrip   = -1;
@@ -24871,7 +25692,7 @@ buildGrown(modl_T *modl,                /* (in)  pointer to MODL */
             }
         }
 
-        /* determine the type/multiplicity of the Sketches */
+        /* determine the type/multiplicity of the Xsects */
         for (i = 0; i < nsketch-3; i++) {
             if (jsketch[i] != 1 || jsketch[i+1] != 1 || jsketch[i+2] != 1) continue;
 
@@ -24922,22 +25743,22 @@ buildGrown(modl_T *modl,                /* (in)  pointer to MODL */
                     i, isketch[i], i, jsketch[i]);
         }
 
-        /* we need at least two non-Node Sketches */
+        /* we need at least two non-Node Xsects */
         if (nsketch < 2) {
             signalError(MODL, OCSM_INSUFFICIENT_BODYS_ON_STACK,
                         "BLEND expects 2 or more Bodys since mark");
             goto cleanup;
         }
 
-        /* there must be three or more Sketches between rounded begs and ends */
+        /* there must be three or more Xsects between rounded begs and ends */
         if (itypebeg == OCSM_NODE_BODY && args[1].nval >= 8 &&
             itypeend == OCSM_NODE_BODY && args[2].nval >= 8 && nsketch < 5) {
             signalError(MODL, OCSM_INSUFFICIENT_BODYS_ON_STACK,
-                        "BLEND expects 3 or more Sketches between rounded beg and end");
+                        "BLEND expects 3 or more Xsects between rounded beg and end");
             goto cleanup;
         }
 
-        /* there cannot be three or more consecutive C1 (multiplicity=2) Sketches */
+        /* there cannot be three or more consecutive C1 (multiplicity=2) Xsects */
         for (i = 1; i < nsketch-5; i++) {
             if (jsketch[i  ] == 2 && jsketch[i+1] == 2 &&
                 jsketch[i+2] == 2 && jsketch[i+3] == 2 &&
@@ -24948,8 +25769,24 @@ buildGrown(modl_T *modl,                /* (in)  pointer to MODL */
             }
         }
 
-        SPRINT2(1, "                          blending  %d Sketches with %d Strips each...",
+        SPRINT2(1, "                          blending  %d Xsects with %d Strips each...",
                 nsketch, nstrip);
+
+        /* if the periodicity flag is set, connect the last and first
+           sections (as long as they are not NodeBodys) */
+        if (periodic == 1) {
+            if (MODL->body[isketch[0        ]].botype == OCSM_NODE_BODY ||
+                MODL->body[isketch[nsketch-1]].botype == OCSM_NODE_BODY   ) {
+                signalError(MODL, OCSM_WRONG_TYPES_ON_STACK,
+                            "First and last Xsects cannot be NodeBodys if periodic");
+                goto cleanup;
+            }
+
+            isketch[nsketch] = isketch[0];
+            jsketch[nsketch] = jsketch[0];
+            esketch[nsketch] = esketch[0];
+            nsketch++;
+        }
 
         /* create the Body (assume for now it is a SolidBody --- to be fixed below) */
         status = newBody(MODL, ibrch, OCSM_BLEND, ibodyl, ibodyl,
@@ -24966,27 +25803,39 @@ buildGrown(modl_T *modl,                /* (in)  pointer to MODL */
         MODL->body[ibody].ileft = isketch[0];
         MODL->body[ibody].irite = isketch[nsketch-1];
 
-        /* first Sketch should be a NODE, WIREBODY, or FACE */
-        if (itypebeg == OCSM_SHEET_BODY) {
-            status = EG_getBodyTopos(esketch[0], NULL, FACE, &nfaces, &echildren);
+        /* first Xsect should be a NODE, WIREBODY, or FACE */
+        if (periodic == 0) {
+            if (itypebeg == OCSM_SHEET_BODY) {
+                status = EG_getBodyTopos(esketch[0], NULL, FACE, &nfaces, &echildren);
+                CHECK_STATUS(EG_getBodyTopos);
+
+                esketch[0] = echildren[0];
+
+                EG_free(echildren);
+            }
+
+            /* last Xsect should be a NODE, WIREBODY, or FACE */
+            if (itypeend == OCSM_SHEET_BODY) {
+                status = EG_getBodyTopos(esketch[nsketch-1], NULL, FACE, &nfaces, &echildren);
+                CHECK_STATUS(EG_getBodyTopos);
+
+                esketch[nsketch-1] = echildren[0];
+
+                EG_free(echildren);
+            }
+
+        /* convert first and last Xsects to Loops if periodic */
+        } else {
+            status = EG_getBodyTopos(esketch[0], NULL, LOOP, &nloops, &echildren);
             CHECK_STATUS(EG_getBodyTopos);
 
-            esketch[0] = echildren[0];
-
-            EG_free(echildren);
-        }
-
-        /* last Sketch should be a NODE, WIREBODY, or FACE */
-        if (itypeend == OCSM_SHEET_BODY) {
-            status = EG_getBodyTopos(esketch[nsketch-1], NULL, FACE, &nfaces, &echildren);
-            CHECK_STATUS(EG_getBodyTopos);
-
+            esketch[0        ] = echildren[0];
             esketch[nsketch-1] = echildren[0];
 
             EG_free(echildren);
         }
 
-        /* convert all the intermediate Sketches to LOOPs */
+        /* convert all the intermediate Xsects to LOOPs */
         for (i = 1; i < nsketch-1; i++) {
             status = EG_getBodyTopos(esketch[i], NULL, LOOP, &nloops, &echildren);
             CHECK_STATUS(EG_getBodyTopos);
@@ -24997,16 +25846,14 @@ buildGrown(modl_T *modl,                /* (in)  pointer to MODL */
         }
 
         /* store info from begList into Rbeg */
-        for (i = 0; i < args[1].nval; i++) {
-            if (i >= 8) break;
-            Rbeg[i] = args[1].val[i];
-        }
-
         if (itypebeg == OCSM_NODE_BODY) {
 
             /* rounded beg */
-            if (args[1].nval >= 8) {
-                begPmtr = 1;
+            if (args[1].nval == 8) {
+                begPmtr = 8;
+                for (i = 0; i < begPmtr; i++) {
+                    Rbeg[i] = args[1].val[i];
+                }
 
             /* sharp beg (because begList=0) */
             } else if (args[1].val[0] == 0) {
@@ -25022,16 +25869,18 @@ buildGrown(modl_T *modl,                /* (in)  pointer to MODL */
         } else {
 
             /* rounded tip at beg */
-            if (args[1].val[0] < 0) {
-                if (args[1].nval >= 2) {
-                    begPmtr = 1;
-                    Rbeg[0] = 0;
-                } else {
-                    begPmtr = 0;
-                    SPRINT0(1, "WARNING:: begList does not contain eccentricity");
-                    SPRINT0(1, "          reverting to sharp beg");
-                    (MODL->nwarn)++;
-                }
+            if (args[1].nval == 2 && args[1].val[0] < 0) {
+                begPmtr = 2;
+                Rbeg[0] = 0;
+                Rbeg[1] = args[1].val[1];
+
+            /* tangency */
+            } else if (args[1].nval == 3) {
+                begPmtr = 4;
+                Rbeg[0] = 1;
+                Rbeg[1] = args[1].val[0];
+                Rbeg[2] = args[1].val[1];
+                Rbeg[3] = args[1].val[2];
 
             /* blunt beg */
             } else {
@@ -25040,16 +25889,14 @@ buildGrown(modl_T *modl,                /* (in)  pointer to MODL */
         }
 
         /* store info from endList into Rend */
-        for (i = 0; i < args[2].nval; i++) {
-            if (i >= 8) break;
-            Rend[i] = args[2].val[i];
-        }
-
         if (itypeend == OCSM_NODE_BODY) {
 
             /* rounded end */
-            if (args[2].nval >= 8) {
-                endPmtr = 1;
+            if (args[2].nval == 8) {
+                endPmtr = 8;
+                for (i = 0; i < endPmtr; i++) {
+                    Rend[i] = args[2].val[i];
+                }
 
             /* sharp end (because endList=0) */
             } else if (args[2].val[0] == 0) {
@@ -25065,16 +25912,18 @@ buildGrown(modl_T *modl,                /* (in)  pointer to MODL */
         } else {
 
             /* rounded tip at end */
-            if (args[2].val[0] < 0) {
-                if (args[2].nval >= 2) {
-                    endPmtr = 1;
-                    Rend[0] = 0;
-                } else {
-                    endPmtr = 0;
-                    SPRINT0(1, "WARNING:: endList does not contain eccentricity");
-                    SPRINT0(1, "          reverting to sharp end");
-                    (MODL->nwarn)++;
-                }
+            if (args[2].nval == 2 && args[2].val[0] < 0) {
+                endPmtr = 2;
+                Rend[0] = 0;
+                Rend[1] = args[2].val[1];
+
+            /* tangency */
+            } else if (args[2].nval == 3) {
+                endPmtr = 4;
+                Rend[0] = 1;
+                Rend[1] = args[2].val[0];
+                Rend[2] = args[2].val[1];
+                Rend[3] = args[2].val[2];
 
             /* blend end */
             } else {
@@ -25107,15 +25956,11 @@ buildGrown(modl_T *modl,                /* (in)  pointer to MODL */
             }
         } else if (begPmtr == 0) {
             SPRINT1(2, "call EG_blend(nsketch=%d, NULL, Rend)", nsketch);
-            if (args[2].nval == 1) {
-                SPRINT1(2, "Rend=%f", Rend[0]);
+            SPRINT0x(2, "Rend= ");
+            for (ii = 0; ii < endPmtr; ii++) {
+                SPRINT1x(2, "%f ", Rend[ii]);
             }
-            if (args[2].nval >= 4) {
-                SPRINT4(2, "Rend=%f %f %f %f", Rend[0], Rend[1], Rend[2], Rend[3]);
-            }
-            if (args[2].nval >= 8) {
-                SPRINT4(2, "     %f %f %f %f", Rend[4], Rend[5], Rend[6], Rend[7]);
-            }
+            SPRINT0(2, " ");
 
             if (outLevel >= 3) {
                 for (ii = 0; ii < nsketch; ii++) {
@@ -25139,15 +25984,11 @@ buildGrown(modl_T *modl,                /* (in)  pointer to MODL */
             }
         } else if (endPmtr == 0) {
             SPRINT1(2, "call EG_blend(nsketch=%d, Rbeg, NULL)", nsketch);
-            if (args[1].nval == 1) {
-                SPRINT1(2, "Rbeg=%f", Rbeg[0]);
+            SPRINT0x(2, "Rbeg= ");
+            for (ii = 0; ii < begPmtr; ii++) {
+                SPRINT1x(2, "%f ", Rbeg[ii]);
             }
-            if (args[1].nval >= 4) {
-                SPRINT4(2, "Rbeg=%f %f %f %f", Rbeg[0], Rbeg[1], Rbeg[2], Rbeg[3]);
-            }
-            if (args[1].nval >= 8) {
-                SPRINT4(2, "     %f %f %f %f", Rbeg[4], Rbeg[5], Rbeg[6], Rbeg[7]);
-            }
+            SPRINT0(2, " ");
 
             if (outLevel >= 3) {
                 for (ii = 0; ii < nsketch; ii++) {
@@ -25171,25 +26012,16 @@ buildGrown(modl_T *modl,                /* (in)  pointer to MODL */
             }
         } else {
             SPRINT1(2, "call EG_blend(nsketch=%d, Rbeg, Rend)", nsketch);
-            if (args[1].nval == 1) {
-                SPRINT1(2, "Rbeg=%f", Rbeg[0]);
+            SPRINT0x(2, "Rbeg= ");
+            for (ii = 0; ii < begPmtr; ii++) {
+                SPRINT1x(2, "%f ", Rbeg[ii]);
             }
-            if (args[1].nval >= 4) {
-                SPRINT4(2, "Rbeg=%f %f %f %f", Rbeg[0], Rbeg[1], Rbeg[2], Rbeg[3]);
+            SPRINT0(2, " ");
+            SPRINT0x(2, "Rend= ");
+            for (ii = 0; ii < endPmtr; ii++) {
+                SPRINT1x(2, "%f ", Rend[ii]);
             }
-            if (args[1].nval >= 8) {
-                SPRINT4(2, "     %f %f %f %f", Rbeg[4], Rbeg[5], Rbeg[6], Rbeg[7]);
-            }
-
-            if (args[2].nval == 1) {
-                SPRINT1(2, "Rend=%f", Rend[0]);
-            }
-            if (args[2].nval >= 4) {
-                SPRINT4(2, "Rend=%f %f %f %f", Rend[0], Rend[1], Rend[2], Rend[3]);
-            }
-            if (args[2].nval >= 8) {
-                SPRINT4(2, "     %f %f %f %f", Rend[4], Rend[5], Rend[6], Rend[7]);
-            }
+            SPRINT0(2, " ");
 
             if (outLevel >= 3) {
                 for (ii = 0; ii < nsketch; ii++) {
@@ -25234,6 +26066,31 @@ buildGrown(modl_T *modl,                /* (in)  pointer to MODL */
             signalError(MODL, OCSM_INTERNAL_ERROR,
                         "EGO produced is not a Body");
             SET_STATUS(OCSM_INTERNAL_ERROR, blend);
+        }
+
+        /* update the Body type if periodic and the first and last
+           sections were both WireBodys */
+        if (periodic == 1) {
+            if (MODL->body[isketch[0        ]].botype == OCSM_WIRE_BODY &&
+                MODL->body[isketch[nsketch-2]].botype == OCSM_WIRE_BODY   ) {
+                status = EG_getTopology(ebody, &eref, &oclass, &mtype,
+                                        data, &nchild, &echilds, &senses);
+                CHECK_STATUS(EG_getTopology);
+
+                if (oclass == BODY || mtype == SOLIDBODY) {
+                    status = EG_makeTopology(MODL->context, NULL, BODY, SHEETBODY,
+                                             data, 1, echilds, senses, &emodel);
+                    CHECK_STATUS(EG_makeTopology);
+
+                    status = EG_deleteObject(ebody);
+                    CHECK_STATUS(EG_deleteBody);
+
+                    ebody = emodel;
+
+                    MODL->body[ibody].botype = OCSM_SHEET_BODY;
+                    MODL->body[ibody].ebody  = ebody;
+                }
+            }
         }
 
         /* update @-parameters (BLEND) */
@@ -25349,15 +26206,15 @@ buildGrown(modl_T *modl,                /* (in)  pointer to MODL */
         status = getBodyTolerance(MODL->body[ibody].ebody, &toler);
         CHECK_STATUS(getBodyTolerance);
 
-        SPRINT2(1, "                          Body   %4d created  (toler=%11.4e)",
-                ibody, toler);
+        SPRINT5(1, "                          Body   %4d created  (toler=%11.4e, nnode=%4d, nedge=%4d, nface=%4d)",
+                ibody, toler, MODL->body[ibody].nnode, MODL->body[ibody].nedge, MODL->body[ibody].nface);
 
     /* execute: "sweep" */
     } else if (type == OCSM_SWEEP) {
         SPRINT1(1, "    executing [%4d] sweep:",
                 ibrch);
 
-        /* pop two Sketches from the stack */
+        /* pop two Xsects from the stack */
         if ((*nstack) < 2) {
             signalError(MODL, OCSM_INSUFFICIENT_BODYS_ON_STACK,
                         "SWEEP expects a Body on the stack");
@@ -25377,7 +26234,7 @@ buildGrown(modl_T *modl,                /* (in)  pointer to MODL */
             goto cleanup;
         }
 
-        /* check that ibodyl is a Sketch */
+        /* check that ibodyl is a Xsect */
         if (MODL->body[ibodyl].botype != OCSM_SHEET_BODY &&
             MODL->body[ibodyl].botype != OCSM_WIRE_BODY    ) {
             signalError(MODL, OCSM_WRONG_TYPES_ON_STACK,
@@ -25385,7 +26242,7 @@ buildGrown(modl_T *modl,                /* (in)  pointer to MODL */
             goto cleanup;
         }
 
-        /* check that ibodyr is a Sketch */
+        /* check that ibodyr is a Xsect */
         if (MODL->body[ibodyr].botype != OCSM_WIRE_BODY) {
             signalError(MODL, OCSM_WRONG_TYPES_ON_STACK,
                         "SWEEP expetcs a WireBody on the stack");
@@ -25415,6 +26272,8 @@ buildGrown(modl_T *modl,                /* (in)  pointer to MODL */
             status = EG_makeTopology(MODL->context, NULL, BODY, FACEBODY,
                                      NULL, 1, efaces, NULL, &ebodyl);
             CHECK_STATUS(EG_makeTopology);
+
+            EG_free(efaces);
         }
 
         /* arbitrarily set the mode to 0 */
@@ -25438,7 +26297,7 @@ buildGrown(modl_T *modl,                /* (in)  pointer to MODL */
         status = EG_getBodyTopos(ebody, NULL, FACE, &nface, &efaces);
         CHECK_STATUS(EG_getBodyTopos);
 
-        /* transfer Attributes from Sketch to beginning Face */
+        /* transfer Attributes from Xsect to beginning Face */
         if (MODL->body[ibodyl].botype == OCSM_SHEET_BODY) {
             status = EG_attributeDup(ebodyl, efaces[0]);
             CHECK_STATUS(EG_attributeDup);
@@ -25470,8 +26329,8 @@ buildGrown(modl_T *modl,                /* (in)  pointer to MODL */
         status = getBodyTolerance(MODL->body[ibody].ebody, &toler);
         CHECK_STATUS(getBodyTolerance);
 
-        SPRINT2(1, "                          Body   %4d created  (toler=%11.4e)",
-                ibody, toler);
+        SPRINT5(1, "                          Body   %4d created  (toler=%11.4e, nnode=%4d, nedge=%4d, nface=%4d)",
+                ibody, toler, MODL->body[ibody].nnode, MODL->body[ibody].nedge, MODL->body[ibody].nface);
     }
 
 cleanup:
@@ -25501,7 +26360,7 @@ cleanup:
 
 static int
 buildPrimitive(modl_T *modl,            /* (in)  pointer to MODL */
-               int    ibrch,            /* (in)  Branch index (bias-1) */
+               int    ibrch,            /* (in)  Branch index (1:nbrch) */
                varg_T args[],           /* (in)  array of arguments */
                int    *nstack,          /* (both) number of Bodys on stack */
                int    stack[],          /* (both) array  of Bodys on stack */
@@ -25638,12 +26497,29 @@ buildPrimitive(modl_T *modl,            /* (in)  pointer to MODL */
                              args, hasdots, OCSM_SOLID_BODY, &ibody);
             CHECK_STATUS(newBody);
 
-            vals[0] = args[1].val[0];
-            vals[1] = args[2].val[0];
-            vals[2] = args[3].val[0];
-            vals[3] = args[4].val[0];
-            vals[4] = args[5].val[0];
-            vals[5] = args[6].val[0];
+            if (args[4].val[0] > 0) {
+                vals[0] = args[1].val[0];
+                vals[3] = args[4].val[0];
+            } else {
+                vals[0] = args[1].val[0] + args[4].val[0];
+                vals[3] =                - args[4].val[0];
+            }
+
+            if (args[5].val[0] > 0) {
+                vals[1] = args[2].val[0];
+                vals[4] = args[5].val[0];
+            } else {
+                vals[1] = args[2].val[0] + args[5].val[0];
+                vals[4] =                - args[5].val[0];
+            }
+
+            if (args[6].val[0] > 0) {
+                vals[2] = args[3].val[0];
+                vals[5] = args[6].val[0];
+            } else {
+                vals[2] = args[3].val[0] + args[6].val[0];
+                vals[5] =                - args[6].val[0];
+            }
 
             status = EG_makeSolidBody(MODL->context, BOX, vals, &ebody);
             CHECK_STATUS(EG_makeSolidBody);
@@ -25660,29 +26536,17 @@ buildPrimitive(modl_T *modl,            /* (in)  pointer to MODL */
 
             iford1 = 0;
             for (iface = 1; iface <= nface; iface++) {
-                if        (faceContains(efaces[iface-1], args[1].val[0],
-                                                         args[2].val[0]+args[5].val[0]/2,
-                                                         args[3].val[0]+args[6].val[0]/2)) {
+                if        (faceContains(efaces[iface-1], vals[0],           vals[1]+vals[4]/2, vals[2]+vals[5]/2)) {
                     iford1 = 1;
-                } else if (faceContains(efaces[iface-1], args[1].val[0]+args[4].val[0],
-                                                         args[2].val[0]+args[5].val[0]/2,
-                                                         args[3].val[0]+args[6].val[0]/2)) {
+                } else if (faceContains(efaces[iface-1], vals[0]+vals[3],   vals[1]+vals[4]/2, vals[2]+vals[5]/2)) {
                     iford1 = 2;
-                } else if (faceContains(efaces[iface-1], args[1].val[0]+args[4].val[0]/2,
-                                                         args[2].val[0],
-                                                         args[3].val[0]+args[6].val[0]/2)) {
+                } else if (faceContains(efaces[iface-1], vals[0]+vals[3]/2, vals[1],           vals[2]+vals[5]/2)) {
                     iford1 = 3;
-                } else if (faceContains(efaces[iface-1], args[1].val[0]+args[4].val[0]/2,
-                                                         args[2].val[0]+args[5].val[0],
-                                                         args[3].val[0]+args[6].val[0]/2)) {
+                } else if (faceContains(efaces[iface-1], vals[0]+vals[3]/2, vals[1]+vals[4],   vals[2]+vals[5]/2)) {
                     iford1 = 4;
-                } else if (faceContains(efaces[iface-1], args[1].val[0]+args[4].val[0]/2,
-                                                         args[2].val[0]+args[5].val[0]/2,
-                                                         args[3].val[0])          ) {
+                } else if (faceContains(efaces[iface-1], vals[0]+vals[3]/2, vals[1]+vals[4]/2, vals[2]          )) {
                     iford1 = 5;
-                } else if (faceContains(efaces[iface-1], args[1].val[0]+args[4].val[0]/2,
-                                                         args[2].val[0]+args[5].val[0]/2,
-                                                         args[3].val[0]+args[6].val[0])  ) {
+                } else if (faceContains(efaces[iface-1], vals[0]+vals[3]/2, vals[1]+vals[4]/2, vals[2]+vals[5]  )) {
                     iford1 = 6;
                 }
 
@@ -25992,10 +26856,37 @@ buildPrimitive(modl_T *modl,            /* (in)  pointer to MODL */
             status = setFaceAttribute(MODL, ibody, 1, 0, 1, npatn, patn);
             CHECK_STATUS(setFaceAttribute);
 
+        /* NodeBody */
         } else {
-            signalError(MODL, OCSM_ILLEGAL_VALUE,
-                        "more than one dx, dy, and dz can be zero");
-            goto cleanup;
+            status = newBody(MODL, ibrch, OCSM_BOX, -1, -1,
+                             args, hasdots, OCSM_NODE_BODY, &ibody);
+            CHECK_STATUS(newBody);
+
+            vals[0] = args[1].val[0];
+            vals[1] = args[2].val[0];
+            vals[2] = args[3].val[0];
+
+            /* OCSM_NODE_BODY is actually a degenerate WireBody */
+            status = EG_makeTopology(MODL->context, NULL, NODE, 0, vals, 0, NULL, NULL, &enode);
+            CHECK_STATUS(EG_makeTopology);
+
+            tdata[0] = 0;
+            tdata[1] = 1;
+            sense    = SFORWARD;
+            status = EG_makeTopology(MODL->context, NULL, EDGE, DEGENERATE, tdata, 1, &enode, &sense, &eedge);
+            CHECK_STATUS(EG_makeTopology);
+
+            status = EG_makeTopology(MODL->context, NULL, LOOP, CLOSED, NULL, 1, &eedge, &sense, &eloop);
+            CHECK_STATUS(EG_makeTopology);
+
+            status = EG_makeTopology(MODL->context, NULL, BODY, WIREBODY, NULL, 1, &eloop, NULL, &ebody);
+            CHECK_STATUS(EG_makeTopology);
+
+            MODL->body[ibody].ebody = ebody;
+
+            /* update @-parameters (POINT) */
+            status = setupAtPmtrs(MODL, 0);
+            CHECK_STATUS(setupAtPmtrs);
         }
 
         /* finish the Body (BOX) */
@@ -26009,8 +26900,8 @@ buildPrimitive(modl_T *modl,            /* (in)  pointer to MODL */
         status = getBodyTolerance(MODL->body[ibody].ebody, &toler);
         CHECK_STATUS(getBodyTolerance);
 
-        SPRINT2(1, "                          Body   %4d created  (toler=%11.4e)",
-                ibody, toler);
+        SPRINT5(1, "                          Body   %4d created  (toler=%11.4e, nnode=%4d, nedge=%4d, nface=%4d)",
+                ibody, toler, MODL->body[ibody].nnode, MODL->body[ibody].nedge, MODL->body[ibody].nface);
 
     /* execute: "sphere xcent ycent zcent radius" */
     } else if (type == OCSM_SPHERE) {
@@ -26092,8 +26983,8 @@ buildPrimitive(modl_T *modl,            /* (in)  pointer to MODL */
         status = getBodyTolerance(MODL->body[ibody].ebody, &toler);
         CHECK_STATUS(getBodyTolerance);
 
-        SPRINT2(1, "                          Body   %4d created  (toler=%11.4e)",
-                ibody, toler);
+        SPRINT5(1, "                          Body   %4d created  (toler=%11.4e, nnode=%4d, nedge=%4d, nface=%4d)",
+                ibody, toler, MODL->body[ibody].nnode, MODL->body[ibody].nedge, MODL->body[ibody].nface);
 
     /* execute: "cone xvrtx yvrtx zvrtx xbase ybase zbase radius" */
     } else if (type == OCSM_CONE) {
@@ -26289,8 +27180,8 @@ buildPrimitive(modl_T *modl,            /* (in)  pointer to MODL */
         status = getBodyTolerance(MODL->body[ibody].ebody, &toler);
         CHECK_STATUS(getBodyTolerance);
 
-        SPRINT2(1, "                          Body   %4d created  (toler=%11.4e)",
-                ibody, toler);
+        SPRINT5(1, "                          Body   %4d created  (toler=%11.4e, nnode=%4d, nedge=%4d, nface=%4d)",
+                ibody, toler, MODL->body[ibody].nnode, MODL->body[ibody].nedge, MODL->body[ibody].nface);
 
     /* execute: "cylinder xbeg ybeg zbeg xend yend zend radius" */
     } else if (type == OCSM_CYLINDER) {
@@ -26486,8 +27377,8 @@ buildPrimitive(modl_T *modl,            /* (in)  pointer to MODL */
         status = getBodyTolerance(MODL->body[ibody].ebody, &toler);
         CHECK_STATUS(getBodyTolerance);
 
-        SPRINT2(1, "                          Body   %4d created  (toler=%11.4e)",
-                ibody, toler);
+        SPRINT5(1, "                          Body   %4d created  (toler=%11.4e, nnode=%4d, nedge=%4d, nface=%4d)",
+                ibody, toler, MODL->body[ibody].nnode, MODL->body[ibody].nedge, MODL->body[ibody].nface);
 
     /* execute: "torus xcent ycent zcent dxaxis dyaxis dzaxis majorRad minorRad" */
     } else if (type == OCSM_TORUS) {
@@ -26578,8 +27469,8 @@ buildPrimitive(modl_T *modl,            /* (in)  pointer to MODL */
         status = getBodyTolerance(MODL->body[ibody].ebody, &toler);
         CHECK_STATUS(getBodyTolerance);
 
-        SPRINT2(1, "                          Body   %4d created  (toler=%11.4e)",
-                ibody, toler);
+        SPRINT5(1, "                          Body   %4d created  (toler=%11.4e, nnode=%4d, nedge=%4d, nface=%4d)",
+                ibody, toler, MODL->body[ibody].nnode, MODL->body[ibody].nedge, MODL->body[ibody].nface);
 
     /* execute: "import $filename bodynumber=1" */
     } else if (type == OCSM_IMPORT) {
@@ -26621,11 +27512,11 @@ buildPrimitive(modl_T *modl,            /* (in)  pointer to MODL */
         /* strip the dollarsign off the filename */
         STRNCPY(dumpfile, args[1].str, MAX_EXPR_LEN);
 
-        status = udp_setArgument(primtype, "filename", dumpfile, (int)(STRLEN(dumpfile)+1));
+        status = udp_setArgument(primtype, "filename", dumpfile, (int)(STRLEN(dumpfile)+1), NULL);
         CHECK_STATUS(udp_setArgument);
 
         /* set the Body number (in the import) */
-        status = udp_setArgument(primtype, "bodynumber", &(args[2].val[0]), 1);
+        status = udp_setArgument(primtype, "bodynumber", &(args[2].val[0]), 1, NULL);
         CHECK_STATUS(udp_setArgument);
 
         /* execute udpImport */
@@ -26665,7 +27556,7 @@ buildPrimitive(modl_T *modl,            /* (in)  pointer to MODL */
 
                 snprintf(newname, MAX_NAME_LEN, "@@%s", aname);
 
-                status = ocsmFindPmtr(MODL, newname, OCSM_INTERNAL, alength, 1, &ipmtr);
+                status = ocsmFindPmtr(MODL, newname, OCSM_LOCALVAR, alength, 1, &ipmtr);
                 CHECK_STATUS(ocsmFindPmtr);
 
                 if (atype == ATTRINT) {
@@ -26736,12 +27627,17 @@ buildPrimitive(modl_T *modl,            /* (in)  pointer to MODL */
             /* set @@-parameters for any outputs from the udp */
             for (ij = 0; ij < udp_num; ij++) {
                 if        (udp_types[ij] == -ATTRINT) {
-                    status = udp_getOutput(primtype, emodel, udp_names[ij], (void*)&valInt);
+                    char message[257];
+                    status = udp_getOutput(primtype, emodel, udp_names[ij], (void*)&valInt, message);
+                    if (strlen(message) > 0) {
+                        signalError(MODL, status, message);
+                        goto cleanup;
+                    }
                     CHECK_STATUS(udp_getOutput);
 
                     snprintf(atPmtr, MAX_NAME_LEN, "@@%s", udp_names[ij]);
 
-                    status = ocsmFindPmtr(MODL, atPmtr, OCSM_INTERNAL, 1, 1, &ipmtr);
+                    status = ocsmFindPmtr(MODL, atPmtr, OCSM_LOCALVAR, 1, 1, &ipmtr);
                     CHECK_STATUS(ocsmFindPmtr);
 
                     valDouble = valInt;
@@ -26754,12 +27650,17 @@ buildPrimitive(modl_T *modl,            /* (in)  pointer to MODL */
                                              1, &valInt, NULL, NULL);
                     CHECK_STATUS(EG_attributeAdd);
                 } else if (udp_types[ij] == -ATTRREAL) {
-                    status = udp_getOutput(primtype, emodel, udp_names[ij], (void*)&valDouble);
+                    char message[257];
+                    status = udp_getOutput(primtype, emodel, udp_names[ij], (void*)&valDouble, message);
+                    if (strlen(message) > 0) {
+                        signalError(MODL, status, message);
+                        goto cleanup;
+                    }
                     CHECK_STATUS(udp_getOutput);
 
                     snprintf(atPmtr, MAX_NAME_LEN, "@@%s", udp_names[ij]);
 
-                    status = ocsmFindPmtr(MODL, atPmtr, OCSM_INTERNAL, 1, 1, &ipmtr);
+                    status = ocsmFindPmtr(MODL, atPmtr, OCSM_LOCALVAR, 1, 1, &ipmtr);
                     CHECK_STATUS(ocsmFindPmtr);
 
                     status = ocsmSetValuD(MODL, ipmtr, 1, 1, valDouble);
@@ -26854,8 +27755,8 @@ buildPrimitive(modl_T *modl,            /* (in)  pointer to MODL */
             status = getBodyTolerance(MODL->body[ibody].ebody, &toler);
             CHECK_STATUS(getBodyTolerance);
 
-            SPRINT2(1, "                          Body   %4d created  (toler=%11.4e)",
-                    ibody, toler);
+            SPRINT5(1, "                          Body   %4d created  (toler=%11.4e, nnode=%4d, nedge=%4d, nface=%4d)",
+                    ibody, toler, MODL->body[ibody].nnode, MODL->body[ibody].nedge, MODL->body[ibody].nface);
         }
 
         /* put all Bodys just created into same group */
@@ -27013,17 +27914,35 @@ buildPrimitive(modl_T *modl,            /* (in)  pointer to MODL */
                     if (MODL->body[jbody].arg[iarg].nval < 0) break;
 
                     if (MODL->body[jbody].arg[iarg].nval == 0) {
+                        char message[257];
                         status = udp_setArgument(MODL->body[jbody].arg[1].str,
                                                  MODL->body[jbody].arg[iarg-1].str,
                                                  MODL->body[jbody].arg[iarg  ].str,
-                                          STRLEN(MODL->body[jbody].arg[iarg  ].str));
-                        CHECK_STATUS(udp_setArgument);
+                                                 STRLEN(MODL->body[jbody].arg[iarg  ].str), message);
+                        if (strlen(message) > 0) {
+                            signalError(MODL, status, message);
+                            goto cleanup;
+                        } else if (status != EGADS_SUCCESS) {
+                            signalError(MODL, status,
+                                        "bad argument (%s) to %s", MODL->body[jbody].arg[iarg-1].str,
+                                                                   MODL->body[jbody].arg[     1].str);
+                            goto cleanup;
+                        }
                     } else {
+                        char message[257];
                         status = udp_setArgument(MODL->body[jbody].arg[1].str,
                                                  MODL->body[jbody].arg[iarg-1].str,
                                                  MODL->body[jbody].arg[iarg  ].val,
-                                                 MODL->body[jbody].arg[iarg  ].nval);
-                        CHECK_STATUS(udp_setArgument);
+                                                 MODL->body[jbody].arg[iarg  ].nval, message);
+                        if (strlen(message) > 0) {
+                            signalError(MODL, status, message);
+                            goto cleanup;
+                        } else if (status != EGADS_SUCCESS) {
+                            signalError(MODL, status,
+                                        "bad argument (%s) to %s", MODL->body[jbody].arg[iarg-1].str,
+                                                                   MODL->body[jbody].arg[     1].str);
+                            goto cleanup;
+                        }
                     }
                 }
 
@@ -27159,12 +28078,17 @@ buildPrimitive(modl_T *modl,            /* (in)  pointer to MODL */
                 /* set @@-parameters for any outputs from the udp */
                 for (ij = 0; ij < udp_num; ij++) {
                     if        (udp_types[ij] == -ATTRINT) {
-                        status = udp_getOutput(primtype, eoutput, udp_names[ij], (void*)&valInt);
+                        char message[257];
+                        status = udp_getOutput(primtype, eoutput, udp_names[ij], (void*)&valInt, message);
+                        if (strlen(message) > 0) {
+                            signalError(MODL, status, message);
+                            goto cleanup;
+                        }
                         CHECK_STATUS(udp_getOutput);
 
                         snprintf(atPmtr, MAX_NAME_LEN, "@@%s", udp_names[ij]);
 
-                        status = ocsmFindPmtr(MODL, atPmtr, OCSM_INTERNAL, 1, 1, &ipmtr);
+                        status = ocsmFindPmtr(MODL, atPmtr, OCSM_LOCALVAR, 1, 1, &ipmtr);
                         CHECK_STATUS(ocsmFindPmtr);
 
                         valDouble = valInt;
@@ -27179,12 +28103,17 @@ buildPrimitive(modl_T *modl,            /* (in)  pointer to MODL */
 
                         /* store @@-parametr in body_T structure */
                     } else if (udp_types[ij] == -ATTRREAL) {
-                        status = udp_getOutput(primtype, eoutput, udp_names[ij], (void*)&valDouble);
+                        char message[257];
+                        status = udp_getOutput(primtype, eoutput, udp_names[ij], (void*)&valDouble, message);
+                        if (strlen(message) > 0) {
+                            signalError(MODL, status, message);
+                            goto cleanup;
+                        }
                         CHECK_STATUS(udp_getOutput);
 
                         snprintf(atPmtr, MAX_NAME_LEN, "@@%s", udp_names[ij]);
 
-                        status = ocsmFindPmtr(MODL, atPmtr, OCSM_INTERNAL, 1, 1, &ipmtr);
+                        status = ocsmFindPmtr(MODL, atPmtr, OCSM_LOCALVAR, 1, 1, &ipmtr);
                         CHECK_STATUS(ocsmFindPmtr);
 
                         status = ocsmSetValuD(MODL, ipmtr, 1, 1, valDouble);
@@ -27296,8 +28225,8 @@ buildPrimitive(modl_T *modl,            /* (in)  pointer to MODL */
                 status = getBodyTolerance(MODL->body[ibody].ebody, &toler);
                 CHECK_STATUS(getBodyTolerance);
 
-                SPRINT2(1, "                          Body   %4d created  (toler=%11.4e)",
-                        ibody, toler);
+                SPRINT5(1, "                          Body   %4d created  (toler=%11.4e, nnode=%4d, nedge=%4d, nface=%4d)",
+                        ibody, toler, MODL->body[ibody].nnode, MODL->body[ibody].nedge, MODL->body[ibody].nface);
             }
 
             /* put all Bodys just created into same group as the last Body */
@@ -27372,7 +28301,7 @@ buildPrimitive(modl_T *modl,            /* (in)  pointer to MODL */
 
                     /* set default value (single value or string) */
                     if (STRLEN(str) == 0) {
-                        status = ocsmNewPmtr(MODL, &(MODL->brch[jbrch].arg1[1]), OCSM_INTERNAL, 1, 1);
+                        status = ocsmNewPmtr(MODL, &(MODL->brch[jbrch].arg1[1]), OCSM_LOCALVAR, 1, 1);
                         CHECK_STATUS(ocsmNewPmtr);
 
                         status = ocsmSetValuD(MODL, MODL->npmtr, 1, 1, value);
@@ -27381,7 +28310,7 @@ buildPrimitive(modl_T *modl,            /* (in)  pointer to MODL */
                         status = ocsmSetVelD(MODL, MODL->npmtr, 1, 1, dot);
                         CHECK_STATUS(ocsmSetVelD);
                     } else {
-                        status = ocsmNewPmtr(MODL, &(MODL->brch[jbrch].arg1[1]), OCSM_INTERNAL, 1, 1);
+                        status = ocsmNewPmtr(MODL, &(MODL->brch[jbrch].arg1[1]), OCSM_LOCALVAR, 1, 1);
                         CHECK_STATUS(ocsmNewPmtr);
 
                         status = ocsmSetValu(MODL, MODL->npmtr, 1, 1, MODL->brch[jbrch].arg3);
@@ -27396,7 +28325,7 @@ buildPrimitive(modl_T *modl,            /* (in)  pointer to MODL */
                         goto cleanup;
                     }
 
-                    status = ocsmFindPmtr(MODL, &(MODL->brch[jbrch].arg1[1]), OCSM_INTERNAL, 1, NINT(value), &ipmtr);
+                    status = ocsmFindPmtr(MODL, &(MODL->brch[jbrch].arg1[1]), OCSM_LOCALVAR, 1, NINT(value), &ipmtr);
                     CHECK_STATUS(ocsmNewPmtr);
 
                     for (irc = 1; irc <= NINT(value); irc++) {
@@ -27658,8 +28587,8 @@ buildPrimitive(modl_T *modl,            /* (in)  pointer to MODL */
                 toler = 0;
             }
 
-            SPRINT2(1, "                          Body   %4d restored (toler=%11.4e)",
-                    ibody, toler);
+            SPRINT5(1, "                          Body   %4d restored (toler=%11.4e, nnode=%4d, nedge=%4d, nface=%4d)",
+                    ibody, toler, MODL->body[ibody].nnode, MODL->body[ibody].nedge, MODL->body[ibody].nface);
 
             /* decrement Group so that others that get made in the same restore
                will have the same Group number */
@@ -27689,7 +28618,7 @@ cleanup:
 
 static int
 buildSketch(modl_T *modl,               /* (in)  pointer to MODL */
-            int    ibrch,               /* (in)  Branch index (bias-1) */
+            int    ibrch,               /* (in)  Branch index (1:nbrch) */
             varg_T args[],              /* (in)  array of arguments */
             int    *nstack,             /* (both) number of Bodys on stack */
             int    stack[],             /* (both) array  of Bodys on stack */
@@ -27815,19 +28744,19 @@ buildSketch(modl_T *modl,               /* (in)  pointer to MODL */
         /* make the new Sketch variables */
         sket->size = args[2].nval / 3;
 
-        status = ocsmNewPmtr(MODL, "::x", OCSM_INTERNAL, 1, sket->size);
+        status = ocsmNewPmtr(MODL, "::x", OCSM_LOCALVAR, 1, sket->size);
         CHECK_STATUS(ocsmNewPmtr);
         sket->ix = MODL->npmtr;
 
-        status = ocsmNewPmtr(MODL, "::y", OCSM_INTERNAL, 1, sket->size);
+        status = ocsmNewPmtr(MODL, "::y", OCSM_LOCALVAR, 1, sket->size);
         CHECK_STATUS(ocsmNewPmtr);
         sket->iy = MODL->npmtr;
 
-        status = ocsmNewPmtr(MODL, "::z", OCSM_INTERNAL, 1, sket->size);
+        status = ocsmNewPmtr(MODL, "::z", OCSM_LOCALVAR, 1, sket->size);
         CHECK_STATUS(ocsmNewPmtr);
         sket->iz = MODL->npmtr;
 
-        status = ocsmNewPmtr(MODL, "::d", OCSM_INTERNAL, 1, sket->size);
+        status = ocsmNewPmtr(MODL, "::d", OCSM_LOCALVAR, 1, sket->size);
         CHECK_STATUS(ocsmNewPmtr);
         sket->id = MODL->npmtr;
 
@@ -28027,7 +28956,7 @@ buildSketch(modl_T *modl,               /* (in)  pointer to MODL */
                 im1 = index1 - 1; if (im1 == 0           ) im1 = sket->size;
                 ip1 = index1 + 1; if (ip1 == sket->size+1) ip1 = 1;
                 snprintf(sket->con[sket->ncon++], MAX_EXPR_LEN,
-                         "(turnang(::x[%d],::y[%d],::d[%d],::x[%d],::y[%d],::d[%d],::x[%d],::y[%d])-(%s))/57.3",
+                         "(turnang(::x[%d],::y[%d],::d[%d],::x[%d],::y[%d],::d[%d],::x[%d],::y[%d])-smallang(%s))/57.3",
                          im1, im1, index1, index1, index1, ip1, ip1, ip1, value);
             } else if (strcmp(args[1].str, "Z") == 0) {
                 if        (index2 == -2) {
@@ -28057,7 +28986,7 @@ buildSketch(modl_T *modl,               /* (in)  pointer to MODL */
                          index1, index2);
             } else if (strcmp(args[1].str, "I") == 0) {
                 snprintf(sket->con[sket->ncon++], MAX_EXPR_LEN,
-                         "(atan2d(::y[%d]-::y[%d],::x[%d]-::x[%d])-(%s))/57.3",
+                         "smallang(atan2d(::y[%d]-::y[%d],::x[%d]-::x[%d])-(%s))/57.3",
                          index2, index1, index2, index1, value);
             } else if (strcmp(args[1].str, "L") == 0) {
                 snprintf(sket->con[sket->ncon++], MAX_EXPR_LEN,
@@ -29341,7 +30270,7 @@ cleanup:
 
 static int
 buildSolver(modl_T *modl,               /* (in)  pointer to MODL */
-            int    ibrch,               /* (in)  Branch index (bias-1) */
+            int    ibrch,               /* (in)  Branch index (1:nbrch) */
 /*@unused@*/varg_T args[],              /* (in)  array of arguments */
             int    *nvar,               /* (both) number of Solver variables */
             int    solvars[],           /* (both) array  of Slover variables */
@@ -29384,7 +30313,7 @@ buildSolver(modl_T *modl,               /* (in)  pointer to MODL */
                 for (jpmtr = 1; jpmtr <= MODL->npmtr; jpmtr++) {
                     if (strcmp(MODL->pmtr[jpmtr].name, name) == 0                         &&
                                MODL->pmtr[jpmtr].scope       == MODL->scope[MODL->level]  &&
-                               MODL->pmtr[jpmtr].type        == OCSM_INTERNAL               ) {
+                               MODL->pmtr[jpmtr].type        == OCSM_LOCALVAR               ) {
                         ipmtr = jpmtr;
                         break;
                     }
@@ -29749,7 +30678,7 @@ cleanup:
 
 static int
 buildTransform(modl_T *modl,            /* (in)  pointer to MODL */
-               int    ibrch,            /* (in)  Branch index (bias-1) */
+               int    ibrch,            /* (in)  Branch index (1:nbrch) */
                varg_T args[],           /* (in)  array of arguments */
                int    *nstack,          /* (both) number of Bodys on stack */
                int    stack[])          /* (both) array  of Bodys on stack */
@@ -30125,8 +31054,8 @@ buildTransform(modl_T *modl,            /* (in)  pointer to MODL */
             status = getBodyTolerance(MODL->body[ibody].ebody, &toler);
             CHECK_STATUS(getBodyTolerance);
 
-            SPRINT2(1, "                          Body   %4d created  (toler=%11.4e)",
-                    ibody, toler);
+            SPRINT5(1, "                          Body   %4d created  (toler=%11.4e, nnode=%4d, nedge=%4d, nface=%4d)",
+                    ibody, toler, MODL->body[ibody].nnode, MODL->body[ibody].nedge, MODL->body[ibody].nface);
 
             /* decrement Group so that others that get made in the same transform
                will have the same Group number */
@@ -30340,8 +31269,8 @@ buildTransform(modl_T *modl,            /* (in)  pointer to MODL */
         status = getBodyTolerance(MODL->body[ibody].ebody, &toler);
         CHECK_STATUS(getBodyTolerance);
 
-        SPRINT2(1, "                          Body   %4d created  (toler=%11.4e)",
-                ibody, toler);
+        SPRINT5(1, "                          Body   %4d created  (toler=%11.4e, nnode=%4d, nedge=%4d, nface=%4d)",
+                ibody, toler, MODL->body[ibody].nnode, MODL->body[ibody].nedge, MODL->body[ibody].nface);
     }
 
 cleanup:
@@ -30361,7 +31290,7 @@ cleanup:
 
 static int
 checkForFiniteDifferences(modl_T *MODL, /* (in)  pointer to MODL */
-                          int    ibody) /* (in)  Body index (bias-1) */
+                          int    ibody) /* (in)  Body index (1:nbody) */
 {
     int       status = SUCCESS;         /* (out) return status */
 
@@ -30464,8 +31393,8 @@ cleanup:
 
 static int
 colorizeEdge(modl_T   *MODL,            /* (in)  pointer to MODL */
-             int      ibody,            /* (in)  Body index (bias-1) */
-             int      iedge)            /* (in)  Edge index (bias-1) */
+             int      ibody,            /* (in)  Body index (1:nbody) */
+             int      iedge)            /* (in)  Edge index (1:nedge) */
 {
     int       status = SUCCESS;         /* (out) return status */
 
@@ -30541,8 +31470,8 @@ colorizeEdge(modl_T   *MODL,            /* (in)  pointer to MODL */
 
 static int
 colorizeFace(modl_T   *MODL,            /* (in)  pointer to MODL */
-             int      ibody,            /* (in)  Body index (bias-1) */
-             int      iface)            /* (in)  Face index (bias-1) */
+             int      ibody,            /* (in)  Body index (1:nbody) */
+             int      iface)            /* (in)  Face index (1:nface) */
 {
     int       status = SUCCESS;         /* (out) return status */
 
@@ -30641,8 +31570,8 @@ colorizeFace(modl_T   *MODL,            /* (in)  pointer to MODL */
 
 static int
 colorizeNode(modl_T   *MODL,            /* (in)  pointer to MODL */
-             int      ibody,            /* (in)  Body index (bias-1) */
-             int      inode)            /* (in)  Node index (bias-1) */
+             int      ibody,            /* (in)  Body index (1:nbody) */
+             int      inode)            /* (in)  Node index (1:nnode) */
 {
     int       status = SUCCESS;         /* (out) return status */
 
@@ -30681,6 +31610,1251 @@ colorizeNode(modl_T   *MODL,            /* (in)  pointer to MODL */
     status = SUCCESS;
 
 //cleanup:
+    return status;
+}
+
+
+/*
+ ************************************************************************
+ *                                                                      *
+ *   computeMassPropsDot - populate .dot for the mass properties        *
+ *                                                                      *
+ ************************************************************************
+ */
+
+static int
+computeMassPropsDot(modl_T *MODL)       /* (in)  pointer to base MODL */
+{
+    int       status = SUCCESS;         /* (out) return status */
+
+    int       ibody, iface, iedge, inode, npnt, ipnt, ntri, itri, ipmtr, ilist, okay, count;
+    CINT      *ptype, *pindx, *tris, *tric;
+    double    xmin,     xmax,     ymin,     ymax,     zmin,     zmax;
+    double    xmin_dot, xmax_dot, ymin_dot, ymax_dot, zmin_dot, zmax_dot;
+    double    x0,     y0,     z0,     x1,     y1,     z1,     x2,     y2,     z2;
+    double    x0_dot, y0_dot, z0_dot, x1_dot, y1_dot, z1_dot, x2_dot, y2_dot, z2_dot;
+    double    xbar,     ybar,     zbar,     aa,     areax,     areay,     areaz;
+    double    xbar_dot, ybar_dot, zbar_dot, aa_dot, areax_dot, areay_dot, areaz_dot;
+    double    ll,     dx,     dy,     dz;
+    double    ll_dot, dx_dot, dy_dot, dz_dot;
+    double    len,     area,     vol,     xcg,     ycg,     zcg;
+    double    len_dot, area_dot, vol_dot, xcg_dot, ycg_dot, zcg_dot;
+    double    Ixx,     Iyy,     Izz,     Ixy,     Ixz,     Iyz;
+    double    Ixx_dot, Iyy_dot, Izz_dot, Ixy_dot, Ixz_dot, Iyz_dot;
+    double    xyz1[3], xyz2[3], bbox1[6], bbox2[6], mprop1[14], mprop2[14];
+    CDOUBLE   *xyz, *uv, *dxyz;
+
+    ROUTINE(computeMassPropsDot);
+
+    /* --------------------------------------------------------------- */
+
+    /* if we have already computed the mass property velocities, return now */
+    if (MODL->needMPdot == 0) {
+        goto cleanup;
+    }
+
+    ibody = MODL->selbody;
+
+    if (ibody < 1 || ibody > MODL->nbody) {
+        goto cleanup;
+    }
+
+    /* quick return if not a SolidBody, SheetBody, WireBody, or NodeBody */
+    if (MODL->body[ibody].botype != OCSM_SOLID_BODY &&
+        MODL->body[ibody].botype != OCSM_SHEET_BODY &&
+        MODL->body[ibody].botype != OCSM_WIRE_BODY  &&
+        MODL->body[ibody].botype != OCSM_NODE_BODY    ) {
+        goto cleanup;
+    }
+
+    /* initialize the properties and their velocities */
+    xmin = +HUGEQ;     xmin_dot = 0;
+    xmax = -HUGEQ;     xmax_dot = 0;
+    ymin = +HUGEQ;     ymin_dot = 0;
+    ymax = -HUGEQ;     ymax_dot = 0;
+    zmin = +HUGEQ;     zmin_dot = 0;
+    zmax = -HUGEQ;     zmax_dot = 0;
+    len  = 0;          len_dot  = 0;
+    area = 0;          area_dot = 0;
+    vol  = 0;          vol_dot  = 0;
+    xcg  = 0;          xcg_dot  = 0;
+    ycg  = 0;          ycg_dot  = 0;
+    zcg  = 0;          zcg_dot  = 0;
+    Ixx  = 0;          Ixx_dot  = 0;
+    Iyy  = 0;          Iyy_dot  = 0;
+    Izz  = 0;          Izz_dot  = 0;
+    Ixy  = 0;          Ixy_dot  = 0;
+    Ixz  = 0;          Ixz_dot  = 0;
+    Iyz  = 0;          Iyz_dot  = 0;
+
+    count = 0;
+
+    /* possibly set up a perturbed model */
+    status = checkForFiniteDifferences(MODL, ibody);
+    CHECK_STATUS(checkForFiniteDifferences);
+
+    /* if we have a perturbation, use finite differences to compute
+       the dots of the mass properties */
+    if (MODL->perturb != NULL) {
+        SPRINT0(1, "    computeMassPropsDot via finite differences");
+
+        /* Body */
+        if (MODL->seltype == -1) {
+            status = EG_getBoundingBox(MODL->body[ibody].ebody, bbox1);
+            CHECK_STATUS(EG_getBoundingBox);
+
+            status = EG_getBoundingBox(MODL->perturb->body[ibody].ebody, bbox2);
+            CHECK_STATUS(EG_getBoundingBox);
+
+            xmin     =  bbox1[0];
+            xmin_dot = (bbox2[0] - bbox1[0]) / MODL->dtime;
+            xmax     =  bbox1[3];
+            xmax_dot = (bbox2[3] - bbox1[3]) / MODL->dtime;
+            ymin     =  bbox1[1];
+            ymin_dot = (bbox2[1] - bbox1[1]) / MODL->dtime;
+            ymax     =  bbox1[4];
+            ymax_dot = (bbox2[4] - bbox1[4]) / MODL->dtime;
+            zmin     =  bbox1[2];
+            zmin_dot = (bbox2[2] - bbox1[2]) / MODL->dtime;
+            zmax     =  bbox1[5];
+            zmax_dot = (bbox2[5] - bbox1[5]) / MODL->dtime;
+
+            status = EG_getMassProperties(MODL->body[ibody].ebody, mprop1);
+            CHECK_STATUS(EG_getMassProperties);
+
+            status = EG_getMassProperties(MODL->perturb->body[ibody].ebody, mprop2);
+            CHECK_STATUS(EG_getMassProperties);
+
+            if (MODL->body[ibody].botype != OCSM_WIRE_BODY) {
+                area     =  mprop1[ 1];
+                area_dot = (mprop2[ 1] - mprop1[ 1]) / MODL->dtime;
+                vol      =  mprop1[ 0];
+                vol_dot  = (mprop2[ 0] - mprop1[ 0]) / MODL->dtime;
+            } else {
+                len      =  mprop1[ 1];
+                len_dot  = (mprop2[ 1] - mprop1[ 1]) / MODL->dtime;
+            }
+
+            xcg     =  mprop1[ 2];
+            xcg_dot = (mprop2[ 2] - mprop1[ 2]) / MODL->dtime;
+            ycg     =  mprop1[ 3];
+            ycg_dot = (mprop2[ 3] - mprop1[ 3]) / MODL->dtime;
+            zcg     =  mprop1[ 4];
+            zcg_dot = (mprop2[ 4] - mprop1[ 4]) / MODL->dtime;
+            Ixx     =  mprop1[ 5];
+            Ixx_dot = (mprop2[ 5] - mprop1[ 5]) / MODL->dtime;
+            Ixy     =  mprop1[ 6];
+            Ixy_dot = (mprop2[ 6] - mprop1[ 6]) / MODL->dtime;
+            Ixz     =  mprop1[ 7];
+            Ixz_dot = (mprop2[ 7] - mprop1[ 7]) / MODL->dtime;
+            Iyy     =  mprop1[ 9];
+            Iyy_dot = (mprop2[ 9] - mprop1[ 9]) / MODL->dtime;
+            Iyz     =  mprop1[10];
+            Iyz_dot = (mprop2[10] - mprop1[10]) / MODL->dtime;
+            Izz     =  mprop1[13];
+            Izz_dot = (mprop2[13] - mprop1[13]) / MODL->dtime;
+
+        /* group of Faces */
+        } else if (MODL->seltype == 2) {
+            for (iface = 1; iface <= MODL->body[ibody].nface; iface++) {
+                if (MODL->body[ibody].botype != OCSM_SHEET_BODY) {
+                    okay = 0;
+                    for (ilist = 0; ilist < MODL->selsize; ilist++) {
+                        if (iface == MODL->sellist[ilist]) {
+                            okay = 1;
+                            break;
+                        }
+                    }
+
+                    if (okay == 0) continue;
+                }
+
+                status = EG_getBoundingBox(MODL->body[ibody].face[iface].eface, bbox1);
+                CHECK_STATUS(EG_getBoundingBox);
+
+                status = EG_getBoundingBox(MODL->perturb->body[ibody].face[iface].eface, bbox2);
+                CHECK_STATUS(EG_getBoundingBox);
+
+                if (bbox1[0] < xmin) {
+                    xmin     =  bbox1[0];
+                    xmin_dot = (bbox2[0] - bbox1[0]) / MODL->dtime;
+                }
+                if (bbox1[3] > xmax) {
+                    xmax     =  bbox1[3];
+                    xmax_dot = (bbox2[3] - bbox1[3]) / MODL->dtime;
+                }
+                if (bbox1[1] < ymin) {
+                    ymin     =  bbox1[1];
+                    ymin_dot = (bbox2[1] - bbox1[1]) / MODL->dtime;
+                }
+                if (bbox1[4] > ymax) {
+                    ymax     =  bbox1[4];
+                    ymax_dot = (bbox2[4] - bbox1[4]) / MODL->dtime;
+                }
+                if (bbox1[2] < zmin) {
+                    zmin     =  bbox1[2];
+                    zmin_dot = (bbox2[2] - bbox1[2]) / MODL->dtime;
+                }
+                if (bbox1[5] > zmax) {
+                    zmax     =  bbox1[5];
+                    zmax_dot = (bbox2[5] - bbox1[5]) / MODL->dtime;
+                }
+
+                status = EG_getMassProperties(MODL->body[ibody].face[iface].eface, mprop1);
+                CHECK_STATUS(EG_getMassProperties);
+
+                status = EG_getMassProperties(MODL->perturb->body[ibody].face[iface].eface, mprop2);
+                CHECK_STATUS(EG_getMassProperties);
+
+                area     +=  mprop1[1];
+                area_dot += (mprop2[1] - mprop1[1]) / MODL->dtime;
+
+                xcg      +=  mprop1[2]*mprop1[1];
+                xcg_dot  += (mprop2[2]*mprop2[1] - mprop1[2]*mprop1[1]) / MODL->dtime;
+
+                ycg      +=  mprop1[3]*mprop1[1];
+                ycg_dot  += (mprop2[3]*mprop2[1] - mprop1[3]*mprop1[1]) / MODL->dtime;
+
+                zcg      +=  mprop1[4]*mprop1[1];
+                zcg_dot  += (mprop2[4]*mprop2[1] - mprop1[4]*mprop1[1]) / MODL->dtime;
+
+                Ixx      +=  mprop1[ 5]+mprop1[1]*mprop1[2]*mprop1[2];
+                Ixx_dot  += (mprop2[ 5]+mprop2[1]*mprop2[2]*mprop2[2] - mprop1[ 5]+mprop1[1]-mprop1[2]*mprop1[2]) / MODL->dtime;
+
+                Iyy      +=  mprop1[ 9]+mprop1[1]*mprop1[3]*mprop1[3];
+                Iyy_dot  += (mprop2[ 9]+mprop2[1]*mprop2[3]*mprop2[3] - mprop1[ 9]+mprop1[1]-mprop1[3]*mprop1[3]) / MODL->dtime;
+
+                Izz      +=  mprop1[13]+mprop1[1]*mprop1[4]*mprop1[4];
+                Izz_dot  += (mprop2[13]+mprop2[1]*mprop2[4]*mprop2[4] - mprop1[13]+mprop1[1]-mprop1[4]*mprop1[4]) / MODL->dtime;
+
+                Ixy      +=  mprop1[ 6]+mprop1[1]*mprop1[2]*mprop1[3];
+                Ixy_dot  += (mprop2[ 6]+mprop2[1]*mprop2[2]*mprop2[3] - mprop1[ 6]+mprop1[1]-mprop1[2]*mprop1[3]) / MODL->dtime;
+
+                Ixz      +=  mprop1[ 7]+mprop1[1]*mprop1[2]*mprop1[4];
+                Ixz_dot  += (mprop2[ 7]+mprop2[1]*mprop2[2]*mprop2[4] - mprop1[ 7]+mprop1[1]-mprop1[2]*mprop1[4]) / MODL->dtime;
+
+                Iyz      +=  mprop1[10]+mprop1[1]*mprop1[3]*mprop1[4];
+                Iyz_dot  += (mprop2[10]+mprop2[1]*mprop2[3]*mprop2[4] - mprop1[10]+mprop1[1]-mprop1[3]*mprop1[4]) / MODL->dtime;
+
+                count++;
+            }
+
+            if (fabs(area) > EPS20) {
+                xcg     /= area;
+                xcg_dot  = xcg_dot / area - area_dot * xcg / area;
+                ycg     /= area;
+                ycg_dot  = ycg_dot / area - area_dot * ycg / area;
+                zcg     /= area;
+                zcg_dot  = zcg_dot / area - area_dot * zcg / area;
+            }
+
+            Ixx     -= area     * xcg * xcg;
+            Ixx_dot -= area_dot * xcg * xcg + area * 2 * xcg * xcg_dot;
+
+            Iyy     -= area     * ycg * ycg;
+            Iyy_dot -= area_dot * ycg * ycg + area * 2 * ycg * ycg_dot;
+
+            Izz     -= area     * zcg * zcg;
+            Izz_dot -= area_dot * zcg * zcg + area * 2 * zcg * zcg_dot;
+
+            Ixy     -= area     * xcg * ycg;
+            Ixy_dot -= area_dot * xcg * ycg + area * 2 * xcg * ycg_dot;
+
+            Ixz     -= area     * xcg * zcg;
+            Ixz_dot -= area_dot * xcg * zcg + area * 2 * xcg * zcg_dot;
+
+            Iyz     -= area     * ycg * zcg;
+            Iyz_dot -= area_dot * ycg * zcg + area * 2 * ycg * zcg_dot;
+
+        /* group of Edges */
+        } else if (MODL->seltype == 1) {
+            for (iedge = 1; iedge <= MODL->body[ibody].nedge; iedge++) {
+                if (MODL->body[ibody].botype != OCSM_SHEET_BODY) {
+                    okay = 0;
+                    for (ilist = 0; ilist < MODL->selsize; ilist++) {
+                        if (iedge == MODL->sellist[ilist]) {
+                            okay = 1;
+                            break;
+                        }
+                    }
+
+                    if (okay == 0) continue;
+                }
+
+                status = EG_getBoundingBox(MODL->body[ibody].edge[iedge].eedge, bbox1);
+                CHECK_STATUS(EG_getBoundingBox);
+
+                status = EG_getBoundingBox(MODL->perturb->body[ibody].edge[iedge].eedge, bbox2);
+                CHECK_STATUS(EG_getBoundingBox);
+
+                if (bbox1[0] < xmin) {
+                    xmin     =  bbox1[0];
+                    xmin_dot = (bbox2[0] - bbox1[0]) / MODL->dtime;
+                }
+                if (bbox1[3] > xmax) {
+                    xmax     =  bbox1[3];
+                    xmax_dot = (bbox2[3] - bbox1[3]) / MODL->dtime;
+                }
+                if (bbox1[1] < ymin) {
+                    ymin     =  bbox1[1];
+                    ymin_dot = (bbox2[1] - bbox1[1]) / MODL->dtime;
+                }
+                if (bbox1[4] > ymax) {
+                    ymax     =  bbox1[4];
+                    ymax_dot = (bbox2[4] - bbox1[4]) / MODL->dtime;
+                }
+                if (bbox1[2] < zmin) {
+                    zmin     =  bbox1[2];
+                    zmin_dot = (bbox2[2] - bbox1[2]) / MODL->dtime;
+                }
+                if (bbox1[5] > zmax) {
+                    zmax     =  bbox1[5];
+                    zmax_dot = (bbox2[5] - bbox1[5]) / MODL->dtime;
+                }
+
+                status = EG_getMassProperties(MODL->body[ibody].edge[iedge].eedge, mprop1);
+                CHECK_STATUS(EG_getMassProperties);
+
+                status = EG_getMassProperties(MODL->perturb->body[ibody].edge[iedge].eedge, mprop2);
+                CHECK_STATUS(EG_getMassProperties);
+
+                len     +=  mprop1[1];
+                len_dot += (mprop2[1] - mprop1[1]) / MODL->dtime;
+
+                xcg      +=  mprop1[2]*mprop1[1];
+                xcg_dot  += (mprop2[2]*mprop2[1] - mprop1[2]*mprop1[1]) / MODL->dtime;
+
+                ycg      +=  mprop1[3]*mprop1[1];
+                ycg_dot  += (mprop2[3]*mprop2[1] - mprop1[3]*mprop1[1]) / MODL->dtime;
+
+                zcg      +=  mprop1[4]*mprop1[1];
+                zcg_dot  += (mprop2[4]*mprop2[1] - mprop1[4]*mprop1[1]) / MODL->dtime;
+
+                Ixx      +=  mprop1[ 5]+mprop1[1]*mprop1[2]*mprop1[2];
+                Ixx_dot  += (mprop2[ 5]+mprop2[1]*mprop2[2]*mprop2[2] - mprop1[ 5]+mprop1[1]-mprop1[2]*mprop1[2]) / MODL->dtime;
+
+                Iyy      +=  mprop1[ 9]+mprop1[1]*mprop1[3]*mprop1[3];
+                Iyy_dot  += (mprop2[ 9]+mprop2[1]*mprop2[3]*mprop2[3] - mprop1[ 9]+mprop1[1]-mprop1[3]*mprop1[3]) / MODL->dtime;
+
+                Izz      +=  mprop1[13]+mprop1[1]*mprop1[4]*mprop1[4];
+                Izz_dot  += (mprop2[13]+mprop2[1]*mprop2[4]*mprop2[4] - mprop1[13]+mprop1[1]-mprop1[4]*mprop1[4]) / MODL->dtime;
+
+                Ixy      +=  mprop1[ 6]+mprop1[1]*mprop1[2]*mprop1[3];
+                Ixy_dot  += (mprop2[ 6]+mprop2[1]*mprop2[2]*mprop2[3] - mprop1[ 6]+mprop1[1]-mprop1[2]*mprop1[3]) / MODL->dtime;
+
+                Ixz      +=  mprop1[ 7]+mprop1[1]*mprop1[2]*mprop1[4];
+                Ixz_dot  += (mprop2[ 7]+mprop2[1]*mprop2[2]*mprop2[4] - mprop1[ 7]+mprop1[1]-mprop1[2]*mprop1[4]) / MODL->dtime;
+
+                Iyz      +=  mprop1[10]+mprop1[1]*mprop1[3]*mprop1[4];
+                Iyz_dot  += (mprop2[10]+mprop2[1]*mprop2[3]*mprop2[4] - mprop1[10]+mprop1[1]-mprop1[3]*mprop1[4]) / MODL->dtime;
+
+                count++;
+            }
+
+            if (fabs(len) > EPS20) {
+                xcg     /= len;
+                xcg_dot  = xcg_dot / len - len_dot * xcg / len;
+                ycg     /= len;
+                ycg_dot  = ycg_dot / len - len_dot * ycg / len;
+                zcg     /= len;
+                zcg_dot  = zcg_dot / len - len_dot * zcg / len;
+            }
+
+            Ixx     -= len     * xcg * xcg;
+            Ixx_dot -= len_dot * xcg * xcg + len * 2 * xcg * xcg_dot;
+
+            Iyy     -= len     * ycg * ycg;
+            Iyy_dot -= len_dot * ycg * ycg + len * 2 * ycg * ycg_dot;
+
+            Izz     -= len     * zcg * zcg;
+            Izz_dot -= len_dot * zcg * zcg + len * 2 * zcg * zcg_dot;
+
+            Ixy     -= len     * xcg * ycg;
+            Ixy_dot -= len_dot * xcg * ycg + len * 2 * xcg * ycg_dot;
+
+            Ixz     -= len     * xcg * zcg;
+            Ixz_dot -= len_dot * xcg * zcg + len * 2 * xcg * zcg_dot;
+
+            Iyz     -= len     * ycg * zcg;
+            Iyz_dot -= len_dot * ycg * zcg + len * 2 * ycg * zcg_dot;
+
+        /* group of Nodes */
+        } else if (MODL->seltype == 0) {
+            for (inode = 1; inode <= MODL->body[ibody].nnode; inode++) {
+                if (MODL->body[ibody].botype != OCSM_SHEET_BODY) {
+                    okay = 0;
+                    for (ilist = 0; ilist < MODL->selsize; ilist++) {
+                        if (inode == MODL->sellist[ilist]) {
+                            okay = 1;
+                            break;
+                        }
+                    }
+
+                    if (okay == 0) continue;
+                }
+
+                xyz1[0] = MODL->body[ibody].node[inode].x;
+                xyz1[1] = MODL->body[ibody].node[inode].y;
+                xyz1[2] = MODL->body[ibody].node[inode].z;
+
+                xyz2[0] = MODL->perturb->body[ibody].node[inode].x;
+                xyz2[1] = MODL->perturb->body[ibody].node[inode].y;
+                xyz2[2] = MODL->perturb->body[ibody].node[inode].z;
+
+                if (xyz1[0] < xmin) {
+                    xmin     =  xyz1[0];
+                    xmin_dot = (xyz2[0] - xyz1[0]) / MODL->dtime;
+                }
+                if (xyz1[0] > xmax) {
+                    xmax     =  xyz1[0];
+                    xmax_dot = (xyz2[0] - xyz1[0]) / MODL->dtime;
+                }
+                if (xyz1[1] < ymin) {
+                    ymin     =  xyz1[1];
+                    ymin_dot = (xyz2[1] - xyz1[1]) / MODL->dtime;
+                }
+                if (xyz1[1] > ymax) {
+                    ymax     =  xyz1[1];
+                    ymax_dot = (xyz2[1] - xyz1[1]) / MODL->dtime;
+                }
+                if (xyz1[2] < zmin) {
+                    zmin     =  xyz1[2];
+                    zmin_dot = (xyz2[2] - xyz1[2]) / MODL->dtime;
+                }
+                if (xyz1[2] > zmax) {
+                    zmax     =  xyz1[2];
+                    zmax_dot = (xyz2[2] - xyz1[2]) / MODL->dtime;
+                }
+
+                xcg     +=  xyz1[0];
+                xcg_dot += (xyz2[0] - xyz1[0]) / MODL->dtime;
+                ycg     +=  xyz1[1];
+                ycg_dot += (xyz2[1] - xyz1[1]) / MODL->dtime;
+                zcg     +=  xyz1[2];
+                zcg_dot += (xyz2[2] - xyz1[2]) / MODL->dtime;
+
+                count++;
+            }
+
+            xcg     /= count;
+            xcg_dot /= count;
+            ycg     /= count;
+            ycg_dot /= count;
+            zcg     /= count;
+            zcg_dot /= count;
+        } else {
+            printf("how did we get here???\n");
+            exit(0);
+        }
+
+        /* remove the perturbation, since it may not have all the Bodys
+           that the MODL has becaus this was called on the not-last Body */
+        status = removePerturbation(MODL);
+        CHECK_STATUS(removePerturbation);
+
+    /* make sure that we have tessellation velocities */
+    } else {
+        SPRINT0(1, "    computeMassPropsDot via analytic velocitiesnalytically");
+
+        status = createTessVels(MODL, ibody);
+        CHECK_STATUS(createTessVels);
+
+        /* SolidBody */
+        if (MODL->body[ibody].botype == OCSM_SOLID_BODY && MODL->seltype == -1) {
+            for (iface = 1; iface <= MODL->body[ibody].nface; iface++) {
+                status = EG_getTessFace(MODL->body[ibody].etess, iface,
+                                        &npnt, &xyz, &uv, &ptype, &pindx,
+                                        &ntri, &tris, &tric);
+                CHECK_STATUS(EG_getTessFace);
+
+                status = ocsmGetTessVel(MODL, ibody, OCSM_FACE, iface, &dxyz);
+                CHECK_STATUS(ocsmGetTessVels);
+
+                for (ipnt = 0; ipnt < npnt; ipnt++) {
+                    if (xyz[3*ipnt  ] < xmin) {
+                        xmin     = xyz[ 3*ipnt  ];
+                        xmin_dot = dxyz[3*ipnt  ];
+                    }
+                    if (xyz[3*ipnt  ] > xmax) {
+                        xmax     = xyz[ 3*ipnt  ];
+                        xmax_dot = dxyz[3*ipnt  ];
+                    }
+                    if (xyz[3*ipnt+1] < ymin) {
+                        ymin     = xyz[ 3*ipnt+1];
+                        ymin_dot = dxyz[3*ipnt+1];
+                    }
+                    if (xyz[3*ipnt+1] > ymax) {
+                        ymax     = xyz[ 3*ipnt+1];
+                        ymax_dot = dxyz[3*ipnt+1];
+                    }
+                    if (xyz[3*ipnt+2] < zmin) {
+                        zmin     = xyz[ 3*ipnt+2];
+                        zmin_dot = dxyz[3*ipnt+2];
+                    }
+                    if (xyz[3*ipnt+2] > zmax) {
+                        zmax     = xyz[ 3*ipnt+2];
+                        zmax_dot = dxyz[3*ipnt+2];
+                    }
+                }
+
+                /* use divergence theorem */
+                for (itri = 0; itri < ntri; itri++) {
+                    x0     = xyz[ 3*(tris[3*itri  ]-1)  ];
+                    x0_dot = dxyz[3*(tris[3*itri  ]-1)  ];
+                    y0     = xyz[ 3*(tris[3*itri  ]-1)+1];
+                    y0_dot = dxyz[3*(tris[3*itri  ]-1)+1];
+                    z0     = xyz[ 3*(tris[3*itri  ]-1)+2];
+                    z0_dot = dxyz[3*(tris[3*itri  ]-1)+2];
+
+                    x1     = xyz[ 3*(tris[3*itri+1]-1)  ];
+                    x1_dot = dxyz[3*(tris[3*itri+1]-1)  ];
+                    y1     = xyz[ 3*(tris[3*itri+1]-1)+1];
+                    y1_dot = dxyz[3*(tris[3*itri+1]-1)+1];
+                    z1     = xyz[ 3*(tris[3*itri+1]-1)+2];
+                    z1_dot = dxyz[3*(tris[3*itri+1]-1)+2];
+
+                    x2     = xyz[ 3*(tris[3*itri+2]-1)  ];
+                    x2_dot = dxyz[3*(tris[3*itri+2]-1)  ];
+                    y2     = xyz[ 3*(tris[3*itri+2]-1)+1];
+                    y2_dot = dxyz[3*(tris[3*itri+2]-1)+1];
+                    z2     = xyz[ 3*(tris[3*itri+2]-1)+2];
+                    z2_dot = dxyz[3*(tris[3*itri+2]-1)+2];
+
+                    xbar     = (x0     + x1     + x2    );
+                    xbar_dot = (x0_dot + x1_dot + x2_dot);
+                    ybar     = (y0     + y1     + y2    );
+                    ybar_dot = (y0_dot + y1_dot + y2_dot);
+                    zbar     = (z0     + z1     + z2    );
+                    zbar_dot = (z0_dot + z1_dot + z2_dot);
+
+                    areax     = (y1     - y0    ) * (z2     - z0    ) - (z1     - z0    ) * (y2     - y0    );
+                    areax_dot = (y1_dot - y0_dot) * (z2     - z0    ) - (z1_dot - z0_dot) * (y2     - y0    )
+                              + (y1     - y0    ) * (z2_dot - z0_dot) - (z1     - z0    ) * (y2_dot - y0_dot);
+                    areay     = (z1     - z0    ) * (x2     - x0    ) - (x1     - x0    ) * (z2     - z0    );
+                    areay_dot = (z1_dot - z0_dot) * (x2     - x0    ) - (x1_dot - x0_dot) * (z2     - z0    )
+                              + (z1     - z0    ) * (x2_dot - x0_dot) - (x1     - x0    ) * (z2_dot - z0_dot);
+                    areaz     = (x1     - x0    ) * (y2     - y0    ) - (y1     - y0    ) * (x2     - x0    );
+                    areaz_dot = (x1_dot - x0_dot) * (y2     - y0    ) - (y1_dot - y0_dot) * (x2     - x0    )
+                              + (x1     - x0    ) * (y2_dot - y0_dot) - (y1     - y0    ) * (x2_dot - x0_dot);
+
+                    aa        = sqrt(areax * areax     + areay * areay     + areaz * areaz    );
+                    aa_dot    =     (areax * areax_dot + areay * areay_dot + areaz * areaz_dot) / aa;
+
+                    area     += aa;
+                    area_dot += aa_dot;
+
+                    vol      += xbar     * areax     + ybar     * areay     + zbar     * areaz;
+                    vol_dot  += xbar_dot * areax     + ybar_dot * areay     + zbar_dot * areaz
+                             +  xbar     * areax_dot + ybar     * areay_dot + zbar     * areaz_dot;
+
+                    xcg      += xbar/2   * xbar * areax     + xbar     * ybar     * areay     + xbar     * zbar     * areaz;
+                    xcg_dot  += xbar_dot * xbar * areax     + xbar_dot * ybar     * areay     + xbar_dot * zbar     * areaz
+                             +                                xbar     * ybar_dot * areay     + xbar     * zbar_dot * areaz
+                             +  xbar/2   * xbar * areax_dot + xbar     * ybar     * areay_dot + xbar     * zbar     * areaz_dot;
+
+                    ycg      += ybar     * xbar     * areax     + ybar/2   * ybar * areay     + ybar     * zbar     * areaz;
+                    ycg_dot  += ybar_dot * xbar     * areax     + ybar_dot * ybar * areay     + ybar_dot * zbar     * areaz
+                             +  ybar     * xbar_dot * areax                                   + ybar     * zbar_dot * areaz
+                             +  ybar     * xbar     * areax_dot + ybar/2   * ybar * areay_dot + ybar     * zbar     * areaz_dot;
+
+                    zcg      += zbar     * xbar     * areax     + zbar     * ybar     * areay     + zbar/2   * zbar * areaz;
+                    zcg_dot  += zbar_dot * xbar     * areax     + zbar_dot * ybar     * areay     + zbar_dot * zbar * areaz
+                             + zbar      * xbar_dot * areax     + zbar     * ybar_dot * areay
+                             + zbar      * xbar     * areax_dot + zbar     * ybar     * areay_dot + zbar/2   * zbar * areaz_dot;
+
+                    Ixx      += (    ybar * ybar * ybar     * areay     +     zbar * zbar * zbar     * areaz    );
+                    Ixx_dot  += (3 * ybar * ybar * ybar_dot * areay     + 3 * zbar * zbar * zbar_dot * areaz    )
+                             +  (    ybar * ybar * ybar     * areay_dot +     zbar * zbar * zbar     * areaz_dot);
+
+                    Iyy      += (    xbar * xbar * xbar     * areax     +     zbar * zbar * zbar     * areaz    );
+                    Iyy_dot  += (3 * xbar * xbar * xbar_dot * areax     + 3 * zbar * zbar * zbar_dot * areaz    )
+                             +  (    xbar * xbar * xbar     * areax_dot +     zbar * zbar * zbar     * areaz_dot);
+
+                    Izz      += (    xbar * xbar * xbar     * areax     +     ybar * ybar * ybar     * areay    );
+                    Izz_dot  += (3 * xbar * xbar * xbar_dot * areax     + 3 * ybar * ybar * ybar_dot * areay    )
+                             +  (    xbar * xbar * xbar     * areax_dot +     ybar * ybar * ybar     * areay_dot);
+
+                    Ixy      -= (xbar     * ybar     * xbar     * areax    /2
+                              +  xbar     * ybar     * ybar     * areay    /2
+                              +  xbar     * ybar     * zbar     * areaz      );
+                    Ixy_dot  -= (xbar_dot * ybar     * xbar     * areax    /2
+                              +  xbar     * ybar_dot * xbar     * areax    /2
+                              +  xbar     * ybar     * xbar_dot * areax    /2
+                              +  xbar     * ybar     * xbar     * areax_dot/2
+
+                              +  xbar_dot * ybar     * ybar     * areay    /2
+                              +  xbar     * ybar_dot * ybar     * areay    /2
+                              +  xbar     * ybar     * ybar_dot * areay    /2
+                              +  xbar     * ybar     * ybar     * areay_dot/2
+
+                              +  xbar_dot * ybar     * zbar     * areaz
+                              +  xbar     * ybar_dot * zbar     * areaz
+                              +  xbar     * ybar     * zbar_dot * areaz
+                              +  xbar     * ybar     * zbar     * areaz_dot  );
+
+                    Ixz      -= (xbar     * zbar     * xbar     * areax    /2
+                              +  xbar     * zbar     * ybar     * areay
+                              +  xbar     * zbar     * zbar     * areaz    /2);
+                    Ixz_dot  -= (xbar_dot * zbar     * xbar     * areax    /2
+                              +  xbar     * zbar_dot * xbar     * areax    /2
+                              +  xbar     * zbar     * xbar_dot * areax    /2
+                              +  xbar     * zbar     * xbar     * areax_dot/2
+
+                              +  xbar_dot * zbar     * ybar     * areay
+                              +  xbar     * zbar_dot * ybar     * areay
+                              +  xbar     * zbar     * ybar_dot * areay
+                              +  xbar     * zbar     * ybar     * areay_dot
+
+                              +  xbar_dot * zbar     * zbar     * areaz    /2
+                              +  xbar     * zbar_dot * zbar     * areaz    /2
+                              +  xbar     * zbar     * zbar_dot * areaz    /2
+                              +  xbar     * zbar     * zbar     * areaz_dot/2);
+
+                    Iyz      -= (ybar     * zbar     * xbar     * areax
+                              +  ybar     * zbar     * ybar     * areay    /2
+                              +  ybar     * zbar     * zbar     * areaz    /2);
+                    Iyz_dot  -= (ybar_dot * zbar     * xbar     * areax
+                              +  ybar     * zbar_dot * xbar     * areax
+                              +  ybar     * zbar     * xbar_dot * areax
+                              +  ybar     * zbar     * xbar     * areax_dot
+
+                              +  ybar_dot * zbar     * ybar     * areay    /2
+                              +  ybar     * zbar_dot * ybar     * areay    /2
+                              +  ybar     * zbar     * ybar_dot * areay    /2
+                              +  ybar     * zbar     * ybar     * areay_dot/2
+
+                              +  ybar_dot * zbar     * zbar     * areaz    /2
+                              +  ybar     * zbar_dot * zbar     * areaz    /2
+                              +  ybar     * zbar     * zbar_dot * areaz    /2
+                              +  ybar     * zbar     * zbar     * areaz_dot/2);
+                }
+                count++;
+            }
+
+            /* compute centroid (since xcg*vol, ... was accumulated above) */
+            xcg     /= vol;
+            xcg_dot  = xcg_dot / vol - vol_dot * xcg / vol;
+            ycg     /= vol;
+            ycg_dot  = ycg_dot / vol - vol_dot * ycg / vol;
+            zcg     /= vol;
+            zcg_dot  = zcg_dot / vol - vol_dot * zcg / vol;
+
+            /* normalize (since we actually accumulated twice the area, ...) */
+            area     /=   2;
+            area_dot /=   2;
+            vol      /=  18;
+            vol_dot  /=  18;
+            xcg      /=   3;
+            xcg_dot  /=   3;
+            ycg      /=   3;
+            ycg_dot  /=   3;
+            zcg      /=   3;
+            zcg_dot  /=   3;
+            Ixx      /= 162;
+            Ixx_dot  /= 162;
+            Iyy      /= 162;
+            Iyy_dot  /= 162;
+            Izz      /= 162;
+            Izz_dot  /= 162;
+            Ixy      /= 162;
+            Ixy_dot  /= 162;
+            Ixz      /= 162;
+            Ixz_dot  /= 162;
+            Iyz      /= 162;
+            Iyz_dot  /= 162;
+
+            /* apply parallel axis theorem */
+            Ixx     -= vol     * (                ycg * ycg     + zcg * zcg    );
+            Ixx_dot -= vol_dot * (                ycg * ycg     + zcg * zcg    )
+                     + vol * 2 * (                ycg * ycg_dot + zcg * zcg_dot);
+
+            Iyy     -= vol     * (xcg * xcg                     + zcg * zcg    );
+            Iyy_dot -= vol_dot * (xcg * xcg                     + zcg * zcg    )
+                     + vol * 2 * (xcg * xcg_dot                 + zcg * zcg_dot);
+
+            Izz     -= vol     * (xcg * xcg     + ycg * ycg                    );
+            Izz_dot -= vol_dot * (xcg * xcg     + ycg * ycg                    )
+                     + vol * 2 * (xcg * xcg_dot + ycg * ycg_dot                );
+
+            Ixy     += vol     * xcg * ycg;
+            Ixy_dot += vol_dot * xcg * ycg + vol * xcg_dot * ycg + vol * xcg * ycg_dot;
+
+            Ixz     += vol     * xcg * zcg;
+            Ixz_dot += vol_dot * xcg * zcg + vol * xcg_dot * zcg + vol * xcg * zcg_dot;
+
+            Iyz     += vol     * ycg * zcg;
+            Iyz_dot += vol_dot * ycg * zcg + vol * ycg_dot * zcg + vol * ycg * zcg_dot;
+
+            /* SheetBody or a group of Faces */
+        } else if (MODL->body[ibody].botype == OCSM_SHEET_BODY || MODL->seltype == 2) {
+            for (iface = 1; iface <= MODL->body[ibody].nface; iface++) {
+                if (MODL->body[ibody].botype != OCSM_SHEET_BODY) {
+                    okay = 0;
+                    for (ilist = 0; ilist < MODL->selsize; ilist++) {
+                        if (iface == MODL->sellist[ilist]) {
+                            okay = 1;
+                            break;
+                        }
+                    }
+
+                    if (okay == 0) continue;
+                }
+
+                status = EG_getTessFace(MODL->body[ibody].etess, iface,
+                                        &npnt, &xyz, &uv, &ptype, &pindx,
+                                        &ntri, &tris, &tric);
+                CHECK_STATUS(EG_getTessFace);
+
+                status = ocsmGetTessVel(MODL, ibody, OCSM_FACE, iface, &dxyz);
+                CHECK_STATUS(ocsmGetTessVels);
+
+                for (ipnt = 0; ipnt < npnt; ipnt++) {
+                    if (xyz[3*ipnt  ] < xmin) {
+                        xmin     = xyz[ 3*ipnt  ];
+                        xmin_dot = dxyz[3*ipnt  ];
+                    }
+                    if (xyz[3*ipnt  ] > xmax) {
+                        xmax     = xyz[ 3*ipnt  ];
+                        xmax_dot = dxyz[3*ipnt  ];
+                    }
+                    if (xyz[3*ipnt+1] < ymin) {
+                        ymin     = xyz[ 3*ipnt+1];
+                        ymin_dot = dxyz[3*ipnt+1];
+                    }
+                    if (xyz[3*ipnt+1] > ymax) {
+                        ymax     = xyz[ 3*ipnt+1];
+                        ymax_dot = dxyz[3*ipnt+1];
+                    }
+                    if (xyz[3*ipnt+2] < zmin) {
+                        zmin     = xyz[ 3*ipnt+2];
+                        zmin_dot = dxyz[3*ipnt+2];
+                    }
+                    if (xyz[3*ipnt+2] > zmax) {
+                        zmax     = xyz[ 3*ipnt+2];
+                        zmax_dot = dxyz[3*ipnt+2];
+                    }
+                }
+
+                for (itri = 0; itri < ntri; itri++) {
+                    x0     = xyz[ 3*(tris[3*itri  ]-1)  ];
+                    x0_dot = dxyz[3*(tris[3*itri  ]-1)  ];
+                    y0     = xyz[ 3*(tris[3*itri  ]-1)+1];
+                    y0_dot = dxyz[3*(tris[3*itri  ]-1)+1];
+                    z0     = xyz[ 3*(tris[3*itri  ]-1)+2];
+                    z0_dot = dxyz[3*(tris[3*itri  ]-1)+2];
+
+                    x1     = xyz[ 3*(tris[3*itri+1]-1)  ];
+                    x1_dot = dxyz[3*(tris[3*itri+1]-1)  ];
+                    y1     = xyz[ 3*(tris[3*itri+1]-1)+1];
+                    y1_dot = dxyz[3*(tris[3*itri+1]-1)+1];
+                    z1     = xyz[ 3*(tris[3*itri+1]-1)+2];
+                    z1_dot = dxyz[3*(tris[3*itri+1]-1)+2];
+
+                    x2     = xyz[ 3*(tris[3*itri+2]-1)  ];
+                    x2_dot = dxyz[3*(tris[3*itri+2]-1)  ];
+                    y2     = xyz[ 3*(tris[3*itri+2]-1)+1];
+                    y2_dot = dxyz[3*(tris[3*itri+2]-1)+1];
+                    z2     = xyz[ 3*(tris[3*itri+2]-1)+2];
+                    z2_dot = dxyz[3*(tris[3*itri+2]-1)+2];
+
+                    xbar     = (x0     + x1     + x2    );
+                    xbar_dot = (x0_dot + x1_dot + x2_dot);
+                    ybar     = (y0     + y1     + y2    );
+                    ybar_dot = (y0_dot + y1_dot + y2_dot);
+                    zbar     = (z0     + z1     + z2    );
+                    zbar_dot = (z0_dot + z1_dot + z2_dot);
+
+                    areax     = (y1     - y0    ) * (z2     - z0    ) - (z1     - z0    ) * (y2     - y0    );
+                    areax_dot = (y1_dot - y0_dot) * (z2     - z0    ) - (z1_dot - z0_dot) * (y2     - y0    )
+                              + (y1     - y0    ) * (z2_dot - z0_dot) - (z1     - z0    ) * (y2_dot - y0_dot);
+                    areay     = (z1     - z0    ) * (x2     - x0    ) - (x1     - x0    ) * (z2     - z0    );
+                    areay_dot = (z1_dot - z0_dot) * (x2     - x0    ) - (x1_dot - x0_dot) * (z2     - z0    )
+                              + (z1     - z0    ) * (x2_dot - x0_dot) - (x1     - x0    ) * (z2_dot - z0_dot);
+                    areaz     = (x1     - x0    ) * (y2     - y0    ) - (y1     - y0    ) * (x2     - x0    );
+                    areaz_dot = (x1_dot - x0_dot) * (y2     - y0    ) - (y1_dot - y0_dot) * (x2     - x0    )
+                              + (x1     - x0    ) * (y2_dot - y0_dot) - (y1     - y0    ) * (x2_dot - x0_dot);
+
+                    aa        = sqrt(areax * areax     + areay * areay     + areaz * areaz    );
+                    aa_dot    =     (areax * areax_dot + areay * areay_dot + areaz * areaz_dot) / aa;
+
+                    area     += aa;
+                    area_dot += aa_dot;
+
+                    xcg      += xbar     * aa;
+                    xcg_dot  += xbar_dot * aa + xbar * aa_dot;
+
+                    ycg      += ybar     * aa;
+                    ycg_dot  += ybar_dot * aa + ybar * aa_dot;
+
+                    zcg      += zbar     * aa;
+                    zcg_dot  += zbar_dot * aa + zbar * aa_dot;
+
+                    Ixx      += aa     * (ybar * ybar     + zbar * zbar    );
+                    Ixx_dot  += aa_dot * (ybar * ybar     + zbar * zbar    )
+                             +  aa * 2 * (ybar * ybar_dot + zbar * zbar_dot);
+
+                    Iyy      += aa     * (xbar * xbar     + zbar * zbar    );
+                    Iyy_dot  += aa_dot * (xbar * xbar     + zbar * zbar    )
+                             +  aa * 2 * (xbar * xbar_dot + zbar * zbar_dot);
+
+                    Izz      += aa     * (xbar * xbar     + ybar * ybar    );
+                    Izz_dot  += aa_dot * (xbar *xbar      + ybar * ybar    )
+                             +  aa * 2 * (xbar * xbar_dot + ybar * ybar_dot);
+
+                    Ixy      -= aa     * xbar * ybar;
+                    Ixy_dot  -= aa_dot * xbar * ybar + aa * xbar_dot * ybar + aa * xbar * ybar_dot;
+
+                    Ixz      -= aa     * xbar * zbar;
+                    Ixz_dot  -= aa_dot * xbar * zbar + aa * xbar_dot * zbar + aa * xbar * zbar_dot;
+
+                    Iyz      -= aa     * ybar * zbar;
+                    Iyz_dot  -= aa_dot * ybar * zbar + aa * ybar_dot * zbar + aa * ybar * zbar_dot;
+                }
+                count++;
+            }
+
+            /* compute centroid (since xcg*area, ... was accumulated above) */
+            xcg     /= area;
+            xcg_dot  = xcg_dot / area - area_dot * xcg / area;
+            ycg     /= area;
+            ycg_dot  = ycg_dot / area - area_dot * ycg / area;
+            zcg     /= area;
+            zcg_dot  = zcg_dot / area - area_dot * zcg / area;
+
+            /* normalize (since we actually accumulated twice the area, ...) */
+            area     /=   2;
+            area_dot /=   2;
+            vol      /=  18;
+            vol_dot  /=  18;
+            xcg      /=   3;
+            xcg_dot  /=   3;
+            ycg      /=   3;
+            ycg_dot  /=   3;
+            zcg      /=   3;
+            zcg_dot  /=   3;
+            Ixx      /=  18;
+            Ixx_dot  /=  18;
+            Iyy      /=  18;
+            Iyy_dot  /=  18;
+            Izz      /=  18;
+            Izz_dot  /=  18;
+            Ixy      /=  18;
+            Ixy_dot  /=  18;
+            Ixz      /=  18;
+            Ixz_dot  /=  18;
+            Iyz      /=  18;
+            Iyz_dot  /=  18;
+
+            /* apply parallel axis theorem */
+            Ixx     -= area     * (                ycg * ycg     + zcg * zcg    );
+            Ixx_dot -= area_dot * (                ycg * ycg     + zcg * zcg    )
+                     + area * 2 * (                ycg * ycg_dot + zcg * zcg_dot);
+
+            Iyy     -= area     * (xcg * xcg                     + zcg * zcg    );
+            Iyy_dot -= area_dot * (xcg * xcg                     + zcg * zcg    )
+                     + area * 2 * (xcg * xcg_dot                 + zcg * zcg_dot);
+
+            Izz     -= area     * (xcg * xcg     + ycg * ycg                    );
+            Izz_dot -= area_dot * (xcg * xcg     + ycg * ycg                    )
+                     + area * 2 * (xcg * xcg_dot + ycg * ycg_dot                );
+
+            Ixy     += area     * xcg * ycg;
+            Ixy_dot += area_dot * xcg * ycg + area * xcg_dot * ycg + area * xcg * ycg_dot;
+
+            Ixz     += area     * xcg * zcg;
+            Ixz_dot += area_dot * xcg * zcg + area * xcg_dot * zcg + area * xcg * zcg_dot;
+
+            Iyz     += area     * ycg * zcg;
+            Iyz_dot += area_dot * ycg * zcg + area * ycg_dot * zcg + area * ycg * zcg_dot;
+
+            /* WireBody or a group of Edges */
+        } else if (MODL->body[ibody].botype == OCSM_WIRE_BODY || MODL->seltype == 1) {
+            for (iedge = 1; iedge <= MODL->body[ibody].nedge; iedge++) {
+                if (MODL->body[ibody].botype != OCSM_WIRE_BODY) {
+                    okay = 0;
+                    for (ilist = 0; ilist < MODL->selsize; ilist++) {
+                        if (iedge == MODL->sellist[ilist]) {
+                            okay = 1;
+                            break;
+                        }
+                    }
+
+                    if (okay == 0) continue;
+                }
+
+                status = EG_getTessEdge(MODL->body[ibody].etess, iedge,
+                                        &npnt, &xyz, &uv);
+                CHECK_STATUS(EG_getTessEdge);
+
+                status = ocsmGetTessVel(MODL, ibody, OCSM_EDGE, iedge, &dxyz);
+                CHECK_STATUS(ocsmGetTessVels);
+
+                if (MODL->body[ibody].botype != OCSM_WIRE_BODY && MODL->selsize > 1) {
+                    for (ipnt = 0; ipnt < npnt; ipnt++) {
+                        if (xyz[3*ipnt  ] < xmin) {
+                            xmin     = xyz[ 3*ipnt  ];
+                            xmin_dot = dxyz[3*ipnt  ];
+                        }
+                        if (xyz[3*ipnt  ] > xmax) {
+                            xmax     = xyz[ 3*ipnt  ];
+                            xmax_dot = dxyz[3*ipnt  ];
+                        }
+                        if (xyz[3*ipnt+1] < ymin) {
+                            ymin     = xyz[ 3*ipnt+1];
+                            ymin_dot = dxyz[3*ipnt+1];
+                        }
+                        if (xyz[3*ipnt+1] > ymax) {
+                            ymax     = xyz[ 3*ipnt+1];
+                            ymax_dot = dxyz[3*ipnt+1];
+                        }
+                        if (xyz[3*ipnt+2] < zmin) {
+                            zmin     = xyz[ 3*ipnt+2];
+                            zmin_dot = dxyz[3*ipnt+2];
+                        }
+                        if (xyz[3*ipnt+2] > zmax) {
+                            zmax     = xyz[ 3*ipnt+2];
+                            zmax_dot = dxyz[3*ipnt+2];
+                        }
+                    }
+
+                    /* if there is only one Edge in sellist, *min refers to beginning
+                       of the Edge and *max refers to the end of the Edge */
+                } else {
+                    xmin     = xyz[        0];
+                    xmin_dot = dxyz[       0];
+                    xmax     = xyz[ 3*npnt-3];
+                    xmax_dot = dxyz[3*npnt-3];
+                    ymin     = xyz[        1];
+                    ymin_dot = dxyz[       1];
+                    ymax     = xyz[ 3*npnt-2];
+                    ymax_dot = dxyz[3*npnt-2];
+                    zmin     = xyz[        2];
+                    zmin_dot = dxyz[       2];
+                    zmax     = xyz[ 3*npnt-1];
+                    zmax_dot = dxyz[3*npnt-1];
+                }
+
+                for (ipnt = 1; ipnt < npnt; ipnt++) {
+                    x0     = xyz[ 3*ipnt-3];
+                    x0_dot = dxyz[3*ipnt-3];
+                    y0     = xyz[ 3*ipnt-2];
+                    y0_dot = dxyz[3*ipnt-2];
+                    z0     = xyz[ 3*ipnt-1];
+                    z0_dot = dxyz[3*ipnt-1];
+
+                    x1     = xyz[ 3*ipnt  ];
+                    x1_dot = dxyz[3*ipnt  ];
+                    y1     = xyz[ 3*ipnt+1];
+                    y1_dot = dxyz[3*ipnt+1];
+                    z1     = xyz[ 3*ipnt+2];
+                    z1_dot = dxyz[3*ipnt+2];
+
+                    xbar     = x0     + x1;
+                    xbar_dot = x0_dot + x1_dot;
+
+                    ybar     = y0     + y1;
+                    ybar_dot = y0_dot + y1_dot;
+
+                    zbar     = z0     + z1;
+                    zbar_dot = z0_dot + z1_dot;
+
+                    dx     = x1     - x0;
+                    dx_dot = x1_dot - x0_dot;
+
+                    dy     = y1     - y0;
+                    dy_dot = y1_dot - y0_dot;
+
+                    dz     = z1     - z0;
+                    dz_dot = z1_dot - z0_dot;
+
+                    ll     = sqrt(dx * dx     + dy * dy     + dz * dz    );
+                    ll_dot =     (dx * dx_dot + dy * dy_dot + dz * dz_dot) / ll;
+
+                    len      += ll;
+                    len_dot  += ll_dot;
+
+                    xcg      += xbar     * ll;
+                    xcg_dot  += xbar_dot * ll + xbar * ll_dot;
+
+                    ycg      += ybar     * ll;
+                    ycg_dot  += ybar_dot * ll + ybar * ll_dot;
+
+                    zcg      += zbar     * ll;
+                    zcg_dot  += zbar_dot * ll + zbar * ll_dot;
+
+                    Ixx      += ll     * (ybar * ybar     + zbar * zbar    );
+                    Ixx_dot  += ll_dot * (ybar * ybar     + zbar * zbar    )
+                             +  ll * 2 * (ybar * ybar_dot + zbar * zbar_dot);
+
+                    Iyy      += ll     * (xbar * xbar     + zbar * zbar    );
+                    Iyy_dot  += ll_dot * (xbar * xbar     + zbar * zbar    )
+                             +  ll * 2 * (xbar * xbar_dot + zbar * zbar_dot);
+
+                    Izz      += ll     * (xbar * xbar     + ybar * ybar    );
+                    Izz_dot  += ll_dot * (xbar *xbar      + ybar * ybar    )
+                             +  ll * 2 * (xbar * xbar_dot + ybar * ybar_dot);
+
+                    Ixy      -= ll     * xbar * ybar;
+                    Ixy_dot  -= ll_dot * xbar * ybar + ll * xbar_dot * ybar + ll * xbar * ybar_dot;
+
+                    Ixz      -= ll     * xbar * zbar;
+                    Ixz_dot  -= ll_dot * xbar * zbar + ll * xbar_dot * zbar + ll * xbar * zbar_dot;
+
+                    Iyz      -= ll     * ybar * zbar;
+                    Iyz_dot  -= ll_dot * ybar * zbar + ll * ybar_dot * zbar + ll * ybar * zbar_dot;
+                }
+                count++;
+            }
+
+            /* compute centroid (since xcg*length, ... was accumulated above) */
+            xcg     /= len;
+            xcg_dot  = xcg_dot / len - len_dot * xcg / len;
+            ycg     /= len;
+            ycg_dot  = ycg_dot / len - len_dot * ycg / len;
+            zcg     /= len;
+            zcg_dot  = zcg_dot / len - len_dot * zcg / len;
+
+            /* normalize (since we actually accumulated twice the xbary, ...) */
+            xcg     /=  2;
+            xcg_dot /=  2;
+            ycg     /=  2;
+            ycg_dot /=  2;
+            zcg     /=  2;
+            zcg_dot /=  2;
+            Ixx     /=  4;
+            Ixx_dot /=  4;
+            Iyy     /=  4;
+            Iyy_dot /=  4;
+            Izz     /=  4;
+            Izz_dot /=  4;
+            Ixy     /=  4;
+            Ixy_dot /=  4;
+            Ixz     /=  4;
+            Ixz_dot /=  4;
+            Iyz     /=  4;
+            Iyz_dot /= 4;
+
+            /* apply parallel axis theorem */
+            Ixx     -= len     * (                ycg * ycg     + zcg * zcg    );
+            Ixx_dot -= len_dot * (                ycg * ycg     + zcg * zcg    )
+                     + len * 2 * (                ycg * ycg_dot + zcg * zcg_dot);
+
+            Iyy     -= len     * (xcg * xcg                     + zcg * zcg    );
+            Iyy_dot -= len_dot * (xcg * xcg                     + zcg * zcg    )
+                     + len * 2 * (xcg * xcg_dot                 + zcg * zcg_dot);
+
+            Izz     -= len     * (xcg * xcg     + ycg * ycg                    );
+            Izz_dot -= len_dot * (xcg * xcg     + ycg * ycg                    )
+                     + len * 2 * (xcg * xcg_dot + ycg * ycg_dot                );
+
+            Ixy     += len     * xcg * ycg;
+            Ixy_dot += len_dot * xcg * ycg + len * xcg_dot * ycg + len * xcg * ycg_dot;
+
+            Ixz     += len     * xcg * zcg;
+            Ixz_dot += len_dot * xcg * zcg + len * xcg_dot * zcg + len * xcg * zcg_dot;
+
+            Iyz     += len     * ycg * zcg;
+            Iyz_dot += len_dot * ycg * zcg + len * ycg_dot * zcg + len * ycg * zcg_dot;
+
+            /* NodeBody or a group of Nodes */
+        } else if (MODL->body[ibody].botype == OCSM_NODE_BODY || MODL->seltype == 0) {
+            for (inode = 1; inode < MODL->body[ibody].nnode; inode++) {
+                if (MODL->body[ibody].botype != OCSM_WIRE_BODY) {
+                    okay = 0;
+                    for (ilist = 0; ilist < MODL->selsize; ilist++) {
+                        if (inode == MODL->sellist[ilist]) {
+                            okay = 1;
+                            break;
+                        }
+                    }
+
+                    if (okay == 0) continue;
+                }
+
+                xyz1[0] = MODL->body[ibody].node[inode].x;
+                xyz1[1] = MODL->body[ibody].node[inode].y;
+                xyz1[2] = MODL->body[ibody].node[inode].z;
+
+                status = ocsmGetTessVel(MODL, ibody, OCSM_NODE, inode, &dxyz);
+                CHECK_STATUS(ocsmGetTessVels);
+
+                if (xyz1[0] < xmin) {
+                    xmin     = xyz1[0];
+                    xmin_dot = dxyz[0];
+                }
+                if (xyz1[0] > xmax) {
+                    xmax     = xyz1[0];
+                    xmax_dot = dxyz[0];
+                }
+                if (xyz1[1] < ymin) {
+                    ymin     = xyz1[1];
+                    ymin_dot = dxyz[1];
+                }
+                if (xyz1[1] > ymax) {
+                    ymax     = xyz1[1];
+                    ymax_dot = dxyz[1];
+                }
+                if (xyz1[2] < zmin) {
+                    zmin     = xyz1[2];
+                    zmin_dot = dxyz[2];
+                }
+                if (xyz1[2] > zmax) {
+                    zmax     = xyz1[2];
+                    zmax_dot = dxyz[2];
+                }
+
+                xcg      += xyz1[0];
+                xcg_dot  += dxyz[0];
+                ycg      += xyz1[1];
+                ycg_dot  += dxyz[1];
+                zcg      += xyz1[2];
+                zcg_dot  += dxyz[2];
+
+                count++;
+            }
+
+            xcg     /= count;
+            xcg_dot /= count;
+            ycg     /= count;
+            ycg_dot /= count;
+            zcg     /= count;
+            zcg_dot /= count;
+        } else {
+            printf("we should have not gotten here\n");
+            exit(0);
+        }
+    }
+
+   SPRINT1(1, "        count  = %d",             count);
+   SPRINT2(1, "        xmin   = %10.5f  %10.5f", xmin, xmin_dot);
+   SPRINT2(1, "        xmax   = %10.5f  %10.5f", xmax, xmax_dot);
+   SPRINT2(1, "        ymin   = %10.5f  %10.5f", ymin, ymin_dot);
+   SPRINT2(1, "        ymax   = %10.5f  %10.5f", ymax, ymax_dot);
+   SPRINT2(1, "        zmin   = %10.5f  %10.5f", zmin, zmin_dot);
+   SPRINT2(1, "        zmax   = %10.5f  %10.5f", zmax, zmax_dot);
+   SPRINT2(1, "        length = %10.5f  %10.5f", len,  len_dot );
+   SPRINT2(1, "        area   = %10.5f  %10.5f", area, area_dot);
+   SPRINT2(1, "        volume = %10.5f  %10.5f", vol,  vol_dot );
+   SPRINT2(1, "        xcg    = %10.5f  %10.5f", xcg,  xcg_dot );
+   SPRINT2(1, "        ycg    = %10.5f  %10.5f", ycg,  ycg_dot );
+   SPRINT2(1, "        zcg    = %10.5f  %10.5f", zcg,  zcg_dot );
+   SPRINT2(1, "        Ixx    = %10.5f  %10.5f", Ixx,  Ixx_dot );
+   SPRINT2(1, "        Iyy    = %10.5f  %10.5f", Iyy,  Iyy_dot );
+   SPRINT2(1, "        Izz    = %10.5f  %10.5f", Izz,  Izz_dot );
+   SPRINT2(1, "        Ixy    = %10.5f  %10.5f", Ixy,  Ixy_dot );
+   SPRINT2(1, "        Ixz    = %10.5f  %10.5f", Ixz,  Ixz_dot );
+   SPRINT2(1, "        Iyz    = %10.5f  %10.5f", Iyz,  Iyz_dot );
+
+    /* store the velocities in the AT parameters */
+    status = ocsmFindPmtr(MODL, "@xmin", OCSM_LOCALVAR, 1, 1, &ipmtr);
+    CHECK_STATUS(ocsmFindPmtr);
+    status = ocsmSetVelD( MODL, ipmtr, 1, 1, xmin_dot);
+    CHECK_STATUS(ocsmSetVelD);
+
+    status = ocsmFindPmtr(MODL, "@xmax", OCSM_LOCALVAR, 1, 1, &ipmtr);
+    CHECK_STATUS(ocsmFindPmtr);
+    status = ocsmSetVelD( MODL, ipmtr, 1, 1, xmax_dot);
+    CHECK_STATUS(ocsmSetVelD);
+
+    status = ocsmFindPmtr(MODL, "@ymin", OCSM_LOCALVAR, 1, 1, &ipmtr);
+    CHECK_STATUS(ocsmFindPmtr);
+    status = ocsmSetVelD( MODL, ipmtr, 1, 1, ymin_dot);
+    CHECK_STATUS(ocsmSetVelD);
+
+    status = ocsmFindPmtr(MODL, "@ymax", OCSM_LOCALVAR, 1, 1, &ipmtr);
+    CHECK_STATUS(ocsmFindPmtr);
+    status = ocsmSetVelD( MODL, ipmtr, 1, 1, ymax_dot);
+    CHECK_STATUS(ocsmSetVelD);
+
+    status = ocsmFindPmtr(MODL, "@zmin", OCSM_LOCALVAR, 1, 1, &ipmtr);
+    CHECK_STATUS(ocsmFindPmtr);
+    status = ocsmSetVelD( MODL, ipmtr, 1, 1, zmin_dot);
+    CHECK_STATUS(ocsmSetVelD);
+
+    status = ocsmFindPmtr(MODL, "@zmax", OCSM_LOCALVAR, 1, 1, &ipmtr);
+    CHECK_STATUS(ocsmFindPmtr);
+    status = ocsmSetVelD( MODL, ipmtr, 1, 1, zmax_dot);
+    CHECK_STATUS(ocsmSetVelD);
+
+    status = ocsmFindPmtr(MODL, "@length", OCSM_LOCALVAR, 1, 1, &ipmtr);
+    CHECK_STATUS(ocsmFindPmtr);
+    status = ocsmSetVelD( MODL, ipmtr, 1, 1, len_dot);
+    CHECK_STATUS(ocsmSetVelD);
+
+    status = ocsmFindPmtr(MODL, "@area", OCSM_LOCALVAR, 1, 1, &ipmtr);
+    CHECK_STATUS(ocsmFindPmtr);
+    status = ocsmSetVelD( MODL, ipmtr, 1, 1, area_dot);
+    CHECK_STATUS(ocsmSetVelD);
+
+    status = ocsmFindPmtr(MODL, "@volume", OCSM_LOCALVAR, 1, 1, &ipmtr);
+    CHECK_STATUS(ocsmFindPmtr);
+    status = ocsmSetVelD( MODL, ipmtr, 1, 1, vol_dot);
+    CHECK_STATUS(ocsmSetVelD);
+
+    status = ocsmFindPmtr(MODL, "@xcg", OCSM_LOCALVAR, 1, 1, &ipmtr);
+    CHECK_STATUS(ocsmFindPmtr);
+    status = ocsmSetVelD( MODL, ipmtr, 1, 1, xcg_dot);
+    CHECK_STATUS(ocsmSetVelD);
+
+    status = ocsmFindPmtr(MODL, "@ycg", OCSM_LOCALVAR, 1, 1, &ipmtr);
+    CHECK_STATUS(ocsmFindPmtr);
+    status = ocsmSetVelD( MODL, ipmtr, 1, 1, ycg_dot);
+    CHECK_STATUS(ocsmSetVelD);
+
+    status = ocsmFindPmtr(MODL, "@zcg", OCSM_LOCALVAR, 1, 1, &ipmtr);
+    CHECK_STATUS(ocsmFindPmtr);
+    status = ocsmSetVelD( MODL, ipmtr, 1, 1, zcg_dot);
+    CHECK_STATUS(ocsmSetVelD);
+
+    status = ocsmFindPmtr(MODL, "@Ixx", OCSM_LOCALVAR, 1, 1, &ipmtr);
+    CHECK_STATUS(ocsmFindPmtr);
+    status = ocsmSetVelD( MODL, ipmtr, 1, 1, Ixx_dot);
+    CHECK_STATUS(ocsmSetVelD);
+
+    status = ocsmFindPmtr(MODL, "@Ixy", OCSM_LOCALVAR, 1, 1, &ipmtr);
+    CHECK_STATUS(ocsmFindPmtr);
+    status = ocsmSetVelD( MODL, ipmtr, 1, 1, Ixy_dot);
+    CHECK_STATUS(ocsmSetVelD);
+
+    status = ocsmFindPmtr(MODL, "@Ixz", OCSM_LOCALVAR, 1, 1, &ipmtr);
+    CHECK_STATUS(ocsmFindPmtr);
+    status = ocsmSetVelD( MODL, ipmtr, 1, 1, Ixz_dot);
+    CHECK_STATUS(ocsmSetVelD);
+
+    status = ocsmFindPmtr(MODL, "@Iyx", OCSM_LOCALVAR, 1, 1, &ipmtr);
+    CHECK_STATUS(ocsmFindPmtr);
+    status = ocsmSetVelD( MODL, ipmtr, 1, 1, Ixy_dot);
+    CHECK_STATUS(ocsmSetVelD);
+
+    status = ocsmFindPmtr(MODL, "@Iyy", OCSM_LOCALVAR, 1, 1, &ipmtr);
+    CHECK_STATUS(ocsmFindPmtr);
+    status = ocsmSetVelD( MODL, ipmtr, 1, 1, Iyy_dot);
+    CHECK_STATUS(ocsmSetVelD);
+
+    status = ocsmFindPmtr(MODL, "@Iyz", OCSM_LOCALVAR, 1, 1, &ipmtr);
+    CHECK_STATUS(ocsmFindPmtr);
+    status = ocsmSetVelD( MODL, ipmtr, 1, 1, Iyz_dot);
+    CHECK_STATUS(ocsmSetVelD);
+
+    status = ocsmFindPmtr(MODL, "@Izx", OCSM_LOCALVAR, 1, 1, &ipmtr);
+    CHECK_STATUS(ocsmFindPmtr);
+    status = ocsmSetVelD( MODL, ipmtr, 1, 1, Ixz_dot);
+    CHECK_STATUS(ocsmSetVelD);
+
+    status = ocsmFindPmtr(MODL, "@Izy", OCSM_LOCALVAR, 1, 1, &ipmtr);
+    CHECK_STATUS(ocsmFindPmtr);
+    status = ocsmSetVelD( MODL, ipmtr, 1, 1, Iyz_dot);
+    CHECK_STATUS(ocsmSetVelD);
+
+    status = ocsmFindPmtr(MODL, "@Izz", OCSM_LOCALVAR, 1, 1, &ipmtr);
+    CHECK_STATUS(ocsmFindPmtr);
+    status = ocsmSetVelD( MODL, ipmtr, 1, 1, Izz_dot);
+    CHECK_STATUS(ocsmSetVelD);
+
+    /* remember that we have computed the mass property velocities already */
+    MODL->needMPdot = 0;
+
+cleanup:
     return status;
 }
 
@@ -30737,7 +32911,7 @@ createPerturbation(modl_T *MODL)        /* (in)  pointer to base MODL */
         PTRB->basemodl = MODL;
 
         for (ipmtr = 1; ipmtr <= PTRB->npmtr; ipmtr++) {
-            if (PTRB->pmtr[ipmtr].type == OCSM_EXTERNAL) {
+            if (PTRB->pmtr[ipmtr].type == OCSM_DESPMTR) {
                 irc = 0;
                 for (irow = 0; irow < PTRB->pmtr[ipmtr].nrow; irow++) {
                     for (icol = 0; icol < PTRB->pmtr[ipmtr].ncol; icol++) {
@@ -30771,7 +32945,6 @@ createPerturbation(modl_T *MODL)        /* (in)  pointer to base MODL */
                 SPRINT1(1, "          MODL->nbody = %d", MODL->nbody);
                 SPRINT1(1, "          PTRB->nbody = %d", PTRB->nbody);
                 (MODL->nwarn)++;
-                nerror++;
             }
         }
 
@@ -30861,7 +33034,7 @@ cleanup:
 
 int
 createTessVels(modl_T *MODL,            /* (in)  pointer to base MODL */
-               int    ibody)            /* (in)  Body index (bias-1) */
+               int    ibody)            /* (in)  Body index (1:nbody) */
 {
     int       status = SUCCESS;         /* (out) return status */
 
@@ -30869,18 +33042,25 @@ createTessVels(modl_T *MODL,            /* (in)  pointer to base MODL */
     int       ibeg, iend, ileft, irite, npnt_edge, npnt_face, npnt_left, npnt_rite, nbnd;
     int       *ipleft=NULL, *iprite=NULL;
     int       nloop, npnt_egg, nbnd_egg, ntri_egg;
+    int       itri, jtri, ip0, ip1, ip2, iter, niter;
     int       npnt_modl, npnt_ptrb, ntri_modl, ntri_ptrb;
     CINT      *ptype, *pindx, *tris, *tric, *nlast1, *p_egg, *tris_egg;
     double    dedge[18], dedge2[18], dleft[18], drite[18], mat[16], rhs[4], sval[4], duv[4];
     double    xdotB, ydotB, zdotB, tdotB, xdotE, ydotE, zdotE, tdotE;
     double    xdotL, ydotL, zdotL,        xdotR, ydotR, zdotR, tdot, frac, t, trange[2];
-    double    phi, umin, umax, vmin, vmax, srad2;
+    double    *duvface, velmax, phi, umin, umax, vmin, vmax, srad2, toler;
+    double    u0, u1, u2, ubar, v0, v1, v2, vbar, den;
+    double    duavg, dvavg, *ddu=NULL, *ddv=NULL, *nnn=NULL, *fac=NULL;
     double    *weights=NULL, *duv_new=NULL;
     CDOUBLE   *xyz_edge, *t_edge, *xyz_face, *uv_face, *uv_egg;
     CDOUBLE   *xyz_left, *uv_left, *xyz_rite, *uv_rite;
     CDOUBLE   *xyz_modl, *xyz_ptrb, *uv_modl, *uv_ptrb;
     void      *eggdata, *eggdata_new;
     modl_T    *PTRB;
+
+    clock_t   beg_time, end_time;
+    static    double  CPUtotal=0;
+    double    CPUface;
 
     ROUTINE(createTessVels);
 
@@ -31061,11 +33241,31 @@ createTessVels(modl_T *MODL,            /* (in)  pointer to base MODL */
         goto cleanup;
     }
 
+    /* if a WireBody, get the velocities from the Nodes */
+    if (MODL->body[ibody].botype == OCSM_WIRE_BODY) {
+        for (iedge = 1; iedge <= MODL->body[ibody].nedge; iedge++) {
+            status = EG_getTessEdge(MODL->body[ibody].etess, iedge,
+                                    &npnt_edge, &xyz_edge, &t_edge);
+            CHECK_STATUS(EG_getTessEdge);
+
+            status = velocityOfEdge(MODL, ibody, iedge, npnt_edge, NULL,
+                                    MODL->body[ibody].edge[iedge].dxyz);
+            CHECK_STATUS(velocityOfEdge);
+        }
+
+        goto cleanup;
+    }
+
     /* set Node .dxyz from velocityOfNode */
     for (inode = 1; inode <= MODL->body[ibody].nnode; inode++) {
         status = velocityOfNode(MODL, ibody, inode,
                                 MODL->body[ibody].node[inode].dxyz);
         CHECK_STATUS(velocityOfNode);
+    }
+
+    /* if a NodeBody, we are done */
+    if (MODL->body[ibody].botype == OCSM_NODE_BODY) {
+        goto cleanup;
     }
 
     /* set Face .dxyz from velocityOfFace */
@@ -31295,16 +33495,37 @@ createTessVels(modl_T *MODL,            /* (in)  pointer to base MODL */
                                 &ntri, &tris, &tric);
         CHECK_STATUS(EG_getFaceTess);
 
+        duvface = MODL->body[ibody].face[iface].duv;
+
+        /* determine number of boundary points and the largest velocity
+           on the boundary */
+        velmax = 0;
+        nbnd   = 0;
+
+        for (ipnt = 0; ipnt < npnt_face; ipnt++) {
+            if (ptype[ipnt] >= 0) {
+                if (fabs(duvface[2*ipnt  ]) > velmax) velmax = fabs(duvface[2*ipnt  ]);
+                if (fabs(duvface[2*ipnt+1]) > velmax) velmax = fabs(duvface[2*ipnt+1]);
+
+                nbnd++;
+            } else {
+                break;
+            }
+        }
+
         /* update duv at the interior points of the Face based upon duv
            at its Edges and Nodes (as computed above) */
 #ifndef __clang_analyzer__
         eggdata = MODL->body[ibody].face[iface].eggdata;
 #endif
 
+        /* if there are no boundary velocities, do not update duvface[] */
+        if (velmax < EPS06) {
+
         /* if this is not a perturbed MODL and the grid on the Face
            was made with an external grid generator, have the external
            grid generator compute the sensitivity directly */
-        if (INTERP_VEL == 0 && MODL->basemodl == NULL && eggdata != NULL) {
+        } else if (INTERP_VEL == 0 && MODL->basemodl == NULL && eggdata != NULL) {
             SPRINT2(2, "Computing sensitivities by calling morph for Face %d:%d",
                     ibody, iface);
 
@@ -31316,8 +33537,8 @@ createTessVels(modl_T *MODL,            /* (in)  pointer to base MODL */
 
             /* load in the uv velocities at the Boundary points */
             for (ipnt = 0; ipnt < nbnd_egg; ipnt++) {
-                duv_new[2*ipnt  ] = MODL->body[ibody].face[iface].duv[2*ipnt  ];
-                duv_new[2*ipnt+1] = MODL->body[ibody].face[iface].duv[2*ipnt+1];
+                duv_new[2*ipnt  ] = duvface[2*ipnt  ];
+                duv_new[2*ipnt+1] = duvface[2*ipnt+1];
             }
 
             /* call the external tessellator to propagate velocities
@@ -31330,8 +33551,8 @@ createTessVels(modl_T *MODL,            /* (in)  pointer to base MODL */
 
             /* save the uv velocities at the interior points */
             for (ipnt = nbnd_egg; ipnt < npnt_egg; ipnt++) {
-                MODL->body[ibody].face[iface].duv[2*ipnt  ] = duv_new[2*ipnt  ];
-                MODL->body[ibody].face[iface].duv[2*ipnt+1] = duv_new[2*ipnt+1];
+                duvface[2*ipnt  ] = duv_new[2*ipnt  ];
+                duvface[2*ipnt+1] = duv_new[2*ipnt+1];
             }
 
             FREE(duv_new);
@@ -31340,9 +33561,16 @@ createTessVels(modl_T *MODL,            /* (in)  pointer to base MODL */
            the Face's interior points (using mean-value coordinates or radial-basis
            functions) */
         } else {
-            if (INTERP_VEL != 3) {
-                SPRINT2(2, "Interpolating sensitivities via MVC for Face %d:%d",
-                        ibody, iface);
+            beg_time = clock();
+
+            if (INTERP_VEL == 1 || INTERP_VEL == 2) {
+                if (INTERP_VEL == 1) {
+                    SPRINT2(2, "Interpolating sensitivities via MVC for Face %d:%d",
+                            ibody, iface);
+                } else {
+                    SPRINT2(2, "Interpolating sensitivities via VR-MVC for Face %d:%d",
+                            ibody, iface);
+                }
 
                 status = EG_getTessLoops(MODL->body[ibody].etess, iface, &nloop, &nlast1);
                 CHECK_STATUS(EG_getTessLoops);
@@ -31354,28 +33582,23 @@ createTessVels(modl_T *MODL,            /* (in)  pointer to base MODL */
                                         &ntri, &tris, &tric);
                 CHECK_STATUS(EG_getFaceTess);
 
-                for (ipnt = 0; ipnt < npnt_face; ipnt++) {
-                    if (ptype[ipnt] >= 0 || pindx[ipnt] >= 0) continue;
-
+                for (ipnt = nbnd; ipnt < npnt_face; ipnt++) {
                     status = mvcInterp(nloop, nlast1, uv_face, &(uv_face[2*ipnt]), weights);
                     CHECK_STATUS(mvcInterp);
 
-                    MODL->body[ibody].face[iface].duv[2*ipnt  ] = 0;
-                    MODL->body[ibody].face[iface].duv[2*ipnt+1] = 0;
-
-                    for (jpnt = 0; jpnt < nlast1[nloop-1]; jpnt++) {
-                        MODL->body[ibody].face[iface].duv[2*ipnt  ] += weights[jpnt] * MODL->body[ibody].face[iface].duv[2*jpnt  ];
-                        MODL->body[ibody].face[iface].duv[2*ipnt+1] += weights[jpnt] * MODL->body[ibody].face[iface].duv[2*jpnt+1];
+                    for (jpnt = 0; jpnt < nbnd; jpnt++) {
+                        duvface[2*ipnt  ] += weights[jpnt] * duvface[2*jpnt  ];
+                        duvface[2*ipnt+1] += weights[jpnt] * duvface[2*jpnt+1];
                     }
                 }
 
                 FREE(weights);
-            } else {
+
+            } else if (INTERP_VEL == 3) {
                 SPRINT2(2, "Interpolating sensitivities via RBF for Face %d:%d",
                         ibody, iface);
 
-                /* find the number of boundary points and its bounding box */
-                nbnd = 0;
+                /* find the Face's bounding box */
                 umin = uv_face[0];
                 umax = uv_face[0];
                 vmin = uv_face[1];
@@ -31386,39 +33609,294 @@ createTessVels(modl_T *MODL,            /* (in)  pointer to base MODL */
                     if (uv_face[2*ipnt  ] > umax) umax = uv_face[2*ipnt  ];
                     if (uv_face[2*ipnt+1] < vmin) vmin = uv_face[2*ipnt+1];
                     if (uv_face[2*ipnt+1] > vmax) vmax = uv_face[2*ipnt+1];
-
-                    if (ptype[ipnt] >= 0) {
-                        nbnd = ipnt + 1;
-                    } else {
-                        break;
-                    }
                 }
 
                 /* arbitrarily set the support radius so that each covers
                    about half of the domain */
-                srad2 = 0.25 * MAX(umax-umin, vmax-vmin) * MAX(umax-umin, vmax-vmin);
+                srad2 = 1.00 * MAX(umax-umin, vmax-vmin);
+                srad2 = srad2 * srad2;
 
                 MALLOC(weights, double, 2*nbnd);
 
                 /* find the weights associated with each boundary point */
-                status = rbfWeights(nbnd, srad2, uv_face, MODL->body[ibody].face[iface].duv, weights);
+                status = rbfWeights(nbnd, srad2, uv_face, duvface, weights);
                 CHECK_STATUS(rbfWeights);
 
                 /* evaluate the RBF at each of the interior points */
                 for (ipnt = nbnd; ipnt < npnt_face; ipnt++) {
-                    MODL->body[ibody].face[iface].duv[2*ipnt  ] = 0;
-                    MODL->body[ibody].face[iface].duv[2*ipnt+1] = 0;
-
                     for (jpnt = 0; jpnt < nbnd; jpnt++) {
                         phi = wendland(&uv_face[2*ipnt], &uv_face[2*jpnt], srad2);
 
-                        MODL->body[ibody].face[iface].duv[2*ipnt  ] += weights[2*jpnt  ] * phi;
-                        MODL->body[ibody].face[iface].duv[2*ipnt+1] += weights[2*jpnt+1] * phi;
+                        duvface[2*ipnt  ] += weights[2*jpnt  ] * phi;
+                        duvface[2*ipnt+1] += weights[2*jpnt+1] * phi;
                     }
                 }
 
                 FREE(weights);
+
+            } else if (INTERP_VEL == 4 || INTERP_VEL == 5) {
+                if (INTERP_VEL == 4) {
+                    SPRINT2(2, "Interpolating sensitivities via smoothing for Face %d:%d",
+                            ibody, iface);
+                } else {
+                    SPRINT2(2, "Interpolating sensitivities via Laplace for Face %d:%d",
+                            ibody, iface);
+                }
+
+                /* compute the average velocities for the boundary points */
+                duavg  = 0;
+                dvavg  = 0;
+
+                for (ipnt = 0; ipnt < nbnd; ipnt++) {
+                    duavg += duvface[2*ipnt  ];
+                    dvavg += duvface[2*ipnt+1];
+                }
+
+                duavg /= nbnd;
+                dvavg /= nbnd;
+
+                /* initialize the field velocities to the average boundary velocity */
+                for (ipnt = nbnd; ipnt < npnt_face; ipnt++) {
+                    duvface[2*ipnt  ] = duavg;
+                    duvface[2*ipnt+1] = dvavg;
+                }
+
+                /* allocate and initialize the change arrays */
+                MALLOC(fac, double, 3*ntri);
+                MALLOC(ddu, double, npnt_face);
+                MALLOC(ddv, double, npnt_face);
+                MALLOC(nnn, double, npnt_face);
+
+                for (ipnt = nbnd; ipnt < npnt_face; ipnt++) {
+                    ddu[ipnt] = 0;
+                    ddv[ipnt] = 0;
+                    nnn[ipnt] = 0;
+                }
+
+                /* simple smoothing */
+                if (INTERP_VEL == 4) {
+                    for (itri = 0; itri < ntri; itri++) {
+                        fac[3*itri  ] = 1;
+                        fac[3*itri+1] = 1;
+                        fac[3*itri+2] = 1;
+                    }
+
+                /* satisfy Laplace's equation */
+                } else {
+                    for (itri = 0; itri < ntri; itri++) {
+                        ip0 = tris[3*itri  ] - 1;
+                        ip1 = tris[3*itri+1] - 1;
+                        ip2 = tris[3*itri+2] - 1;
+
+                        /* find circumcenter */
+                        u0 = uv_face[2*ip0  ];
+                        v0 = uv_face[2*ip0+1];
+                        u1 = uv_face[2*ip1  ];
+                        v1 = uv_face[2*ip1+1];
+                        u2 = uv_face[2*ip2  ];
+                        v2 = uv_face[2*ip2+1];
+
+                        den  = (u1 - u0) * (v2 - v0) - (u2 - u0) * (v1 - v0);
+                        ubar = ((u1*u1 - u0*u0 + v1*v1 - v0*v0) * (v2 - v0)
+                               -(u2*u2 - u0*u0 + v2*v2 - v0*v0) * (v1 - v0)) / (2 * den);
+                        vbar = ((u2*u2 - u0*u0 + v2*v2 - v0*v0) * (u1 - u0)
+                               -(u1*u1 - u0*u0 + v1*v1 - v0*v0) * (u2 - u0)) / (2 * den);
+
+                        /* fac is based upon Laplces eqution */
+                        fac[3*itri  ] = sqrt((pow(ubar-(u1+u2)/2, 2) + pow(vbar-(v1+v2)/2, 2))
+                                            /(pow(      u1-u2   , 2) + pow(      v1-v2   , 2)));
+                        fac[3*itri+1] = sqrt((pow(ubar-(u2+u0)/2, 2) + pow(vbar-(v2+v0)/2, 2))
+                                            /(pow(      u2-u0   , 2) + pow(      v2-v0   , 2)));
+                        fac[3*itri+2] = sqrt((pow(ubar-(u0+u1)/2, 2) + pow(vbar-(v0+v1)/2, 2))
+                                            /(pow(      u0-u1   , 2) + pow(      v0-v1   , 2)));
+                    }
+                }
+
+                /* combine fac[] from adjacent triangles */
+                for (itri = 0; itri < ntri; itri++) {
+                    jtri = tric[3*itri  ] - 1;
+                    if (jtri > itri) {
+                        if        (tric[3*jtri  ]-1 == itri) {
+                            fac[3*itri  ] += fac[3*jtri  ];
+                            fac[3*jtri  ]  = fac[3*itri  ];
+                        } else if (tric[3*jtri+1]-1 == itri) {
+                            fac[3*itri  ] += fac[3*jtri+1];
+                            fac[3*jtri+1]  = fac[3*itri  ];
+                        } else if (tric[3*jtri+2]-1 == itri) {
+                            fac[3*itri  ] += fac[3*jtri+2];
+                            fac[3*jtri+2]  = fac[3*itri  ];
+                        }
+                    }
+
+                    jtri = tric[3*itri+1] - 1;
+                    if (jtri > itri) {
+                        if        (tric[3*jtri  ]-1 == itri) {
+                            fac[3*itri+1] += fac[3*jtri  ];
+                            fac[3*jtri  ]  = fac[3*itri+1];
+                        } else if (tric[3*jtri+1]-1 == itri) {
+                            fac[3*itri+1] += fac[3*jtri+1];
+                            fac[3*jtri+1]  = fac[3*itri+1];
+                        } else if (tric[3*jtri+2]-1 == itri) {
+                            fac[3*itri+1] += fac[3*jtri+2];
+                            fac[3*jtri+2]  = fac[3*itri+1];
+                        }
+                    }
+
+                    jtri = tric[3*itri+2] - 1;
+                    if (jtri > itri) {
+                        if        (tric[3*jtri  ]-1 == itri) {
+                            fac[3*itri+2] += fac[3*jtri  ];
+                            fac[3*jtri  ]  = fac[3*itri+2];
+                        } else if (tric[3*jtri+1]-1 == itri) {
+                            fac[3*itri+2] += fac[3*jtri+1];
+                            fac[3*jtri+1]  = fac[3*itri+2];
+                        } else if (tric[3*jtri+2]-1 == itri) {
+                            fac[3*itri+2] += fac[3*jtri+2];
+                            fac[3*jtri+2]  = fac[3*itri+2];
+                        }
+                    }
+                }
+
+                /* perform smoothing or Laplace iterations */
+                niter = npnt_face - nbnd;
+                toler = 1.0e-5;
+
+                for (iter = 0; iter < niter; iter++) {
+
+                    /* convergence check */
+                    if (velmax < toler) break;
+
+                    /* loop through the triangles and accumulate the changes at the points */
+                    for (itri = 0;  itri < ntri; itri++) {
+                        ip0 = tris[3*itri  ] - 1;
+                        ip1 = tris[3*itri+1] - 1;
+                        ip2 = tris[3*itri+2] - 1;
+
+                        ddu[ip0] += fac[3*itri+2] * (duvface[2*ip1  ] - duvface[2*ip0  ])
+                                  + fac[3*itri+1] * (duvface[2*ip2  ] - duvface[2*ip0  ]);
+                        ddv[ip0] += fac[3*itri+2] * (duvface[2*ip1+1] - duvface[2*ip0+1])
+                                  + fac[3*itri+1] * (duvface[2*ip2+1] - duvface[2*ip0+1]);
+                        nnn[ip0] += fac[3*itri+2]
+                                  + fac[3*itri+1];
+
+                        ddu[ip1] += fac[3*itri  ] * (duvface[2*ip2  ] - duvface[2*ip1  ])
+                                  + fac[3*itri+2] * (duvface[2*ip0  ] - duvface[2*ip1  ]);
+                        ddv[ip1] += fac[3*itri  ] * (duvface[2*ip2+1] - duvface[2*ip1+1])
+                                  + fac[3*itri+2] * (duvface[2*ip0+1] - duvface[2*ip1+1]);
+                        nnn[ip1] += fac[3*itri  ]
+                                  + fac[3*itri+2];
+
+                        ddu[ip2] += fac[3*itri+1] * (duvface[2*ip0  ] - duvface[2*ip2  ])
+                                  + fac[3*itri  ] * (duvface[2*ip1  ] - duvface[2*ip2  ]);
+                        ddv[ip2] += fac[3*itri+1] * (duvface[2*ip0+1] - duvface[2*ip2+1])
+                                  + fac[3*itri  ] * (duvface[2*ip1+1] - duvface[2*ip2+1]);
+                        nnn[ip2] += fac[3*itri+1]
+                                  + fac[3*itri  ];
+                    }
+
+                    /* apply the changes in velocities at the points, keep track of the
+                       maximum change, and initialize change arrays for next iteration */
+                    velmax = 0;
+                    for (ipnt = nbnd; ipnt < npnt_face; ipnt++) {
+                        ddu[ipnt] /= nnn[ipnt];
+                        ddv[ipnt] /= nnn[ipnt];
+
+                        duvface[2*ipnt  ] += ddu[ipnt];
+                        duvface[2*ipnt+1] += ddv[ipnt];
+
+                        if (fabs(ddu[ipnt]) > velmax) velmax = fabs(ddu[ipnt]);
+                        if (fabs(ddv[ipnt]) > velmax) velmax = fabs(ddv[ipnt]);
+
+                        ddu[ipnt] = 0;
+                        ddv[ipnt] = 0;
+                        nnn[ipnt] = 0;
+                    }
+                }
+
+                /* free up the change arrays */
+                FREE(nnn);
+                FREE(ddv);
+                FREE(ddu);
+                FREE(fac);
+
+            } else {
+                SPRINT1(0, "ERROR:: bad INTERP_VEL=%d", INTERP_VEL);
+                status = OCSM_INTERNAL_ERROR;
+                goto cleanup;
             }
+
+            end_time = clock();
+
+            CPUface   = (double)(end_time-beg_time)/(double)(CLOCKS_PER_SEC);
+            CPUtotal += CPUface;
+
+            /* contour plot of the displacements */
+#ifdef GRAFIC
+            {
+                int    io_kbd=5, io_scr=6, indgr=1+4+16+64+1024, ncont=12, igrid;
+                float  *du_face=NULL, *dv_face=NULL, cont[13];
+                double umin, umax, vmin, vmax;
+                char   pltitl[80];
+
+                MALLOC(du_face, float, npnt_face);
+                MALLOC(dv_face, float, npnt_face);
+
+                umin = duvface[0];
+                umax = duvface[0];
+                vmin = duvface[1];
+                vmax = duvface[1];
+
+                for (ipnt = 0; ipnt < npnt_face; ipnt++) {
+                    if (duvface[2*ipnt  ] < umin) umin = duvface[2*ipnt  ];
+                    if (duvface[2*ipnt  ] > umax) umax = duvface[2*ipnt  ];
+                    if (duvface[2*ipnt+1] < vmin) vmin = duvface[2*ipnt+1];
+                    if (duvface[2*ipnt+1] < vmax) vmax = duvface[2*ipnt+1];
+
+                    du_face[ipnt] = duvface[2*ipnt  ];
+                    dv_face[ipnt] = duvface[2*ipnt+1];
+                }
+
+                grinit_(&io_kbd, &io_scr, "Displacement plots",
+                                   strlen("Displacement plots"));
+
+                if (umax-umin > 1e-4) {
+                    igrid = 0;
+                    sprintf(pltitl, "~u~v~du for Face %d", iface);
+                    grctrl_(plotVels, &indgr, pltitl,
+                            (void*)(&ntri),
+                            (void*)(tris),
+                            (void*)(&npnt_face),
+                            (void*)(uv_face),
+                            (void*)(du_face),
+                            (void*)(&ncont),
+                            (void*)(cont),
+                            (void*)(&igrid),
+                            (void*)NULL,
+                            (void*)NULL,
+                            STRLEN(pltitl));
+                }
+
+                if (vmax-vmin > 1e-4) {
+                    igrid = 0;
+                    sprintf(pltitl, "~u~v~dv for Face %d", iface);
+                    grctrl_(plotVels, &indgr, pltitl,
+                            (void*)(&ntri),
+                            (void*)(tris),
+                            (void*)(&npnt_face),
+                            (void*)(uv_face),
+                            (void*)(dv_face),
+                            (void*)(&ncont),
+                            (void*)(cont),
+                            (void*)(&igrid),
+                            (void*)NULL,
+                            (void*)NULL,
+                            STRLEN(pltitl));
+                }
+
+                FREE(du_face);
+                FREE(dv_face);
+            }
+#endif
         }
 
         /* update iface.dxyz */
@@ -31439,15 +33917,12 @@ createTessVels(modl_T *MODL,            /* (in)  pointer to base MODL */
 
                 /* velocity is sum of its nominal velocity and the velocity associated
                    with the .duv */
-                MODL->body[ibody].face[iface].dxyz[3*ipnt  ]
-                    += dleft[3] * MODL->body[ibody].face[iface].duv[2*ipnt  ]
-                     + dleft[6] * MODL->body[ibody].face[iface].duv[2*ipnt+1];
-                MODL->body[ibody].face[iface].dxyz[3*ipnt+1]
-                    += dleft[4] * MODL->body[ibody].face[iface].duv[2*ipnt  ]
-                     + dleft[7] * MODL->body[ibody].face[iface].duv[2*ipnt+1];
-                MODL->body[ibody].face[iface].dxyz[3*ipnt+2]
-                    += dleft[5] * MODL->body[ibody].face[iface].duv[2*ipnt  ]
-                     + dleft[8] * MODL->body[ibody].face[iface].duv[2*ipnt+1];
+                MODL->body[ibody].face[iface].dxyz[3*ipnt  ] += dleft[3] * duvface[2*ipnt  ]
+                                                              + dleft[6] * duvface[2*ipnt+1];
+                MODL->body[ibody].face[iface].dxyz[3*ipnt+1] += dleft[4] * duvface[2*ipnt  ]
+                                                              + dleft[7] * duvface[2*ipnt+1];
+                MODL->body[ibody].face[iface].dxyz[3*ipnt+2] += dleft[5] * duvface[2*ipnt  ]
+                                                              + dleft[8] * duvface[2*ipnt+1];
             }
         }
     }
@@ -31457,6 +33932,10 @@ cleanup:
     FREE(iprite);
     FREE(weights);
     FREE(duv_new);
+    FREE(ddu);
+    FREE(ddv);
+    FREE(nnn);
+    FREE(fac);
 
     return status;
 }
@@ -31769,7 +34248,7 @@ evalRpn(rpn_T     *rpn,                 /* (in)  pointer to Rpn-code */
                 for (ipmtr = 1; ipmtr <= modl->npmtr; ipmtr++) {
                     if (strcmp(modl->pmtr[ipmtr].name, prefix) == 0                   &&
                               (modl->pmtr[ipmtr].scope == modl->scope[modl->level] ||
-                               modl->pmtr[ipmtr].type  == OCSM_CONSTANT              )  ) {
+                               modl->pmtr[ipmtr].type  == OCSM_CONPMTR              )  ) {
                         jpmtr = ipmtr;
 
                         /* check for dot-suffix */
@@ -31782,6 +34261,11 @@ evalRpn(rpn_T     *rpn,                 /* (in)  pointer to Rpn-code */
 
                                 PUSH_VAL(0, 0, str1, 0);
                             } else {
+                                if (MODL->needMPdot > 0 && MODL->pmtr[jpmtr].flag == 1) {
+                                    status = computeMassPropsDot(MODL);
+                                    CHECK_STATUS(computeMassPropsDot);
+                                }
+
                                 status = ocsmGetValu(modl, jpmtr, irow, icol, &val1, &dot1);
                                 CHECK_STATUS(ocsmGetValu);
 
@@ -32894,11 +35378,14 @@ evalRpn(rpn_T     *rpn,                 /* (in)  pointer to Rpn-code */
                     goto cleanup;
                 } else if (nan1 != 0 || nan2 != 0) {
                     PUSH_VAL(0, 0, "", 1);
-                } else if (NINT(val1) <= 0) {
+                } else if (NINT(val1) == 0) {
                     sprintf(str3, "%d", NINT(val2));
                     PUSH_VAL(0, 0, str3, 0);
+                } else if (NINT(val1) > 0) {
+                    sprintf(str3, "%.*f", +NINT(val1), val2);
+                    PUSH_VAL(0, 0, str3, 0);
                 } else {
-                    sprintf(str3, "%.*f", NINT(val1), val2);
+                    sprintf(str3, "%.*e", -NINT(val1), val2);
                     PUSH_VAL(0, 0, str3, 0);
                 }
 
@@ -33179,7 +35666,7 @@ cleanup:
 
 static int
 finishBody(modl_T *modl,                /* (in)  pointer to MODL */
-           int    ibody)                /* (in)  Body index (1-nbody) */
+           int    ibody)                /* (in)  Body index (1:nbody) */
 {
     int       status = SUCCESS;         /* (out) return status */
 
@@ -33193,10 +35680,12 @@ finishBody(modl_T *modl,                /* (in)  pointer to MODL */
     int       ileft, irite, nlist, nlist2, nlist3, itype, itype2, itype3;
     int       iattr, nattr, iattrib[7], jattrib[7], iswap, nswap, atype, alen, i, icount;
     int       noTopoChange, keepEdgeAttr,*newIlist=NULL, *needSeq=NULL;
+    int       oclass1, mtype1, oclass2, mtype2;
     CINT      *tempIlist, *tempIlist2, *tempIlist3;
     double    data[18], params[3], bbox[6], size, trange[4], trange2[4];
     double    xparent, yparent, zparent, xold, yold, zold, dx, dy, dz;
     double    cosx, cosy, cosz, sinx, siny, sinz, nx, ny, nz, dist, fact, xcent, ycent, zcent;
+    double    data1[18], data2[18], dot;
     CDOUBLE   *tempRlist, *tempRlist2, *tempRlist3;
     CCHAR     *tempClist, *tempClist2, *tempClist3, *aname3;
     body_T    *body=NULL;
@@ -33206,7 +35695,7 @@ finishBody(modl_T *modl,                /* (in)  pointer to MODL */
     int       nloop, iloop, ntemp;
     double    *area=NULL, *xcg=NULL, *ycg=NULL, *zcg=NULL;
     ego       ebody, *enodes, eedge, *eedges, eface, *efaces, *echildren;
-    ego       eref, *echilds, *eloops, topRef, prev, next, ecurve1, ecurve2;
+    ego       eref, *echilds, *eloops, topRef, prev, next, ecurve1, ecurve2, etemp1, etemp2;
 #ifdef PRINT_PROGRESS
     time_t    cpu_beg, cpu_end;
 #endif
@@ -33543,7 +36032,7 @@ finishBody(modl_T *modl,                /* (in)  pointer to MODL */
         body->face[iface].imark        = -1;
         body->face[iface].gratt.object = NULL;
         body->face[iface].gratt.active = 1;              /* active */
-        body->face[iface].gratt.color  = 0x00ffffa3;     /* yellow */
+        body->face[iface].gratt.color  = 0x00ffffa3;     /* yellow (chaanged below for SheetBodys) */
         body->face[iface].gratt.bcolor = 0x007f7f7f;     /* grey */
         body->face[iface].gratt.mcolor = 0x00000000;     /* black */
         body->face[iface].gratt.lwidth = 1;
@@ -33554,6 +36043,10 @@ finishBody(modl_T *modl,                /* (in)  pointer to MODL */
         body->face[iface].dxyz         = NULL;
         body->face[iface].duv          = NULL;
         body->face[iface].eface = efaces[iface-1];
+
+        if (body->botype == OCSM_SHEET_BODY) {
+            body->face[iface].gratt.color  = 0x00ffdadd; /* pink */
+        }
 
         status = colorizeFace(MODL, ibody, iface);
         CHECK_STATUS(colorizeFace);
@@ -33578,6 +36071,91 @@ finishBody(modl_T *modl,                /* (in)  pointer to MODL */
 
     nedge = body->nedge;
     nface = body->nface;
+
+    /* check for spurious Nodes, which are Nodes that support two manifold
+       Edges whose tangents are approximtely parallel at the Node */
+    for (inode = 1; inode <= body->nnode; inode++) {
+        if (body->node[inode].nedge == 2) {
+            status = EG_getBodyTopos(ebody, body->node[inode].enode, EDGE,
+                                     &ntemp, &eedges);
+            CHECK_STATUS(EG_getBodyTopos);
+
+            /* get info associated with first Edge */
+            status = EG_getTopology(eedges[0], &ecurve1, &oclass, &mtype,
+                                    data, &nchild, &echilds, &senses);
+            CHECK_STATUS(EG_getTopology);
+
+            iedge = EG_indexBodyTopo(ebody, eedges[0]);
+            if (iedge > 0) {
+                if (MODL->body[ibody].edge[iedge].nface != 2) {
+                    EG_free(eedges);
+                    continue;
+                }
+            }
+
+            if        (echilds[0] == body->node[inode].enode) {
+                etemp1 = echilds[1];
+                status = EG_evaluate(eedges[0], &(data[0]), data1);
+                CHECK_STATUS(EG_evaluate);
+            } else if (echilds[1] == body->node[inode].enode) {
+                etemp1 = echilds[0];
+                status = EG_evaluate(eedges[0], &(data[1]), data1);
+                CHECK_STATUS(EG_evaluate);
+            } else {
+                etemp1   = NULL;
+            }
+
+            /* get info associated with second Edge */
+            status = EG_getTopology(eedges[1], &ecurve2, &oclass, &mtype,
+                                    data, &nchild, &echilds, &senses);
+            CHECK_STATUS(EG_getTopology);
+
+            iedge = EG_indexBodyTopo(ebody, eedges[1]);
+            if (iedge > 0) {
+                if (MODL->body[ibody].edge[iedge].nface != 2) {
+                    EG_free(eedges);
+                    continue;
+                }
+            }
+
+            if        (echilds[0] == body->node[inode].enode) {
+                etemp2 = echilds[1];
+                status = EG_evaluate(eedges[1], &(data[0]), data2);
+                CHECK_STATUS(EG_evaluate);
+            } else if (echilds[1] == body->node[inode].enode) {
+                etemp2 = echilds[0];
+                status = EG_evaluate(eedges[1], &(data[1]), data2);
+                CHECK_STATUS(EG_evaluate);
+            } else {
+                etemp2   = NULL;
+            }
+
+            /* if the two Edges do not form a Loop, check if tangents to the two Edges are
+               parallel or anti-parallel */
+            if (etemp1 != NULL && etemp2 != NULL && etemp1 != etemp2) {
+                dot =    (data1[3] * data2[3] + data1[4] * data2[4] + data1[5] * data2[5])
+                   / sqrt(data1[3] * data1[3] + data1[4] * data1[4] + data1[5] * data1[5])
+                   / sqrt(data2[3] * data2[3] + data2[4] * data2[4] + data2[5] * data2[5]);
+
+                if (fabs(dot-1) < 1e-3 || fabs(dot+1) < 1e-3) {
+                    status = EG_getInfo(ecurve1, &oclass1, &mtype1, &topRef, &prev, &next);
+                    CHECK_STATUS(EG_getInfo);
+
+                    status = EG_getInfo(ecurve2, &oclass2, &mtype2, &topRef, &prev, &next);
+                    CHECK_STATUS(EG_getInfo);
+
+                    SPRINT5(1, "WARNING:: Node %4d (Edges %4d (%d) and %4d (%d)) appears to be spurious", inode,
+                            EG_indexBodyTopo(ebody,eedges[0]), mtype1,
+                            EG_indexBodyTopo(ebody,eedges[1]), mtype2);
+                    (MODL->nwarn)++;
+                }
+            }
+
+            EG_free(eedges);
+        }
+    }
+
+    PPRINT0(done checking for spurious Nodes);
 
     /* special treatment for an isolated WireBody (.nface==0) */
     if (nface == 0) {
@@ -34150,7 +36728,7 @@ finishBody(modl_T *modl,                /* (in)  pointer to MODL */
 
     FREE(needSeq);
 
-    /* create a red/lack tree to hold all _edgeIDs */
+    /* create a red/black tree to hold all _edgeIDs */
     status = rbtCreate(nedge, &rbt);
     CHECK_STATUS(rbtCreate);
 
@@ -34917,7 +37495,7 @@ static int
 finishCopy(modl_T *modl,                /* (in)  pointer to MODL */
            int    isrc,                 /* (in)  Body index of source */
  /*@null@*/double matrix[],             /* (in)  transformation matrix (or NULL) */
-           int    ibody)                /* (in)  Body index (1-nbody) */
+           int    ibody)                /* (in)  Body index (1:nbody) */
 {
     int       status = SUCCESS;         /* (out) return status */
 
@@ -35199,7 +37777,7 @@ cleanup:
 
 static int
 finiteDifference(modl_T *modl,          /* (in)  pointer to MODL */
-                 int    ibody,          /* (in)  Body index (bias-1) */
+                 int    ibody,          /* (in)  Body index (1:nbody) */
                  int    seltype,        /* (in)  select type: OCSM_FACE, OCSM_EDGE, or OCSM_NODE */
                  int    iselect,        /* (in)  Face, Ege, or Node index (bias-1) */
                  int    npnt,           /* (in)  number of points */
@@ -36267,7 +38845,7 @@ cleanup:
 
 static int
 freeBody(modl_T *MODL,                  /* (in)  pointer to MODL */
-         int    ibody)                  /* (in)  Body index (bias-1) */
+         int    ibody)                  /* (in)  Body index (1:nbody) */
 {
     int       status = SUCCESS;         /* (out) return status */
 
@@ -37185,6 +39763,69 @@ cleanup:
 /*
  ************************************************************************
  *                                                                      *
+ *   matchValue - check if attribute value matches an argument          *
+ *                                                                      *
+ ************************************************************************
+ */
+
+static int
+matchValue(varg_T  arg,                /* (in)  argument */
+           int     itype,              /* (in)  attribute type */
+           int     nlist,              /* (in)  attribute length */
+           CINT    *tempIlist,         /* (in)  attribute integer values */
+           CDOUBLE *tempRlist,         /* (in)  attribute real    values */
+           CCHAR   *tempClist)         /* (in)  attribute string  value */
+{
+    int match = 0;                     /* (out) =1 if matches */
+
+    int i;
+
+    /* --------------------------------------------------------------- */
+
+    if (strcmp(arg.str, "*") == 0) {
+        match = 1;
+
+    } else if (itype == ATTRSTRING) {
+        if (matches((char*)arg.str, tempClist) == 1) {
+            match = 1;
+        }
+
+    } else if (itype == ATTRINT && nlist == arg.nval) {
+        for (i = 0; i < nlist; i++) {
+            if (NINT(arg.val[i]) == tempIlist[i]) match++;
+        }
+        if (match == nlist) {
+            match = 1;
+        } else {
+            match = 0;
+        }
+
+    } else if (itype == ATTRREAL && nlist == arg.nval) {
+        for (i = 0; i < nlist; i++) {
+            if (fabs(arg.val[i]-tempRlist[i]) < EPS06) match++;
+        }
+        if (match == nlist) {
+            match = 1;
+        } else {
+            match = 0;
+        }
+
+    } else if (itype != ATTRCSYS) {
+        if (matches((char*)arg.str, "*") == 1) {
+            match = 1;
+        }
+    }
+
+    return match;
+}
+
+
+
+
+
+/*
+ ************************************************************************
+ *                                                                      *
  *   matches - check if two strings match (with * + ? wildcards)        *
  *                                                                      *
  ************************************************************************
@@ -37528,7 +40169,7 @@ cleanup:
 
 static int
 newBody(modl_T *modl,                   /* (in)  pointer to MODL */
-        int    ibrch,                   /* (in)  Branch index (1-mbrch) */
+        int    ibrch,                   /* (in)  Branch index (1:mbrch) */
         int    brtype,                  /* (in)  Branch type */
         int    ileft,                   /* (in)  left parent Body (or 0) */
         int    irite,                   /* (in)  rite parent Body (or 0) */
@@ -37665,10 +40306,10 @@ static int
 parseName(modl_T *modl,                 /* (in)  pointer to MODL */
           char   string[],              /* (in)  name string to parse */
           char   pname[],               /* (out) Parameter name (at least MAX_NAME_LEN long) */
-          int    *ipmtr,                /* (out) Parameter index (1-npmtr) or 0 if none */
-          int    *irow,                 /* (out) row index (bias-1) */
+          int    *ipmtr,                /* (out) Parameter index (1:npmtr) or 0 if none */
+          int    *irow,                 /* (out) row index (1:nrow) */
                                         /*       =0 if not given, =-999 if given as : */
-          int    *icol)                 /* (out) column index (bias-1) */
+          int    *icol)                 /* (out) column index (1:ncol) */
                                         /*       =0 if not given, =-999 if given as : */
 {
     int       status = SUCCESS;         /* (out) return status */
@@ -37808,7 +40449,7 @@ parseName(modl_T *modl,                 /* (in)  pointer to MODL */
     *ipmtr = 0;
     for (jpmtr = 1; jpmtr <= MODL->npmtr; jpmtr++) {
         if (strcmp(MODL->pmtr[jpmtr].name, pname) == 0) {
-            if (MODL->pmtr[jpmtr].type == OCSM_OUTPUT) {
+            if (MODL->pmtr[jpmtr].type == OCSM_OUTPMTR) {
                 *ipmtr = jpmtr;
                 break;
             } else if (MODL->pmtr[jpmtr].scope == MODL->scope[MODL->level]) {
@@ -38057,13 +40698,13 @@ printPmtrs(modl_T *modl,                /* (in)  pointer to MODL */
 
     /* loop through all Parameters and print its name and value */
     for (ipmtr = 1; ipmtr <= MODL->npmtr; ipmtr++) {
-        if        (MODL->pmtr[ipmtr].type == OCSM_EXTERNAL) {
+        if        (MODL->pmtr[ipmtr].type == OCSM_DESPMTR) {
             fprintf(fp, "    %5d [e]  %-32s",   ipmtr,                          MODL->pmtr[ipmtr].name);
-        } else if (MODL->pmtr[ipmtr].type == OCSM_CONFIG) {
+        } else if (MODL->pmtr[ipmtr].type == OCSM_CFGPMTR) {
             fprintf(fp, "    %5d [f]  %-32s",   ipmtr,                          MODL->pmtr[ipmtr].name);
-        } else if (MODL->pmtr[ipmtr].type == OCSM_INTERNAL) {
+        } else if (MODL->pmtr[ipmtr].type == OCSM_LOCALVAR) {
             fprintf(fp, "    %5d [%1d]  %-32s", ipmtr, MODL->pmtr[ipmtr].scope, MODL->pmtr[ipmtr].name);
-        } else if (MODL->pmtr[ipmtr].type == OCSM_CONSTANT) {
+        } else if (MODL->pmtr[ipmtr].type == OCSM_CONPMTR) {
             fprintf(fp, "    %5d [c]  %-32s",   ipmtr,                          MODL->pmtr[ipmtr].name);
         }
 
@@ -38082,16 +40723,16 @@ printPmtrs(modl_T *modl,                /* (in)  pointer to MODL */
                             MODL->pmtr[ipmtr].value[index],
                             MODL->pmtr[ipmtr].dot[  index]);
 
-                    if (MODL->pmtr[ipmtr].type != OCSM_EXTERNAL &&
-                        MODL->pmtr[ipmtr].type != OCSM_CONFIG     ) {
+                    if (MODL->pmtr[ipmtr].type != OCSM_DESPMTR &&
+                        MODL->pmtr[ipmtr].type != OCSM_CFGPMTR   ) {
                     } else if (MODL->pmtr[ipmtr].lbnd[index] <= -HUGEQ) {
                         fprintf(fp, "    >>   unbounded");
                     } else {
                         fprintf(fp, "    >> %11.5f", MODL->pmtr[ipmtr].lbnd[ index]);
                     }
 
-                    if (MODL->pmtr[ipmtr].type != OCSM_EXTERNAL &&
-                        MODL->pmtr[ipmtr].type != OCSM_CONFIG     ) {
+                    if (MODL->pmtr[ipmtr].type != OCSM_DESPMTR &&
+                        MODL->pmtr[ipmtr].type != OCSM_CFGPMTR   ) {
                     } else if (MODL->pmtr[ipmtr].ubnd[index] >= +HUGEQ) {
                         fprintf(fp, " <<   unbounded");
                     } else {
@@ -39001,7 +41642,7 @@ cleanup:
 
 static int
 recycleBody(modl_T *modl,               /* (in)  pointer to MODL */
-            int    ibrch,               /* (in)  Branch index (1-nbrch) */
+            int    ibrch,               /* (in)  Branch index (1:nbrch) */
             int    brtype,              /* (in)  Branch type */
             varg_T args[],              /* (in)  array  of arguments */
             int    hasdots)             /* (in)  =1 if any arguments have non-zero dots */
@@ -39306,7 +41947,7 @@ recycleBody(modl_T *modl,               /* (in)  pointer to MODL */
             if (strncmp(aname, "__@@", 4) == 0) {
                 strcpy(attrname, &(aname[2]));
                 attrname[STRLEN(attrname)-2] = '\0';
-                status = ocsmFindPmtr(MODL, attrname, OCSM_INTERNAL, len, 1, &ipmtr);
+                status = ocsmFindPmtr(MODL, attrname, OCSM_LOCALVAR, len, 1, &ipmtr);
                 CHECK_STATUS(ocsmFindPmtr);
 
                 if        (atype == ATTRINT) {
@@ -39364,7 +42005,9 @@ recycleBody(modl_T *modl,               /* (in)  pointer to MODL */
         goto cleanup;
     }
 
+    /**********************************************************/
     /* we are not reading from a file, but rather from memory */
+    /**********************************************************/
 
     /* if we have exhaused the recycling, return status=0 (to signify
        that an old Body was not recycled) */
@@ -39490,34 +42133,6 @@ recycleBody(modl_T *modl,               /* (in)  pointer to MODL */
             status = removeVels(MODL, jbody);
             CHECK_STATUS(removeVels);
 
-//$$$            if (MODL->body[jbody].sens != 0) {
-//$$$                SPRINT1(2, "resetting .sens for jbody=%d", jbody);
-//$$$
-//$$$                status = EG_setGeometry_dot(MODL->body[jbody].ebody, 0, 0, NULL, NULL, NULL);
-//$$$                CHECK_STATUS(EG_setGeometry_dot);
-//$$$
-//$$$                MODL->body[jbody].sens = 0;
-//$$$            }
-//$$$
-//$$$            /* if this is a sketch used by a RULE or BLEND, remove the sensitivity
-//$$$               cache associted with the RULE or BLEND */
-//$$$            kbody = MODL->body[jbody].ichld;
-//$$$            while (kbody > 0) {
-//$$$                if (MODL->body[kbody].brtype == OCSM_RULE ||
-//$$$                    MODL->body[kbody].brtype == OCSM_BLEND  ) {
-//$$$                    if (MODL->body[kbody].sens != 0) {
-//$$$                        SPRINT1(2, "resetting .sens for kbody=%d", kbody);
-//$$$
-//$$$                        status = EG_setGeometry_dot(MODL->body[kbody].ebody, 0, 0, NULL, NULL, NULL);
-//$$$                        CHECK_STATUS(EG_setGeometry_dot);
-//$$$
-//$$$                        MODL->body[kbody].sens = 0;
-//$$$                    }
-//$$$                    break;
-//$$$                }
-//$$$                kbody = MODL->body[kbody].ichld;
-//$$$            }
-//$$$
             status = freeBody(MODL, jbody);
             CHECK_STATUS(freeBody);
 
@@ -39558,7 +42173,7 @@ recycleBody(modl_T *modl,               /* (in)  pointer to MODL */
             if (strncmp(aname, "__@@", 4) == 0) {
                 strcpy(attrname, &(aname[2]));
                 attrname[STRLEN(attrname)-2] = '\0';
-                status = ocsmFindPmtr(MODL, attrname, OCSM_INTERNAL, len, 1, &ipmtr);
+                status = ocsmFindPmtr(MODL, attrname, OCSM_LOCALVAR, len, 1, &ipmtr);
                 CHECK_STATUS(ocsmFindPmtr);
 
                 if        (atype == ATTRINT) {
@@ -39609,7 +42224,7 @@ recycleBody(modl_T *modl,               /* (in)  pointer to MODL */
             if (strncmp(aname, "__@@", 4) == 0) {
                 strcpy(attrname, &(aname[2]));
                 attrname[STRLEN(attrname)-2] = '\0';
-                status = ocsmFindPmtr(MODL, attrname, OCSM_INTERNAL, len, 1, &ipmtr);
+                status = ocsmFindPmtr(MODL, attrname, OCSM_LOCALVAR, len, 1, &ipmtr);
                 CHECK_STATUS(ocsmFindPmtr);
 
                 if        (atype == ATTRINT) {
@@ -39705,7 +42320,7 @@ cleanup:
 /*
  ************************************************************************
  *                                                                      *
- *   removePerurbation - remove a perturbation if it exists             *
+ *   removePerturbation - remove a perturbation if it exists            *
  *                                                                      *
  ************************************************************************
  */
@@ -39751,7 +42366,7 @@ cleanup:
 
 int
 removeVels(modl_T *modl,                /* (in)  pointer to MODL */
-           int    ibody)                /* (in)  Body index (bias-1)  or 0 for all*/
+           int    ibody)                /* (in)  Body index (1:nbody)  or 0 for all*/
 
 {
     int       status = SUCCESS;         /* (out) return status */
@@ -39825,11 +42440,11 @@ reorderLoops(modl_T *modl,              /* (in)  pointer to MODL */
 
     modl_T    *MODL = (modl_T*)modl;
 
-    int      iloop, jloop, iedge, jedge, itest, ishift, modified, sense;
+    int      iloop, jloop, iedge, jedge, itest, ishift, modified, sense, i, j;
     int      oclassi, oclassj, oclassk, oclassg, mtypei, mtypej, mtypek, mtypeg, nedgei, nedgej, nedgek;
     int      *sensesi, *sensesj, *sensesk, nnode, *sensesnew=NULL;
     double   uvlimitsi[4], uvlimitsj[4], uvlimitsk[4], data[18], *xyzi=NULL, *xyzj=NULL;
-    double   areai[3], areaj[3], dotprod, ltest, lshift;
+    double   areai[3], areaj[3], dotprod, ltest, ltest0, ltest1, lshift;
     ego      erefi, erefj, erefk, erefg, *eedgesi, *eedgesj, *eedgesk;
     ego      *enodes, *elist, *eedgesnew=NULL, etemp;
 
@@ -39844,7 +42459,7 @@ reorderLoops(modl_T *modl,              /* (in)  pointer to MODL */
         }
     }
 
-    /* extract just the Loop for interior Sketches and convert bounding
+    /* extract just the Loop for interior Xsects and convert bounding
        WireBodys into Loops */
     for (iloop = 0; iloop < nloop; iloop++) {
         status = EG_getTopology(eloops[iloop], &erefi,
@@ -39876,7 +42491,7 @@ reorderLoops(modl_T *modl,              /* (in)  pointer to MODL */
         }
     }
 
-    /* the base Sketch (which will not be modified) is at either end */
+    /* the base Xsect (which will not be modified) is at either end */
     if (startFrom == 0) {
         goto cleanup;
     } else if (startFrom > 0) {
@@ -39885,7 +42500,7 @@ reorderLoops(modl_T *modl,              /* (in)  pointer to MODL */
         iloop = nloop - 1;
     }
 
-    /* process each pair of Sketches in turn */
+    /* process each pair of Xsects in turn */
     while (1) {
         if (startFrom > 0) {
             jloop = iloop + 1;
@@ -39924,9 +42539,17 @@ reorderLoops(modl_T *modl,              /* (in)  pointer to MODL */
             iloop = jloop;
             continue;
         }
-        if (mtypei  != CLOSED || mtypej  != CLOSED) {
-            iloop = jloop;
-            continue;
+//$$$        if (mtypei  != CLOSED || mtypej  != CLOSED) {
+//$$$            iloop = jloop;
+//$$$            continue;
+//$$$        }
+
+        /* make sure the Loops are either both OPEN or CLOSED */
+        if (mtypei != mtypej) {
+            signalError(MODL, OCSM_INTERNAL_ERROR,
+                        "Loops %d and %d are different mtypes", iloop, jloop);
+            status = OCSM_INTERNAL_ERROR;
+            goto cleanup;
         }
 
         /* make sure that Loops have same number of Edges */
@@ -39951,8 +42574,8 @@ reorderLoops(modl_T *modl,              /* (in)  pointer to MODL */
         nedgej = nedgei;
 
         /* set up the coordinates at the Nodes and midpoints in the two Loops */
-        MALLOC(xyzi, double, 6*nedgei);
-        MALLOC(xyzj, double, 6*nedgej);
+        MALLOC(xyzi, double, 6*nedgei+3);
+        MALLOC(xyzj, double, 6*nedgej+3);
 
         for (iedge = 0; iedge < nedgei; iedge++) {
             status = EG_getTopology(eedgesi[iedge], &erefk,
@@ -39985,6 +42608,18 @@ reorderLoops(modl_T *modl,              /* (in)  pointer to MODL */
             }
         }
 
+        if (mtypei == OPEN) {
+            if (sensesi[nedgei-1] > 0) {
+                status = EG_getTopology(enodes[1], &erefk,
+                                        &oclassk, &mtypek, &(xyzi[6*nedgei]), &nnode, &elist, &sensesk);
+                CHECK_STATUS(EG_getTopology);
+            } else {
+                status = EG_getTopology(enodes[0], &erefk,
+                                        &oclassk, &mtypek, &(xyzi[6*nedgei]), &nnode, &elist, &sensesk);
+                CHECK_STATUS(EG_getTopology);
+            }
+        }
+
         for (iedge = 0; iedge < nedgej; iedge++) {
             status = EG_getTopology(eedgesj[iedge], &erefk,
                                     &oclassk, &mtypeg, uvlimitsk, &nnode, &enodes, &sensesk);
@@ -40014,6 +42649,49 @@ reorderLoops(modl_T *modl,              /* (in)  pointer to MODL */
                 xyzj[6*iedge+4] = xyzj[3*iedge+1];
                 xyzj[6*iedge+5] = xyzj[3*iedge+2];
             }
+        }
+
+        if (mtypej == OPEN) {
+            if (sensesi[nedgej-1] > 0) {
+                status = EG_getTopology(enodes[1], &erefk,
+                                        &oclassk, &mtypek, &(xyzj[6*nedgej]), &nnode, &elist, &sensesk);
+                CHECK_STATUS(EG_getTopology);
+            } else {
+                status = EG_getTopology(enodes[0], &erefk,
+                                        &oclassk, &mtypek, &(xyzj[6*nedgej]), &nnode, &elist, &sensesk);
+                CHECK_STATUS(EG_getTopology);
+            }
+        }
+
+        /* if the Loops re open, flip if distances cn be reduced by
+           flipping jloop */
+        if (mtypei == OPEN ||mtypej == OPEN) {
+            ltest0 = 0;
+            ltest1 = 0;
+            for (i = 0; i < 2*nedgei+1; i++) {
+                j = 2*nedgei - i;
+
+                ltest0 += sqrt((xyzi[3*i  ]-xyzj[3*i  ]) * (xyzi[3*i  ]-xyzj[3*i  ])
+                              +(xyzi[3*i+1]-xyzj[3*i+1]) * (xyzi[3*i+1]-xyzj[3*i+1])
+                              +(xyzi[3*i+2]-xyzj[3*i+2]) * (xyzi[3*i+2]-xyzj[3*i+2]));
+                ltest1 += sqrt((xyzi[3*i  ]-xyzj[3*j  ]) * (xyzi[3*i  ]-xyzj[3*j  ])
+                              +(xyzi[3*i+1]-xyzj[3*j+1]) * (xyzi[3*i+1]-xyzj[3*j+1])
+                              +(xyzi[3*i+2]-xyzj[3*j+2]) * (xyzi[3*i+2]-xyzj[3*j+2]));
+            }
+
+            if (ltest1 < ltest0) {
+                SPRINT1(1, "WARNING:: reversing Loop %d", jloop);
+                (MODL->nwarn)++;
+                modified++;
+
+                status = EG_flipObject(eloops[jloop], &etemp);
+                CHECK_STATUS(EG_flipObject);
+
+                eloops[jloop] = etemp;
+            }
+
+            iloop = jloop;
+            continue;
         }
 
         /* find the area of iloop and jloop */
@@ -40176,7 +42854,7 @@ cleanup:
 static int
 selectBody(ego    emodel,               /* (in)  pointer to Model */
            char*  order,                /* (in)  order type */
-           int    index)                /* (in)  index into list (1->nchild) */
+           int    index)                /* (in)  index into list (1:nchild) */
 {
     int       status = SUCCESS;         /* (out) return status */
 
@@ -40336,7 +43014,7 @@ cleanup:
 
 static int
 setEgoAttribute(modl_T *modl,           /* (in)  pointer to MODL */
-                int    ibrch,           /* (in)  Branch index (bias-1) or 0 */
+                int    ibrch,           /* (in)  Branch index (1:nbrch) or 0 */
                 ego    eobject)         /* (in)  ego to get Attribute */
 {
     int       status = SUCCESS;         /* (out) return status */
@@ -40507,8 +43185,8 @@ cleanup:
 
 static int
 setFaceAttribute(modl_T *modl,          /* (in)  pointer to MODL */
-                 int    ibody,          /* (in)  Body index (1-nbody) */
-                 int    iface,          /* (in)  Face index (1-nface) */
+                 int    ibody,          /* (in)  Body index (1:nbody) */
+                 int    iface,          /* (in)  Face index (1:nface) */
                  int    jbody,          /* (in)  Branch index (=0 for automatic) */
                  int    jford,          /* (in)  Face order */
                  int    npatn,          /* (in)  number of active patterns */
@@ -40626,14 +43304,14 @@ setupAtPmtrs(modl_T *modl,              /* (in)  pointer to MODL */
     int       AT_Ixx=0,     AT_Ixy=0,     AT_Ixz=0;
     int       AT_Iyx=0,     AT_Iyy=0,     AT_Iyz=0;
     int       AT_Izx=0,     AT_Izy=0,     AT_Izz=0;
-    int       AT_signal=0,  AT_nwarn=0;
-    int       AT_edata=0,   AT_stack=0;
-    double    box[6], bbox[6], massprop[14];
+    int       AT_toler=0,   AT_signal=0,  AT_nwarn=0;
+    int       AT_edata=0,   AT_stack=0,   AT_version=0;
+    double    box[6], bbox[6], massprop[14], mpdot;
 
     int       ipmtr, itype, nface, nedge, nnode, ntemp, nbors, nlist;
     int       oclass, mtype, nchild, *sense, ilist, periodic;
     CINT      *tempIlist;
-    double    data[18], trange[4];
+    double    data[18], trange[4], toler, maxtoler;
     CDOUBLE   *tempRlist;
     CCHAR     *tempClist;
     ego       eref, *echild, *enodes;
@@ -40676,9 +43354,25 @@ setupAtPmtrs(modl_T *modl,              /* (in)  pointer to MODL */
         }
     }
 
+    /* remember that we will need to call computeMassPropsDot if any
+       of the associated mass properties are needed */
+    if (MODL->numdots > 0) {
+        MODL->needMPdot = 1;
+    } else {
+        MODL->needMPdot = 0;
+    }
+
+    /* determine the value to set for the velocities of massprops based
+       upon whether or not any of the DESPMTRs have non-zero dots */
+    if (MODL->numdots == 0) {
+        mpdot = 0;
+    } else {
+        mpdot = -HUGEQ;
+    }
+
     /* get the Parameter indices for each of the variables (at this level) */
     for (ipmtr = 1; ipmtr <= MODL->npmtr; ipmtr++) {
-        if (MODL->pmtr[ipmtr].type  == OCSM_INTERNAL           &&
+        if (MODL->pmtr[ipmtr].type  == OCSM_LOCALVAR           &&
             MODL->pmtr[ipmtr].scope == MODL->scope[MODL->level]  ) {
             if (strcmp(MODL->pmtr[ipmtr].name, "@seltype") == 0) AT_seltype = ipmtr;
             if (strcmp(MODL->pmtr[ipmtr].name, "@selbody") == 0) AT_selbody = ipmtr;
@@ -40717,258 +43411,293 @@ setupAtPmtrs(modl_T *modl,              /* (in)  pointer to MODL */
             if (strcmp(MODL->pmtr[ipmtr].name, "@Izx"    ) == 0) AT_Izx     = ipmtr;
             if (strcmp(MODL->pmtr[ipmtr].name, "@Izy"    ) == 0) AT_Izy     = ipmtr;
             if (strcmp(MODL->pmtr[ipmtr].name, "@Izz"    ) == 0) AT_Izz     = ipmtr;
+            if (strcmp(MODL->pmtr[ipmtr].name, "@toler"  ) == 0) AT_toler   = ipmtr;
             if (strcmp(MODL->pmtr[ipmtr].name, "@signal" ) == 0) AT_signal  = ipmtr;
             if (strcmp(MODL->pmtr[ipmtr].name, "@nwarn"  ) == 0) AT_nwarn   = ipmtr;
             if (strcmp(MODL->pmtr[ipmtr].name, "@edata"  ) == 0) AT_edata   = ipmtr;
             if (strcmp(MODL->pmtr[ipmtr].name, "@stack"  ) == 0) AT_stack   = ipmtr;
+            if (strcmp(MODL->pmtr[ipmtr].name, "@version") == 0) AT_version = ipmtr;
         }
     }
 
     /* make any Parameter that does not exist */
     if (AT_seltype == 0) {
-        status = ocsmNewPmtr(MODL, "@seltype", OCSM_INTERNAL, 1, 1);
+        status = ocsmNewPmtr(MODL, "@seltype", OCSM_LOCALVAR, 1, 1);
         CHECK_STATUS(ocsmNewPmtr);
         AT_seltype = MODL->npmtr;
     }
 
     if (AT_selbody == 0) {
-        status = ocsmNewPmtr(MODL, "@selbody", OCSM_INTERNAL, 1, 1);
+        status = ocsmNewPmtr(MODL, "@selbody", OCSM_LOCALVAR, 1, 1);
         CHECK_STATUS(ocsmNewPmtr);
         AT_selbody = MODL->npmtr;
     }
 
     if (AT_sellist == 0) {
-        status = ocsmNewPmtr(MODL, "@sellist", OCSM_INTERNAL, 1, 1);
+        status = ocsmNewPmtr(MODL, "@sellist", OCSM_LOCALVAR, 1, 1);
         CHECK_STATUS(ocsmNewPmtr);
         AT_sellist = MODL->npmtr;
     }
 
     if (AT_nbody == 0) {
-        status = ocsmNewPmtr(MODL, "@nbody",   OCSM_INTERNAL, 1, 1);
+        status = ocsmNewPmtr(MODL, "@nbody",   OCSM_LOCALVAR, 1, 1);
         CHECK_STATUS(ocsmNewPmtr);
         AT_nbody = MODL->npmtr;
     }
 
     if (AT_nface == 0) {
-        status = ocsmNewPmtr(MODL, "@nface",   OCSM_INTERNAL, 1, 1);
+        status = ocsmNewPmtr(MODL, "@nface",   OCSM_LOCALVAR, 1, 1);
         CHECK_STATUS(ocsmNewPmtr);
         AT_nface = MODL->npmtr;
     }
 
     if (AT_nedge == 0) {
-        status = ocsmNewPmtr(MODL, "@nedge",   OCSM_INTERNAL, 1, 1);
+        status = ocsmNewPmtr(MODL, "@nedge",   OCSM_LOCALVAR, 1, 1);
         CHECK_STATUS(ocsmNewPmtr);
         AT_nedge = MODL->npmtr;
     }
 
     if (AT_nnode == 0) {
-        status = ocsmNewPmtr(MODL, "@nnode",   OCSM_INTERNAL, 1, 1);
+        status = ocsmNewPmtr(MODL, "@nnode",   OCSM_LOCALVAR, 1, 1);
         CHECK_STATUS(ocsmNewPmtr);
         AT_nnode = MODL->npmtr;
     }
 
     if (AT_ibody == 0) {
-        status = ocsmNewPmtr(MODL, "@ibody",   OCSM_INTERNAL, 1, 1);
+        status = ocsmNewPmtr(MODL, "@ibody",   OCSM_LOCALVAR, 1, 1);
         CHECK_STATUS(ocsmNewPmtr);
         AT_ibody = MODL->npmtr;
     }
 
     if (AT_iface == 0) {
-        status = ocsmNewPmtr(MODL, "@iface",   OCSM_INTERNAL, 1, 1);
+        status = ocsmNewPmtr(MODL, "@iface",   OCSM_LOCALVAR, 1, 1);
         CHECK_STATUS(ocsmNewPmtr);
         AT_iface = MODL->npmtr;
     }
 
     if (AT_iedge == 0) {
-        status = ocsmNewPmtr(MODL, "@iedge",   OCSM_INTERNAL, 1, 1);
+        status = ocsmNewPmtr(MODL, "@iedge",   OCSM_LOCALVAR, 1, 1);
         CHECK_STATUS(ocsmNewPmtr);
         AT_iedge = MODL->npmtr;
     }
 
     if (AT_inode == 0) {
-        status = ocsmNewPmtr(MODL, "@inode",   OCSM_INTERNAL, 1, 1);
+        status = ocsmNewPmtr(MODL, "@inode",   OCSM_LOCALVAR, 1, 1);
         CHECK_STATUS(ocsmNewPmtr);
         AT_inode = MODL->npmtr;
     }
 
     if (AT_igroup == 0) {
-        status = ocsmNewPmtr(MODL, "@igroup",  OCSM_INTERNAL, 1, 1);
+        status = ocsmNewPmtr(MODL, "@igroup",  OCSM_LOCALVAR, 1, 1);
         CHECK_STATUS(ocsmNewPmtr);
         AT_igroup = MODL->npmtr;
     }
 
     if (AT_itype == 0) {
-        status = ocsmNewPmtr(MODL, "@itype",   OCSM_INTERNAL, 1, 1);
+        status = ocsmNewPmtr(MODL, "@itype",   OCSM_LOCALVAR, 1, 1);
         CHECK_STATUS(ocsmNewPmtr);
         AT_itype = MODL->npmtr;
     }
 
     if (AT_nbors == 0) {
-        status = ocsmNewPmtr(MODL, "@nbors",   OCSM_INTERNAL, 1, 1);
+        status = ocsmNewPmtr(MODL, "@nbors",   OCSM_LOCALVAR, 1, 1);
         CHECK_STATUS(ocsmNewPmtr);
         AT_nbors = MODL->npmtr;
     }
 
     if (AT_ibody1 == 0) {
-        status = ocsmNewPmtr(MODL, "@ibody1",  OCSM_INTERNAL, 1, 1);
+        status = ocsmNewPmtr(MODL, "@ibody1",  OCSM_LOCALVAR, 1, 1);
         CHECK_STATUS(ocsmNewPmtr);
         AT_ibody1 = MODL->npmtr;
     }
 
     if (AT_ibody2 == 0) {
-        status = ocsmNewPmtr(MODL, "@ibody2",  OCSM_INTERNAL, 1, 1);
+        status = ocsmNewPmtr(MODL, "@ibody2",  OCSM_LOCALVAR, 1, 1);
         CHECK_STATUS(ocsmNewPmtr);
         AT_ibody2 = MODL->npmtr;
     }
 
     if (AT_xmin == 0) {
-        status = ocsmNewPmtr(MODL, "@xmin",    OCSM_INTERNAL, 1, 1);
+        status = ocsmNewPmtr(MODL, "@xmin",    OCSM_LOCALVAR, 1, 1);
         CHECK_STATUS(ocsmNewPmtr);
+        MODL->pmtr[MODL->npmtr].flag = 1;
         AT_xmin = MODL->npmtr;
     }
 
     if (AT_ymin == 0) {
-        status = ocsmNewPmtr(MODL, "@ymin",    OCSM_INTERNAL, 1, 1);
+        status = ocsmNewPmtr(MODL, "@ymin",    OCSM_LOCALVAR, 1, 1);
         CHECK_STATUS(ocsmNewPmtr);
+        MODL->pmtr[MODL->npmtr].flag = 1;
         AT_ymin = MODL->npmtr;
     }
 
     if (AT_zmin == 0) {
-        status = ocsmNewPmtr(MODL, "@zmin",    OCSM_INTERNAL, 1, 1);
+        status = ocsmNewPmtr(MODL, "@zmin",    OCSM_LOCALVAR, 1, 1);
         CHECK_STATUS(ocsmNewPmtr);
+        MODL->pmtr[MODL->npmtr].flag = 1;
         AT_zmin = MODL->npmtr;
     }
 
     if (AT_xmax == 0) {
-        status = ocsmNewPmtr(MODL, "@xmax",    OCSM_INTERNAL, 1, 1);
+        status = ocsmNewPmtr(MODL, "@xmax",    OCSM_LOCALVAR, 1, 1);
         CHECK_STATUS(ocsmNewPmtr);
+        MODL->pmtr[MODL->npmtr].flag = 1;
         AT_xmax = MODL->npmtr;
     }
 
     if (AT_ymax == 0) {
-        status = ocsmNewPmtr(MODL, "@ymax",    OCSM_INTERNAL, 1, 1);
+        status = ocsmNewPmtr(MODL, "@ymax",    OCSM_LOCALVAR, 1, 1);
         CHECK_STATUS(ocsmNewPmtr);
+        MODL->pmtr[MODL->npmtr].flag = 1;
         AT_ymax = MODL->npmtr;
     }
 
     if (AT_zmax == 0) {
-        status = ocsmNewPmtr(MODL, "@zmax",    OCSM_INTERNAL, 1, 1);
+        status = ocsmNewPmtr(MODL, "@zmax",    OCSM_LOCALVAR, 1, 1);
         CHECK_STATUS(ocsmNewPmtr);
+        MODL->pmtr[MODL->npmtr].flag = 1;
         AT_zmax = MODL->npmtr;
     }
 
     if (AT_length == 0) {
-        status = ocsmNewPmtr(MODL, "@length",  OCSM_INTERNAL, 1, 1);
+        status = ocsmNewPmtr(MODL, "@length",  OCSM_LOCALVAR, 1, 1);
         CHECK_STATUS(ocsmNewPmtr);
+        MODL->pmtr[MODL->npmtr].flag = 1;
         AT_length = MODL->npmtr;
     }
 
     if (AT_area == 0) {
-        status = ocsmNewPmtr(MODL, "@area",    OCSM_INTERNAL, 1, 1);
+        status = ocsmNewPmtr(MODL, "@area",    OCSM_LOCALVAR, 1, 1);
         CHECK_STATUS(ocsmNewPmtr);
+        MODL->pmtr[MODL->npmtr].flag = 1;
         AT_area = MODL->npmtr;
     }
 
     if (AT_volume == 0) {
-        status = ocsmNewPmtr(MODL, "@volume",  OCSM_INTERNAL, 1, 1);
+        status = ocsmNewPmtr(MODL, "@volume",  OCSM_LOCALVAR, 1, 1);
         CHECK_STATUS(ocsmNewPmtr);
+        MODL->pmtr[MODL->npmtr].flag = 1;
         AT_volume = MODL->npmtr;
     }
 
     if (AT_xcg == 0) {
-        status = ocsmNewPmtr(MODL, "@xcg",     OCSM_INTERNAL, 1, 1);
+        status = ocsmNewPmtr(MODL, "@xcg",     OCSM_LOCALVAR, 1, 1);
         CHECK_STATUS(ocsmNewPmtr);
+        MODL->pmtr[MODL->npmtr].flag = 1;
         AT_xcg = MODL->npmtr;
     }
 
     if (AT_ycg == 0) {
-        status = ocsmNewPmtr(MODL, "@ycg",     OCSM_INTERNAL, 1, 1);
+        status = ocsmNewPmtr(MODL, "@ycg",     OCSM_LOCALVAR, 1, 1);
         CHECK_STATUS(ocsmNewPmtr);
+        MODL->pmtr[MODL->npmtr].flag = 1;
         AT_ycg = MODL->npmtr;
     }
 
     if (AT_zcg == 0) {
-        status = ocsmNewPmtr(MODL, "@zcg",     OCSM_INTERNAL, 1, 1);
+        status = ocsmNewPmtr(MODL, "@zcg",     OCSM_LOCALVAR, 1, 1);
         CHECK_STATUS(ocsmNewPmtr);
+        MODL->pmtr[MODL->npmtr].flag = 1;
         AT_zcg = MODL->npmtr;
     }
 
     if (AT_Ixx == 0) {
-        status = ocsmNewPmtr(MODL, "@Ixx",     OCSM_INTERNAL, 1, 1);
+        status = ocsmNewPmtr(MODL, "@Ixx",     OCSM_LOCALVAR, 1, 1);
         CHECK_STATUS(ocsmNewPmtr);
+        MODL->pmtr[MODL->npmtr].flag = 1;
         AT_Ixx = MODL->npmtr;
     }
 
     if (AT_Ixy == 0) {
-        status = ocsmNewPmtr(MODL, "@Ixy",     OCSM_INTERNAL, 1, 1);
+        status = ocsmNewPmtr(MODL, "@Ixy",     OCSM_LOCALVAR, 1, 1);
         CHECK_STATUS(ocsmNewPmtr);
+        MODL->pmtr[MODL->npmtr].flag = 1;
         AT_Ixy = MODL->npmtr;
     }
 
     if (AT_Ixz == 0) {
-        status = ocsmNewPmtr(MODL, "@Ixz",     OCSM_INTERNAL, 1, 1);
+        status = ocsmNewPmtr(MODL, "@Ixz",     OCSM_LOCALVAR, 1, 1);
         CHECK_STATUS(ocsmNewPmtr);
+        MODL->pmtr[MODL->npmtr].flag = 1;
         AT_Ixz = MODL->npmtr;
     }
 
     if (AT_Iyx == 0) {
-        status = ocsmNewPmtr(MODL, "@Iyx",     OCSM_INTERNAL, 1, 1);
+        status = ocsmNewPmtr(MODL, "@Iyx",     OCSM_LOCALVAR, 1, 1);
         CHECK_STATUS(ocsmNewPmtr);
+        MODL->pmtr[MODL->npmtr].flag = 1;
         AT_Iyx = MODL->npmtr;
     }
 
     if (AT_Iyy == 0) {
-        status = ocsmNewPmtr(MODL, "@Iyy",     OCSM_INTERNAL, 1, 1);
+        status = ocsmNewPmtr(MODL, "@Iyy",     OCSM_LOCALVAR, 1, 1);
         CHECK_STATUS(ocsmNewPmtr);
+        MODL->pmtr[MODL->npmtr].flag = 1;
         AT_Iyy = MODL->npmtr;
     }
 
     if (AT_Iyz == 0) {
-        status = ocsmNewPmtr(MODL, "@Iyz",     OCSM_INTERNAL, 1, 1);
+        status = ocsmNewPmtr(MODL, "@Iyz",     OCSM_LOCALVAR, 1, 1);
         CHECK_STATUS(ocsmNewPmtr);
+        MODL->pmtr[MODL->npmtr].flag = 1;
         AT_Iyz = MODL->npmtr;
     }
 
     if (AT_Izx == 0) {
-        status = ocsmNewPmtr(MODL, "@Izx",     OCSM_INTERNAL, 1, 1);
+        status = ocsmNewPmtr(MODL, "@Izx",     OCSM_LOCALVAR, 1, 1);
         CHECK_STATUS(ocsmNewPmtr);
+        MODL->pmtr[MODL->npmtr].flag = 1;
         AT_Izx = MODL->npmtr;
     }
 
     if (AT_Izy == 0) {
-        status = ocsmNewPmtr(MODL, "@Izy",     OCSM_INTERNAL, 1, 1);
+        status = ocsmNewPmtr(MODL, "@Izy",     OCSM_LOCALVAR, 1, 1);
         CHECK_STATUS(ocsmNewPmtr);
+        MODL->pmtr[MODL->npmtr].flag = 1;
         AT_Izy = MODL->npmtr;
     }
 
     if (AT_Izz == 0) {
-        status = ocsmNewPmtr(MODL, "@Izz",     OCSM_INTERNAL, 1, 1);
+        status = ocsmNewPmtr(MODL, "@Izz",     OCSM_LOCALVAR, 1, 1);
         CHECK_STATUS(ocsmNewPmtr);
+        MODL->pmtr[MODL->npmtr].flag = 1;
         AT_Izz = MODL->npmtr;
     }
 
+    if (AT_toler == 0) {
+        status = ocsmNewPmtr(MODL, "@toler",   OCSM_LOCALVAR, 1, 1);
+        CHECK_STATUS(ocsmNewPmtr);
+        AT_toler = MODL->npmtr;
+    }
+
     if (AT_signal == 0) {
-        status = ocsmNewPmtr(MODL, "@signal",  OCSM_INTERNAL, 1, 1);
+        status = ocsmNewPmtr(MODL, "@signal",  OCSM_LOCALVAR, 1, 1);
         CHECK_STATUS(ocsmNewPmtr);
         AT_signal = MODL->npmtr;
     }
 
     if (AT_nwarn == 0) {
-        status = ocsmNewPmtr(MODL, "@nwarn",   OCSM_INTERNAL, 1, 1);
+        status = ocsmNewPmtr(MODL, "@nwarn",   OCSM_LOCALVAR, 1, 1);
         CHECK_STATUS(ocsmNewPmtr);
         AT_nwarn = MODL->npmtr;
     }
 
     if (AT_edata == 0) {
-        status = ocsmNewPmtr(MODL, "@edata",   OCSM_INTERNAL, 1, 20);
+        status = ocsmNewPmtr(MODL, "@edata",   OCSM_LOCALVAR, 1, 20);
         CHECK_STATUS(ocsmNewPmtr);
         AT_edata = MODL->npmtr;
     }
 
     if (AT_stack == 0) {
-        status = ocsmNewPmtr(MODL, "@stack",   OCSM_INTERNAL, 1, MAX_STACK_SIZE);
+        status = ocsmNewPmtr(MODL, "@stack",   OCSM_LOCALVAR, 1, MAX_STACK_SIZE);
         CHECK_STATUS(ocsmNewPmtr);
         AT_stack = MODL->npmtr;
+    }
+
+    if (AT_version == 0) {
+        status = ocsmNewPmtr(MODL, "@version", OCSM_LOCALVAR, 1, 1);
+        CHECK_STATUS(ocsmNewPmtr);
+        AT_version = MODL->npmtr;
     }
 
     if (AT_stack == 0) {
@@ -40988,6 +43717,9 @@ setupAtPmtrs(modl_T *modl,              /* (in)  pointer to MODL */
     CHECK_STATUS(ocsmSetValuD);
 
     status = ocsmSetValuD(MODL, AT_nwarn,  1, 1, (double)(MODL->nwarn));
+    CHECK_STATUS(ocsmSetValuD);
+
+    status = ocsmSetValuD(MODL, AT_version, 1, 1, OCSM_MAJOR_VERSION+0.01*OCSM_MINOR_VERSION);
     CHECK_STATUS(ocsmSetValuD);
 
     /* special processing if processing a Mark */
@@ -41132,6 +43864,9 @@ setupAtPmtrs(modl_T *modl,              /* (in)  pointer to MODL */
         status = ocsmSetValuD(MODL, AT_Izz,     1, 1,  0.0);
         CHECK_STATUS(ocsmSetValuD);
 
+        status = ocsmSetValuD(MODL, AT_toler,   1, 1,  0.0);
+        CHECK_STATUS(ocsmSetValuD);
+
         goto cleanup;
     }
 
@@ -41201,65 +43936,110 @@ setupAtPmtrs(modl_T *modl,              /* (in)  pointer to MODL */
 
         status = ocsmSetValuD(MODL, AT_xmin,    1, 1,  data[0]);
         CHECK_STATUS(ocsmSetValuD);
+        status = ocsmSetVelD( MODL, AT_xmin,    1, 1,  mpdot);
+        CHECK_STATUS(ocsmSetVelD);
 
         status = ocsmSetValuD(MODL, AT_xmax,    1, 1,  data[0]);
         CHECK_STATUS(ocsmSetValuD);
+        status = ocsmSetVelD( MODL, AT_xmax,    1, 1,  mpdot);
+        CHECK_STATUS(ocsmSetVelD);
 
         status = ocsmSetValuD(MODL, AT_ymin,    1, 1,  data[1]);
         CHECK_STATUS(ocsmSetValuD);
+        status = ocsmSetVelD( MODL, AT_ymin,    1, 1,  mpdot);
+        CHECK_STATUS(ocsmSetVelD);
 
         status = ocsmSetValuD(MODL, AT_ymax,    1, 1,  data[1]);
         CHECK_STATUS(ocsmSetValuD);
+        status = ocsmSetVelD( MODL, AT_ymax,    1, 1,  mpdot);
+        CHECK_STATUS(ocsmSetVelD);
 
         status = ocsmSetValuD(MODL, AT_zmin,    1, 1,  data[2]);
         CHECK_STATUS(ocsmSetValuD);
+        status = ocsmSetVelD( MODL, AT_zmin,    1, 1,  mpdot);
+        CHECK_STATUS(ocsmSetVelD);
 
         status = ocsmSetValuD(MODL, AT_zmax,    1, 1,  data[2]);
         CHECK_STATUS(ocsmSetValuD);
+        status = ocsmSetVelD( MODL, AT_zmax,    1, 1,  mpdot);
+        CHECK_STATUS(ocsmSetVelD);
 
         status = ocsmSetValuD(MODL, AT_length,  1, 1,  0.0);
         CHECK_STATUS(ocsmSetValuD);
+        status = ocsmSetVelD( MODL, AT_length,  1, 1,  mpdot);
+        CHECK_STATUS(ocsmSetVelD);
 
         status = ocsmSetValuD(MODL, AT_area,    1, 1,  0.0);
         CHECK_STATUS(ocsmSetValuD);
+        status = ocsmSetVelD( MODL, AT_area,    1, 1,  mpdot);
+        CHECK_STATUS(ocsmSetVelD);
 
         status = ocsmSetValuD(MODL, AT_volume,  1, 1,  0.0);
         CHECK_STATUS(ocsmSetValuD);
+        status = ocsmSetVelD( MODL, AT_volume,  1, 1,  mpdot);
+        CHECK_STATUS(ocsmSetVelD);
 
         status = ocsmSetValuD(MODL, AT_xcg,     1, 1,  data[0]);
         CHECK_STATUS(ocsmSetValuD);
+        status = ocsmSetVelD( MODL, AT_xcg,     1, 1,  mpdot);
+        CHECK_STATUS(ocsmSetVelD);
 
         status = ocsmSetValuD(MODL, AT_ycg,     1, 1,  data[1]);
         CHECK_STATUS(ocsmSetValuD);
+        status = ocsmSetVelD( MODL, AT_ycg,     1, 1,  mpdot);
+        CHECK_STATUS(ocsmSetVelD);
 
         status = ocsmSetValuD(MODL, AT_zcg,     1, 1,  data[2]);
         CHECK_STATUS(ocsmSetValuD);
+        status = ocsmSetVelD( MODL, AT_zcg,     1, 1,  mpdot);
+        CHECK_STATUS(ocsmSetVelD);
 
         status = ocsmSetValuD(MODL, AT_Ixx,     1, 1,  0.0);
         CHECK_STATUS(ocsmSetValuD);
+        status = ocsmSetVelD( MODL, AT_Ixx,     1, 1,  mpdot);
+        CHECK_STATUS(ocsmSetVelD);
 
         status = ocsmSetValuD(MODL, AT_Ixy,     1, 1,  0.0);
         CHECK_STATUS(ocsmSetValuD);
+        status = ocsmSetVelD( MODL, AT_Ixy,     1, 1,  mpdot);
+        CHECK_STATUS(ocsmSetVelD);
 
         status = ocsmSetValuD(MODL, AT_Ixz,     1, 1,  0.0);
         CHECK_STATUS(ocsmSetValuD);
+        status = ocsmSetVelD( MODL, AT_Ixz,     1, 1,  mpdot);
+        CHECK_STATUS(ocsmSetVelD);
 
         status = ocsmSetValuD(MODL, AT_Iyx,     1, 1,  0.0);
         CHECK_STATUS(ocsmSetValuD);
+        status = ocsmSetVelD( MODL, AT_Iyx,     1, 1,  mpdot);
+        CHECK_STATUS(ocsmSetVelD);
 
         status = ocsmSetValuD(MODL, AT_Iyy,     1, 1,  0.0);
         CHECK_STATUS(ocsmSetValuD);
+        status = ocsmSetVelD( MODL, AT_Iyy,     1, 1,  mpdot);
+        CHECK_STATUS(ocsmSetVelD);
 
         status = ocsmSetValuD(MODL, AT_Iyz,     1, 1,  0.0);
         CHECK_STATUS(ocsmSetValuD);
+        status = ocsmSetVelD( MODL, AT_Iyz,     1, 1,  mpdot);
+        CHECK_STATUS(ocsmSetVelD);
 
         status = ocsmSetValuD(MODL, AT_Izx,     1, 1,  0.0);
         CHECK_STATUS(ocsmSetValuD);
+        status = ocsmSetVelD( MODL, AT_Izx,     1, 1,  mpdot);
+        CHECK_STATUS(ocsmSetVelD);
 
         status = ocsmSetValuD(MODL, AT_Izy,     1, 1,  0.0);
         CHECK_STATUS(ocsmSetValuD);
+        status = ocsmSetVelD( MODL, AT_Izy,     1, 1,  mpdot);
+        CHECK_STATUS(ocsmSetVelD);
 
         status = ocsmSetValuD(MODL, AT_Izz,     1, 1,  0.0);
+        CHECK_STATUS(ocsmSetValuD);
+        status = ocsmSetVelD( MODL, AT_Izz,     1, 1,  mpdot);
+        CHECK_STATUS(ocsmSetVelD);
+
+        status = ocsmSetValuD(MODL, AT_toler,   1, 1,  0.0);
         CHECK_STATUS(ocsmSetValuD);
 
         goto cleanup;
@@ -41449,6 +44229,9 @@ setupAtPmtrs(modl_T *modl,              /* (in)  pointer to MODL */
     if (MODL->seltype == -1) {
         status = EG_getBoundingBox(MODL->body[MODL->selbody].ebody, bbox);
         CHECK_STATUS(EG_getBoundingBox);
+
+        status = getBodyTolerance(MODL->body[MODL->selbody].ebody, &toler);
+        CHECK_STATUS(getBodyTolerance);
     } else if (MODL->seltype == 1 && MODL->selsize == 1) {
         status = EG_getRange(MODL->body[MODL->selbody].edge[MODL->sellist[0]].eedge,
                              trange, &periodic);
@@ -41517,21 +44300,33 @@ setupAtPmtrs(modl_T *modl,              /* (in)  pointer to MODL */
     /* set @xmin, @xmax, @ymin, @ymax, @zmin, and @zmax */
     status = ocsmSetValuD(MODL, AT_xmin, 1, 1, bbox[0]);
     CHECK_STATUS(ocsmSetValuD);
+    status = ocsmSetVelD( MODL, AT_xmin, 1, 1, mpdot);
+    CHECK_STATUS(ocsmSetVelD);
 
     status = ocsmSetValuD(MODL, AT_ymin, 1, 1, bbox[1]);
     CHECK_STATUS(ocsmSetValuD);
+    status = ocsmSetVelD( MODL, AT_ymin, 1, 1, mpdot);
+    CHECK_STATUS(ocsmSetVelD);
 
     status = ocsmSetValuD(MODL, AT_zmin, 1, 1, bbox[2]);
     CHECK_STATUS(ocsmSetValuD);
+    status = ocsmSetVelD( MODL, AT_zmin, 1, 1, mpdot);
+    CHECK_STATUS(ocsmSetVelD);
 
     status = ocsmSetValuD(MODL, AT_xmax, 1, 1, bbox[3]);
     CHECK_STATUS(ocsmSetValuD);
+    status = ocsmSetVelD( MODL, AT_xmax, 1, 1, mpdot);
+    CHECK_STATUS(ocsmSetVelD);
 
     status = ocsmSetValuD(MODL, AT_ymax, 1, 1, bbox[4]);
     CHECK_STATUS(ocsmSetValuD);
+    status = ocsmSetVelD( MODL, AT_ymax, 1, 1, mpdot);
+    CHECK_STATUS(ocsmSetVelD);
 
     status = ocsmSetValuD(MODL, AT_zmax, 1, 1, bbox[5]);
     CHECK_STATUS(ocsmSetValuD);
+    status = ocsmSetVelD( MODL, AT_zmax, 1, 1, mpdot);
+    CHECK_STATUS(ocsmSetVelD);
 
     PPRINT0(done setting up bounding box info);
 
@@ -41539,6 +44334,9 @@ setupAtPmtrs(modl_T *modl,              /* (in)  pointer to MODL */
     if (MODL->seltype == -1) {
         status = EG_getMassProperties(MODL->body[MODL->selbody].ebody, massprop);
         CHECK_STATUS(EG_getMassProperties);
+
+        status = getBodyTolerance(MODL->body[MODL->selbody].ebody, &maxtoler);
+        CHECK_STATUS(getBodyTolerance);
     } else {
         massprop[ 0] = 0;         // area
         massprop[ 1] = 0;         // volume
@@ -41554,6 +44352,8 @@ setupAtPmtrs(modl_T *modl,              /* (in)  pointer to MODL */
         massprop[11] = 0;         // Izx
         massprop[12] = 0;         // Izy
         massprop[13] = 0;         // Izz
+
+        maxtoler     = 0;
 
         if        (MODL->seltype == 2) {
             for (ilist = 0; ilist < MODL->selsize; ilist++) {
@@ -41574,6 +44374,11 @@ setupAtPmtrs(modl_T *modl,              /* (in)  pointer to MODL */
                 massprop[11] += data[11] + data[1] * data[4] * data[2];
                 massprop[12] += data[12] + data[1] * data[4] * data[3];
                 massprop[13] += data[13] + data[1] * data[4] * data[4];
+
+                status = EG_getTolerance(MODL->body[MODL->selbody].face[MODL->sellist[ilist]].eface, &toler);
+                CHECK_STATUS(EG_getTolerance);
+
+                maxtoler = MAX(maxtoler, toler);
             }
 
             if (fabs(massprop[1]) > EPS20) {
@@ -41609,6 +44414,11 @@ setupAtPmtrs(modl_T *modl,              /* (in)  pointer to MODL */
                 massprop[11] += data[11] + data[1] * data[4] * data[2];
                 massprop[12] += data[12] + data[1] * data[4] * data[3];
                 massprop[13] += data[13] + data[1] * data[4] * data[4];
+
+                status = EG_getTolerance(MODL->body[MODL->selbody].edge[MODL->sellist[ilist]].eedge, &toler);
+                CHECK_STATUS(EG_getTolerance);
+
+                maxtoler = MAX(maxtoler, toler);
             }
 
             if (fabs(massprop[1]) > EPS20) {
@@ -41659,86 +44469,143 @@ setupAtPmtrs(modl_T *modl,              /* (in)  pointer to MODL */
     if        (MODL->seltype == 2) {
         status = ocsmSetValuD(MODL, AT_length, 1, 1, 0.0);
         CHECK_STATUS(ocsmSetValuD);
+        status = ocsmSetVelD( MODL, AT_length, 1, 1, mpdot);
+        CHECK_STATUS(ocsmSetVelD);
 
         status = ocsmSetValuD(MODL, AT_area,   1, 1, massprop[1]);
         CHECK_STATUS(ocsmSetValuD);
+        status = ocsmSetVelD( MODL, AT_area,   1, 1, mpdot);
+        CHECK_STATUS(ocsmSetVelD);
 
         status = ocsmSetValuD(MODL, AT_volume, 1, 1, 0.0);
         CHECK_STATUS(ocsmSetValuD);
+        status = ocsmSetVelD( MODL, AT_volume, 1, 1, mpdot);
+        CHECK_STATUS(ocsmSetVelD);
     }  else if (MODL->seltype == 1) {
         status = ocsmSetValuD(MODL, AT_length, 1, 1, massprop[1]);
         CHECK_STATUS(ocsmSetValuD);
+        status = ocsmSetVelD( MODL, AT_length, 1, 1, mpdot);
+        CHECK_STATUS(ocsmSetVelD);
 
         status = ocsmSetValuD(MODL, AT_area,   1, 1, 0.0);
         CHECK_STATUS(ocsmSetValuD);
+        status = ocsmSetVelD( MODL, AT_area,   1, 1, mpdot);
+        CHECK_STATUS(ocsmSetVelD);
 
         status = ocsmSetValuD(MODL, AT_volume, 1, 1, 0.0);
         CHECK_STATUS(ocsmSetValuD);
+        status = ocsmSetVelD( MODL, AT_volume, 1, 1, mpdot);
+        CHECK_STATUS(ocsmSetVelD);
     }  else if (MODL->seltype == 0) {
         status = ocsmSetValuD(MODL, AT_length, 1, 1, 0.0);
         CHECK_STATUS(ocsmSetValuD);
+        status = ocsmSetVelD( MODL, AT_length, 1, 1, mpdot);
+        CHECK_STATUS(ocsmSetVelD);
 
         status = ocsmSetValuD(MODL, AT_area,   1, 1, 0.0);
         CHECK_STATUS(ocsmSetValuD);
+        status = ocsmSetVelD( MODL, AT_area,   1, 1, mpdot);
+        CHECK_STATUS(ocsmSetVelD);
 
         status = ocsmSetValuD(MODL, AT_volume, 1, 1, 0.0);
         CHECK_STATUS(ocsmSetValuD);
+        status = ocsmSetVelD( MODL, AT_volume, 1, 1, mpdot);
+        CHECK_STATUS(ocsmSetVelD);
     } else if (MODL->seltype == -1 && MODL->body[MODL->selbody].botype == OCSM_WIRE_BODY) {
         status = ocsmSetValuD(MODL, AT_length, 1, 1, massprop[1]);
         CHECK_STATUS(ocsmSetValuD);
+        status = ocsmSetVelD( MODL, AT_length, 1, 1, mpdot);
+        CHECK_STATUS(ocsmSetVelD);
 
         status = ocsmSetValuD(MODL, AT_area,   1, 1, 0.0);
         CHECK_STATUS(ocsmSetValuD);
+        status = ocsmSetVelD( MODL, AT_area,   1, 1, mpdot);
+        CHECK_STATUS(ocsmSetVelD);
 
         status = ocsmSetValuD(MODL, AT_volume, 1, 1, 0.0);
         CHECK_STATUS(ocsmSetValuD);
+        status = ocsmSetVelD( MODL, AT_volume, 1, 1, mpdot);
+        CHECK_STATUS(ocsmSetVelD);
     } else {
         status = ocsmSetValuD(MODL, AT_length, 1, 1, 0.0);
         CHECK_STATUS(ocsmSetValuD);
+        status = ocsmSetVelD( MODL, AT_length, 1, 1, mpdot);
+        CHECK_STATUS(ocsmSetVelD);
 
         status = ocsmSetValuD(MODL, AT_area,   1, 1, massprop[1]);
         CHECK_STATUS(ocsmSetValuD);
+        status = ocsmSetVelD( MODL, AT_area,   1, 1, mpdot);
+        CHECK_STATUS(ocsmSetVelD);
 
         status = ocsmSetValuD(MODL, AT_volume, 1, 1, massprop[0]);
         CHECK_STATUS(ocsmSetValuD);
+        status = ocsmSetVelD( MODL, AT_volume, 1, 1, mpdot);
+        CHECK_STATUS(ocsmSetVelD);
     }
 
     /* set @xcg, @ycg, and @zcg */
     status = ocsmSetValuD(MODL, AT_xcg, 1, 1, massprop[2]);
     CHECK_STATUS(ocsmSetValuD);
+    status = ocsmSetVelD( MODL, AT_xcg, 1, 1, mpdot);
+    CHECK_STATUS(ocsmSetVelD);
 
     status = ocsmSetValuD(MODL, AT_ycg, 1, 1, massprop[3]);
     CHECK_STATUS(ocsmSetValuD);
+    status = ocsmSetVelD( MODL, AT_ycg, 1, 1, mpdot);
+    CHECK_STATUS(ocsmSetVelD);
 
     status = ocsmSetValuD(MODL, AT_zcg, 1, 1, massprop[4]);
     CHECK_STATUS(ocsmSetValuD);
+    status = ocsmSetVelD( MODL, AT_zcg, 1, 1, mpdot);
+    CHECK_STATUS(ocsmSetVelD);
 
     /* set @Ixx, @Ixy, @Ixz, @Iyx, @Iyy, @Iyz, @Izx, @Izy, and @Izz */
     status = ocsmSetValuD(MODL, AT_Ixx, 1, 1, massprop[5]);
     CHECK_STATUS(ocsmSetValuD);
+    status = ocsmSetVelD( MODL, AT_Ixx, 1, 1, mpdot);
+    CHECK_STATUS(ocsmSetVelD);
 
     status = ocsmSetValuD(MODL, AT_Ixy, 1, 1, massprop[6]);
     CHECK_STATUS(ocsmSetValuD);
+    status = ocsmSetVelD( MODL, AT_Ixy, 1, 1, mpdot);
+    CHECK_STATUS(ocsmSetVelD);
 
     status = ocsmSetValuD(MODL, AT_Ixz, 1, 1, massprop[7]);
     CHECK_STATUS(ocsmSetValuD);
+    status = ocsmSetVelD( MODL, AT_Ixz, 1, 1, mpdot);
+    CHECK_STATUS(ocsmSetVelD);
 
     status = ocsmSetValuD(MODL, AT_Iyx, 1, 1, massprop[8]);
     CHECK_STATUS(ocsmSetValuD);
+    status = ocsmSetVelD( MODL, AT_Iyx, 1, 1, mpdot);
+    CHECK_STATUS(ocsmSetVelD);
 
     status = ocsmSetValuD(MODL, AT_Iyy, 1, 1, massprop[9]);
     CHECK_STATUS(ocsmSetValuD);
+    status = ocsmSetVelD( MODL, AT_Iyy, 1, 1, mpdot);
+    CHECK_STATUS(ocsmSetVelD);
 
     status = ocsmSetValuD(MODL, AT_Iyz, 1, 1, massprop[10]);
     CHECK_STATUS(ocsmSetValuD);
+    status = ocsmSetVelD( MODL, AT_Iyz, 1, 1, mpdot);
+    CHECK_STATUS(ocsmSetVelD);
 
     status = ocsmSetValuD(MODL, AT_Izx, 1, 1, massprop[11]);
     CHECK_STATUS(ocsmSetValuD);
+    status = ocsmSetVelD( MODL, AT_Izx, 1, 1, mpdot);
+    CHECK_STATUS(ocsmSetVelD);
 
     status = ocsmSetValuD(MODL, AT_Izy, 1, 1, massprop[12]);
     CHECK_STATUS(ocsmSetValuD);
+    status = ocsmSetVelD( MODL, AT_Izy, 1, 1, mpdot);
+    CHECK_STATUS(ocsmSetVelD);
 
     status = ocsmSetValuD(MODL, AT_Izz, 1, 1, massprop[13]);
+    CHECK_STATUS(ocsmSetValuD);
+    status = ocsmSetVelD( MODL, AT_Izz, 1, 1, mpdot);
+    CHECK_STATUS(ocsmSetVelD);
+
+    status = ocsmSetValuD(MODL, AT_toler, 1, 1, maxtoler);
     CHECK_STATUS(ocsmSetValuD);
 
     PPRINT0(done setting up mass properties);
@@ -41819,31 +44686,54 @@ signalError(void   *modl,               /* (in)  pointer to MODL */
 //cleanup:
 }
 
-#ifdef PRINT_TIMES
+
+/*
+ ************************************************************************
+ *                                                                      *
+ *   signalError2 - add to error message buffer                         *
+ *                                                                      *
+ ************************************************************************
+ */
+
 static void
-printTimes(struct rusage ru_beg,
-           struct rusage ru_end,
-           struct timeval t_beg,
-           struct timeval t_end)
+signalError2(void   *modl,              /* (in)  pointer to MODL */
+             int    status,             /* (in)  status flag */
+             char   filename[],         /* (in)  filename */
+             int    linenum,            /* (in)  line number */
+             char   format[],           /* (in)  format specifier */
+             ...)                       /* (in)  variable arguments for format */
 {
-    double user_time, sys_time, wall_time;
+    va_list   args;
 
-    user_time = (ru_end.ru_utime.tv_sec+ru_end.ru_utime.tv_usec*0.000001)
-               -(ru_beg.ru_utime.tv_sec+ru_beg.ru_utime.tv_usec*0.000001);
-    sys_time  = (ru_end.ru_stime.tv_sec+ru_end.ru_stime.tv_usec*0.000001)
-               -(ru_beg.ru_stime.tv_sec+ru_beg.ru_stime.tv_usec*0.000001);
-    wall_time = ((long)t_end.tv_sec+(long)t_end.tv_usec*0.000001)
-               -((long)t_beg.tv_sec+(long)t_beg.tv_usec*0.000001);
+    char      sigMesg[MAX_STR_LEN];
 
-    bool_user_time += user_time;
-    bool_sys_time  += sys_time;
-    bool_wall_time += wall_time;
+    modl_T    *MODL = (modl_T*)modl;
 
-    SPRINT4(0, "user:%.3f    sys:%.3f     total:%.3f     wall=%.3f",
-            user_time, sys_time, user_time+
-sys_time, wall_time);
+    ROUTINE(signalError2);
+
+    /* --------------------------------------------------------------- */
+
+    /* set up the va structure */
+    va_start(args, format);
+
+    /* save the signal code */
+    MODL->sigCode = status;
+
+    /* add the error to the sigMesg */
+    snprintf(MODL->sigMesg, MAX_STR_LEN, "ERROR:: (%s) at [[%s:%d]]\n        ",
+             ocsmGetText(status), filename, linenum);
+    SPRINT1x(0, "%s", MODL->sigMesg);
+
+    vsnprintf(sigMesg, MAX_STR_LEN, format, args);
+    SPRINT1(0, "%s", sigMesg);
+
+    strncat(MODL->sigMesg, sigMesg, MAX_STR_LEN-1);
+
+    /* clean up the va structure */
+    va_end(args);
+
+//cleanup:
 }
-#endif
 
 
 /*
@@ -41867,13 +44757,7 @@ solidBoolean(modl_T *MODL,              /* (in)  pointer to MODL */
     int       oclass, mtype, nchild, *senses, itry, inudge;
     double    tolerl, tolerr, data[4], xform[12];
     char      filename[MAX_FILENAME_LEN];
-    ego       eref, *echilds, ebodyll=NULL, ebodyrr=NULL, context, ebodys2[2], emodel2, exform;
-
-#ifdef PRINT_TIMES
-    int            nfacel, nfacer;
-    struct rusage  beg_rusage, end_rusage;
-    struct timeval beg_time,   end_time;
-#endif
+    ego       eref, *echilds, ebodyrr, context, ebodys2[2], emodel2, exform;
 
     ROUTINE(solidBoolean);
 
@@ -41892,24 +44776,31 @@ solidBoolean(modl_T *MODL,              /* (in)  pointer to MODL */
     /* if ebodyl is a model, just do a simple FUSION */
     status = EG_getTopology(ebodyl, &eref, &oclass, &mtype,
                             data, &nchild, &echilds, &senses);
-    CHECK_STATUS(eg_gettopology);
+    CHECK_STATUS(EG_getTopology);
 
     if (oclass == MODEL) {
-#ifdef PRINT_TIMES
-        EG_getBodyTopos(ebodyl, NULL, FACE, &nfacel, NULL);
-        EG_getBodyTopos(ebodyr, NULL, FACE, &nfacer, NULL);
-        gettimeofday(&beg_time, NULL);
-        getrusage(RUSAGE_SELF, &beg_rusage);
-#endif
-        status = EG_solidBoolean(ebodyl, ebodyr, type, emodel);
-#ifdef PRINT_TIMES
-        gettimeofday(&end_time, NULL);
-        getrusage(RUSAGE_SELF, &end_rusage);
-        SPRINT2x(0, "A: nfacel:%4d nfacer:%4d ", nfacel, nfacer);
-        printTimes(beg_rusage, end_rusage, beg_time, end_time);
-#endif
-        SPRINT4(2, "    -> EG_solidBoolean(toler=%8.3e, nudge=%2d, status=%d (%s)",
-               0.0, -1, status, ocsmGetText(status));
+        status = EG_getTopology(echilds[0], &eref, &oclass, &mtype,
+                                data, &nchild, &echilds, &senses);
+        CHECK_STATUS(EG_getTopology);
+
+        if (oclass == BODY && mtype == WIREBODY) {
+            status = EG_solidBoolean(ebodyl, ebodyr, type, emodel);
+            SPRINT4(2, "    -> EG_solidBoolean(toler=%8.3e, nudge=%2d, status=%d (%s)",
+                    0.0, -1, status, ocsmGetText(status));
+        } else {
+            status = EG_getTopology(ebodyr, &eref, &oclass, &mtype,
+                                    data, &nchild, &echilds, &senses);
+            CHECK_STATUS(EG_getTopology);
+            if (oclass == FACE) {
+                status = EG_solidBoolean(ebodyl, ebodyr, type, emodel);
+                SPRINT4(2, "    -> EG_solidBoolean(toler=%8.3e, nudge=%2d, status=%d (%s)",
+                        0.0, -1, status, ocsmGetText(status));
+            } else {
+                status = EG_generalBoolean(ebodyl, ebodyr, type, maxtol, emodel);
+                SPRINT4(2, "    -> EG_generalBoolean(toler=%8.3e, nudge=%2d, status=%d (%s)",
+                        0.0, -1, status, ocsmGetText(status));
+            }
+        }
 
         /* if boolean failed and dumpEgads is specified, then dump
            a model that contains the two offending Bodys*/
@@ -41943,36 +44834,10 @@ solidBoolean(modl_T *MODL,              /* (in)  pointer to MODL */
         goto cleanup;
     }
 
-    /* make copies of Bodys so that any increased tolerance will
-       be applied only locally */
-    status = EG_copyObject(ebodyl, NULL, &ebodyll);
-    CHECK_STATUS(EG_copyObject);
-
-    status = EG_copyObject(ebodyr, NULL, &ebodyrr);
-    CHECK_STATUS(EG_copyObject);
-
     /* if maxtol<0, then use -maxtol as tolerance (and do not do tolerance adjustments) */
     if (maxtol < 0) {
-        status = EG_setTolerance(ebodyll, -maxtol);
-        CHECK_STATUS(EG_setTolerance);
-
-        status = EG_setTolerance(ebodyrr, -maxtol);
-        CHECK_STATUS(EG_setTolerance);
-
         (void)  EG_setOutLevel(context, 0);
-#ifdef PRINT_TIMES
-        EG_getBodyTopos(ebodyll, NULL, FACE, &nfacel, NULL);
-        EG_getBodyTopos(ebodyrr, NULL, FACE, &nfacer, NULL);
-        gettimeofday(&beg_time, NULL);
-        getrusage(RUSAGE_SELF, &beg_rusage);
-#endif
-        status = EG_solidBoolean(ebodyll, ebodyrr, type, emodel);
-#ifdef PRINT_TIMES
-        gettimeofday(&end_time, NULL);
-        getrusage(RUSAGE_SELF, &end_rusage);
-        SPRINT2x(0, "B: nfacel:%4d nfacer:%4d ", nfacel, nfacer);
-        printTimes(beg_rusage, end_rusage, beg_time, end_time);
-#endif
+        status = EG_generalBoolean(ebodyl, ebodyr, type, -maxtol, emodel);
         (void) EG_setOutLevel(context, outLevel);
         SPRINT4(2, "    -> EG_solidBoolean(toler=%8.3e, nudge=%2d, status=%d (%s)",
                -maxtol, -1, status, ocsmGetText(status));
@@ -41982,10 +44847,10 @@ solidBoolean(modl_T *MODL,              /* (in)  pointer to MODL */
     }
 
     /* find the tolerances of the orginal Bodys */
-    status = EG_getTolerance(ebodyll, &tolerl);
+    status = EG_getTolerance(ebodyl, &tolerl);
     CHECK_STATUS(EG_getTolerance);
 
-    status = EG_getTolerance(ebodyrr, &tolerr);
+    status = EG_getTolerance(ebodyr, &tolerr);
     CHECK_STATUS(EG_getTolerance);
     SPRINT3(3, "    maxtol=%e, tolerl=%e, tolerr=%e", maxtol, tolerl, tolerr);
 
@@ -41995,20 +44860,19 @@ solidBoolean(modl_T *MODL,              /* (in)  pointer to MODL */
 
         /* try the boolean operation */
         (void) EG_setOutLevel(context, 0);
-#ifdef PRINT_TIMES
-        EG_getBodyTopos(ebodyll, NULL, FACE, &nfacel, NULL);
-        EG_getBodyTopos(ebodyrr, NULL, FACE, &nfacer, NULL);
-        gettimeofday(&beg_time, NULL);
-        getrusage(RUSAGE_SELF, &beg_rusage);
-#endif
-        status = EG_solidBoolean(ebodyll, ebodyrr, type, emodel);
-#ifdef PRINT_TIMES
-        gettimeofday(&end_time, NULL);
-        getrusage(RUSAGE_SELF, &end_rusage);
-        SPRINT2x(0, "C: nfacel:%4d nfacer:%4d ", nfacel, nfacer);
-        printTimes(beg_rusage, end_rusage, beg_time, end_time);
-#endif
+        status = EG_generalBoolean(ebodyl, ebodyr, type, maxtol, emodel);
+
+        /* instead of returning EGADS_EMPTY, EG_generalBoolean(FUSION) returns a
+           MODEL with two Bodys */
+        if (type == FUSION && status == EGADS_SUCCESS) {
+            status = EG_getTopology(*emodel, &eref, &oclass, &mtype,
+                                    data, &nchild, &echilds, &senses);
+            if (status != EGADS_SUCCESS || nchild != 1) {
+                status = EGADS_EMPTY;
+            }
+        }
         (void) EG_setOutLevel(context, outLevel);
+
         SPRINT4(2, "    -> EG_solidBoolean(toler=%8.3e, nudge=%2d, status=%d (%s)",
                MAX(tolerl,tolerr), -1, status, ocsmGetText(status));
 
@@ -42075,14 +44939,6 @@ solidBoolean(modl_T *MODL,              /* (in)  pointer to MODL */
         } else {
             break;
         }
-
-        SPRINT1(3, "    increasing tolerl to %e", tolerl);
-        status = EG_setTolerance(ebodyll, tolerl);
-        CHECK_STATUS(EG_setTolerance);
-
-        SPRINT1(3, "    increasing tolerr to %e", tolerr);
-        status = EG_setTolerance(ebodyrr, tolerr);
-        CHECK_STATUS(EG_setTolerance);
     }
 
     /* now that we have tried changing tolerances, and that has apparently not
@@ -42113,24 +44969,26 @@ solidBoolean(modl_T *MODL,              /* (in)  pointer to MODL */
         status = EG_makeTransform(MODL->context, xform, &exform);
         CHECK_STATUS(EG_makeTransform);
 
-        if (ebodyrr != NULL) EG_deleteObject(ebodyrr);
-
         status = EG_copyObject(ebodyr, exform, &ebodyrr);
         CHECK_STATUS(EG_copyObject);
 
-#ifdef PRINT_TIMES
-        EG_getBodyTopos(ebodyl, NULL, FACE, &nfacel, NULL);
-        EG_getBodyTopos(ebodyr, NULL, FACE, &nfacer, NULL);
-        gettimeofday(&beg_time, NULL);
-        getrusage(RUSAGE_SELF, &beg_rusage);
-#endif
-        status = EG_solidBoolean(ebodyl, ebodyrr, type, emodel);
-#ifdef PRINT_TIMES
-        gettimeofday(&end_time, NULL);
-        getrusage(RUSAGE_SELF, &end_rusage);
-        SPRINT2x(0, "D: nfacel:%4d nfacer:%4d ", nfacel, nfacer);
-        printTimes(beg_rusage, end_rusage, beg_time, end_time);
-#endif
+        status = EG_generalBoolean(ebodyl, ebodyrr, type, maxtol, emodel);
+
+        EG_deleteObject(ebodyrr);
+
+        /* instead of returning EGADS_EMPTY, EG_generalBoolean(FUSION) returns a
+           MODEL with two Bodys */
+        if (type == FUSION && status == EGADS_SUCCESS) {
+            status = EG_getTopology(*emodel, &eref, &oclass, &mtype,
+                                    data, &nchild, &echilds, &senses);
+            if (status != EGADS_SUCCESS || nchild != 1) {
+                status = EG_deleteObject(*emodel);
+                CHECK_STATUS(EG_deleteObject);
+
+                status = EGADS_EMPTY;
+            }
+        }
+
         SPRINT4(2, "    -> EG_solidBoolean(toler=%8.3e, nudge=%2d, status=%d (%s)",
                MAX(tolerl,tolerr), inudge, status, ocsmGetText(status));
 
@@ -42148,9 +45006,6 @@ solidBoolean(modl_T *MODL,              /* (in)  pointer to MODL */
     status = OCSM_INTERNAL_ERROR;
 
 cleanup:
-    if (ebodyll != NULL) EG_deleteObject(ebodyll);
-    if (ebodyrr != NULL) EG_deleteObject(ebodyrr);
-
     return status;
 }
 
@@ -42291,6 +45146,9 @@ solveSketchLM(modl_T *modl,             /* (in)  pointer to MODL */
                     nper         = jndex + 1;
                 }
             }
+
+            assert (nper >    0);
+            assert (nper < 1000);
 
             for (ivar = 0; ivar < nper; ivar++) {
                 SPRINT3(1, "%3d %10.5f %10.5f", ivar, xplot[ivar], yplot[ivar]);
@@ -43000,7 +45858,7 @@ cleanup:
 
 static int
 storeCsystem(modl_T *modl,              /* (in)  pointer to MODL */
-             int    ibody)              /* (in)  Body index (bias-1) */
+             int    ibody)              /* (in)  Body index (1:nbody) */
 {
     int       status = SUCCESS;         /* (out) return status */
 
@@ -44280,6 +47138,63 @@ cleanup:
 /*
  ************************************************************************
  *                                                                      *
+ *   str2valNoSignal - convert and evaluate expression (in string)      *
+ *                                                                      *
+ ************************************************************************
+ */
+
+static int
+str2valNoSignal(char      expr[],       /* (in)  string containing expression */
+                modl_T    *modl,        /* (in)  pointer to MODL */
+                double    *val,         /* (out) value      of expression */
+                double    *dot,         /* (out) derivative of expression */
+                char      str[])        /* (out) value if string-valued (w/o leading $) */
+{
+    int       status = SUCCESS;         /* (out) return status */
+
+    rpn_T     *rpn=NULL;                /* Rpn-code */
+
+    ROUTINE(str2valNoSignal);
+
+    /* --------------------------------------------------------------- */
+
+    SPRINT1(3, "enter str2val(expr=%s)", expr);
+
+    /* default returns */
+    *val   = 0;
+    *dot   = 0;
+    str[0] = '\0';
+
+    MALLOC(rpn, rpn_T, MAX_STACK_SIZE);
+
+    /* short-cut if expression is a single digit */
+    if (STRLEN(expr) == 1) {
+        if (expr[0] >= '0' && expr[0] <= '9') {
+            *val   = expr[0] - '0';
+            goto cleanup;
+        }
+    }
+
+    /* convert the expression to Rpn-code */
+    status = str2rpn(expr, rpn);
+    CHECK_STATUS(str2rpn);
+
+    /* evaluate the Rpn-code */
+    status = evalRpn(rpn, modl, val, dot, str);
+    CHECK_STATUS(evalRpn);
+
+cleanup:
+    SPRINT3(3, "    %10.5f %10.5f %20s", *val, *dot, str);
+
+    FREE(rpn);
+
+    return status;
+}
+
+
+/*
+ ************************************************************************
+ *                                                                      *
  *   str2vals - convert and evaluate expression to multiple values      *
  *                                                                      *
  ************************************************************************
@@ -44340,8 +47255,8 @@ str2vals(char      expr[],              /* (in)  string containing expression(s)
     for (ipmtr = 1; ipmtr <= MODL->npmtr; ipmtr++) {
         if (strcmp(MODL->pmtr[ipmtr].name, expr) == 0) {
             if (MODL->pmtr[ipmtr].scope == MODL->scope[MODL->level] ||
-                MODL->pmtr[ipmtr].type  == OCSM_CONSTANT            ||
-                MODL->pmtr[ipmtr].type  == OCSM_OUTPUT                ) {
+                MODL->pmtr[ipmtr].type  == OCSM_CONPMTR             ||
+                MODL->pmtr[ipmtr].type  == OCSM_OUTPMTR               ) {
 
                 if (MODL->pmtr[ipmtr].str != NULL) {
                     strcpy(str, MODL->pmtr[ipmtr].str);
@@ -44349,6 +47264,11 @@ str2vals(char      expr[],              /* (in)  string containing expression(s)
                     SPRINT4(3, "    %10.5f %10.5f %20s %5d",
                             0., 0., str, 0);
                 } else {
+                    if (MODL->needMPdot > 0 && MODL->pmtr[ipmtr].flag == 1) {
+                        status = computeMassPropsDot(MODL);
+                        CHECK_STATUS(computeMassPropsDot);
+                    }
+
                     *nrow = MODL->pmtr[ipmtr].nrow;
                     *ncol = MODL->pmtr[ipmtr].ncol;
                     nval  = (*nrow) * (*ncol);
@@ -44357,16 +47277,13 @@ str2vals(char      expr[],              /* (in)  string containing expression(s)
                     MALLOC(*dots, double, nval);
 
                     for (i = 0; i < nval; i++) {
-                        if (MODL->pmtr[ipmtr].value[i] == -HUGEQ) {
-                            status = OCSM_ILLEGAL_VALUE;
-                            goto cleanup;
-                        }
-
                         (*vals)[i] = MODL->pmtr[ipmtr].value[i];
                         (*dots)[i] = MODL->pmtr[ipmtr].dot[  i];
 
-                        SPRINT4(3, "    %10.5f %10.5f %20s %5d",
-                                (*vals)[i], (*dots)[i], "", 0);
+                        if (MODL->pmtr[ipmtr].value[i] != -HUGEQ) {
+                            SPRINT4(3, "    %10.5f %10.5f %20s %5d",
+                                    (*vals)[i], (*dots)[i], "", 0);
+                        }
                     }
                 }
                 goto cleanup;
@@ -44879,7 +47796,7 @@ cleanup:
 
 static int
 tessellate(modl_T *MODL,                /* (in)  pointer to MODL */
-           int    ibody)                /* (in)  Body index (bias-1) */
+           int    ibody)                /* (in)  Body index (1:nbody) */
 {
     int       status = SUCCESS;         /* (out) return status */
 
@@ -45371,8 +48288,8 @@ cleanup:
 
 int
 velocityOfEdge(modl_T *MODL,            /* (in)  pointer to MODL */
-               int    ibody,            /* (in)  Body index (bias-1) */
-               int    iedge,            /* (in)  Edge index (bias-1) */
+               int    ibody,            /* (in)  Body index (1:nbody) */
+               int    iedge,            /* (in)  Edge index (1:nedge) */
                int    npnt,             /* (in)  number of points */
      /*@null@*/double t[],              /* (in)  para coords ( npnt in length) */
                double dxyz[])           /* (out) velocities (3*npnt in length) */
@@ -46549,8 +49466,8 @@ cleanup:
 
 int
 velocityOfFace(modl_T *MODL,            /* (in)  pointer to MODL */
-               int    ibody,            /* (in)  Body index (bias-1) */
-               int    iface,            /* (in)  Face index (bias-1) */
+               int    ibody,            /* (in)  Body index (1:nbody) */
+               int    iface,            /* (in)  Face index (1:nface) */
                int    npnt,             /* (in)  number of points */
      /*@null@*/double uv[],             /* (in)  para coords (2*npnt in length) */
                double dxyz[])           /* (out) velocities  (3*npnt in length) */
@@ -46709,8 +49626,8 @@ velocityOfFace(modl_T *MODL,            /* (in)  pointer to MODL */
     /* find the number of Parameters that have changed */
     nchange = MODL->body[jbody].hasdots;
 
-    /* if a OCSM_EXTRUDE, count changes associated with the Sketch and
-       any Branches between the Sketch and the EXTRUDE */
+    /* if a OCSM_EXTRUDE, count changes associated with the Xsect and
+       any Branches between the Xsect and the EXTRUDE */
     if (MODL->body[jbody].brtype == OCSM_EXTRUDE) {
         kbody = MODL->body[jbody].ileft;
         isketch[nsketch++] = kbody;
@@ -46725,8 +49642,8 @@ velocityOfFace(modl_T *MODL,            /* (in)  pointer to MODL */
         }
     }
 
-    /* if a OCSM_RULE or OCSM_BLEND, count changes associated with the Sketches and
-       any Branches between the Sketch(es) and the RULE or BLEND */
+    /* if a OCSM_RULE or OCSM_BLEND, count changes associated with the Xsects and
+       any Branches between the Xsect(es) and the RULE or BLEND */
     if (MODL->body[jbody].brtype == OCSM_RULE  ||
         MODL->body[jbody].brtype == OCSM_BLEND   ) {
         for (kbody = MODL->body[jbody].ileft; kbody <= MODL->body[jbody].irite; kbody++) {
@@ -47275,7 +50192,7 @@ velocityOfFace(modl_T *MODL,            /* (in)  pointer to MODL */
         /* count number of Edges in isketch[0] */
         nedge = MODL->body[isketch[0]].nedge;
 
-        /* analytical derivatives from Sketch */
+        /* analytical derivatives from Xsect */
         if (jface <= nedge) {
             iedge = jface;
 
@@ -47354,7 +50271,7 @@ velocityOfFace(modl_T *MODL,            /* (in)  pointer to MODL */
                 status = EG_getRange(MODL->body[jbody].face[iedge].eface, trange, &periodic);
                 CHECK_STATUS(EG_getRange);
 
-                /* assume that jface=1 maps to iedge=1 in Sketch */
+                /* assume that jface=1 maps to iedge=1 in Xsect */
                 for (ipnt = 0; ipnt < npnt; ipnt++) {
                     if (uv == NULL) {
                         ts[ipnt] = uv_tess[2*ipnt  ];
@@ -47365,7 +50282,7 @@ velocityOfFace(modl_T *MODL,            /* (in)  pointer to MODL */
                     }
                 }
 
-                /* get velocities from (the possibly-transformed) Sketch */
+                /* get velocities from (the possibly-transformed) Xsect */
                 kbody = MODL->body[jbody].ileft;
                 status = velocityOfEdge(MODL, kbody, iedge, npnt, ts, vels);
                 CHECK_STATUS(velocityOfEdge);
@@ -47383,7 +50300,7 @@ velocityOfFace(modl_T *MODL,            /* (in)  pointer to MODL */
         /* analytical derivatives for ends */
         } else if (jface == nedge+1) {
             kbody = isketch[0];
-            SPRINT1(2, "  (beg [at Sketch %d])", kbody);
+            SPRINT1(2, "  (beg [at Xsect %d])", kbody);
 
             while (MODL->body[kbody].ileft > 0) {
                 kbody = MODL->body[kbody].ileft;
@@ -47391,11 +50308,11 @@ velocityOfFace(modl_T *MODL,            /* (in)  pointer to MODL */
 
             /* find the transformation matrix which is required
                to track a point from its location in jbody (the EXTRUDE) back to
-               its corresponding location in kbody (the Sketch) */
+               its corresponding location in kbody (the Xsect) */
             status = xformToOriginal(MODL, jbody, kbody, mat2);
             CHECK_STATUS(xformToOriginal);
 
-           /* get velocity from Sketch (EXTRUDE beg) */
+           /* get velocity from Xsect (EXTRUDE beg) */
             if (MODL->body[kbody].nface == 1) {
                 MALLOC(uvs, double, 2*npnt);
 
@@ -47431,7 +50348,7 @@ velocityOfFace(modl_T *MODL,            /* (in)  pointer to MODL */
             }
         } else if (jface == nedge+2) {
             kbody = isketch[0];
-            SPRINT1(2, "  (end [at Sketch %d])", kbody);
+            SPRINT1(2, "  (end [at Xsect %d])", kbody);
 
             while (MODL->body[kbody].ileft > 0) {
                 kbody = MODL->body[kbody].ileft;
@@ -47439,11 +50356,11 @@ velocityOfFace(modl_T *MODL,            /* (in)  pointer to MODL */
 
             /* find the transformation matrix which is required
                to track a point from its location in jbody (the EXTRUDE) back to
-               its corresponding location in kbody (the Sketch) */
+               its corresponding location in kbody (the Xsect) */
             status = xformToOriginal(MODL, jbody, kbody, mat2);
             CHECK_STATUS(xformToOriginal);
 
-           /* get velocity from Sketch (EXTRUDE end) */
+           /* get velocity from Xsect (EXTRUDE end) */
             if (MODL->body[kbody].nface == 1) {
                 MALLOC(uvs, double, 2*npnt);
 
@@ -47499,7 +50416,7 @@ velocityOfFace(modl_T *MODL,            /* (in)  pointer to MODL */
         if (MODL->body[jbody].sens == 0) {
             SPRINT1(2, "           creating RULE cache for jbody=%d", jbody);
 
-            /* create array of Sketches */
+            /* create array of Xsects */
             for (i = 0; i < nsketch; i++) {
                 ebody   = MODL->body[isketch[i]].ebody;
                 echilds = NULL;
@@ -47596,7 +50513,7 @@ velocityOfFace(modl_T *MODL,            /* (in)  pointer to MODL */
         /* analytical derivative for beg */
         } else if (jface == nedge*(nsketch-1)+1) {
             kbody = isketch[0];
-            SPRINT1(2, "  (beg [at Sketch %d])", kbody);
+            SPRINT1(2, "  (beg [at Xsect %d])", kbody);
 
             while (MODL->body[kbody].ileft > 0) {
                 kbody = MODL->body[kbody].ileft;
@@ -47604,11 +50521,11 @@ velocityOfFace(modl_T *MODL,            /* (in)  pointer to MODL */
 
             /* find the transformation matrix which is required
                to track a point from its location in jbody (the RULE) back to
-               its corresponding location in kbody (the original Sketch) */
+               its corresponding location in kbody (the original Xsect) */
             status = xformToOriginal(MODL, jbody, kbody, mat2);
             CHECK_STATUS(xformToOriginal);
 
-           /* get velocity from Sketch (RULE beg) */
+           /* get velocity from Xsect (RULE beg) */
             if (MODL->body[kbody].nface == 1) {
                 MALLOC(uvs, double, 2*npnt);
 
@@ -47646,7 +50563,7 @@ velocityOfFace(modl_T *MODL,            /* (in)  pointer to MODL */
         /* analytical derivative for end */
         } else if (jface == nedge*(nsketch-1)+2) {
             kbody = isketch[nsketch-1];
-            SPRINT1(2, "  (end [at Sketch %d])", kbody);
+            SPRINT1(2, "  (end [at Xsect %d])", kbody);
 
             while (MODL->body[kbody].ileft > 0) {
                 kbody = MODL->body[kbody].ileft;
@@ -47654,11 +50571,11 @@ velocityOfFace(modl_T *MODL,            /* (in)  pointer to MODL */
 
             /* find the transformation matrix which is required
                to track a point from its location in jbody (the RULE) back to
-               its corresponding location in kbody (the original Sketch) */
+               its corresponding location in kbody (the original Xsect) */
             status = xformToOriginal(MODL, jbody, kbody, mat2);
             CHECK_STATUS(xformToOriginal);
 
-            /* get velocity from Sketch (RULE end) */
+            /* get velocity from Xsect (RULE end) */
             if (MODL->body[kbody].nface == 1) {
                 MALLOC(uvs, double, 2*npnt);
 
@@ -47705,7 +50622,7 @@ velocityOfFace(modl_T *MODL,            /* (in)  pointer to MODL */
         if (MODL->body[jbody].sens == 0) {
             SPRINT1(2, "           creating BLEND cache for jbody=%d", jbody);
 
-            /* create array of Sketches */
+            /* create array of Xsects */
             for (i = 0; i < nsketch; i++) {
                 ebody   = MODL->body[isketch[i]].ebody;
                 echilds = NULL;
@@ -47842,7 +50759,7 @@ velocityOfFace(modl_T *MODL,            /* (in)  pointer to MODL */
         /* analytical derivative for beg */
         } else if (istrip == -3) {
             kbody = isketch[0];
-            SPRINT1(2, "  (beg [at Sketch %d])", kbody);
+            SPRINT1(2, "  (beg [at Xsect %d])", kbody);
 
             while (MODL->body[kbody].ileft > 0) {
                 kbody = MODL->body[kbody].ileft;
@@ -47850,11 +50767,11 @@ velocityOfFace(modl_T *MODL,            /* (in)  pointer to MODL */
 
             /* find the transformation matrix which is required
                to track a point from its location in jbody (the BLEND) back to
-               its corresponding location in kbody (the original Sketch) */
+               its corresponding location in kbody (the original Xsect) */
             status = xformToOriginal(MODL, jbody, kbody, mat2);
             CHECK_STATUS(xformToOriginal);
 
-           /* get velocity from Sketch (BLEND beg) */
+           /* get velocity from Xsect (BLEND beg) */
             if (MODL->body[kbody].nface == 1) {
                 MALLOC(uvs, double, 2*npnt);
 
@@ -47892,7 +50809,7 @@ velocityOfFace(modl_T *MODL,            /* (in)  pointer to MODL */
         /* analytical derivative for end */
         } else if (istrip == -4) {
             kbody = isketch[nsketch-1];
-            SPRINT1(2, "  (end [at Sketch %d])", kbody);
+            SPRINT1(2, "  (end [at Xsect %d])", kbody);
 
             while (MODL->body[kbody].ileft > 0) {
                 kbody = MODL->body[kbody].ileft;
@@ -47900,11 +50817,11 @@ velocityOfFace(modl_T *MODL,            /* (in)  pointer to MODL */
 
             /* find the transformation matrix which is required
                to track a point from its location in jbody (the BLEND) back to
-               its corresponding location in kbody (the original Sketch) */
+               its corresponding location in kbody (the original Xsect) */
             status = xformToOriginal(MODL, jbody, kbody, mat2);
             CHECK_STATUS(xformToOriginal);
 
-            /* get velocity from Sketch (BLEND end) */
+            /* get velocity from Xsect (BLEND end) */
             if (MODL->body[kbody].nface == 1) {
                 MALLOC(uvs, double, 2*npnt);
 
@@ -47984,8 +50901,8 @@ cleanup:
 
 int
 velocityOfNode(modl_T *MODL,            /* (in)  pointer to MODL */
-               int    ibody,            /* (in)  Body index (bias-1) */
-               int    inode,            /* (in)  Node index (bias-1) */
+               int    ibody,            /* (in)  Body index (1:nbody) */
+               int    inode,            /* (in)  Node index (1:nnode) */
                double dxyz[])           /* (out) velocities (3*npnt in length) */
 {
     int       status = SUCCESS;         /* (out) return status */
@@ -48899,7 +51816,7 @@ cleanup:
 
 static int
 writeAsciiUgrid(modl_T *MODL,           /* (in)  pointer to MODL */
-                int    ibody,           /* (in)  Body index (bias-1) */
+                int    ibody,           /* (in)  Body index (1:nbody) */
                 char   filename[])      /* (in)  name of output file */
 {
     int      status = SUCCESS;          /* (out) return status */
@@ -49173,6 +52090,318 @@ cleanup:
 /*
  ************************************************************************
  *                                                                      *
+ *   writePlotFile - write ASCII .plot file                             *
+ *                                                                      *
+ ************************************************************************
+ */
+
+static int
+writePlotFile(modl_T *MODL,             /* (in)  pointer to MODL */
+              int    ibody,             /* (in)  Body index (1:nbody) */
+              char   filename[])        /* (in)  filename */
+{
+    int    status = SUCCESS;            /* (out) return status */
+
+    int     inode, iedge, iface, count, npnt, ipnt, ntri;
+    CINT    *ptype, *pindx, *tris, *tric;
+    CDOUBLE *xyz, *uv;
+    FILE    *fp;
+
+    ROUTINE(writePlotFile);
+
+    /* --------------------------------------------------------------- */
+
+    /* count unique points */
+    count = MODL->body[ibody].nnode;
+
+    for (iedge = 1; iedge <= MODL->body[ibody].nedge; iedge++) {
+        status = EG_getTessEdge(MODL->body[ibody].etess, iedge,
+                                &npnt, &xyz, &uv);
+        CHECK_STATUS(EG_getTessEdge);
+
+        count += (npnt - 2);
+    }
+
+    for (iface = 1; iface <= MODL->body[ibody].nface; iface++) {
+        status = EG_getTessFace(MODL->body[ibody].etess, iface,
+                                &npnt, &xyz, &uv, &pindx, &ptype,
+                                &ntri, &tris, &tric);
+        CHECK_STATUS(EG_getTessFace);
+
+        for (ipnt = 0; ipnt < npnt; ipnt++) {
+            if (ptype[ipnt] == -1) count++;
+        }
+    }
+
+    /* open the file */
+    fp = fopen(filename, "w");
+    if (fp == NULL) {
+        status = OCSM_FILE_NOT_FOUND;
+        goto cleanup;
+    }
+
+    fprintf(fp, "%8d %8d %s\n", count, 0, filename);
+
+    /* add Nodes to the file */
+    for (inode = 1; inode <= MODL->body[ibody].nnode; inode++) {
+        fprintf(fp, "%22.15e %22.15e %22.15e\n",
+                MODL->body[ibody].node[inode].x,
+                MODL->body[ibody].node[inode].y,
+                MODL->body[ibody].node[inode].z);
+    }
+
+    /* add interior Edge points to the file */
+    for (iedge = 1; iedge <= MODL->body[ibody].nedge; iedge++) {
+        status = EG_getTessEdge(MODL->body[ibody].etess, iedge,
+                                &npnt, &xyz, &uv);
+        CHECK_STATUS(EG_getTessEdge);
+
+        for (ipnt = 1; ipnt < npnt-1; ipnt++) {
+            fprintf(fp, "%22.15e %22.15e %22.15e\n",
+                    xyz[3*ipnt], xyz[3*ipnt+1], xyz[3*ipnt+2]);
+        }
+    }
+
+    /* add interior Face points to the file */
+    for (iface = 1; iface <= MODL->body[ibody].nface; iface++) {
+        status = EG_getTessFace(MODL->body[ibody].etess, iface,
+                                &npnt, &xyz, &uv, &pindx, &ptype,
+                                &ntri, &tris, &tric);
+        CHECK_STATUS(EG_getTessFace);
+
+        for (ipnt = 0; ipnt < npnt; ipnt++) {
+            if (ptype[ipnt] == -1) {
+                fprintf(fp, "%22.15e %22.15e %22.15e\n",
+                        xyz[3*ipnt], xyz[3*ipnt+1], xyz[3*ipnt+2]);
+            }
+        }
+    }
+
+    /* finalize the file */
+    fprintf(fp, "%8d %8d %s\n", 0, 0, "end");
+    fclose(fp);
+
+cleanup:
+    return status;
+}
+
+
+/*
+ ************************************************************************
+ *                                                                      *
+ *   writeSensFile - write ASCII .sens file                             *
+ *                                                                      *
+ ************************************************************************
+ */
+
+static int
+writeSensFile(modl_T *MODL,             /* (in)  pointer to MODL */
+              int    ibody,             /* (in)  Body index (1:nbody) */
+              char   filename[])        /* (in)  filename */
+{
+    int    status = SUCCESS;            /* (out) return status */
+
+    int     count, ipmtr, i, inode, iedge, iface, npnt, ipnt, ntri, itri;
+    CINT    *pindx, *ptype, *tris, *tric;
+    double  *vels=NULL;
+    CDOUBLE *xyz, *uv, *Vels;
+    FILE    *fp;
+
+    ROUTINE(writeSensFile);
+
+    /* --------------------------------------------------------------- */
+
+    /* count the number od DESPMTRs */
+    count = 0;
+    for (ipmtr = 1; ipmtr <= MODL->npmtr; ipmtr++) {
+        if (MODL->pmtr[ipmtr].type == OCSM_DESPMTR) {
+            count++;
+        }
+    }
+
+    /* open the file */
+    fp = fopen(filename, "w");
+    if (fp == NULL) {
+        status = OCSM_FILE_NOT_FOUND;
+        goto cleanup;
+    }
+
+    /* write the DESPMTRs in the header of the file */
+    fprintf(fp, "%8d\n", count);
+
+    for (ipmtr = 1; ipmtr <= MODL->npmtr; ipmtr++) {
+        if (MODL->pmtr[ipmtr].type == OCSM_DESPMTR) {
+            fprintf(fp, "%8d %s\n",
+                    MODL->pmtr[ipmtr].nrow*MODL->pmtr[ipmtr].ncol,
+                    MODL->pmtr[ipmtr].name);
+
+            for (i = 0; i < MODL->pmtr[ipmtr].nrow*MODL->pmtr[ipmtr].ncol; i++) {
+                fprintf(fp, "     %22.15e %22.15e\n",
+                        MODL->pmtr[ipmtr].value[i], MODL->pmtr[ipmtr].dot[i]);
+            }
+        }
+    }
+
+    fprintf(fp, "%8d %8d %8d\n",
+            MODL->body[ibody].nnode,
+            MODL->body[ibody].nedge,
+            MODL->body[ibody].nface);
+
+    /* write Nodes to the files */
+    for (inode = 1; inode <= MODL->body[ibody].nnode; inode++) {
+        MALLOC(vels, double, 3);
+
+        status = ocsmGetVel(MODL, ibody, OCSM_NODE, inode, 1, NULL, vels);
+        CHECK_STATUS(ocsmGetVel);
+
+        fprintf(fp, "%22.15e %22.15e %22.15e %22.15e %22.15e %22.15e\n",
+                MODL->body[ibody].node[inode].x,
+                MODL->body[ibody].node[inode].y,
+                MODL->body[ibody].node[inode].z,
+                vels[0], vels[1], vels[2]);
+
+        FREE(vels);
+    }
+
+    /* write Edges to the file */
+    for (iedge = 1; iedge <= MODL->body[ibody].nedge; iedge++) {
+        status = EG_getTessEdge(MODL->body[ibody].etess, iedge,
+                                &npnt, &xyz, &uv);
+        CHECK_STATUS(EG_getTessEdge);
+
+        status = ocsmGetTessVel(MODL, ibody, OCSM_EDGE, iedge, &Vels);
+        CHECK_STATUS(ocsmGetTessVel);
+
+        fprintf(fp, "%8d\n", npnt);
+        for (ipnt = 0; ipnt < npnt; ipnt++) {
+            fprintf(fp, "%22.15e %22.15e %22.15e %22.15e %22.15e %22.15e %22.15e\n",
+                    xyz[ 3*ipnt], xyz[ 3*ipnt+1], xyz[ 3*ipnt+2],
+                    Vels[3*ipnt], Vels[3*ipnt+1], Vels[3*ipnt+2],
+                    uv[    ipnt]);
+        }
+    }
+
+    /* write Faces to the file */
+    for (iface = 1; iface <= MODL->body[ibody].nface; iface++) {
+        status = EG_getTessFace(MODL->body[ibody].etess, iface,
+                                &npnt, &xyz, &uv, &pindx, &ptype,
+                                &ntri, &tris, &tric);
+        CHECK_STATUS(EG_getTessFace);
+
+        status = ocsmGetTessVel(MODL, ibody, OCSM_FACE, iface, &Vels);
+        CHECK_STATUS(ocsmGetTessVel);
+
+        fprintf(fp, "%8d %8d\n", npnt, ntri);
+        for (ipnt = 0; ipnt < npnt; ipnt++) {
+            fprintf(fp, "%22.15e %22.15e %22.15e %22.15e %22.15e %22.15e %22.15e %22.15e %8d %8d\n",
+                    xyz[ 3*ipnt], xyz[ 3*ipnt+1], xyz[ 3*ipnt+2],
+                    Vels[3*ipnt], Vels[3*ipnt+1], Vels[3*ipnt+2],
+                    uv[  2*ipnt], uv[  2*ipnt+1],
+                    ptype[ ipnt], pindx[ ipnt  ]);
+        }
+        for (itri = 0; itri < ntri; itri++) {
+            fprintf(fp, "%8d %8d %8d %8d %8d %8d\n",
+                    tris[3*itri], tris[3*itri+1], tris[3*itri+2],
+                    tric[3*itri], tric[3*itri+1], tric[3*itri+2]);
+        }
+    }
+
+    /* finalize the file */
+    fclose(fp);
+
+cleanup:
+    return status;
+}
+
+
+/*
+ ************************************************************************
+ *                                                                      *
+ *   writeTessFile - write ASCII .tess file                             *
+ *                                                                      *
+ ************************************************************************
+ */
+
+static int
+writeTessFile(modl_T *MODL,             /* (in)  pointer to MODL */
+              int    ibody,             /* (in)  Body index (1:nbody) */
+              char   filename[])        /* (in)  filename */
+{
+    int    status = SUCCESS;            /* (out) return status */
+
+    int     inode, iedge, iface, npnt, ipnt, ntri, itri;
+    CINT    *ptype, *pindx, *tris, *tric;
+    CDOUBLE *xyz, *uv;
+    FILE    *fp;
+
+    ROUTINE(writeTessFile);
+
+    /* --------------------------------------------------------------- */
+
+    /* open the file */
+    fp = fopen(filename, "w");
+    if (fp == NULL) {
+        status = OCSM_FILE_NOT_FOUND;
+        goto cleanup;
+    }
+
+    fprintf(fp, "%8d %8d %8d\n",
+            MODL->body[ibody].nnode,
+            MODL->body[ibody].nedge,
+            MODL->body[ibody].nface);
+
+    /* write the Nodes to the file */
+    for (inode = 1; inode <= MODL->body[ibody].nnode; inode++) {
+        fprintf(fp, "%22.15e %22.15e %22.15e\n",
+                MODL->body[ibody].node[inode].x,
+                MODL->body[ibody].node[inode].y,
+                MODL->body[ibody].node[inode].z);
+    }
+
+    /* write the Edges to the file */
+    for (iedge = 1; iedge <= MODL->body[ibody].nedge; iedge++) {
+        status = EG_getTessEdge(MODL->body[ibody].etess, iedge,
+                                &npnt, &xyz, &uv);
+        CHECK_STATUS(EG_getTessEdge);
+
+        fprintf(fp, "%8d\n", npnt);
+        for (ipnt = 0; ipnt < npnt; ipnt++) {
+            fprintf(fp, "%22.15e %22.15e %22.15e %22.15e\n",
+                    xyz[3*ipnt], xyz[3*ipnt+1], xyz[3*ipnt+2], uv[ipnt]);
+        }
+    }
+
+    /* write the Faces to the file */
+    for (iface = 1; iface <= MODL->body[ibody].nface; iface++) {
+        status = EG_getTessFace(MODL->body[ibody].etess, iface,
+                                &npnt, &xyz, &uv, &pindx, &ptype,
+                                &ntri, &tris, &tric);
+        CHECK_STATUS(EG_getTessFace);
+
+        fprintf(fp, "%8d %8d\n", npnt, ntri);
+        for (ipnt = 0; ipnt < npnt; ipnt++) {
+            fprintf(fp, "%22.15e %22.15e %22.15e %22.15e %22.15e %8d %8d\n",
+                    xyz[3*ipnt], xyz[3*ipnt+1], xyz[3*ipnt+2],
+                    uv[ 2*ipnt], uv[ 2*ipnt+1], ptype[ipnt], pindx[ipnt]);
+        }
+        for (itri = 0; itri < ntri; itri++) {
+            fprintf(fp, "%8d %8d %8d %8d %8d %8d\n",
+                    tris[3*itri], tris[3*itri+1], tris[3*itri+2],
+                    tric[3*itri], tric[3*itri+1], tric[3*itri+2]);
+        }
+    }
+
+    /* finalize the file */
+    fclose(fp);
+
+cleanup:
+    return status;
+}
+
+
+/*
+ ************************************************************************
+ *                                                                      *
  *   xformFaceToOriginal - collect transformation for Face to original  *
  *                                                                      *
  ************************************************************************
@@ -49180,8 +52409,8 @@ cleanup:
 
 static int
 xformFaceToOriginal(modl_T *MODL,       /* (in)  pointer to MODL */
-                    int    ibody,       /* (in)  Body index of source (bias-1) */
-                    int    iface,       /* (in)  Face index of source (bias-1) */
+                    int    ibody,       /* (in)  Body index of source (1:nbody) */
+                    int    iface,       /* (in)  Face index of source (1:nface) */
                     double mat[],       /* (out) transformation matrix */
                     double *scale)      /* (out) scale factor */
 {
@@ -49390,8 +52619,8 @@ cleanup:
 
 static int
 xformFaceVelocity(modl_T *MODL,         /* (in)  pointer to MODL */
-                  int    ibody,         /* (in)  Body index (bias-1) */
-                  int    iface,         /* (in)  Face index (bias-1) */
+                  int    ibody,         /* (in)  Body index (1:nbody) */
+                  int    iface,         /* (in)  Face index (1:nface) */
                   int    nxyz,          /* (in)  number of xyz_pnt */
                   double xyz_pnt[],     /* (both)coordinates to be transformed */
                   int    ndxyz,         /* (in)  number of dxyz */
@@ -49710,8 +52939,8 @@ cleanup:
 
 static int
 xformToOriginal(modl_T *MODL,           /* (in)  pointer to MODL */
-                int    ibody,           /* (in)  Body index of source (bias-1) */
-                int    jbody,           /* (in)  Body index of target (bias-1) */
+                int    ibody,           /* (in)  Body index of source (1:nbody) */
+                int    jbody,           /* (in)  Body index of target (1:nbody) */
                 double mat[])           /* (out) transformation matrix */
 {
     int      status = SUCCESS;          /* (out) return status */
@@ -49897,7 +53126,7 @@ xformToOriginal(modl_T *MODL,           /* (in)  pointer to MODL */
 
 static int
 xformVelocity(modl_T *MODL,             /* (in)  pointer to MODL */
-              int    jbody,             /* (in)  Body index (bias-1) */
+              int    jbody,             /* (in)  Body index (1:nbody) */
               int    nxyz,              /* (in)  number of xyz_pnt */
               double xyz_pnt[],         /* (both)coordinates to be transformed */
               int    ndxyz,             /* (in)  number of dxyz */
@@ -50171,8 +53400,8 @@ xformVelocity(modl_T *MODL,             /* (in)  pointer to MODL */
 static void
 plotFace(int    *ifunct,                /* (in)  GRAFIC function indicator */
          void   *modl,                  /* (in)  pointer to tile   structure */
-         void   *ibodyP,                /* (in)  Body index (bias-1) */
-         void   *ifaceP,                /* (in)  Face index (bias-1) */
+         void   *ibodyP,                /* (in)  Body index (1:nbody) */
+         void   *ifaceP,                /* (in)  Face index (1:nface) */
          void   *isymbP,                /* (in)  =1 if symbols to be plotted */
          void   *a4,                    /* (in)  dummy GRAFIC argument */
          void   *a5,                    /* (in)  dummy GRAFIC argument */
@@ -50388,6 +53617,182 @@ plotFace(int    *ifunct,                /* (in)  GRAFIC function indicator */
     }
 
 cleanup:
+    return;
+}
+#endif // GRAFIC
+
+
+/*
+ ************************************************************************
+ *                                                                      *
+ *   plotVels - level 3 GRAFIC routine for plotting Face velocities     *
+ *                                                                      *
+ ************************************************************************
+ */
+
+#ifdef GRAFIC
+static void
+plotVels(int    *ifunct,                /* (in)  GRAFIC function indicator */
+         void   *ntriP,                 /* (in)  number of triangles */
+         void   *trisP,                 /* (in)  array  of triangles */
+         void   *npntP,                 /* (in)  number of points */
+         void   *uv_faceP,              /* (in)  array  of points */
+         void   *d_faceP,               /* (in)  array of velocities */
+         void   *ncontP,                /* (in)  number of contours */
+         void   *contP,                 /* (in)  array  of contours */
+         void   *igridP,                /* (in)  plot grid? */
+         void   *a8,                    /* (in)  dummy GRAFIC argument */
+         void   *a9,                    /* (in)  dummy GRAFIC argument */
+         float  *scale,                 /* (out) array of scales */
+         char   *text,                  /* (out) help text */
+         int    textlen)                /* (in)  length of text */
+{
+    int      *ntri   = (int      *) ntriP;
+    int      *tris   = (int      *) trisP;
+    int      *npnt   = (int      *) npntP;
+    double   *uv_face= (double   *) uv_faceP;
+    float    *d_face = (float    *) d_faceP;
+    int      *ncont  = (int      *) ncontP;
+    float    *cont   = (float    *) contP;
+    int      *igrid  = (int      *) igridP;
+
+    int      ipnt, itri, icont, ip0, ip1, ip2, ibest;
+    float    x4[3], y4[3], d4[3], ubest, vbest, dbest, Dtest, Dbest;
+    float    ucrsgr, vcrsgr;
+    double   umin=0, umax=0, vmin=0, vmax=0, dmin, dmax;
+    char     dum[] = " ";
+
+    int      iblack  = GR_BLACK;
+    int      icircle = GR_CIRCLE;
+    int      init    = 1;
+    int      izero   = 0;
+    int      ithree  = 3;
+
+    ROUTINE(plotVels);
+
+    /* --------------------------------------------------------------- */
+
+    /* return scales */
+    if (*ifunct == 0) {
+        umin = uv_face[0];
+        umax = uv_face[0];
+        vmin = uv_face[1];
+        vmax = uv_face[1];
+        dmin = d_face[ 0];
+        dmax = d_face[ 1];
+
+        for (ipnt = 1; ipnt < (*npnt); ipnt++) {
+            if (uv_face[2*ipnt  ] < umin) umin = uv_face[2*ipnt  ];
+            if (uv_face[2*ipnt  ] > umax) umax = uv_face[2*ipnt  ];
+            if (uv_face[2*ipnt+1] < vmin) vmin = uv_face[2*ipnt+1];
+            if (uv_face[2*ipnt+1] > vmax) vmax = uv_face[2*ipnt+1];
+            if ( d_face[  ipnt  ] < dmin) dmin =  d_face[  ipnt  ];
+            if ( d_face[  ipnt  ] > dmax) dmax =  d_face[  ipnt  ];
+        }
+
+        scale[0] = umin;
+        scale[1] = umax;
+        scale[2] = vmin;
+        scale[3] = vmax;
+
+        dmin -= 1.0e-4;
+        dmax += 1.0e-4;
+
+        for (icont = 0; icont < (*ncont); icont++) {
+            cont[icont] = dmin + (dmax - dmin) * icont / (*ncont - 1);
+        }
+
+        sprintf(text, "Examine Grid");
+
+    /* plot image */
+    } else if (*ifunct == 1) {
+
+        for (itri = 0; itri < (*ntri); itri++) {
+            ip0 = tris[3*itri  ] - 1;
+            ip1 = tris[3*itri+1] - 1;
+            ip2 = tris[3*itri+2] - 1;
+
+            x4[0] = uv_face[2*ip0  ];
+            x4[1] = uv_face[2*ip1  ];
+            x4[2] = uv_face[2*ip2  ];
+
+            y4[0] = uv_face[2*ip0+1];
+            y4[1] = uv_face[2*ip1+1];
+            y4[2] = uv_face[2*ip2+1];
+
+            d4[0] =  d_face[  ip0  ];
+            d4[1] =  d_face[  ip1  ];
+            d4[2] =  d_face[  ip2  ];
+
+            grcol2_(x4, y4, d4, &ithree, cont, ncont);
+        }
+
+        grcolr_(&iblack);
+
+        if (*igrid == 1) {
+            for (itri = 0; itri < (*ntri); itri++) {
+                ip0 = tris[3*itri  ] - 1;
+                ip1 = tris[3*itri+1] - 1;
+                ip2 = tris[3*itri+2] - 1;
+
+                x4[0] = uv_face[2*ip0  ];
+                x4[1] = uv_face[2*ip1  ];
+                x4[2] = uv_face[2*ip2  ];
+
+                y4[0] = uv_face[2*ip0+1];
+                y4[1] = uv_face[2*ip1+1];
+                y4[2] = uv_face[2*ip2+1];
+
+                grply2_(x4, y4, &ithree);
+            }
+        }
+
+    /* "E"xamine option */
+    } else if (*ifunct == -5) {
+        grvalu_("XCRSGR", &izero, &ucrsgr, dum, STRLEN("XCRSGR"), STRLEN(dum));
+        grvalu_("YCRSGR", &izero, &vcrsgr, dum, STRLEN("YCRSGR"), STRLEN(dum));
+
+        ibest = -1;
+        ubest =  0;
+        vbest =  0;
+        dbest =  0;
+        Dbest =  HUGEQ;
+
+        for (ipnt = 0; ipnt < (*npnt); ipnt++) {
+            Dtest = (uv_face[2*ipnt  ] - ucrsgr) * (uv_face[2*ipnt  ] - ucrsgr)
+                  + (uv_face[2*ipnt+1] - vcrsgr) * (uv_face[2*ipnt+1] - vcrsgr);
+            if (Dtest < Dbest) {
+                ibest = ipnt;
+                ubest = uv_face[2*ipnt  ];
+                vbest = uv_face[2*ipnt+1];
+                dbest =  d_face[  ipnt  ];
+                Dbest = Dtest;
+            }
+        }
+
+        SPRINT4(0, "Closest point (%5d) at %10.5f,%10.5f with value %10.5f",
+                ibest, ubest, vbest, dbest);
+
+        grmov2_(&ubest, &vbest);
+        grsymb_(&icircle);
+
+    /* "G"rid option */
+    } else if (*ifunct == -7) {
+        if (*igrid == 0) {
+            *igrid  = 1;
+        } else {
+            *igrid  = 0;
+        }
+
+        igridP = (void*)(igrid);
+
+        grscpt_(&init, "R", STRLEN("R"));
+
+    } else {
+        SPRINT0(0, "Illegal option selected");
+    }
+
+//cleanup:
     return;
 }
 #endif // GRAFIC

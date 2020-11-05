@@ -1,5 +1,5 @@
                         ESP: The Engineering Sketch Pad
-                             Rev 1.18 -- June 2020
+                         Rev 1.19beta -- October 2020
 
 
 0. Warnings!
@@ -34,10 +34,11 @@
 
     Another prerequisite is a WebGL/Websocket capable Browser. In general 
     these include Mozilla's FireFox, Google Chrome and Apple's Safari. 
-    Internet Explorer/Edge is NOT supported because of a problem in their
-    Websockets implementation.  Also, note that there are some  problems with 
-    Intel Graphics and some WebGL Browsers. For LINUX, "zlib" development is 
-    required.
+    Internet Explorer and legacy versions of Edge are NOT supported because 
+    of a problem in their Websockets implementation. The "Chromium" version
+    of Microsoft Edge is now supported.   Also, note that there are some 
+    problems with Intel Graphics and some WebGL Browsers. For LINUX, "zlib"
+    development is required.
 
     CAPS has a dependency on UDUNITS2, and potentially on Python and other 
     applications. See Section 2.3.
@@ -58,6 +59,7 @@
     include           - location for all ESP header files
     lib               - a directory that will contain libraries, shared objects
                         and DLLs
+    pyOcsm            - Python bindings to the OpenCSM API
     SLUGS             - the browser code for Slugs (web Slugs client)
     src               - source files (contains EGADS, CAPS, wvServer & OpenCSM)
     training          - training slides and examples
@@ -65,15 +67,6 @@
     wvClient          - simple examples of Web viewing used by EGADS
 
 1.2 Release Notes
-
-1.2.0 UDUNITS & Windows
-
-    There appears to be a fundamental flaw with the package "expat" (the XML 
-    parser) used by UDUNITS (a CAPS dependency) and Windows' use of drive 
-    letters. "expat" uses the current drive to look for the files to be 
-    included in the unit definitions. This only works if ESP and the place 
-    where you are running a CAPS app are on the same drive. Note: this may be
-    fixed in a future release.
 
 1.2.1 EGADS
 

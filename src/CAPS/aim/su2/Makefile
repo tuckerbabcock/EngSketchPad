@@ -15,7 +15,7 @@ TDIR  = $(ESP_ROOT)/bin
 endif
 
 OBJS =	$(ODIR)/su2AIM.o $(ODIR)/su2Utils.o $(ODIR)/su2_4_Cardinal.o \
-	$(ODIR)/su2_5_Raven.o $(ODIR)/su2_6_Falcon.o
+	$(ODIR)/su2_5_Raven.o $(ODIR)/su2_6_Falcon.o $(ODIR)/su2_7_Blackbird.o
 
 
 $(LDIR)/su2AIM.so:	$(OBJS) $(LDIR)/libutils.a $(LDIR)/libaimUtil.a
@@ -41,6 +41,10 @@ $(ODIR)/su2_5_Raven.o:	su2_5_Raven.c su2Utils.h
 $(ODIR)/su2_6_Falcon.o:	su2_6_Falcon.c su2Utils.h
 	$(CC) -c $(COPTS) $(DEFINE) -I$(IDIR) -I../utils su2_6_Falcon.c \
 		-o $(ODIR)/su2_6_Falcon.o
+
+$(ODIR)/su2_7_Blackbird.o:	su2_7_Blackbird.c su2Utils.h
+	$(CC) -c $(COPTS) $(DEFINE) -I$(IDIR) -I../utils su2_7_Blackbird.c \
+		-o $(ODIR)/su2_7_Blackbird.o
 
 clean:
 	-rm $(OBJS)

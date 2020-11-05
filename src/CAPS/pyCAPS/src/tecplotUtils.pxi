@@ -100,7 +100,7 @@ cdef class capsTecplotZone:
             self.zoneType = "FEPOLYHEDRAL" 
             
         else:
-            print "Invalid ZONETYPE - ", zoneType
+            print("Invalid ZONETYPE - ", zoneType)
             raise TypeError
         
     def _checkDataPacking(self, dataPacking):
@@ -112,7 +112,7 @@ cdef class capsTecplotZone:
             self.dataPacking = "POINT"
             
         else:
-            print "Invalid DATAPACKING - ", dataPacking
+            print("Invalid DATAPACKING - ", dataPacking)
             raise TypeError
     
     # Return true for correct zone on a given line, false otherwise
@@ -226,7 +226,7 @@ cdef class capsTecplotZone:
                     self._checkDataPacking(dataPacking.group(1).upper())
                 
                 else:
-                    print "No DATAPACKING specified - defaulting to", self.dataPacking
+                    print("No DATAPACKING specified - defaulting to", self.dataPacking)
                 
 #                 zoneType = regSearch(r'ZoneType\s*=\s*(.*)', line, regMultiLine | regIgnoreCase)
                 zoneType = reZoneType.search(line)
@@ -236,51 +236,51 @@ cdef class capsTecplotZone:
                 
                 else:
                     if "FE" in dataPacking.group(1).upper(): # "FEPOINT and FEBLOCK is archaic
-                        print "No ZONETYPE specified, but 'FE' found for DataPacking, defaulting to 'FEQUADRILATERAL'"
+                        print("No ZONETYPE specified, but 'FE' found for DataPacking, defaulting to 'FEQUADRILATERAL'")
                         self._checkZoneType("FEQUADRILATERAL")
                     
                     else:
-                        print "No ZONETYPE specified - defaulting to", self.zoneType
+                        print("No ZONETYPE specified - defaulting to", self.zoneType)
                 
                 break # Quit after we have read the zone we were look for
             
         self._switchIJK()
     
     def _checkConnectivity(self, length, line):
-        print "ZoneType set to", self.zoneType, "but connectivity length is", length
-        print "Line -"
-        print line
+        print("ZoneType set to", self.zoneType, "but connectivity length is", length)
+        print("Line -")
+        print(line)
                            
     # Given a open file parse it to populate the data and connectivity information
     # Assumed the file pointer is on the correct line!
     def _readZoneData(self, repeatConnect = False):
         
         if not self.data:
-            print "Data dictionary hasn't been setup yet!"
+            print("Data dictionary hasn't been setup yet!")
             raise ValueError
         
         if self.zoneType.upper() == "ORDERED":
             if not self.i:
-                print "'I' hasn't been setup yet for ordered data!"
+                print("'I' hasn't been setup yet for ordered data!")
                 raise ValueError
             
             if not self.j:
-                print "'J' hasn't been setup yet for ordered data!"
+                print("'J' hasn't been setup yet for ordered data!")
                 raise ValueError
             
             if not self.k:
-                print "'K' hasn't been setup yet for ordered data!"
+                print("'K' hasn't been setup yet for ordered data!")
                 raise ValueError
         else:
             if not self.numElement:
-                print "Number of elements hasn't been setup yet!"
+                print("Number of elements hasn't been setup yet!")
                 raise ValueError
         
             if not self.numNode:
-                print "Number of nodes hasn't been setup yet!"
+                print("Number of nodes hasn't been setup yet!")
                 raise ValueError
     
-        print "Reading zone -", self.zoneName
+        print("Reading zone -", self.zoneName)
 #         print "Line offset-  ", self._lineOffset
         
         # Open the file and read all the lines
@@ -388,15 +388,15 @@ cdef class capsTecplotZone:
                     if i == self.numElement-1:
                         break
             else:
-                print "Tecplot zone reader does not fully support", self.zoneType, "zones yet!"
+                print("Tecplot zone reader does not fully support", self.zoneType, "zones yet!")
                 raise TypeError
                 
         elif self.dataPacking.upper() == "BLOCK":
-            print "Tecplot zone reader does not fully support ",  self.dataPacking, "packing yet!"
+            print("Tecplot zone reader does not fully support ",  self.dataPacking, "packing yet!")
             raise TypeError
         
         else:
-            print "Unsupport packing type ",  self.dataPacking, "packing yet!"
+            print("Unsupport packing type ",  self.dataPacking, "packing yet!")
             raise TypeError
                 
         return 
@@ -426,7 +426,7 @@ cdef class capsTecplot:
     def loadHeader(self):
         
         if not self.fileName: 
-            print "No fileName as been specified"
+            print("No fileName as been specified")
             raise IOError
         
         with open(self.fileName, 'r') as fp:
@@ -442,7 +442,7 @@ cdef class capsTecplot:
                     break
             
             if not title:
-                print "No title found - defaulting to", self.title
+                print("No title found - defaulting to", self.title)
                 
             # Find variables 
             for line in allLine:
@@ -453,7 +453,7 @@ cdef class capsTecplot:
                     break
             
             if not variables:
-                print "No variables found!"
+                print("No variables found!")
                 raise ValueError
             else:
                 variables = variables.group(1)
@@ -463,7 +463,7 @@ cdef class capsTecplot:
             elif " " in variables:
                 variables = variables.split(" ")
             else:
-                print "Unable to parse variable list - ", variables
+                print("Unable to parse variable list - ", variables)
                 raise TypeError
             
             for i in variables:
@@ -486,7 +486,7 @@ cdef class capsTecplot:
                             
                             title = "Zone_" + str(len(self.zone.keys()))
                             
-                            print "No zone title found!, Defaulting to", title
+                            print("No zone title found!, Defaulting to", title)
                         
                         else:
                             title = zone.group(1).replace('"', "").replace("'", "")
@@ -500,7 +500,7 @@ cdef class capsTecplot:
                 self.zone[title] = capsTecplotZone(title, self.variable, self.fileName) # Set the zone name and variables in the zone
             
             if not self.zone:
-                print "No zones found!"
+                print("No zones found!")
                 raise ValueError
             
     # Load all zones in the file  
@@ -560,11 +560,11 @@ cdef class capsUnstructMesh:
         elif ".stl" in self.filename:
             self._loadSTL()
         else:
-            print "Unable to determine mesh format!" 
+            print("Unable to determine mesh format!" )
             raise ValueError
     
     def _printLoading(self):
-        print "Loading ( type =", self.meshType, ") file", self.filename
+        print("Loading ( type =", self.meshType, ") file", self.filename)
         
     def _parseFileName(self):
         self.name = os.path.basename(self.filename)
@@ -886,7 +886,7 @@ cdef class capsUnstructMesh:
             
             if "solid" in line: # ASCII
                 
-                print "'solid' tag found! Assuming STL is in ASCII format...."
+                print("'solid' tag found! Assuming STL is in ASCII format....")
                 
                 fp.seek(0) # Return to the beginning and get the whole line
                 
@@ -900,7 +900,7 @@ cdef class capsUnstructMesh:
              
             else: # Binary
                     
-                print "No 'solid' tag found! Assuming STL is in binary format...."
+                print("No 'solid' tag found! Assuming STL is in binary format....")
             
                 ascii = False
                     
@@ -969,6 +969,6 @@ cdef class capsUnstructMesh:
        # print self.numNode, self.numElement 
         
         if self.numNode == 0 or self.numElement == 0:
-            print "No nodes or elements created.... something went wrong"
+            print("No nodes or elements created.... something went wrong")
             raise ValueError
                           

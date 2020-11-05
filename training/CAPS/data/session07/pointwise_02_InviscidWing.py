@@ -20,20 +20,21 @@ transport = myProblem.loadCAPS(os.path.join("..","EGADS","CFDInviscid_Wing.egads
 
 # Load pointwise aim
 pointwise = myProblem.loadAIM(aim = "pointwiseAIM",
-                              analysisDir = "workDir_2_InviscidWing")
+                              analysisDir = "workDir_02_InviscidWing")
 
 # Dump VTK files for visualization
 pointwise.setAnalysisVal("Proj_Name", "TransportWing")
 pointwise.setAnalysisVal("Mesh_Format", "VTK")
 
 # Connector level
-pointwise.setAnalysisVal("Connector_Turn_Angle"    , 10)
-pointwise.setAnalysisVal("Connector_Source_Spacing", True)
+pointwise.setAnalysisVal("Connector_Turn_Angle"     , 10)
+pointwise.setAnalysisVal("Connector_Turn_Angle_Hard", 70)
+pointwise.setAnalysisVal("Connector_Source_Spacing" , True)
 
 # Domain level
 pointwise.setAnalysisVal("Domain_Algorithm"   , "AdvancingFront")
 pointwise.setAnalysisVal("Domain_Max_Layers"  , 15)
-pointwise.setAnalysisVal("Domain_TRex_ARLimit", 20.0)
+pointwise.setAnalysisVal("Domain_TRex_ARLimit", 40.0)
 pointwise.setAnalysisVal("Domain_Decay"       , 0.8)
 
 # Block level

@@ -1,5 +1,6 @@
 LIBRARY caps
 EXPORTS
+caps_revision
 caps_info
 caps_size
 caps_childByIndex
@@ -12,6 +13,9 @@ caps_delete
 caps_errorInfo
 caps_freeError
 caps_freeValue
+caps_writeParameters
+caps_readParameters
+caps_writeGeometry
 caps_attrByName
 caps_attrByIndex
 caps_setAttr
@@ -57,4 +61,7 @@ caps_setValueShape
 caps_convert
 caps_transferValues
 caps_makeLinkage
+caps_hasDot
+caps_getDot
+caps_sensitivity
 printObjects

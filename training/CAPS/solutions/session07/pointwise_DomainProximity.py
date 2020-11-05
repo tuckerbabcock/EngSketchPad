@@ -1,4 +1,14 @@
 #------------------------------------------------------------------------------#
+#
+# Note:
+# This script assumes that
+#
+# ATTRIBUTE PW:DomainAdaptSource  $true
+# ATTRIBUTE PW:DomainAdaptTrarget $true
+#
+# Have been added to the Wing and/or Pod to enable domain-to-domain proximity detection
+#
+#------------------------------------------------------------------------------#
 
 # Allow print statement to be compatible between Python 2 and 3
 from __future__ import print_function
@@ -10,6 +20,7 @@ from pyCAPS import capsProblem
 import os
 import platform
 import time
+
 #------------------------------------------------------------------------------#
 
 def run_pointwise(pointwise):
@@ -44,12 +55,25 @@ def run_pointwise(pointwise):
 myProblem = capsProblem()
 
 # Load CSM file
-filename = os.path.join("..","..","data","EGADS","CFDInviscid_WingPod.egads")
+filename = os.path.join("..","..","data","ESP","transport.csm")
 transport = myProblem.loadCAPS(filename)
+
+# Change to Inviscid CFD view
+transport.setGeometryVal("VIEW:Concept"    , 0)
+transport.setGeometryVal("VIEW:CFDInviscid", 1)
+transport.setGeometryVal("VIEW:CFDViscous" , 0)
+
+# Enable wing+pod
+transport.setGeometryVal("COMP:Wing"   , 1)
+transport.setGeometryVal("COMP:Fuse"   , 0)
+transport.setGeometryVal("COMP:Htail"  , 0)
+transport.setGeometryVal("COMP:Vtail"  , 0)
+transport.setGeometryVal("COMP:Pod"    , 1)
+transport.setGeometryVal("COMP:Control", 0)
 
 # Load pointwise aim
 pointwise = myProblem.loadAIM(aim = "pointwiseAIM",
-                              analysisDir = "workDir_5_InviscidWingPod")
+                              analysisDir = "workDir_InviscidWingPod")
 
 # Dump VTK files for visualization
 pointwise.setAnalysisVal("Proj_Name", "TransportWingPod")

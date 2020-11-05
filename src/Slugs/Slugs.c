@@ -386,6 +386,10 @@ extern int        EG_getPlane(ego eloop, ego *eplane);
 #ifdef GRAFIC
     static void   plotPoints_image(int*, void*, void*, void*, void*, void*,
                                    void*, void*, void*, void*, void*, float*, char*, int);
+    extern int    plotCurve(int m, double XYZcloud[], /*@null@*/double Tcloud[],
+                            int n, double cp[], double normf, double dotmin, int nmin);
+    extern int    plotSurface(int m, double XYZcloud[], /*@null@*/double Ucloud[],
+                              int n, double cp[], double normf, int nmin);
 #endif
 
 
@@ -2955,10 +2959,11 @@ generateFits(int    ncp,                /* (in)  number of control points */
         MALLOC(Tcloud, double, npnt);
 
         /* fit the cloud of points  with ncp control points */
-        bitflag = 0;
+        bitflag = 1;
         smooth  = 1;
+        numiter = 1000;
         status = fit1dCloud(npnt, bitflag, edge[iedge].xyz, ncp, edge[iedge].cp, smooth,
-                            Tcloud, &normf, &maxf, &dotmin, &nmin, &numiter, NULL);
+                            Tcloud, &normf, &maxf, &dotmin, &nmin, &numiter, stdout);
         printf("fit1dCloud(npnt=%d, ncp=%d) -> status=%d,  numiter=%3d,  normf=%12.4e,  dotmin=%.4f,  nmin=%d\n",
                npnt, ncp, status, numiter, normf, dotmin, nmin);
         CHECK_STATUS(fit1dCloud);

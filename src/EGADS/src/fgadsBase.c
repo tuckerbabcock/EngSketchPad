@@ -1,7 +1,7 @@
 /*
  *      EGADS: Electronic Geometry Aircraft Design System
  *
- *             FORTRAN Bindings for Base Functions
+ *             FORTRAN Bindings for Base & Effective Topo Functions
  *
  *      Copyright 2011-2020, Massachusetts Institute of Technology
  *      Licensed under The GNU Lesser General Public License, version 2.1
@@ -38,6 +38,16 @@
                             egObject **copy);
   extern int  EG_flipObject(const egObject *object, egObject **copy);
   extern int  EG_close(egObject *context);
+  extern int  EG_virtualize(egObject *tess, double angle, egObject **EBody);
+  extern int  EG_finalize(egObject *EBody);
+  extern int  EG_makeComposite(egObject *EBody, int nFace, /*@null@*/
+                               const egObject **Faces, egObject **EFace);
+  extern int  EG_makeAttrComposites(egObject *EBody, const char *attrName,
+                                    int *nEFace, egObject ***EFaces);
+  extern int  EG_effectiveMap(egObject *EObject, double *eparam,
+                              egObject **Object, double *param);
+  extern int  EG_getEdgeList(egObject *EEdge, int *nedges, egObject ***edges,
+                             int **senses, double **tstart);
 
 
 
@@ -303,4 +313,152 @@ ig_close_(INT8 *obj)
 
   object = (egObject *) *obj;
   return EG_close(object);
+}
+
+
+int
+#ifdef WIN32
+IG_VIRTUALIZE (INT8 *tess, double *angle, INT8 *ebody)
+#else
+ig_virtualize_(INT8 *tess, double *angle, INT8 *ebody)
+#endif
+{
+  int      stat;
+  egObject *object, *body;
+  
+  *ebody = 0;
+  object = (egObject *) *tess;
+  stat   = EG_virtualize(object, *angle, &body);
+  if (stat == EGADS_SUCCESS) *ebody = (INT8) body;
+  return stat;
+}
+
+
+int
+#ifdef WIN32
+IG_FINALIZE (INT8 *obj)
+#else
+ig_finalize_(INT8 *obj)
+#endif
+{
+  egObject *object;
+
+  object = (egObject *) *obj;
+  return EG_finalize(object);
+}
+
+
+int
+#ifdef WIN32
+IG_MAKECOMPOSITE (INT8 *ebody, int *nface, INT8 *faces, INT8 *eface)
+#else
+ig_makecomposite_(INT8 *ebody, int *nface, INT8 *faces, INT8 *eface)
+#endif
+{
+  int      i, stat;
+  egObject *object, *oface, **objs = NULL;
+  
+  *eface = 0;
+  object = (egObject *) *ebody;
+  if (*nface > 0) {
+    objs = (egObject **) EG_alloc(*nface*sizeof(egObject *));
+    if (objs == NULL) return EGADS_MALLOC;
+    for (i = 0; i < *nface; i++)
+      objs[i] = (egObject *) faces[i];
+  }
+  stat = EG_makeComposite(object, *nface, (const egObject **) objs, &oface);
+  if (objs != NULL) EG_free(objs);
+  if (stat == EGADS_SUCCESS) *eface = (INT8) oface;
+  return stat;
+}
+
+
+int
+#ifdef WIN32
+IG_MAKEATTRCOMPOSITES (INT8 *ebody, const char *attr, int *nface, INT8 **efaces,
+                       int attrLen)
+#else
+ig_makeattrcomposites_(INT8 *ebody, const char *attr, int *nface, INT8 **efaces,
+                       int attrLen)
+#endif
+{
+  int      i, stat;
+  char     *fattr;
+  INT8     *cobjs;
+  egObject *object, **objs;
+  
+  *efaces = 0;
+  *nface  = 0;
+  object  = (egObject *) *ebody;
+  fattr   = EG_f2c(attr, attrLen);
+  if (fattr == NULL) return EGADS_MALLOC;
+  stat = EG_makeAttrComposites(object, fattr, nface, &objs);
+  EG_free(fattr);
+  if (stat != EGADS_SUCCESS) return stat;
+  EG_free(fattr);
+  *efaces = cobjs = (INT8 *) EG_alloc(*nface*sizeof(INT8));
+  if (cobjs == NULL) {
+    EG_free(objs);
+    return EGADS_SUCCESS;
+  }
+  for (i = 0; i < *nface; i++) cobjs[i] = (INT8) objs[i];
+  EG_free(objs);
+  
+  return EGADS_SUCCESS;
+}
+
+
+int
+#ifdef WIN32
+IG_EFFECTIVEMAP (INT8 *eobj, double *eparam, INT8 *obj, double *param)
+#else
+ig_effectivemap_(INT8 *eobj, double *eparam, INT8 *obj, double *param)
+#endif
+{
+  int      stat;
+  egObject *eobject, *object;
+  
+  *obj    = 0;
+  eobject = (egObject *) *eobj;
+  stat    = EG_effectiveMap(eobject, eparam, &object, param);
+  if (stat == EGADS_SUCCESS) *obj = (INT8) object;
+  return stat;
+}
+
+
+int
+#ifdef WIN32
+IG_GETEDGELIST (INT8 *eobj, int *nedges, INT8 **edges, int **senses,
+                double **tstart)
+#else
+ig_getedgelist_(INT8 *eobj, int *nedges, INT8 **edges, int **senses,
+                double **tstart)
+#endif
+{
+  int      i, stat;
+  INT8     *cobjs;
+  egObject *eobject, **edgos;
+  
+  *edges  = NULL;
+  *senses = NULL;
+  *tstart = NULL;
+  eobject = (egObject *) *eobj;
+  stat    = EG_getEdgeList(eobject, nedges, &edgos, senses, tstart);
+  if (stat != EGADS_SUCCESS) return stat;
+  
+  if (*nedges > 0) {
+    *edges = cobjs = (INT8 *) EG_alloc(*nedges*sizeof(INT8));
+    if (cobjs == NULL) {
+      EG_free(edgos);
+      EG_free(senses);
+      EG_free(tstart);
+      *senses = NULL;
+      *tstart = NULL;
+      return EGADS_MALLOC;
+    }
+    for (i = 0; i < *nedges; i++) cobjs[i] = (INT8) edgos[i];
+  }
+  EG_free(edgos);
+  
+  return EGADS_SUCCESS;
 }

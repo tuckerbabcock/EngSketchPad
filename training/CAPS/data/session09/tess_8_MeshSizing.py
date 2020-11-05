@@ -29,7 +29,7 @@ tess = myProblem.loadAIM(aim = "egadsTessAIM",
                          analysisDir = "workDir_Tess")
 
 # Set EGADS body tessellation parameters
-tess.setAnalysisVal("Tess_Params", [0.1, 0.02, 20])
+tess.setAnalysisVal("Tess_Params", [0.1, 0.01, 20])
 
 #------------------------------------------------------------------------------#
 
@@ -48,7 +48,7 @@ tess.viewGeometry()
 # Modify local mesh sizing parameters
 Mesh_Sizing = [("wingSpar1"      , {"tessParams"    : [0.02, 0.1, 30]}),
                ("leadingEdge"    , {"tessParams"    : [0, 0.2, 30]}),
-               ("rootLeadingEdge", {"numEdgePoints" : 5})]
+               ("rootLeadingEdge", {"numEdgePoints" : 2})]
 
 tess.setAnalysisVal("Mesh_Sizing", Mesh_Sizing)
 

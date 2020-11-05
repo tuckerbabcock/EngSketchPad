@@ -75,8 +75,8 @@ typedef struct {
 } seg_T;
 
 /* prototype for function defined below */
-static int processSegments(         int *npnt, pnt_T *pnt_p[], int *nseg, seg_T *seg_p[]);
-static int processFile(ego context, int *npnt, pnt_T *pnt_p[], int *nseg, seg_T *seg_p[]);
+static int processSegments(                         int *npnt, pnt_T *pnt_p[], int *nseg, seg_T *seg_p[]);
+static int processFile(ego context, char message[], int *npnt, pnt_T *pnt_p[], int *nseg, seg_T *seg_p[]);
 static int getToken(char *text, int nskip, char sep, int maxtok, char *token);
 
 #ifdef GRAFIC
@@ -108,6 +108,7 @@ udpExecute(ego  context,                /* (in)  EGADS context */
     pnt_T   *pnt=NULL;
     seg_T   *seg=NULL;
     void    *temp;
+    char    *message;
     ego     *enodes=NULL, *eedges=NULL, *efaces=NULL, ecurve, echild[4], eloop, eshell;
 
     double  EPS06 = 1.0e-6;
@@ -129,29 +130,32 @@ udpExecute(ego  context,                /* (in)  EGADS context */
     *nMesh  = 0;
     *string = NULL;
 
+    message = (char *) EG_alloc(100*sizeof(char));
+    message[0] = '\0';
+
     /* check arguments */
     if (udps[0].arg[1].size == 1 && STRLEN(FILENAME(0)) == 0) {
-        printf(" udpExecute: must specify segments or filename\n");
+        snprintf(message, 100, "must specify segments or filename");
         status = EGADS_RANGERR;
         goto cleanup;
 
     } else if (udps[0].arg[1].size > 1 && STRLEN(FILENAME(0)) > 0) {
-        printf(" udpExecute: must specify segments or filename\n");
+        snprintf(message, 100, "must specify segments or filename");
         status = EGADS_RANGERR;
         goto cleanup;
 
     } else if (udps[0].arg[0].size > 1) {
-        printf(" udpExecute: depth should be a scalar\n");
+        snprintf(message, 100, "depth should be a scalar");
         status = EGADS_RANGERR;
         goto cleanup;
 
     } else if (DEPTH(0) <= 0) {
-        printf(" udpExecute: depth = %f <= 0\n", DEPTH(0));
+        snprintf(message, 100, "depth = %f <= 0", DEPTH(0));
         status = EGADS_RANGERR;
         goto cleanup;
 
     } else if (STRLEN(FILENAME(0)) == 0 && udps[0].arg[1].size%4 != 0) {
-        printf(" udpExecute: segments must be divisible by 4\n");
+        snprintf(message, 100, "segments must be divisible by 4");
         status = EGADS_RANGERR;
         goto cleanup;
     }
@@ -176,7 +180,7 @@ udpExecute(ego  context,                /* (in)  EGADS context */
 
     /* if filename is given, process the file */
     if (STRLEN(FILENAME(numUdp)) > 0) {
-        status = processFile(context, &npnt, &pnt, &nseg, &seg);
+        status = processFile(context, message, &npnt, &pnt, &nseg, &seg);
         if (status != EGADS_SUCCESS) goto cleanup;
 
     /* otherwise, process the Segments */
@@ -446,7 +450,7 @@ udpExecute(ego  context,                /* (in)  EGADS context */
     /* check for degenerate Segments */
     for (jseg = 0; jseg < nseg; jseg++) {
         if (seg[jseg].ibeg == seg[jseg].iend) {
-            printf(" udpExecute: Segment %d is degenerate\n", iseg);
+            snprintf(message, 100, "Segment %d is degenerate", iseg);
             status = EGADS_DEGEN;
             goto cleanup;
         }
@@ -705,8 +709,14 @@ cleanup:
         EG_free(seg);
     }
 
-    if (status < 0) {
+    if (strlen(message) > 0) {
+        *string = message;
+        printf("%s\n", message);
+    } else if (status != EGADS_SUCCESS) {
+        EG_free(message);
         *string = udpErrorStr(status);
+    } else {
+        EG_free(message);
     }
 
     return status;
@@ -843,6 +853,7 @@ cleanup:
 
 static int
 processFile(ego    context,             /* (in)  EGADS context */
+            char   message[],           /* (out) error message */
             int    *npnt,               /* (out) number of Points */
             pnt_T  *pnt_p[],            /* (out) array  of Points */
             int    *nseg,               /* (both)number of Segments */
@@ -897,7 +908,7 @@ processFile(ego    context,             /* (in)  EGADS context */
 
         if (strncmp(name, "x@", 2) == 0 ||
             strncmp(name, "y@", 2) == 0   ) {
-            printf(" udpExecute: cannot start with Parameter named \"%s\"\n", name);
+            snprintf(message, 100, "cannot start with Parameter named \"%s\"", name);
             status = EGADS_NODATA;
             goto cleanup;
         }
@@ -906,7 +917,7 @@ processFile(ego    context,             /* (in)  EGADS context */
     /* open the file */
     fp = fopen(FILENAME(numUdp), "r");
     if (fp == NULL) {
-        printf(" udpExecute: could not open \"%s\"\n", FILENAME(numUdp));
+        snprintf(message, 100, "could not open \"%s\"", FILENAME(numUdp));
         status = EGADS_NOTFOUND;
         goto cleanup;
     }
@@ -936,8 +947,6 @@ processFile(ego    context,             /* (in)  EGADS context */
 
         if (outLevel >= 1) printf("    processing: %s", templine);
 
-        if (templine[0] == '#') continue;
-
         /* overwite the \n and \r at the end */
         if (STRLEN(templine) > 0 && templine[STRLEN(templine)-1] == '\n') {
             templine[STRLEN(templine)-1] = '\0';
@@ -952,6 +961,10 @@ processFile(ego    context,             /* (in)  EGADS context */
 
         /* skip blank line */
         if (strcmp(token, "") == 0) {
+            continue;
+
+        /* skip comment */
+        } else if (token[0] == '#') {
             continue;
 
         /* skip comment */
@@ -991,7 +1004,7 @@ processFile(ego    context,             /* (in)  EGADS context */
                 if (status < EGADS_SUCCESS) goto cleanup;
 
                 if (STRLEN(str) > 0) {
-                    printf(" udpExecute: xvalue must be a number\n");
+                    snprintf(message, 100, "xvalue must be a number");
                     status = EGADS_NODATA;
                     goto cleanup;
                 }
@@ -1004,7 +1017,7 @@ processFile(ego    context,             /* (in)  EGADS context */
                 if (status < EGADS_SUCCESS) goto cleanup;
 
                 if (STRLEN(str) > 0) {
-                    printf(" udpExecute: yvalue must be a number\n");
+                    snprintf(message, 100, "yvalue must be a number");
                     status = EGADS_NODATA;
                     goto cleanup;
                 }
@@ -1028,7 +1041,7 @@ processFile(ego    context,             /* (in)  EGADS context */
                     }
                 }
                 if (iseg < 0) {
-                    printf(" udpExecute: line \"%s\" could not be found\n", lname1);
+                    snprintf(message, 100, "line \"%s\" could not be found", lname1);
                     status = EGADS_NOTFOUND;
                     goto cleanup;
                 }
@@ -1060,7 +1073,7 @@ processFile(ego    context,             /* (in)  EGADS context */
                            strcmp(token, "XLOC") == 0   ) {
 
                     if(fabs(pnt[ibeg].x-pnt[iend].x) < EPS06) {
-                        printf(" udpExecute: cannot specify XLOC on a constant X line\n");
+                        snprintf(message, 100, "cannot specify XLOC on a constant X line");
                         status = EGADS_RANGERR;
                         goto cleanup;
                     }
@@ -1082,7 +1095,7 @@ processFile(ego    context,             /* (in)  EGADS context */
                            strcmp(token, "YLOC") == 0   ) {
 
                     if(fabs(pnt[ibeg].y-pnt[iend].y) < EPS06) {
-                        printf(" udpExecute: cannot specify YLOC on a constant Y line\n");
+                        snprintf(message, 100, "cannot specify YLOC on a constant Y line");
                         status = EGADS_RANGERR;
                         goto cleanup;
                     }
@@ -1114,7 +1127,7 @@ processFile(ego    context,             /* (in)  EGADS context */
                         }
                     }
                     if (ipnt < 0) {
-                        printf(" udpExecute: point \"%s\" could not be found\n", pname2);
+                        snprintf(message, 100, "point \"%s\" could not be found", pname2);
                         status = EGADS_NOTFOUND;
                         goto cleanup;
                     }
@@ -1142,7 +1155,7 @@ processFile(ego    context,             /* (in)  EGADS context */
                         }
                     }
                     if (iseg < 0) {
-                        printf(" udpExecute: line \"%s\" could not be found\n", lname2);
+                        snprintf(message, 100, "line \"%s\" could not be found", lname2);
                         status = EGADS_NOTFOUND;
                         goto cleanup;
                     }
@@ -1159,13 +1172,13 @@ processFile(ego    context,             /* (in)  EGADS context */
                         xvalue = (1 - s) * pnt[ibeg].x + s * pnt[iend].x;
                         yvalue = (1 - s) * pnt[ibeg].y + s * pnt[iend].y;
                     } else {
-                        printf(" udpExecute: segments do not intersect\n");
+                        snprintf(message, 100, "segments do not intersect");
                         status = EGADS_NOTFOUND;
                         goto cleanup;
                     }
 
                 } else {
-                    printf(" udpExecute: fifth token should be FRAC, PERP, XLOC, YLOC, SAMEX, SAMEY, or XSECT\n");
+                    snprintf(message, 100, "fifth token should be FRAC, PERP, XLOC, YLOC, SAMEX, SAMEY, or XSECT");
                     status = EGADS_RANGERR;
                     goto cleanup;
                 }
@@ -1185,7 +1198,7 @@ processFile(ego    context,             /* (in)  EGADS context */
                     }
                 }
                 if (iseg < 0) {
-                    printf(" udpExecute: line \"%s\" could not be found\n", lname1);
+                    snprintf(message, 100, "line \"%s\" could not be found", lname1);
                     status = EGADS_NOTFOUND;
                     goto cleanup;
                 }
@@ -1211,7 +1224,7 @@ processFile(ego    context,             /* (in)  EGADS context */
                     }
                 }
                 if (ipnt < 0) {
-                    printf(" udpExecute: point \"%s\" could not be found\n", pname2);
+                    snprintf(message, 100, "point \"%s\" could not be found", pname2);
                     status = EGADS_NOTFOUND;
                     goto cleanup;
                 }
@@ -1225,7 +1238,7 @@ processFile(ego    context,             /* (in)  EGADS context */
                 yvalue = pnt[ipnt].y + dist * dx / alen;
 
             } else {
-                printf(" udpExecute: third token should be AT, ON, or OFF\n");
+                snprintf(message, 100, "third token should be AT, ON, or OFF");
                 status = EGADS_RANGERR;
                 goto cleanup;
             }
@@ -1280,7 +1293,7 @@ processFile(ego    context,             /* (in)  EGADS context */
             (void) strcpy(str, "x@");
             (void) strcat(str, pname1);
 
-            status = ocsmFindPmtr(modl, str, OCSM_INTERNAL, 1, 1, &ipmtr);
+            status = ocsmFindPmtr(modl, str, OCSM_LOCALVAR, 1, 1, &ipmtr);
             if (status < EGADS_SUCCESS) goto cleanup;
 
             status = ocsmSetValuD(modl, ipmtr, 1, 1, xvalue);
@@ -1289,7 +1302,7 @@ processFile(ego    context,             /* (in)  EGADS context */
             (void) strcpy(str, "y@");
             (void) strcat(str, pname1);
 
-            status = ocsmFindPmtr(modl, str, OCSM_INTERNAL, 1, 1, &ipmtr);
+            status = ocsmFindPmtr(modl, str, OCSM_LOCALVAR, 1, 1, &ipmtr);
             if (status < EGADS_SUCCESS) goto cleanup;
 
             status = ocsmSetValuD(modl, ipmtr, 1, 1, yvalue);
@@ -1343,7 +1356,7 @@ processFile(ego    context,             /* (in)  EGADS context */
                 }
             }
             if (seg[*nseg].ibeg < 0) {
-                printf(" udpExecute: \"%s\" not found\n", pname1);
+                snprintf(message, 100, "\"%s\" not found", pname1);
                 status = EGADS_NODATA;
                 goto cleanup;
             }
@@ -1357,7 +1370,7 @@ processFile(ego    context,             /* (in)  EGADS context */
                 }
             }
             if (seg[*nseg].iend < 0) {
-                printf(" udpExecute: \"%s\" not found\n", pname2);
+                snprintf(message, 100, "\"%s\" not found", pname2);
                 status = EGADS_NODATA;
                 goto cleanup;
             }
@@ -1380,7 +1393,7 @@ processFile(ego    context,             /* (in)  EGADS context */
                 if (STRLEN(token) == 0) break;
 
                 if (strstr(token, "=") == NULL) {
-                    printf(" udpExecute: attribute pair must contain = sign\n");
+                    snprintf(message, 100, "attribute pair must contain = sign");
                     status = EGADS_RANGERR;
                     goto cleanup;
                 } else {
@@ -1433,7 +1446,7 @@ processFile(ego    context,             /* (in)  EGADS context */
                     if (status < EGADS_SUCCESS) goto cleanup;
 
                     if (STRLEN(str) == 0) {
-                        printf(" udpExecute: attribute value must be a string\n");
+                        snprintf(message, 100, "attribute value must be a string");
                         status = EGADS_NODATA;
                         goto cleanup;
                     }
@@ -1452,7 +1465,7 @@ processFile(ego    context,             /* (in)  EGADS context */
             if (npat < 9) {
                 npat++;
             } else {
-                printf(" udpExecute: PATBEGs nested too deeply\n");
+                snprintf(message, 100, "PATBEGs nested too deeply");
                 status = EGADS_RANGERR;
                 goto cleanup;
             }
@@ -1485,11 +1498,11 @@ processFile(ego    context,             /* (in)  EGADS context */
             status = getToken(templine, 1, ' ', 255, token);
             if (status < EGADS_SUCCESS) goto cleanup;
 
-            status = ocsmFindPmtr(modl, token, OCSM_INTERNAL, 1, 1, &pat_pmtr[npat]);
+            status = ocsmFindPmtr(modl, token, OCSM_LOCALVAR, 1, 1, &pat_pmtr[npat]);
             if (status < EGADS_SUCCESS) goto cleanup;
 
             if (pat_pmtr[npat] <= npmtr_save) {
-                printf(" udpExecute: cannot use \"%s\" as pattern variable since it was previously defined\n", token);
+                snprintf(message, 100, "cannot use \"%s\" as pattern variable since it was previously defined", token);
                 status = EGADS_NONAME;
                 goto cleanup;
             }
@@ -1501,7 +1514,7 @@ processFile(ego    context,             /* (in)  EGADS context */
                    strcmp(token, "PATEND") == 0   ) {
 
             if (pat_end[npat] < 0) {
-                printf(" udpExecute: PATEND without PATBEG\n");
+                snprintf(message, 100, "PATEND without PATBEG");
                 status = EGADS_RANGERR;
                 goto cleanup;
             }
@@ -1533,7 +1546,7 @@ processFile(ego    context,             /* (in)  EGADS context */
             }
 
         } else {
-            printf(" udpExecute: input should start with POINT, LINE, CLINE, PATBEG, or PATEND\n");
+            snprintf(message, 100, "input should start with CPOINT, POINT, LINE, CLINE, PATBEG, or PATEND");
             status = EGADS_RANGERR;
             goto cleanup;
         }

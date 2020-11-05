@@ -789,6 +789,7 @@ int EMP_sum(int maxproc, int nindex, int (*sumFn)(int index, double *sum),
 }
 
 
+#ifndef __clang_analyzer__
 /* Inner routine used by EMP_min */
 
 static void EMP_min_inner(void *Global)
@@ -931,3 +932,4 @@ int EMP_min(int maxproc, int nindex, int (*minFn)(int index, double *min),
   *imin = global.imin;
   return global.status;
 }
+#endif

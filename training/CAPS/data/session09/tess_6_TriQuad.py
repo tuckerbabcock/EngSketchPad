@@ -29,7 +29,7 @@ tess = myProblem.loadAIM(aim = "egadsTessAIM",
                          analysisDir = "workDir_Tess")
 
 # Set EGADS body tessellation parameters
-tess.setAnalysisVal("Tess_Params", [0.1, 0.02, 20])
+tess.setAnalysisVal("Tess_Params", [0.1, 0.01, 20])
 
 #------------------------------------------------------------------------------#
 
@@ -61,6 +61,21 @@ tess.viewGeometry()
 wing.setGeometryVal("VIEW:Concept"         , 0)
 wing.setGeometryVal("VIEW:ClampedStructure", 1)
 wing.setGeometryVal("VIEW:BoxStructure"    , 1)
+
+# Triangle tessellation
+tess.setAnalysisVal("Mesh_Elements", "Tri")
+
+# Run AIM pre/post-analysis
+tess.preAnalysis()
+tess.postAnalysis()
+
+# View the tessellation
+tess.viewGeometry()
+
+#------------------------------------------------------------------------------#
+
+# Regularized quad tessellation
+tess.setAnalysisVal("Mesh_Elements", "Quad")
 
 # Run AIM pre/post-analysis
 tess.preAnalysis()

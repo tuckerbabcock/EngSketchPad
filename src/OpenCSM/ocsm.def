@@ -16,11 +16,13 @@ ocsmGetBody
 ocsmGetBrch
 ocsmGetCode
 ocsmGetCsys
+ocsmGetEnt
 ocsmGetFilelist
 ocsmGetName
 ocsmGetNorm
 ocsmGetPmtr
 ocsmGetSketch
+ocsmGetTessNpnt
 ocsmGetTessVel
 ocsmGetText
 ocsmGetUV
@@ -40,9 +42,12 @@ ocsmPrintBrchs
 ocsmPrintBrep
 ocsmPrintEgo
 ocsmPrintPmtrs
+ocsmRegMesgCB
+ocsmRegSizeCB
 ocsmRetAttr
 ocsmRetCsys
 ocsmSave
+ocsmSaveDespmtrs
 ocsmSaveSketch
 ocsmSetArg
 ocsmSetAttr
@@ -58,6 +63,7 @@ ocsmSetVel
 ocsmSetVelD
 ocsmSolveSketch
 ocsmUpdateDespmtrs
+ocsmUpdateTess
 ocsmVersion
 removeVels
 velocityOfEdge

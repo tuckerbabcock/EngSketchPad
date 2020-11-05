@@ -120,6 +120,8 @@ typedef struct {
   extern "C" int  EG_getBody( const egObject *object, egObject **body );
 
   extern "C" int  EG_getWindingAngle( egObject *edge, double t, double *angle );
+  extern "C" int  EG_inFaceX( const egObject *face, const double *uva,
+                              /*@null@*/ double *pt, /*@null@*/ double *uvx );
 
   /* forward prototype for EG_eval3deriv */
   TEMPLATE   int EG_evaluateGeom( const egObject *geom, const DOUBLE *param,
@@ -2897,23 +2899,23 @@ EG_invEvaGeomLimits(const egObject *geomx, /*@null@*/ const double *limits,
       }
     }
 
-    if ((per&1) != 0) {
+    if (((per&1) != 0) && ((param[0]+PARAMACC < range[0]) ||
+                           (param[0]-PARAMACC > range[1]))) {
       period = srange[1] - srange[0];
-      if ((param[0]+PARAMACC < srange[0]) || (param[0]-PARAMACC > srange[1]))
-        if (param[0]+PARAMACC < srange[0]) {
-          if (param[0]+period-PARAMACC < srange[1]) param[0] += period;
-        } else {
-          if (param[0]-period+PARAMACC > srange[0]) param[0] -= period;
-        }
+      if (param[0]+PARAMACC < range[0]) {
+        if (param[0]+period-PARAMACC < range[1]) param[0] += period;
+      } else {
+        if (param[0]-period+PARAMACC > range[0]) param[0] -= period;
+      }
     }
-    if ((per&2) != 0) {
+    if (((per&2) != 0) && ((param[1]+PARAMACC < range[2]) ||
+                           (param[1]-PARAMACC > range[3]))) {
       period = srange[3] - srange[2];
-      if ((param[1]+PARAMACC < srange[2]) || (param[1]-PARAMACC > srange[3]))
-        if (param[1]+PARAMACC < srange[2]) {
-          if (param[1]+period-PARAMACC < srange[3]) param[1] += period;
-        } else {
-          if (param[1]-period+PARAMACC > srange[2]) param[1] -= period;
-        }
+      if (param[1]+PARAMACC < range[2]) {
+        if (param[1]+period-PARAMACC < range[3]) param[1] += period;
+      } else {
+        if (param[1]-period+PARAMACC > range[2]) param[1] -= period;
+      }
     }
     
   }
@@ -3573,7 +3575,6 @@ EG_getWindingAngle(egObject *edge, double t, double *angle)
   stat = EG_getBody(edge, &body);
   if (stat != EGADS_SUCCESS)      return stat;
   if (body == NULL)               return EGADS_NODATA;
-  if (body->mtype != SOLIDBODY)   return EGADS_NOTBODY;
   
   stat = EG_getBodyTopos(body, edge, FACE, &nface, &faces);
   if (stat != EGADS_SUCCESS) return stat;

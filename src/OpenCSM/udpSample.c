@@ -109,6 +109,7 @@ udpExecute(ego  context,                /* (in)  EGADS context */
     int     wire, sense[4];
     double  node1[3], node2[3], node3[3], node4[3];
     double  data[18], trange[2];
+    char    *message;
     ego     enodes[9], ecurve, eedges[8], eloop, eface;
 
 #ifdef DEBUG
@@ -130,39 +131,42 @@ udpExecute(ego  context,                /* (in)  EGADS context */
     *nMesh  = 0;
     *string = NULL;
 
+    message = (char *) EG_alloc(100*sizeof(char));
+    message[0] = '\0';
+
     /* check arguments */
     if (udps[0].arg[0].size > 1) {
-        printf(" udpExecute: dx should be a scalar\n");
+        snprintf(message, 100, "dx should be a scalar");
         status  = EGADS_RANGERR;
         goto cleanup;
 
     } else if (DX(0) < 0) {
-        printf(" udpExecute: dx = %f < 0\n", DX(0));
+        snprintf(message, 100, "dx = %f < 0", DX(0));
         status  = EGADS_RANGERR;
         goto cleanup;
 
     } else if (udps[0].arg[1].size > 1) {
-        printf(" udpExecute: dy should be a scalar\n");
+        snprintf(message, 100, "dy should be a scalar");
         status  = EGADS_RANGERR;
         goto cleanup;
 
     } else if (DY(0) < 0) {
-        printf(" udpExecute: dy = %f < 0\n", DY(0));
+        snprintf(message, 100, "dy = %f < 0", DY(0));
         status  = EGADS_RANGERR;
         goto cleanup;
 
     } else if (udps[0].arg[2].size > 1) {
-        printf(" udpExecute: dz should be a scalar\n");
+        snprintf(message, 100, "dz should be a scalar");
         status  = EGADS_RANGERR;
         goto cleanup;
 
     } else if (DZ(0) < 0) {
-        printf(" udpExecute: dz = %f < 0\n", DZ(0));
+        snprintf(message, 100, "dz = %f < 0", DZ(0));
         status  = EGADS_RANGERR;
         goto cleanup;
 
     } else if (DX(0) <= 0 && DY(0) <= 0 && DZ(0) <= 0) {
-        printf(" udpExecute: dx=dy=dz=0\n");
+        snprintf(message, 100, "dx=dy=dz=0");
         status  = EGADS_GEOMERR;
         goto cleanup;
 
@@ -170,7 +174,7 @@ udpExecute(ego  context,                /* (in)  EGADS context */
         // CENTER is not used
 
     } else if (CENTER_SIZ(0) != 3) {
-        printf(" udpExecute: center should contain 3 entries\n");
+        snprintf(message, 100, "center should contain 3 entries");
         status  = EGADS_GEOMERR;
         goto cleanup;
     }
@@ -532,8 +536,14 @@ udpExecute(ego  context,                /* (in)  EGADS context */
 #endif
 
 cleanup:
-    if (status != EGADS_SUCCESS) {
+    if (strlen(message) > 0) {
+        *string = message;
+        printf("%s\n", message);
+    } else if (status != EGADS_SUCCESS) {
+        EG_free(message);
         *string = udpErrorStr(status);
+    } else {
+        EG_free(message);
     }
 
     return status;

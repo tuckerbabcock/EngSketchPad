@@ -18,8 +18,8 @@ extern void printObjects(capsObj object, int indent);
 static int
 printValues(capsObj object, int indent)
 {
-  int            i, j, status, len, nerr, dim, nrow, ncol, range, *ints;
-  char           *str, *pname, *pID, *uID;
+  int            i, j, status, len, nerr, dim, nrow, ncol, range, rank, *ints;
+  char           *str, *pname, *pID, *uID, **dotnames;
   const char     *units;
   double         *reals;
   const void     *data;
@@ -74,7 +74,7 @@ printValues(capsObj object, int indent)
         status = caps_getLimits(object, &data);
         if ((data != NULL) && (status == CAPS_SUCCESS)) range = 1;
       }
-    } else if (type == Double) {
+    } else if ((type == Double) || (type == DoubleDot)) {
       reals = (double *) data;
       for (i = 0; i < len; i++) printf(" %lf", reals[i]);
       data   = NULL;
@@ -108,6 +108,23 @@ printValues(capsObj object, int indent)
     if (reals != NULL) printf(" lims=[%lf-%lf]", reals[0], reals[1]);
   }
   printf("\n");
+  if (type != DoubleDot) return CAPS_SUCCESS;
+
+  status = caps_hasDot(object, &dim, &dotnames);
+  if (status != CAPS_SUCCESS) return status;
+  
+  for (i = 0; i < dim; i++) {
+    status = caps_getDot(object, dotnames[i], &len, &rank, &reals);
+    if (status != CAPS_SUCCESS) continue;
+    for (j = 0; j < indent; j++) printf(" ");
+    printf(" dot %2d: %s  rank = %d\n  ", i+1, dotnames[i], rank);
+    if (reals != NULL) {
+      for (j = 0; j < indent+2; j++) printf(" ");
+      for (j = 0; j < len*rank; j++) printf(" %lf", reals[j]);
+    }
+    printf("\n");
+  }
+  EG_free(dotnames);
   
   return CAPS_SUCCESS;
 }

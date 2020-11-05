@@ -108,11 +108,10 @@
 
 #include "egads.h"
 
-#include "hashElement.h"
-
 // Windows aliasing
 #ifdef WIN32
 #define getcwd     _getcwd
+#define snprintf   _snprintf
 #define strcasecmp stricmp
 #define PATH_MAX   _MAX_PATH
 #else
@@ -120,22 +119,35 @@
 #include <limits.h>
 #endif
 
-#define PTOL               1.e-5
 #define PI                 3.1415926535897931159979635
 #define CROSS(a,b,c)       a[0] = (b[1]*c[2]) - (b[2]*c[1]);\
                            a[1] = (b[2]*c[0]) - (b[0]*c[2]);\
                            a[2] = (b[0]*c[1]) - (b[1]*c[0])
 #define DOT(a,b)         ((a)[0]*(b)[0] + (a)[1]*(b)[1] + (a)[2]*(b)[2])
+#define MAX(A,B)         (((A) < (B)) ? (B) : (A))
 
 
-#define NUMINPUT  40  // number of mesh aimInputs
+#define NUMINPUT  44  // number of mesh aimInputs
 #define NUMOUT    1   // number of outputs
 
+static char egadsFileName[] = "caps.egads";
 
-// this easter egg function returns result which is value of the p-curve and it's derivatives w.r.t 't' so
-// used to detect periodicity in parameter space
-  extern int EG_getEdgeUVeval( const ego face, const ego topo, int sense,
-                               double t, double *result );
+typedef struct {
+  int    npts;
+  double *xyz;
+  double *t;
+  int    *ivp;   // volume node index
+} edgeData;
+
+typedef struct {
+  int    npts;
+  double *xyz;
+  double *uv;
+  int    ntri;
+  int    nquad;
+  int    *tris;
+  int    *ivp;   // volume node index
+} faceData;
 
 typedef struct {
   double **rvec;
@@ -148,19 +160,8 @@ typedef struct {
   int    nedges;
   int    nnodes;
 
-  int    *nodes_isp; // surface mesh index
-
-  int    *edges_npts;
-  double **edges_xyz;
-  double **edges_t;
-  int    **edges_isp; // surface mesh index
-
-  int    *faces_npts;
-  double **faces_xyz;
-  double **faces_uv;
-  int    *faces_ntri;
-  int    *faces_nquad;
-  int    **faces_tris;
+  edgeData *tedges;
+  faceData *tfaces;
 } bodyData;
 
 typedef struct {
@@ -185,17 +186,8 @@ static int initiate_bodyData(int numBody, bodyData *bodydata) {
       bodydata[i].nfaces = 0;
       bodydata[i].nedges = 0;
       bodydata[i].nnodes = 0;
-      bodydata[i].nodes_isp = NULL;
-      bodydata[i].edges_npts = NULL;
-      bodydata[i].edges_xyz = NULL;
-      bodydata[i].edges_isp = NULL;
-      bodydata[i].edges_t = NULL;
-      bodydata[i].faces_npts = NULL;
-      bodydata[i].faces_xyz = NULL;
-      bodydata[i].faces_uv = NULL;
-      bodydata[i].faces_ntri = NULL;
-      bodydata[i].faces_nquad = NULL;
-      bodydata[i].faces_tris = NULL;
+      bodydata[i].tedges = NULL;
+      bodydata[i].tfaces = NULL;
   }
 
   return CAPS_SUCCESS;
@@ -221,46 +213,23 @@ static int destroy_bodyData(int numBody, bodyData *bodydata) {
     EG_free(bodydata[i].surfaces);
     EG_free(bodydata[i].rvec);
 
-    EG_free(bodydata[i].nodes_isp);
-    EG_free(bodydata[i].edges_npts);
-    EG_free(bodydata[i].faces_npts);
-    EG_free(bodydata[i].faces_ntri);
-    EG_free(bodydata[i].faces_nquad);
-
-    if (bodydata[i].edges_xyz != NULL) {
-      for (j = 0; j < bodydata[i].nedges; j++)
-        EG_free(bodydata[i].edges_xyz[j]);
-      EG_free(bodydata[i].edges_xyz);
+    if (bodydata[i].tedges != NULL) {
+        for (j = 0; j < bodydata[i].nedges; j++) {
+            EG_free(bodydata[i].tedges[j].xyz);
+            EG_free(bodydata[i].tedges[j].t);
+            EG_free(bodydata[i].tedges[j].ivp);
+        }
+        EG_free(bodydata[i].tedges);
     }
 
-    if (bodydata[i].edges_t != NULL) {
-      for (j = 0; j < bodydata[i].nedges; j++)
-        EG_free(bodydata[i].edges_t[j]);
-      EG_free(bodydata[i].edges_t);
-    }
-
-    if (bodydata[i].edges_isp != NULL) {
-      for (j = 0; j < bodydata[i].nedges; j++)
-        EG_free(bodydata[i].edges_isp[j]);
-      EG_free(bodydata[i].edges_isp);
-    }
-
-    if (bodydata[i].faces_xyz != NULL) {
-      for (j = 0; j < bodydata[i].nfaces; j++)
-        EG_free(bodydata[i].faces_xyz[j]);
-      EG_free(bodydata[i].faces_xyz);
-    }
-
-    if (bodydata[i].faces_uv != NULL) {
-      for (j = 0; j < bodydata[i].nfaces; j++)
-        EG_free(bodydata[i].faces_uv[j]);
-      EG_free(bodydata[i].faces_uv);
-    }
-
-    if (bodydata[i].faces_tris != NULL) {
-      for (j = 0; j < bodydata[i].nfaces; j++)
-        EG_free(bodydata[i].faces_tris[j]);
-      EG_free(bodydata[i].faces_tris);
+    if (bodydata[i].tfaces != NULL) {
+        for (j = 0; j < bodydata[i].nfaces; j++) {
+            EG_free(bodydata[i].tfaces[j].xyz);
+            EG_free(bodydata[i].tfaces[j].uv);
+            EG_free(bodydata[i].tfaces[j].tris);
+            EG_free(bodydata[i].tfaces[j].ivp);
+        }
+        EG_free(bodydata[i].tfaces);
     }
   }
 
@@ -287,7 +256,7 @@ void decodeEgadsID( int id, int *type, int *bodyID, int *index ) {
   *bodyID = (id >> 20) & 255;
   *index  =  id        & 0xFFFFF;
 
-  // change to 0-baed indexing
+  // change to 0-based indexing
   *bodyID -= 1;
   *index  -= 1;
 }
@@ -299,10 +268,6 @@ typedef struct {
   // Container for volume mesh
   int numVolumeMesh;
   meshStruct *volumeMesh;
-
-  // Container for surface mesh
-  int numSurfaceMesh;
-  meshStruct *surfaceMesh;
 
   // Attribute to index map
   mapAttrToIndexStruct attrMap;
@@ -320,9 +285,6 @@ static int initiate_aimStorage(int iIndex) {
   pointwiseInstance[iIndex].numVolumeMesh = 0;
   pointwiseInstance[iIndex].volumeMesh = NULL;
 
-  pointwiseInstance[iIndex].numSurfaceMesh = 0;
-  pointwiseInstance[iIndex].surfaceMesh = NULL;
-
   // Destroy attribute to index map
   status = initiate_mapAttrToIndexStruct(&pointwiseInstance[iIndex].attrMap);
   if (status != CAPS_SUCCESS) return status;
@@ -333,12 +295,18 @@ static int initiate_aimStorage(int iIndex) {
 static int destroy_aimStorage(int iIndex) {
 
 
-  int i; // Indexing
+  int i, j; // Indexing
 
   int status; // Function return status
 
   // Destroy volume mesh allocated arrays
   for (i = 0; i < pointwiseInstance[iIndex].numVolumeMesh; i++) {
+
+      for (j = 0; j < pointwiseInstance[iIndex].volumeMesh[i].numReferenceMesh; j++) {
+          status = destroy_meshStruct(&pointwiseInstance[iIndex].volumeMesh[i].referenceMesh[j]);
+          if (status != CAPS_SUCCESS) printf("Status = %d, pointwiseAIM instance %d, referenceMesh cleanup!!!\n", status, iIndex);
+      }
+
       status = destroy_meshStruct(&pointwiseInstance[iIndex].volumeMesh[i]);
       if (status != CAPS_SUCCESS) printf("Status = %d, pointwiseAIM instance %d, volumeMesh cleanup!!!\n", status, iIndex);
   }
@@ -346,16 +314,6 @@ static int destroy_aimStorage(int iIndex) {
 
   EG_free(pointwiseInstance[iIndex].volumeMesh);
   pointwiseInstance[iIndex].volumeMesh = NULL;
-
-  // Destroy surface mesh allocated arrays
-  for (i = 0; i < pointwiseInstance[iIndex].numSurfaceMesh; i++) {
-      status = destroy_meshStruct(&pointwiseInstance[iIndex].surfaceMesh[i]);
-      if (status != CAPS_SUCCESS) printf("Status = %d, pointwiseAIM instance %d, surfaceMesh cleanup!!!\n", status, iIndex);
-  }
-  pointwiseInstance[iIndex].numSurfaceMesh = 0;
-
-  EG_free(pointwiseInstance[iIndex].surfaceMesh);
-  pointwiseInstance[iIndex].surfaceMesh = NULL;
 
   // Destroy attribute to index map
   status = destroy_mapAttrToIndexStruct(&pointwiseInstance[iIndex].attrMap);
@@ -405,17 +363,15 @@ static int getUGRID(FILE *fp, meshStruct *volumeMesh)
 
   // Numbers
   volumeMesh->numNode = numNode;
-  volumeMesh->numElement = numTriangle      +
-                           numQuadrilateral +
-                           numTetrahedral   +
+  volumeMesh->numElement = numTetrahedral   +
                            numPyramid       +
                            numPrism         +
                            numHexahedral;
 
-  volumeMesh->meshQuickRef.useStartIndex = (int) true;
+  volumeMesh->meshQuickRef.useStartIndex = (int) false;
 
-  volumeMesh->meshQuickRef.numTriangle      = numTriangle;
-  volumeMesh->meshQuickRef.numQuadrilateral = numQuadrilateral;
+  volumeMesh->meshQuickRef.numTriangle      = 0;
+  volumeMesh->meshQuickRef.numQuadrilateral = 0;
 
   volumeMesh->meshQuickRef.numTetrahedral = numTetrahedral;
   volumeMesh->meshQuickRef.numPyramid     = numPyramid;
@@ -471,6 +427,12 @@ static int getUGRID(FILE *fp, meshStruct *volumeMesh)
   // Start of element index
   elementIndex = 0;
 
+  // Skip all triangles and quads. These will be retrieved from the gma file instead
+  status = fseek(fp, (mesh_numMeshConnectivity(Triangle)     *numTriangle +
+                      mesh_numMeshConnectivity(Quadrilateral)*numQuadrilateral)*sizeof(int), SEEK_CUR);
+  if (status != 0) { status = CAPS_IOERR; goto cleanup; }
+
+#if 0
   // Elements -Set triangles
   if (numTriangle > 0) volumeMesh->meshQuickRef.startIndexTriangle = elementIndex;
 
@@ -508,6 +470,7 @@ static int getUGRID(FILE *fp, meshStruct *volumeMesh)
 
       elementIndex += 1;
   }
+#endif
 
   // skip face ID section of the file
   // they do not map to the elements on faces
@@ -610,6 +573,8 @@ static int writeMesh(int iIndex, void* aimInfo) {
 
   int surfIndex, volIndex;
 
+  meshStruct *volumeMesh;
+
   // analysis input values
   capsValue *Proj_Name = NULL;
   capsValue *Mesh_Format = NULL;
@@ -644,41 +609,44 @@ static int writeMesh(int iIndex, void* aimInfo) {
   outputASCIIFlag = Mesh_ASCII_Flag->vals.integer;
 
   if (strcasecmp(outputFormat, "SU2") != 0) {
-    for (surfIndex = 0; surfIndex < pointwiseInstance[iIndex].numSurfaceMesh; surfIndex++) {
+    for (volIndex = 0; volIndex < pointwiseInstance[iIndex].numVolumeMesh; volIndex++) {
+      volumeMesh = &pointwiseInstance[iIndex].volumeMesh[volIndex];
+      for (surfIndex = 0; surfIndex < volumeMesh->numReferenceMesh; surfIndex++) {
 
-      sprintf(surfNumber, "%d", surfIndex+1);
-      filename = (char *) EG_alloc((strlen(outputFileName) +strlen("_Surf_") + strlen(surfNumber)+1)*sizeof(char));
-      if (filename == NULL) { status = EGADS_MALLOC; goto cleanup; }
+        sprintf(surfNumber, "%d", surfIndex+1);
+        filename = (char *) EG_alloc((strlen(outputFileName) +strlen("_Surf_") + strlen(surfNumber)+1)*sizeof(char));
+        if (filename == NULL) { status = EGADS_MALLOC; goto cleanup; }
 
-      sprintf(filename, "%s_Surf_%s", outputFileName, surfNumber);
+        sprintf(filename, "%s_Surf_%s", outputFileName, surfNumber);
 
-      if (strcasecmp(outputFormat, "AFLR3") == 0) {
+        if (strcasecmp(outputFormat, "AFLR3") == 0) {
 
-        status = mesh_writeAFLR3(filename,
+          status = mesh_writeAFLR3(filename,
+                                   outputASCIIFlag,
+                                   &volumeMesh->referenceMesh[surfIndex],
+                                   1.0);
+
+        } else if (strcasecmp(outputFormat, "VTK") == 0) {
+
+          status = mesh_writeVTK(filename,
                                  outputASCIIFlag,
-                                 &pointwiseInstance[iIndex].surfaceMesh[surfIndex],
+                                 &volumeMesh->referenceMesh[surfIndex],
                                  1.0);
 
-      } else if (strcasecmp(outputFormat, "VTK") == 0) {
+        } else if (strcasecmp(outputFormat, "Tecplot") == 0) {
 
-        status = mesh_writeVTK(filename,
-                               outputASCIIFlag,
-                               &pointwiseInstance[iIndex].surfaceMesh[surfIndex],
-                               1.0);
+          status = mesh_writeTecplot(filename,
+                                     outputASCIIFlag,
+                                     &volumeMesh->referenceMesh[surfIndex],
+                                     1.0);
+        } else {
+          printf("Unrecognized mesh format, \"%s\", the surface mesh will not be written out\n", outputFormat);
+        }
 
-      } else if (strcasecmp(outputFormat, "Tecplot") == 0) {
+        EG_free(filename); filename = NULL;
 
-        status = mesh_writeTecplot(filename,
-                                   outputASCIIFlag,
-                                   &pointwiseInstance[iIndex].surfaceMesh[surfIndex],
-                                   1.0);
-      } else {
-        printf("Unrecognized mesh format, \"%s\", the surface mesh will not be written out\n", outputFormat);
+        if (status != CAPS_SUCCESS) goto cleanup;
       }
-
-      EG_free(filename); filename = NULL;
-
-      if (status != CAPS_SUCCESS) goto cleanup;
     }
   }
 
@@ -762,7 +730,7 @@ static int writeMesh(int iIndex, void* aimInfo) {
 }
 
 
-static int writeGlobalGlyph(void *aimInfo, capsValue *aimInputs) {
+static int writeGlobalGlyph(void *aimInfo, capsValue *aimInputs, double capsMeshLength) {
 
     int status;
 
@@ -770,41 +738,45 @@ static int writeGlobalGlyph(void *aimInfo, capsValue *aimInputs) {
     char filename[] = "capsUserDefaults.glf";
 
     // connector controls
-    int         conInitDim           = aimInputs[aim_getIndex(aimInfo, "Connector_Initial_Dim"     , ANALYSISIN)-1].vals.integer;
-    int         conMaxDim            = aimInputs[aim_getIndex(aimInfo, "Connector_Max_Dim"         , ANALYSISIN)-1].vals.integer;
-    int         conMinDim            = aimInputs[aim_getIndex(aimInfo, "Connector_Min_Dim"         , ANALYSISIN)-1].vals.integer;
-    double      conTurnAngle         = aimInputs[aim_getIndex(aimInfo, "Connector_Turn_Angle"      , ANALYSISIN)-1].vals.real;
-    double      conDeviation         = aimInputs[aim_getIndex(aimInfo, "Connector_Deviation"       , ANALYSISIN)-1].vals.real;
-    double      conSplitAngle        = aimInputs[aim_getIndex(aimInfo, "Connector_Split_Angle"     , ANALYSISIN)-1].vals.real;
-    double      conProxGrowthRate    = aimInputs[aim_getIndex(aimInfo, "Connector_Prox_Growth_Rate", ANALYSISIN)-1].vals.real;
-    int         conAdaptSources      = aimInputs[aim_getIndex(aimInfo, "Connector_Adapt_Sources"   , ANALYSISIN)-1].vals.integer;
-    int         conSourceSpacing     = aimInputs[aim_getIndex(aimInfo, "Connector_Source_Spacing"  , ANALYSISIN)-1].vals.integer;
-    double      conTurnAngleHard     = aimInputs[aim_getIndex(aimInfo, "Connector_Turn_Angle_Hard" , ANALYSISIN)-1].vals.real;
+    int         conInitDim           = aimInputs[aim_getIndex(aimInfo, "Connector_Initial_Dim"      , ANALYSISIN)-1].vals.integer;
+    int         conMaxDim            = aimInputs[aim_getIndex(aimInfo, "Connector_Max_Dim"          , ANALYSISIN)-1].vals.integer;
+    int         conMinDim            = aimInputs[aim_getIndex(aimInfo, "Connector_Min_Dim"          , ANALYSISIN)-1].vals.integer;
+    double      conTurnAngle         = aimInputs[aim_getIndex(aimInfo, "Connector_Turn_Angle"       , ANALYSISIN)-1].vals.real;
+    double      conDeviation         = aimInputs[aim_getIndex(aimInfo, "Connector_Deviation"        , ANALYSISIN)-1].vals.real;
+    double      conSplitAngle        = aimInputs[aim_getIndex(aimInfo, "Connector_Split_Angle"      , ANALYSISIN)-1].vals.real;
+    double      conProxGrowthRate    = aimInputs[aim_getIndex(aimInfo, "Connector_Prox_Growth_Rate" , ANALYSISIN)-1].vals.real;
+    int         conAdaptSources      = aimInputs[aim_getIndex(aimInfo, "Connector_Adapt_Sources"    , ANALYSISIN)-1].vals.integer;
+    int         conSourceSpacing     = aimInputs[aim_getIndex(aimInfo, "Connector_Source_Spacing"   , ANALYSISIN)-1].vals.integer;
+    double      conTurnAngleHard     = aimInputs[aim_getIndex(aimInfo, "Connector_Turn_Angle_Hard"  , ANALYSISIN)-1].vals.real;
 
     // domain controls
-    const char *domAlgorithm         = aimInputs[aim_getIndex(aimInfo, "Domain_Algorithm"          , ANALYSISIN)-1].vals.string;
-    int         domFullLayers        = aimInputs[aim_getIndex(aimInfo, "Domain_Full_Layers"        , ANALYSISIN)-1].vals.integer;
-    int         domMaxLayers         = aimInputs[aim_getIndex(aimInfo, "Domain_Max_Layers"         , ANALYSISIN)-1].vals.integer;
-    double      domGrowthRate        = aimInputs[aim_getIndex(aimInfo, "Domain_Growth_Rate"        , ANALYSISIN)-1].vals.real;
-    const char *domIsoType           = aimInputs[aim_getIndex(aimInfo, "Domain_Iso_Type"           , ANALYSISIN)-1].vals.string;
-    const char *domTRexType          = aimInputs[aim_getIndex(aimInfo, "Domain_TRex_Type"          , ANALYSISIN)-1].vals.string;
-    double      domTRexARLimit       = aimInputs[aim_getIndex(aimInfo, "Domain_TRex_ARLimit"       , ANALYSISIN)-1].vals.real;
-    double      domDecay             = aimInputs[aim_getIndex(aimInfo, "Domain_Decay"              , ANALYSISIN)-1].vals.real;
-    double      domMinEdge           = aimInputs[aim_getIndex(aimInfo, "Domain_Min_Edge"           , ANALYSISIN)-1].vals.real;
-    double      domMaxEdge           = aimInputs[aim_getIndex(aimInfo, "Domain_Max_Edge"           , ANALYSISIN)-1].vals.real;
-    int         domAdapt             = aimInputs[aim_getIndex(aimInfo, "Domain_Adapt"              , ANALYSISIN)-1].vals.integer;
+    const char *domAlgorithm         = aimInputs[aim_getIndex(aimInfo, "Domain_Algorithm"           , ANALYSISIN)-1].vals.string;
+    int         domFullLayers        = aimInputs[aim_getIndex(aimInfo, "Domain_Full_Layers"         , ANALYSISIN)-1].vals.integer;
+    int         domMaxLayers         = aimInputs[aim_getIndex(aimInfo, "Domain_Max_Layers"          , ANALYSISIN)-1].vals.integer;
+    double      domGrowthRate        = aimInputs[aim_getIndex(aimInfo, "Domain_Growth_Rate"         , ANALYSISIN)-1].vals.real;
+    const char *domIsoType           = aimInputs[aim_getIndex(aimInfo, "Domain_Iso_Type"            , ANALYSISIN)-1].vals.string;
+    const char *domTRexType          = aimInputs[aim_getIndex(aimInfo, "Domain_TRex_Type"           , ANALYSISIN)-1].vals.string;
+    double      domTRexARLimit       = aimInputs[aim_getIndex(aimInfo, "Domain_TRex_ARLimit"        , ANALYSISIN)-1].vals.real;
+    double      domTRexAngleBC       = aimInputs[aim_getIndex(aimInfo, "Domain_TRex_AngleBC"        , ANALYSISIN)-1].vals.real;
+    double      domDecay             = aimInputs[aim_getIndex(aimInfo, "Domain_Decay"               , ANALYSISIN)-1].vals.real;
+    double      domMinEdge           = aimInputs[aim_getIndex(aimInfo, "Domain_Min_Edge"            , ANALYSISIN)-1].vals.real;
+    double      domMaxEdge           = aimInputs[aim_getIndex(aimInfo, "Domain_Max_Edge"            , ANALYSISIN)-1].vals.real;
+    int         domAdapt             = aimInputs[aim_getIndex(aimInfo, "Domain_Adapt"               , ANALYSISIN)-1].vals.integer;
+    double      domWallSpacing       = aimInputs[aim_getIndex(aimInfo, "Domain_Wall_Spacing"        , ANALYSISIN)-1].vals.real;
+    double      domStrDomConvARTrig  = aimInputs[aim_getIndex(aimInfo, "Domain_Structure_AR_Convert", ANALYSISIN)-1].vals.real;
 
     // block controls
-    const char *blkAlgorithm         = aimInputs[aim_getIndex(aimInfo, "Block_Algorithm"           , ANALYSISIN)-1].vals.string;
-    int         blkVoxelLayers       = aimInputs[aim_getIndex(aimInfo, "Block_Voxel_Layers"        , ANALYSISIN)-1].vals.integer;
-    double      blkboundaryDecay     = aimInputs[aim_getIndex(aimInfo, "Block_Boundary_Decay"      , ANALYSISIN)-1].vals.real;
-    double      blkcollisionBuffer   = aimInputs[aim_getIndex(aimInfo, "Block_Collision_Buffer"    , ANALYSISIN)-1].vals.real;
-    double      blkmaxSkewAngle      = aimInputs[aim_getIndex(aimInfo, "Block_Max_Skew_Angle"      , ANALYSISIN)-1].vals.real;
-    double      blkedgeMaxGrowthRate = aimInputs[aim_getIndex(aimInfo, "Block_Edge_Max_Growth_Rate", ANALYSISIN)-1].vals.real;
-    int         blkfullLayers        = aimInputs[aim_getIndex(aimInfo, "Block_Full_Layers"         , ANALYSISIN)-1].vals.integer;
-    int         blkmaxLayers         = aimInputs[aim_getIndex(aimInfo, "Block_Max_Layers"          , ANALYSISIN)-1].vals.integer;
-    double      blkgrowthRate        = aimInputs[aim_getIndex(aimInfo, "Block_Growth_Rate"         , ANALYSISIN)-1].vals.real;
-    const char *blkTRexType          = aimInputs[aim_getIndex(aimInfo, "Block_TRexType"            , ANALYSISIN)-1].vals.string;
+    const char *blkAlgorithm         = aimInputs[aim_getIndex(aimInfo, "Block_Algorithm"            , ANALYSISIN)-1].vals.string;
+    int         blkVoxelLayers       = aimInputs[aim_getIndex(aimInfo, "Block_Voxel_Layers"         , ANALYSISIN)-1].vals.integer;
+    double      blkboundaryDecay     = aimInputs[aim_getIndex(aimInfo, "Block_Boundary_Decay"       , ANALYSISIN)-1].vals.real;
+    double      blkcollisionBuffer   = aimInputs[aim_getIndex(aimInfo, "Block_Collision_Buffer"     , ANALYSISIN)-1].vals.real;
+    double      blkmaxSkewAngle      = aimInputs[aim_getIndex(aimInfo, "Block_Max_Skew_Angle"       , ANALYSISIN)-1].vals.real;
+    int         blkTRexSkewDelay     = aimInputs[aim_getIndex(aimInfo, "Block_TRex_Skew_Delay"      , ANALYSISIN)-1].vals.integer;
+    double      blkedgeMaxGrowthRate = aimInputs[aim_getIndex(aimInfo, "Block_Edge_Max_Growth_Rate" , ANALYSISIN)-1].vals.real;
+    int         blkfullLayers        = aimInputs[aim_getIndex(aimInfo, "Block_Full_Layers"          , ANALYSISIN)-1].vals.integer;
+    int         blkmaxLayers         = aimInputs[aim_getIndex(aimInfo, "Block_Max_Layers"           , ANALYSISIN)-1].vals.integer;
+    double      blkgrowthRate        = aimInputs[aim_getIndex(aimInfo, "Block_Growth_Rate"          , ANALYSISIN)-1].vals.real;
+    const char *blkTRexType          = aimInputs[aim_getIndex(aimInfo, "Block_TRexType"             , ANALYSISIN)-1].vals.string;
 
     // general controls
     double genSourceBoxLengthScale   = aimInputs[aim_getIndex(aimInfo, "Gen_Source_Box_Length_Scale", ANALYSISIN)-1].vals.real;
@@ -821,6 +793,12 @@ static int writeGlobalGlyph(void *aimInfo, capsValue *aimInputs) {
     double      eoeWCNWeight         = aimInputs[aim_getIndex(aimInfo, "Elevate _WCN_Weight"       , ANALYSISIN)-1].vals.real;
     const char *eoeWCNMode           = aimInputs[aim_getIndex(aimInfo, "Elevate _WCN_Mode"         , ANALYSISIN)-1].vals.string;
 */
+
+    // Apply the capsMeshLength scaling
+    domMinEdge *= capsMeshLength;
+    domMaxEdge *= capsMeshLength;
+    domWallSpacing *= capsMeshLength;
+
     // Assumed we are currently already in the correct directory
     fp = fopen(filename, "w");
     if (fp == NULL) {
@@ -849,10 +827,13 @@ static int writeGlobalGlyph(void *aimInfo, capsValue *aimInputs) {
     fprintf(fp, "set domParams(IsoType)                      \"%s\"; # Domain iso cell type (Triangle or TriangleQuad)\n", domIsoType);
     fprintf(fp, "set domParams(TRexType)                     \"%s\"; # Domain T-Rex cell type (Triangle or TriangleQuad)\n", domTRexType);
     fprintf(fp, "set domParams(TRexARLimit)                     %lf; # Domain T-Rex maximum aspect ratio limit (0 - not used)\n", domTRexARLimit);
+    fprintf(fp, "set domParams(TRexAngleBC)                     %lf; # Domain T-Rex spacing from surface curvature\n", domTRexAngleBC);
     fprintf(fp, "set domParams(Decay)                           %lf; # Domain boundary decay\n", domDecay);
     fprintf(fp, "set domParams(MinEdge)                         %lf; # Domain minimum edge length\n", domMinEdge);
     fprintf(fp, "set domParams(MaxEdge)                         %lf; # Domain maximum edge length\n", domMaxEdge);
     fprintf(fp, "set domParams(Adapt)                            %d; # Set up all domains for adaptation (0 - not used) V18.2+ (experimental)\n", domAdapt);
+    fprintf(fp, "set domParams(WallSpacing)                     %lf; # defined spacing when geometry attributed with $wall\n", domWallSpacing);
+    fprintf(fp, "set domParams(StrDomConvertARTrigger)          %lf; # Aspect ratio to trigger converting domains to structured\n", domStrDomConvARTrig);
     fprintf(fp, "\n");
     fprintf(fp, "# Block level\n");
     fprintf(fp, "set blkParams(Algorithm)                    \"%s\"; # Isotropic (Delaunay, Voxel) (V18.3+)\n", blkAlgorithm);
@@ -860,6 +841,7 @@ static int writeGlobalGlyph(void *aimInfo, capsValue *aimInputs) {
     fprintf(fp, "set blkParams(boundaryDecay)                   %lf; # Volumetric boundary decay\n", blkboundaryDecay);
     fprintf(fp, "set blkParams(collisionBuffer)                 %lf; # Collision buffer for colliding T-Rex fronts\n", blkcollisionBuffer);
     fprintf(fp, "set blkParams(maxSkewAngle)                    %lf; # Maximum skew angle for T-Rex extrusion\n", blkmaxSkewAngle);
+    fprintf(fp, "set blkParams(TRexSkewDelay)                    %d; # Number of layers to delay enforcement of skew criteria\n", blkTRexSkewDelay);
     fprintf(fp, "set blkParams(edgeMaxGrowthRate)               %lf; # Volumetric edge ratio\n", blkedgeMaxGrowthRate);
     fprintf(fp, "set blkParams(fullLayers)                       %d; # Full layers (0 for multi-normals, >= 1 for single normal)\n", blkfullLayers);
     fprintf(fp, "set blkParams(maxLayers)                        %d; # Maximum layers\n", blkmaxLayers);
@@ -876,8 +858,9 @@ static int writeGlobalGlyph(void *aimInfo, capsValue *aimInputs) {
     fprintf(fp, "set genParams(sourceBoxAngle)                  %lf; # Angle for widening source box in the assigned direction\n", genSourceBoxAngle);
     fprintf(fp, "set genParams(sourceGrowthFactor)              %lf; # Growth rate for spacing value along box\n", genSourceGrowthFactor);
     fprintf(fp, "set genParams(ModelSize)                         0; # Set model size before CAD import (0 - get from file)\n");
-    fprintf(fp, "set genParams(writeGMA)                   \"true\"; # Write out geometry-mesh associativity file (true or false)\n");
-    fprintf(fp, "set genParams(assembleTolMult)                 1.0; # Multiplier on model assembly tolerance for allowed MinEdge\n");
+    fprintf(fp, "set genParams(writeGMA)                    \"2.0\"; # Write out geometry-mesh associativity file version (0.0 - none, 1.0 or 2.0)\n");
+    fprintf(fp, "set genParams(assembleTolMult)                 2.0; # Multiplier on model assembly tolerance for allowed MinEdge\n");
+    fprintf(fp, "set genParams(modelOrientIntoMeshVolume)         1; # Whether the model is oriented so normals point into the mesh\n");
     fprintf(fp, "\n");
 /*  These parameters are for high-order mesh generation. This should be hooked up in the future.
     fprintf(fp, "# Elevate On Export V18.2+\n");
@@ -1247,7 +1230,7 @@ static int setPWAttr(ego body,
                 // Is the attribute set?
                 if (meshProp[propIndex].boundaryLayerSpacing > 0) {
 
-                  real = capsMeshLength*meshProp[propIndex].boundaryLayerSpacing;
+                    real = capsMeshLength*meshProp[propIndex].boundaryLayerSpacing;
 
                     // add the attribute
                     status = EG_attributeAdd(faces[faceIndex], "PW:WallSpacing", ATTRREAL, 1, NULL, &real, NULL);
@@ -1279,12 +1262,68 @@ static int setPWAttr(ego body,
         return status;
 }
 
-// corrects uv values from pointwise gma files
-static void correctUV(ego face, ego geom, ego newSurf, double *rvec, double *uv)
-{
-  int    status, iper;
-  double limits[4], results[18], x, y, z, d, di, *x1, *x2, norm[3];
 
+// corrects uv values from pointwise gma files
+static int correctUV(ego face, ego surf, ego eBsplSurf, double *rvec, double *offuv)
+{
+  int    status;
+  int    i, oclass, mtype, fper, sper;
+  double offU, offV, frange[4], srange[4], perU, perV;
+  ego    ref;
+
+  /* get the surface's representation */
+  status = EG_getGeometry(surf, &oclass, &mtype, &ref, NULL, NULL);
+  if (status != EGADS_SUCCESS) {
+      printf(" Error: EG_getGeometry = %d (correctUV)!\n", status);
+      return status;
+  }
+  offuv[0] = offuv[1] = 0;
+  if (mtype == BSPLINE) return EGADS_SUCCESS;
+  offU = offV = 0.0;
+
+  status = EG_getRange(surf, frange, &fper);
+  if (status != EGADS_SUCCESS) {
+      printf(" Error: EG_getRange0 = %d (correctUV)!\n", status);
+      return status;
+  }
+  perU = perV = 0.0;
+  if ((fper & 1) != 0) perU = frange[1] - frange[0];
+  if ((fper & 2) != 0) perV = frange[3] - frange[2];
+  status = EG_getRange(face, frange, &i);
+  if (status != EGADS_SUCCESS) {
+      printf(" Error: EG_getRange1 = %d (correctUV)!\n", status);
+      return status;
+  }
+  status = EG_getRange(eBsplSurf, srange, &sper);
+  if (status != EGADS_SUCCESS) {
+      printf(" Error: EG_getRange0 = %d (correctUV)!\n", status);
+      return status;
+  }
+  if ((fabs(frange[0] - srange[0]) > 1.e-4) ||
+      (fabs(frange[1] - srange[1]) > 1.e-4)) {
+      //printf(" Internal: Uspan = %lf %lf   %lf %lf -- %lf  %d\n",
+      //    frange[0], frange[1], srange[0], srange[1], perU, fper);
+      offU = perU;
+      if ((frange[0] - srange[0]) < 0.0) offU = -perU;
+      //printf("    uOffs = %lf %lf   %lf\n",
+      //    srange[0] + offU, srange[1] + offU, offU);
+  }
+  if ((fabs(frange[2] - srange[2]) > 1.e-4) ||
+      (fabs(frange[3] - srange[3]) > 1.e-4)) {
+      //printf(" Internal: Vspan = %lf %lf   %lf %lf -- %lf  %d\n",
+      //    frange[2], frange[3], srange[2], srange[3], perV, fper);
+      offV = perV;
+      if ((frange[2] - srange[2]) < 0.0) offV = -perV;
+      //printf("    vOffs = %lf %lf   %lf\n",
+      //    srange[2] + offV, srange[3] + offV, offV);
+  }
+
+  offuv[0] = offU;
+  offuv[1] = offV;
+
+  return EGADS_SUCCESS;
+
+#if 0
   status = EG_getRange(face, limits, &iper);
   if (status != EGADS_SUCCESS) {
     printf(" getRange = %d\n", status);
@@ -1296,7 +1335,7 @@ static void correctUV(ego face, ego geom, ego newSurf, double *rvec, double *uv)
     return;
   }
 
-  if ((geom->mtype == CYLINDRICAL) || (geom->mtype == CONICAL)) {
+  if ((surf->mtype == CYLINDRICAL) || (surf->mtype == CONICAL)) {
     x = (results[0]-rvec[0])*rvec[3] + (results[1]-rvec[1])*rvec[4] +
         (results[2]-rvec[2])*rvec[5];
     y = (results[0]-rvec[0])*rvec[6] + (results[1]-rvec[1])*rvec[7] +
@@ -1305,7 +1344,7 @@ static void correctUV(ego face, ego geom, ego newSurf, double *rvec, double *uv)
     while (d < limits[0]) d += 2*PI;
     while (d > limits[1]) d -= 2*PI;
     uv[0] = d;
-  } else if (geom->mtype == SPHERICAL) {
+  } else if (surf->mtype == SPHERICAL) {
     d  =  rvec[9];
     x1 = &rvec[3];
     x2 = &rvec[6];
@@ -1346,9 +1385,141 @@ static void correctUV(ego face, ego geom, ego newSurf, double *rvec, double *uv)
     while (uv[0] < limits[0]) uv[0] += 2*PI;
     while (uv[0] > limits[1]) uv[0] -= 2*PI;
   }
+#endif
 }
 
 
+typedef struct {
+  int ibody;    // 0-based body index
+  int iedge;    // 0-based edge index
+} edgeMapData;
+
+static int matchSameEdges(ego *bodies, int numBody, edgeMapData ***edgeMapOut) {
+
+  int status = CAPS_SUCCESS;
+  int i, j, isheet, isolid;
+  int numSolid=0, numSheet=0;
+  int oclass, mtype, nchild, *senses;
+  int nSheetEdge, isheetedge, nSolidEdge, isolidedge, nSheetNode, nSolidNode;
+  int mtypeSheet, mtypeSolid, numEdge;
+  int *solidBodies=NULL, *sheetBodies=NULL;
+  double data[4];
+  ego geom, *children, *edges=NULL, *sheetEdges=NULL, *solidEdges=NULL, *sheetNodes, *solidNodes;
+  edgeMapData **edgeMap = NULL;
+
+  solidBodies = (int*)EG_alloc(numBody*sizeof(int));
+  if (solidBodies == NULL) { status = EGADS_MALLOC; goto cleanup; }
+
+  sheetBodies = (int*)EG_alloc(numBody*sizeof(int));
+  if (sheetBodies == NULL) { status = EGADS_MALLOC; goto cleanup; }
+
+  edgeMap = (edgeMapData**)EG_alloc(numBody*sizeof(edgeMapData*));
+  if (edgeMap == NULL) { status = EGADS_MALLOC; goto cleanup; }
+  for (i = 0; i < numBody; i++) {
+    edgeMap[i] = NULL;
+  }
+
+  for (i = 0; i < numBody; i++) {
+    status = EG_getTopology(bodies[i], &geom, &oclass, &mtype, data,
+                            &nchild, &children, &senses);
+    if (status != EGADS_SUCCESS) goto cleanup;
+         if (mtype == SOLIDBODY) solidBodies[numSolid++] = i;
+    else if (mtype == SHEETBODY) sheetBodies[numSheet++] = i;
+    else {
+      printf(" Error: Unsupported body type!\n");
+      status = CAPS_BADTYPE;
+      goto cleanup;
+    }
+
+    // get the Edges to fill the default identity edgeMap
+    status = EG_getBodyTopos(bodies[i], NULL, EDGE, &numEdge, &edges);
+    if (status != EGADS_SUCCESS) goto cleanup;
+
+    edgeMap[i] = (edgeMapData*)EG_alloc(numEdge*sizeof(edgeMapData));
+    if (edgeMap[i] == NULL) { status = EGADS_MALLOC; goto cleanup; }
+
+    for (j = 0; j < numEdge; j++) {
+      edgeMap[i][j].ibody = i;
+      edgeMap[i][j].iedge = j;
+    }
+    EG_free(edges); edges = NULL;
+  }
+
+  //Find all sheet body edges that also exist in solid bodies
+  for ( isheet = 0; isheet < numSheet; isheet++ ) {
+
+    status = EG_getBodyTopos(bodies[sheetBodies[isheet]], NULL, EDGE, &nSheetEdge, &sheetEdges);
+    if (status != EGADS_SUCCESS) goto cleanup;
+
+    //Loop over the solid bodies for each sheet body
+    for ( isolid = 0; isolid < numSolid; isolid++ ) {
+
+      status = EG_getBodyTopos(bodies[solidBodies[isolid]], NULL, EDGE, &nSolidEdge, &solidEdges);
+      if (status != EGADS_SUCCESS) goto cleanup;
+
+      //Loop over all edges in the sheet body and solid body
+      for ( isheetedge = 0; isheetedge < nSheetEdge; isheetedge++ ) {
+        for ( isolidedge = 0; isolidedge < nSolidEdge; isolidedge++ ) {
+
+          // Check if the sheet edge and solid edge are on the same geometry
+          if (EG_isSame(sheetEdges[isheetedge], solidEdges[isolidedge]) == EGADS_SUCCESS) {
+
+            // Get the nodes on the two edges
+            status = EG_getTopology(solidEdges[isolidedge], &geom, &oclass, &mtypeSolid, data,
+                                    &nSolidNode, &solidNodes, &senses);
+            if (status != EGADS_SUCCESS) goto cleanup;
+
+            status = EG_getTopology(sheetEdges[isheetedge], &geom, &oclass, &mtypeSheet, data,
+                                    &nSheetNode, &sheetNodes, &senses);
+            if (status != EGADS_SUCCESS) goto cleanup;
+
+            // Check that the nodes match on the edges
+            if (mtypeSolid == ONENODE) {
+
+              if ( !(EG_isSame(solidNodes[0], sheetNodes[0]) == EGADS_SUCCESS) ) continue;
+
+            } else {
+              if ( !( (EG_isSame(solidNodes[0], sheetNodes[0])==EGADS_SUCCESS && EG_isSame(solidNodes[1], sheetNodes[1])==EGADS_SUCCESS) ||
+                  (EG_isSame(solidNodes[0], sheetNodes[1])==EGADS_SUCCESS && EG_isSame(solidNodes[1], sheetNodes[0])==EGADS_SUCCESS) ) ) continue;
+            }
+
+            //Update the index map to register the equality
+            edgeMap[sheetBodies[isheet]][isheetedge].ibody = solidBodies[isolid];
+            edgeMap[sheetBodies[isheet]][isheetedge].iedge = isolidedge;
+
+            edgeMap[solidBodies[isolid]][isolidedge].ibody = sheetBodies[isheet];
+            edgeMap[solidBodies[isolid]][isolidedge].iedge = isheetedge;
+            break;
+          }
+        }
+      }
+      EG_free(solidEdges); solidEdges = NULL;
+    }
+    EG_free(sheetEdges); sheetEdges = NULL;
+  }
+
+  (*edgeMapOut) = edgeMap;
+
+cleanup:
+  if (status != EGADS_SUCCESS) {
+    printf("Error: Premature exit in matchSameEdges status = %d\n", status);
+    if (edgeMap != NULL) {
+      for (i = 0; i < numBody; i++)
+        EG_free(edgeMap[i]);
+      EG_free(edgeMap);
+    }
+  }
+
+  EG_free(solidBodies);
+  EG_free(sheetBodies);
+  EG_free(edges);
+
+  EG_free(sheetEdges);
+  EG_free(solidEdges);
+  return status;
+}
+
+#if 0
 // count faces that must occur twice in the tessellation of a face
 // these are on the bounds of a periodic uv-space
 static int getFaceEdgeCount(ego body, ego face, int *nedge, ego **edges, int **edgeCount) {
@@ -1440,7 +1611,7 @@ static int getFacePoints(bodyData *bodydata, int ibody, int iface, meshStruct *v
 
       uv[0] = limits[0] + surfacedata[isp].param[0]*(limits[1]-limits[0]);
       uv[1] = limits[2] + surfacedata[isp].param[1]*(limits[3]-limits[2]);
-      if ((geom->mtype == CYLINDRICAL) || (geom->mtype == CONICAL) ||
+      if ((geom->mtype == CYLINDRICAL) || (geom->mtype == CONICAL)  ||
           (geom->mtype == SPHERICAL)   || (geom->mtype == TOROIDAL))
         correctUV(face, geom, bodydata->surfaces[iface+bodydata->nfaces],
                   bodydata->rvec[iface], uv);
@@ -1504,6 +1675,7 @@ static int getFacePoints(bodyData *bodydata, int ibody, int iface, meshStruct *v
 
     return status;
 }
+#endif
 
 static void swapd(double *xp, double *yp) {
 
@@ -1519,6 +1691,7 @@ static void swapi(int *xp, int *yp) {
     *yp = temp;
 }
 
+#if 0
 // A function to implement bubble sort
 static void bubbleSort(int n, double t[], double xyz[], int isp[]) {
 
@@ -1533,6 +1706,39 @@ static void bubbleSort(int n, double t[], double xyz[], int isp[]) {
         swapd(&xyz[3*j+2], &xyz[3*(j+1)+2]);
         swapi(&isp[j]    , &isp[j+1]      );
       }
+}
+#endif
+
+// A function to reverse an Edge tessellation if needed
+static void orientEdgeTess(edgeData *tedge) {
+
+  int i;
+  int n = tedge->npts;
+  double *t = tedge->t;
+  double *xyz = tedge->xyz;
+
+  if (t[0] < t[n-1]) return;
+
+  for (i = 0; i < n/2; i++) {
+    swapd(&t[i]      , &t[n-1-i]        );
+    swapd(&xyz[3*i+0], &xyz[3*(n-1-i)+0]);
+    swapd(&xyz[3*i+1], &xyz[3*(n-1-i)+1]);
+    swapd(&xyz[3*i+2], &xyz[3*(n-1-i)+2]);
+  }
+}
+
+// Read and skips any comment lines in a gma file
+static int nextHeader(char **line, size_t *nline, int *iline, FILE *fp) {
+
+    while (getline(line, nline, fp) != -1) {
+        (*iline)++;
+        if (nline == 0) continue;
+        if ((*line)[0] == '#') continue;
+        break;
+    }
+    if (feof(fp)) return CAPS_IOERR;
+
+    return CAPS_SUCCESS;
 }
 
 /* ********************** Exposed AIM Functions ***************************** */
@@ -1734,6 +1940,19 @@ int aimInputs(int iIndex, void *aimInfo, int index, char **ainame,
          * Turning angle on connectors to split (0 - not used).
          */
     } if (index == ++input) {
+        *ainame              = EG_strdup("Connector_Turn_Angle_Hard");
+        defval->type         = Double;
+        defval->nullVal      = NotNull;
+        defval->units        = NULL;
+        defval->lfixed       = Fixed;
+        defval->dim          = Scalar;
+        defval->vals.real    = 70;
+
+        /*! \page aimInputsPointwise
+         * - <B> Connector_Turn_Angle_Hard = 70</B> <br>
+         * Hard edge turning angle limit for domain T-Rex (0.0 - not used).
+         */
+    } if (index == ++input) {
         *ainame              = EG_strdup("Connector_Prox_Growth_Rate");
         defval->type         = Double;
         defval->nullVal      = NotNull;
@@ -1771,19 +1990,6 @@ int aimInputs(int iIndex, void *aimInfo, int index, char **ainame,
         /*! \page aimInputsPointwise
          * - <B> Connector_Source_Spacing = False</B> <br>
          *  Use source cloud for adaptive pass on connectors V18.2+.
-         */
-    } if (index == ++input) {
-        *ainame              = EG_strdup("Connector_Turn_Angle_Hard");
-        defval->type         = Double;
-        defval->nullVal      = NotNull;
-        defval->units        = NULL;
-        defval->lfixed       = Fixed;
-        defval->dim          = Scalar;
-        defval->vals.real    = 70;
-
-        /*! \page aimInputsPointwise
-         * - <B> Connector_Turn_Angle_Hard = 70</B> <br>
-         * Hard edge turning angle limit for domain T-Rex (0.0 - not used).
          */
     } if (index == ++input) {
         *ainame              = EG_strdup("Domain_Algorithm");
@@ -1877,6 +2083,19 @@ int aimInputs(int iIndex, void *aimInfo, int index, char **ainame,
          * Domain T-Rex maximum aspect ratio limit (0 - not used).
          */
     } if (index == ++input) {
+        *ainame              = EG_strdup("Domain_TRex_AngleBC");
+        defval->type         = Double;
+        defval->nullVal      = NotNull;
+        defval->units        = NULL;
+        defval->lfixed       = Fixed;
+        defval->dim          = Scalar;
+        defval->vals.real    = 0.0;
+
+        /*! \page aimInputsPointwise
+         * - <B> Domain_TRex_AngleBC = 0.0</B> <br>
+         * Domain T-Rex spacing from surface curvature.
+         */
+    } if (index == ++input) {
         *ainame              = EG_strdup("Domain_Decay");
         defval->type         = Double;
         defval->nullVal      = NotNull;
@@ -1900,7 +2119,7 @@ int aimInputs(int iIndex, void *aimInfo, int index, char **ainame,
 
         /*! \page aimInputsPointwise
          * - <B> Domain_Min_Edge = 0.0</B> <br>
-         * Domain minimum edge length.
+         * Domain minimum edge length (relative to capsMeshLength).
          */
     } if (index == ++input) {
         *ainame              = EG_strdup("Domain_Max_Edge");
@@ -1913,7 +2132,7 @@ int aimInputs(int iIndex, void *aimInfo, int index, char **ainame,
 
         /*! \page aimInputsPointwise
          * - <B> Domain_Max_Edge = 0.0</B> <br>
-         * Domain minimum edge length.
+         * Domain minimum edge length (relative to capsMeshLength).
          */
     } if (index == ++input) {
         *ainame              = EG_strdup("Domain_Adapt");
@@ -1927,6 +2146,32 @@ int aimInputs(int iIndex, void *aimInfo, int index, char **ainame,
         /*! \page aimInputsPointwise
          * - <B> Domain_Adapt = False</B> <br>
          * Set up all domains for adaptation.
+         */
+    } if (index == ++input) {
+        *ainame              = EG_strdup("Domain_Wall_Spacing");
+        defval->type         = Double;
+        defval->nullVal      = NotNull;
+        defval->units        = NULL;
+        defval->lfixed       = Fixed;
+        defval->dim          = Scalar;
+        defval->vals.real    = 0.0;
+
+        /*! \page aimInputsPointwise
+         * - <B> Domain_Wall_Spacing = 0.0</B> <br>
+         * Defined spacing when geometry attributed with PW:WallSpacing $wall  (relative to capsMeshLength)
+         */
+    } if (index == ++input) {
+        *ainame              = EG_strdup("Domain_Structure_AR_Convert");
+        defval->type         = Double;
+        defval->nullVal      = NotNull;
+        defval->units        = NULL;
+        defval->lfixed       = Fixed;
+        defval->dim          = Scalar;
+        defval->vals.real    = 0.0;
+
+        /*! \page aimInputsPointwise
+         * - <B> Domain_Structure_AR_Convert = 0.0</B> <br>
+         * Aspect ratio to trigger converting domains to structured.
          */
     } if (index == ++input) {
         *ainame              = EG_strdup("Block_Algorithm");
@@ -1992,6 +2237,19 @@ int aimInputs(int iIndex, void *aimInfo, int index, char **ainame,
         /*! \page aimInputsPointwise
          * - <B> Block_Max_Skew_Angle = 180.0</B> <br>
          * Maximum skew angle for T-Rex extrusion.
+         */
+    } if (index == ++input) {
+        *ainame              = EG_strdup("Block_TRex_Skew_Delay");
+        defval->type         = Integer;
+        defval->nullVal      = NotNull;
+        defval->units        = NULL;
+        defval->lfixed       = Fixed;
+        defval->dim          = Scalar;
+        defval->vals.integer = 0;
+
+        /*! \page aimInputsPointwise
+         * - <B> Block_TRex_Skew_Delay = 0</B> <br>
+         * Number of layers to delay enforcement of skew criteria
          */
     } if (index == ++input) {
         *ainame              = EG_strdup("Block_Edge_Max_Growth_Rate");
@@ -2069,7 +2327,7 @@ int aimInputs(int iIndex, void *aimInfo, int index, char **ainame,
 
         /*! \page aimInputsPointwise
          * - <B> Gen_Source_Box_Length_Scale = 0.0</B> <br>
-         * Length scale of enclosed viscous walls in source box (0 - no box).
+         * Length scale of enclosed viscous walls in source box (0 - no box)  (relative to capsMeshLength).
          */
     } if (index == ++input) {
         *ainame              = EG_strdup("Gen_Source_Box_Direction");
@@ -2208,15 +2466,13 @@ int aimInputs(int iIndex, void *aimInfo, int index, char **ainame,
     return CAPS_SUCCESS;
 }
 
-// Shareable data for the AIM - typically optional
+// Sharable data for the AIM - typically optional
 int aimData(int iIndex, const char *name, enum capsvType *vtype,
         int *rank, int *nrow, int *ncol, void **data, char **units)
 {
 
   /*! \page sharableDataPointwise AIM Shareable Data
    * The Pointwise AIM has the following shareable data types/values with its children AIMs if they are so inclined.
-   * - <B> Surface_Mesh</B> <br>
-   * The returned surface mesh in meshStruct (see meshTypes.h) format.
    * - <B> Volume_Mesh</B> <br>
    * The returned volume mesh after AFLR3 execution is complete in meshStruct (see meshTypes.h) format.
    * - <B> Attribute_Map</B> <br>
@@ -2227,8 +2483,13 @@ int aimData(int iIndex, const char *name, enum capsvType *vtype,
       printf(" pointwiseAIM/aimData instance = %d  name = %s!\n", inst, name);
   #endif
 
+#if 0
   // The returned surface mesh from AFLR3
   if (strcasecmp(name, "Surface_Mesh") == 0){
+     /* sharableDataPointwise AIM Shareable Data
+      * - <B> Surface_Mesh</B> <br>
+      * The returned surface mesh in meshStruct (see meshTypes.h) format.
+      */
       *vtype = Value;
       *rank  = *ncol = 1;
       *nrow = pointwiseInstance[iIndex].numSurfaceMesh;
@@ -2237,8 +2498,9 @@ int aimData(int iIndex, const char *name, enum capsvType *vtype,
 
       return CAPS_SUCCESS;
   }
+#endif
 
-  // The returned Volume mesh from AFLR3
+  // The returned Volume mesh from Pointwise
   if (strcasecmp(name, "Volume_Mesh") == 0){
       *vtype = Value;
       *rank  = *ncol = 1;
@@ -2272,11 +2534,10 @@ int aimData(int iIndex, const char *name, enum capsvType *vtype,
 int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValue *aimInputs, capsErrs **errs)
 {
     int status; // Status return
+
     int i, bodyIndex; // Index
 
     char currentPath[PATH_MAX]; // Current directory path
-
-    char egadsFileName[] = "caps.egads";
 
     // Mesh attribute parameters
     int numMeshProp = 0;
@@ -2403,14 +2664,14 @@ int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValu
             if (status != CAPS_SUCCESS) goto cleanup;
         }
     }
-    */
+     */
 
     // Create a model from the copied bodies
     status = EG_makeTopology(context, NULL, MODEL, 0, NULL, numBody, bodyCopy, NULL, &model);
     if (status != EGADS_SUCCESS) goto cleanup;
 
     printf("Writing global Glyph inputs...\n");
-    status = writeGlobalGlyph(aimInfo, aimInputs);
+    status = writeGlobalGlyph(aimInfo, aimInputs, capsMeshLength);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     printf("Writing egads file....\n");
@@ -2437,35 +2698,35 @@ int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValu
        status = CAPS_MISMATCH;
     }
 
-    cleanup:
+cleanup:
 
-        if (status != CAPS_SUCCESS) printf("Error: pointwiseAIM (instance = %d) status %d\n", iIndex, status);
+    if (status != CAPS_SUCCESS) printf("Error: pointwiseAIM (instance = %d) status %d\n", iIndex, status);
 
-        chdir(currentPath);
+    chdir(currentPath);
 
-        // Clean up meshProps
-        if (meshProp != NULL) {
-            for (i = 0; i < numMeshProp; i++) {
-                destroy_meshSizingStruct(&meshProp[i]);
-            }
-            EG_free(meshProp); meshProp = NULL;
+    // Clean up meshProps
+    if (meshProp != NULL) {
+        for (i = 0; i < numMeshProp; i++) {
+            destroy_meshSizingStruct(&meshProp[i]);
         }
+        EG_free(meshProp); meshProp = NULL;
+    }
 
-        // delete the model
-        if (model != NULL) {
-          EG_deleteObject(model);
-        } else {
-          if (bodyCopy != NULL) {
-            for (i = 0;  i < numBody; i++) {
-              if (bodyCopy[i] != NULL)  {
-                (void) EG_deleteObject(bodyCopy[i]);
-              }
-            }
+    // delete the model
+    if (model != NULL) {
+      EG_deleteObject(model);
+    } else {
+      if (bodyCopy != NULL) {
+        for (i = 0;  i < numBody; i++) {
+          if (bodyCopy[i] != NULL)  {
+            (void) EG_deleteObject(bodyCopy[i]);
           }
         }
-        EG_free(bodyCopy);
+      }
+    }
+    EG_free(bodyCopy);
 
-        return status;
+    return status;
 }
 
 
@@ -2477,33 +2738,45 @@ aimPostAnalysis(/*@unused@*/ int iIndex, /*@unused@*/ void *aimInfo,
     int status = CAPS_SUCCESS;
 
     char currentPath[PATH_MAX]; // Current directory path
+    char attrname[128];
 
-    int        i, j, k, n, id, ib, it, in, ib2, it2, in2, ib3, it3, in3;
-    int        ifp, isp, ivp, npts, nSurfPts, nVolPts, iper, iline = 0, cID = 0;
-    int        oclass, mtype, numBody = 0, *senses = NULL, *ivec = NULL, *face_pnt = NULL, *face_ind = NULL, *surf_ind = NULL, *edgeCount = NULL;
-    int        numFaces = 0, iface, numEdges = 0, iedge, numNodes = 0, inode, nDegen = 0, periodic, duplicate;
-    int        ntri = 0, nquad = 0, elem[4], *face_tris, nedge, edge_npts, edgeIndex, nNodeEdge, elemIndex;
-    char       gmafilename[]   = "caps.GeomToMesh.gma";
-    char       ugridfilename[] = "caps.GeomToMesh.ugrid";
-    const char *intents;
-    const char *groupName = NULL;
-    double     limits[4], trange[4], result[18], uv[2], uv_orig[2], uv_dup[2], t, du_orig, dv_orig, du_dup, dv_dup;
-    double     *face_uv = NULL, *face_xyz = NULL, coord[3];
+    size_t     nline = 0;
+    int        i, j, n, ib, ie, it, in;
+    int        ivp, npts, nVolPts, iper, iline = 0, cID = 0;
+    int        oclass, mtype, numBody = 0, *senses = NULL, *ivec = NULL;
+    int        numFaces = 0, iface, numEdges = 0, ibody, iedge, numNodes = 0, nDegen = 0;
+    int        ntri = 0, nquad = 0, elem[4], velem[4], *face_tris, elemIndex;
+    int        GMA_MAJOR = 0, GMA_MINOR = 0, numConnector = 0, iCon, numDomain = 0, iDom;
+    int        egadsID, edgeID, faceID, bodyID, *bodyIndex=NULL, *faceVertID=NULL;
+    const char gmafilename[]   = "caps.GeomToMesh.gma";
+    const char ugridfilename[] = "caps.GeomToMesh.ugrid";
+    const char *intents = NULL, *groupName = NULL;
+    char       *line = NULL;
+    double     limits[4], trange[4], result[18], uv[2], offuv[2], t, ptol;
+    double     *face_uv = NULL, *face_xyz = NULL;
 #ifdef CHECKGRID
     double     d;
 #endif
     double     *rvec, v1[3], v2[3], faceNormal[3], triNormal[3], ndot;
-    ego        geom, geom2, obj, ref, *faces = NULL, *edges = NULL, *nodes = NULL, *bodies = NULL, *objs = NULL, tess, prev, next, *nodeEdges = NULL;
+    const int    *tris = NULL, *tric = NULL, *ptype = NULL, *pindex = NULL;
+    const double *pxyz = NULL, *puv = NULL;
+    ego        geom, geomBspl, ref, *faces = NULL, *edges = NULL, *nodes = NULL, *bodies = NULL, *objs = NULL;
+    ego        context, edge, face, tess=NULL, prev, next, model=NULL;
     bodyData   *bodydata = NULL;
-    gmaVertex  *surfacedata = NULL;
+    edgeMapData **edgeMap = NULL;
     meshStruct *surfaceMeshes = NULL, *volumeMesh;
-    hashElemTable table;
+//    hashElemTable table;
     FILE       *fp = NULL;
+
+    int atype, alen; // EGADS return variables
+    const int    *ints;
+    const double *reals;
+    const char *string;
 
     (void) getcwd(currentPath, PATH_MAX);
     if (chdir(analysisPath) != 0) return CAPS_DIRERR;
 
-    initiate_hashTable(&table);
+//    initiate_hashTable(&table);
 
     fp = fopen(ugridfilename, "rb");
     if (fp == NULL) {
@@ -2530,11 +2803,7 @@ aimPostAnalysis(/*@unused@*/ int iIndex, /*@unused@*/ void *aimInfo,
     nVolPts = pointwiseInstance[iIndex].volumeMesh->numNode;
     volumeMesh = pointwiseInstance[iIndex].volumeMesh;
 
-    // map from the total volume index the indexing of the surface points in the GMA file
-    surf_ind = (int *) EG_alloc(nVolPts*sizeof(int));
-    if (surf_ind == NULL ) { status = EGADS_MALLOC; goto cleanup; }
-    for (i = 0; i < nVolPts; i++) surf_ind[i] = -1;
-
+#if 0
     // construct the hash table into the surface elements to mark ID's
     allocate_hashTable(nVolPts, volumeMesh->meshQuickRef.numTriangle +
                                 volumeMesh->meshQuickRef.numQuadrilateral, &table);
@@ -2550,6 +2819,7 @@ aimPostAnalysis(/*@unused@*/ int iIndex, /*@unused@*/ void *aimInfo,
                                i+volumeMesh->meshQuickRef.numTriangle, &table);
       if (status != CAPS_SUCCESS) goto cleanup;
     }
+#endif
 
     // Get AIM bodies
     status = aim_getBodies(aimInfo, &intents, &numBody, &bodies);
@@ -2560,6 +2830,48 @@ aimPostAnalysis(/*@unused@*/ int iIndex, /*@unused@*/ void *aimInfo,
         status = CAPS_BADOBJECT;
         goto cleanup;
     }
+
+    bodyIndex = (int*)EG_alloc(numBody*sizeof(int));
+    if (bodyIndex == NULL) { status = EGADS_MALLOC; goto cleanup; }
+
+    // Get context
+    status = EG_getContext(bodies[0], &context);
+    if (status != EGADS_SUCCESS) goto cleanup;
+
+    // read back in the egads file as the bodies might be written in a different order
+    status = EG_loadModel(context, 0, egadsFileName, &model);
+    if (status != EGADS_SUCCESS) goto cleanup;
+
+    status = EG_getTopology(model, &ref,
+                            &oclass, &mtype, limits, &n, &objs, &senses);
+    if (status != EGADS_SUCCESS) goto cleanup;
+
+    for (i = 0; i < numBody; i++) {
+      status = EG_attributeRet(objs[i], "_body", &atype, &alen, &ints, &reals, &string);
+      if (status != EGADS_SUCCESS || alen != 1 || atype != ATTRINT) {
+        printf("_body attribute is not length 1 or not integer!\n");
+        status = EGADS_ATTRERR;
+        goto cleanup;
+      }
+      bodyID = ints[0];
+
+      for (j = 0; j < numBody; j++) {
+        status = EG_attributeRet(bodies[j], "_body", &atype, &alen, &ints, &reals, &string);
+        if (status != EGADS_SUCCESS || alen != 1 || atype != ATTRINT) {
+          printf("_body attribute is not length 1 or not integer!\n");
+          status = EGADS_ATTRERR;
+          goto cleanup;
+        }
+
+        if (ints[0] == bodyID) {
+          bodyIndex[i] = j;
+          break;
+        }
+      }
+    }
+    EG_deleteObject(model); model=NULL;
+
+
     bodydata = (bodyData *) EG_alloc(numBody*sizeof(bodyData));
     if (bodydata == NULL) {
         printf(" Error: EG_alloc on Body storage!\n");
@@ -2571,6 +2883,15 @@ aimPostAnalysis(/*@unused@*/ int iIndex, /*@unused@*/ void *aimInfo,
     /* get all of the EGADS Objects */
     for (i = 0; i < numBody; i++) {
       bodydata[i].body = bodies[i];
+
+#ifdef DEBUG
+      {
+        status = EG_attributeRet(bodies[i], "_name", &atype, &alen, &ints, &reals, &string);
+        if (status == EGADS_SUCCESS) {
+          printf("Body %d = %s\n", i+1, string);
+        }
+      }
+#endif
 
       status = EG_getBodyTopos(bodies[i], NULL, NODE, &bodydata[i].nnodes, &bodydata[i].nodes);
       if (status != EGADS_SUCCESS) {
@@ -2599,49 +2920,26 @@ aimPostAnalysis(/*@unused@*/ int iIndex, /*@unused@*/ void *aimInfo,
       if (bodydata[i].rvec == NULL) continue;
       for (j = 0; j < bodydata[i].nfaces; j++) bodydata[i].rvec[j] = NULL;
 
-      bodydata[i].nodes_isp = (int *) EG_alloc(bodydata[i].nnodes*sizeof(int));
-      if (bodydata[i].nodes_isp == NULL) continue;
-      for (j = 0; j < bodydata[i].nnodes; j++) bodydata[i].nodes_isp[j] = 0;
+      bodydata[i].tedges = (edgeData *) EG_alloc(bodydata[i].nedges*sizeof(edgeData));
+      if (bodydata[i].tedges == NULL) continue;
+      for (j = 0; j < bodydata[i].nedges; j++) {
+          bodydata[i].tedges[j].npts = 0;
+          bodydata[i].tedges[j].xyz  = NULL;
+          bodydata[i].tedges[j].t    = NULL;
+          bodydata[i].tedges[j].ivp  = NULL;
+      }
 
-      bodydata[i].edges_npts = (int *) EG_alloc(bodydata[i].nedges*sizeof(int));
-      if (bodydata[i].edges_npts == NULL) continue;
-      for (j = 0; j < bodydata[i].nedges; j++) bodydata[i].edges_npts[j] = 0;
-
-      bodydata[i].edges_xyz = (double **) EG_alloc(bodydata[i].nedges*sizeof(double *));
-      if (bodydata[i].edges_xyz == NULL) continue;
-      for (j = 0; j < bodydata[i].nedges; j++) bodydata[i].edges_xyz[j] = NULL;
-
-      bodydata[i].edges_t = (double **) EG_alloc(bodydata[i].nedges*sizeof(double *));
-      if (bodydata[i].edges_t == NULL) continue;
-      for (j = 0; j < bodydata[i].nedges; j++) bodydata[i].edges_t[j] = NULL;
-
-      bodydata[i].edges_isp = (int **) EG_alloc(bodydata[i].nedges*sizeof(int *));
-      if (bodydata[i].edges_isp == NULL) continue;
-      for (j = 0; j < bodydata[i].nedges; j++) bodydata[i].edges_isp[j] = NULL;
-
-      bodydata[i].faces_npts = (int *) EG_alloc(bodydata[i].nfaces*sizeof(int));
-      if (bodydata[i].faces_npts == NULL) continue;
-      for (j = 0; j < bodydata[i].nfaces; j++) bodydata[i].faces_npts[j] = 0;
-
-      bodydata[i].faces_xyz = (double **) EG_alloc(bodydata[i].nfaces*sizeof(double *));
-      if (bodydata[i].faces_xyz == NULL) continue;
-      for (j = 0; j < bodydata[i].nfaces; j++) bodydata[i].faces_xyz[j] = NULL;
-
-      bodydata[i].faces_uv = (double **) EG_alloc(bodydata[i].nfaces*sizeof(double *));
-      if (bodydata[i].faces_uv == NULL) continue;
-      for (j = 0; j < bodydata[i].nfaces; j++) bodydata[i].faces_uv[j] = NULL;
-
-      bodydata[i].faces_ntri = (int *) EG_alloc(bodydata[i].nfaces*sizeof(int));
-      if (bodydata[i].faces_ntri == NULL) continue;
-      for (j = 0; j < bodydata[i].nfaces; j++) bodydata[i].faces_ntri[j] = 0;
-
-      bodydata[i].faces_nquad = (int *) EG_alloc(bodydata[i].nfaces*sizeof(int));
-      if (bodydata[i].faces_nquad == NULL) continue;
-      for (j = 0; j < bodydata[i].nfaces; j++) bodydata[i].faces_nquad[j] = 0;
-
-      bodydata[i].faces_tris = (int **) EG_alloc(bodydata[i].nfaces*sizeof(int *));
-      if (bodydata[i].faces_tris == NULL) continue;
-      for (j = 0; j < bodydata[i].nfaces; j++) bodydata[i].faces_tris[j] = NULL;
+      bodydata[i].tfaces = (faceData *) EG_alloc(bodydata[i].nfaces*sizeof(faceData));
+      if (bodydata[i].tfaces == NULL) continue;
+      for (j = 0; j < bodydata[i].nfaces; j++) {
+          bodydata[i].tfaces[j].npts  = 0;
+          bodydata[i].tfaces[j].xyz   = NULL;
+          bodydata[i].tfaces[j].uv    = NULL;
+          bodydata[i].tfaces[j].ntri  = 0;
+          bodydata[i].tfaces[j].nquad = 0;
+          bodydata[i].tfaces[j].tris  = NULL;
+          bodydata[i].tfaces[j].ivp   = NULL;
+      }
 
       for (j = 0; j < bodydata[i].nfaces; j++) {
         status = EG_getTopology(bodydata[i].faces[j], &bodydata[i].surfaces[j],
@@ -2661,80 +2959,20 @@ aimPostAnalysis(/*@unused@*/ int iIndex, /*@unused@*/ void *aimInfo,
           geom = ref;
         }
 
-        if ((geom->mtype != CYLINDRICAL) && (geom->mtype != CONICAL) &&
-            (geom->mtype != SPHERICAL)   && (geom->mtype != TOROIDAL)) continue;
-
         status = EG_getGeometry(geom, &oclass, &mtype, &ref, &ivec, &bodydata[i].rvec[j]);
         if (status != EGADS_SUCCESS) {
-            printf(" Error: Surface %d getGeometry status = %d!\n", j+1, status);
-            continue;
+          printf(" Error: Surface %d getGeometry status = %d!\n", j+1, status);
+          continue;
         }
+        EG_free(ivec); ivec=NULL;
 
-        status = EG_convertToBSpline(bodydata[i].faces[j], &bodydata[i].surfaces[j+bodydata[i].nfaces]);
-        if (status != EGADS_SUCCESS) {
+        if (mtype != BSPLINE) {
+          status = EG_convertToBSpline(bodydata[i].faces[j], &bodydata[i].surfaces[j+bodydata[i].nfaces]);
+          if (status != EGADS_SUCCESS) {
             printf(" Error: Face %d Convert status = %d!\n", j+1, status);
-            continue;
+          }
         }
       }
-    }
-
-
-    /* open and parse the gma file to count surface/edge tessellations points */
-    fp = fopen(gmafilename, "r");
-    if (fp == NULL) {
-        printf(" Error: Cannot open file: %s!\n", gmafilename);
-        goto cleanup;
-    }
-    status = fscanf(fp, "%d", &nSurfPts); iline++;
-    if (status != 1) {
-        printf(" Error: Cannot get NPTS!\n");
-        goto cleanup;
-    }
-    surfacedata = (gmaVertex *) EG_alloc(nSurfPts*sizeof(gmaVertex));
-    if (surfacedata == NULL) {
-        printf(" Error: EG_alloc on vertex storage!\n");
-        status = EGADS_MALLOC;
-        goto cleanup;
-    }
-
-    //printf(" npts = %d\n", npts);
-    for (j = 0; j < nSurfPts; j++) {
-        status = fscanf(fp, "%d %d %lf %lf\n", &surfacedata[j].ind, &surfacedata[j].egadsID, &surfacedata[j].param[0], &surfacedata[j].param[1]); iline++;
-        if (status != 4) {
-            printf(" Error: read line %d return = %d\n", iline, status);
-            goto cleanup;
-        }
-        decodeEgadsID(surfacedata[j].egadsID, &it, &ib, &in);
-
-        // save the mapping from the volume indexing to the surface indexing
-        surf_ind[surfacedata[j].ind-1] = j;
-
-    /*  printf(" %d: %d  %d -- %d %d %d\n", i, status, id, it, ib, in);  */
-        if ((ib < 0) || (ib >= numBody)) {
-            printf(" Error: line %d Bad body index = %d [1-%d]!\n", iline, ib+1, numBody);
-        }
-        if (it == NODEID) {
-            /* Nodes */
-            if ((in < 0) || (in >= bodydata[ib].nnodes)) {
-                printf(" Error: line %d Bad Node index = %d [1-%d]!\n", iline, in+1, bodydata[ib].nnodes);
-                goto cleanup;
-            }
-        } else if (it == EDGEID) {
-            /* Edges */
-            if ((in < 0) || (in >= bodydata[ib].nedges)) {
-                printf(" Error: line %d Bad Edge index = %d [1-%d]!\n", iline, in+1, bodydata[ib].nedges);
-                goto cleanup;
-            }
-        } else if (it == FACEID) {
-            /* Faces */
-            if ((in < 0) || (in >= bodydata[ib].nfaces)) {
-                printf(" Error: line %d Bad Face index = %d [1-%d]!\n", iline, in+1, bodydata[ib].nfaces);
-                goto cleanup;
-            }
-        } else {
-            printf(" Error: line %d Bad type = %d!\n", iline, it);
-            goto cleanup;
-        }
     }
 
     // Count the number of degenerate edges in all bodies
@@ -2747,474 +2985,373 @@ aimPostAnalysis(/*@unused@*/ int iIndex, /*@unused@*/ void *aimInfo,
       }
     }
 
-    // read in the edge tessellation connectivity
-    for (iedge = 0; iedge < numEdges-nDegen; iedge++) {
 
-        status = fscanf(fp, "%d %d\n", &id, &npts); iline++;
+    /* open and parse the gma file to count surface/edge tessellations points */
+    fp = fopen(gmafilename, "r");
+    if (fp == NULL) {
+        printf(" Error: Cannot open file: %s!\n", gmafilename);
+        goto cleanup;
+    }
+
+    // Read the gma file version
+    status = nextHeader(&line, &nline, &iline, fp);
+    if (status != CAPS_SUCCESS) {
+        printf(" Error: line %d Could not find next header!\n", iline);
+        goto cleanup;
+    }
+    status = sscanf(line, "%d %d", &GMA_MAJOR, &GMA_MINOR);
+    if (status != 2) {
+        printf(" Error: line %d Cannot get gma version number!\n", iline);
+        goto cleanup;
+    }
+    if (!(GMA_MAJOR == 2 && GMA_MINOR == 0)) {
+        printf(" Error: line %d Cannot read gma file version %d.%d\n", iline, GMA_MAJOR, GMA_MINOR);
+        status = CAPS_IOERR;
+        goto cleanup;
+    }
+
+    // Read the number of connectors and domains
+    status = nextHeader(&line, &nline, &iline, fp);
+    if (status != CAPS_SUCCESS) {
+        printf(" Error: line %d Could not find next header!\n", iline);
+        goto cleanup;
+    }
+    status = sscanf(line, "%d %d", &numConnector, &numDomain);
+    if (status != 2) {
+      printf(" Error: line %d Cannot get Connector and Domain count!\n", iline);
+        goto cleanup;
+    }
+#if 0
+    if (numConnector != numEdges-nDegen) {
+        printf(" Error: Number of Connector (%d) must match Edge count (%d)\n", numConnector, numEdges-nDegen);
+        status = CAPS_IOERR;
+        goto cleanup;
+    }
+#endif
+    if (numDomain != numFaces) {
+        printf(" Error: Number of Domains (%d) must match Face count (%d)\n", numDomain, numFaces);
+        status = CAPS_IOERR;
+        goto cleanup;
+    }
+
+
+    for (iCon = 0; iCon < numConnector; iCon++) {
+        // Read the EGADS ID and the number of vertexes
+        status = nextHeader(&line, &nline, &iline, fp);
+        if (status != CAPS_SUCCESS) {
+            printf(" Error: line %d Could not find next Connector header!\n", iline);
+            goto cleanup;
+        }
+        status = sscanf(line, "%d %d", &egadsID, &npts);
         if (status != 2) {
             printf(" Error: read line %d return = %d\n", iline, status);
             goto cleanup;
         }
-        decodeEgadsID(id, &it, &ib, &in);
-        if (it == EDGEID) {
-            /* Edges */
-            if ((in < 0) || (in >= bodydata[ib].nedges)) {
-                printf(" Error: line %d Bad Edge index = %d [1-%d]!\n", iline, in+1, bodydata[ib].nedges);
-                goto cleanup;
-            }
+        decodeEgadsID(egadsID, &it, &ib, &in);
+        if (ib < 0 || ib >= numBody) {
+          printf(" Error: line %d Body ID (%d) out of bounds (0 - %d)!\n", iline, ib, numBody);
+          goto cleanup;
+        }
+        ib = bodyIndex[ib];
 
-            bodydata[ib].edges_npts[in] = npts;
-            bodydata[ib].edges_xyz[in]  = (double *) EG_alloc(3*nSurfPts*sizeof(double));
-            bodydata[ib].edges_t[in]    = (double *) EG_alloc(  nSurfPts*sizeof(double));
-            bodydata[ib].edges_isp[in]  = (int    *) EG_alloc(  nSurfPts*sizeof(int   ));
-
-            if (bodydata[ib].edges_xyz[in] == NULL ||
-                bodydata[ib].edges_t[in]   == NULL ||
-                bodydata[ib].edges_isp[in] == NULL) { status = EGADS_MALLOC; goto cleanup; }
-
-            obj    = bodydata[ib].edges[in];
-            status = EG_getTopology(obj, &geom, &oclass, &mtype, trange, &numNodes, &nodes, &senses);
-            if (status != EGADS_SUCCESS) {
-                printf(" Error: line %d Bad Edge status = %d!\n", iline, status);
-                goto cleanup;
-            }
-            if (geom->mtype == BSPLINE) {
-                status = EG_getRange(geom, limits, &iper);
-                if (status != EGADS_SUCCESS) {
-                    printf(" Error: line %d EG_getRange C = %d!\n", iline, status);
-                    goto cleanup;
-                }
-            } else {
-                limits[0] = trange[0];
-                limits[1] = trange[1];
-            }
-
-            // populate the edge tessellations
-            for (j = 0; j < npts; j++) {
-              status = fscanf(fp, "%d\n", &ivp); iline++;
-              if ((i < 1) || (i > nVolPts)) {
-                  printf(" Error: line %d Bad Vertex index = %d [1-%d]!\n", iline, ivp, nVolPts);
-                  goto cleanup;
-              }
-
-              ivp -= 1; // change to 0-based indexing
-              isp  = surf_ind[ivp]; // map the volume index to the surface
-
-              if (ivp != surfacedata[isp].ind-1) {
-                printf(" Error: line %d Inconsistent edge indexing!\n", iline);
-                goto cleanup;
-              }
-
-              // get the interpolated t-value of the edge
-              t = limits[0] + surfacedata[isp].param[0]*(limits[1]-limits[0]);
-
-              decodeEgadsID(surfacedata[isp].egadsID, &it2, &ib2, &in2);
-              if (it2 == NODEID) {
-                status = EG_getTopology(bodydata[ib2].nodes[in2], &geom2, &oclass, &mtype, coord, &n, &objs, &senses);
-                if (status != EGADS_SUCCESS) {
-                    printf(" Error: line %d Bad Node status = %d!\n", iline, status);
-                    goto cleanup;
-                }
-#ifdef CHECKGRID
-                d = dist_DoubleVal(coord, volumeMesh->node[ivp].xyz);
-                if (d > PTOL) printf(" line %d: %d %d Node deviation = %le\n", iline, ib2+1, in2+1, d);
-#endif
-                if ((ib != ib2)) {
-                    printf(" Error: line %d Inconsistent Edge Vertex index!\n", iline);
-                    status = EGADS_TOPOERR;
-                    goto cleanup;
-                }
-                // save the surface index of the node
-                bodydata[ib].nodes_isp[in2] = isp;
-                // get the t based on the node match a the limits
-                for (inode = 0; inode < numNodes; inode++) {
-                  t = trange[inode];
-                  if (nodes[inode] == bodydata[ib].nodes[in2]) break;
-                }
-                // special treatment for a one-node
-                if (mtype == ONENODE) t = (j == 0) ? trange[0] : trange[1];
-
-                if (inode == numNodes) {
-                  printf(" Error: line %d Could not find edge node!\n", iline);
-                  status = EGADS_TOPOERR;
-                  goto cleanup;
-                }
-                volumeMesh->node[ivp].xyz[0] = coord[0];
-                volumeMesh->node[ivp].xyz[1] = coord[1];
-                volumeMesh->node[ivp].xyz[2] = coord[2];
-#ifdef CHECKGRID
-                status = EG_evaluate(obj, &t, result);
-                if (status != EGADS_SUCCESS) {
-                    printf(" Error: line %d Bad Edge status = %d!\n", iline, status);
-                    goto cleanup;
-                }
-                d = dist_DoubleVal(result, volumeMesh->node[ivp].xyz);
-                if (d > PTOL) printf(" line %3d: %d Node %d Edge-t %d, %d deviation = %le  %lf  %d\n",
-                                     iline, ib+1, in2+1, in+1, j+1, d, t, geom->mtype);
-#endif
-              } else if (it2 == EDGEID) {
-#ifdef CHECKGRID
-                status = EG_evaluate(obj, &t, result);
-                if (status != EGADS_SUCCESS) {
-                    printf(" Error: line %d Bad Edge status = %d!\n", iline, status);
-                    goto cleanup;
-                }
-                d = dist_DoubleVal(result, volumeMesh->node[ivp].xyz);
-                if (d > PTOL) printf(" line %3d: %d %d Edge deviation = %le  %lf  %d\n",
-                                     iline, ib+1, in+1, d, t, geom->mtype);
-                if (d > PTOL) {
-                  status = EG_invEvaluate(obj, volumeMesh->node[ivp].xyz, &t, coord);
-                  if (status != EGADS_SUCCESS) goto cleanup;
-                  d = dist_DoubleVal(coord, volumeMesh->node[ivp].xyz);
-                  printf("           %d  %le  %lf [%lf %lf]\n", status, d, t, limits[0], limits[1]);
-                }
-#endif
-                if ((ib != ib2) || (in != in2)) {
-                    printf(" Error: line %d Inconsistent Edge Vertex index!\n", iline);
-                    status = EGADS_TOPOERR;
-                    goto cleanup;
-                }
-              }
-              bodydata[ib].edges_xyz[in][3*j  ] = volumeMesh->node[ivp].xyz[0];
-              bodydata[ib].edges_xyz[in][3*j+1] = volumeMesh->node[ivp].xyz[1];
-              bodydata[ib].edges_xyz[in][3*j+2] = volumeMesh->node[ivp].xyz[2];
-
-              bodydata[ib].edges_t[in][j] = t;
-
-              bodydata[ib].edges_isp[in][j] = isp;
-            }
-            bubbleSort(bodydata[ib].edges_npts[in], bodydata[ib].edges_t[in], bodydata[ib].edges_xyz[in], bodydata[ib].edges_isp[in]);
-
-        } else {
-            printf(" Error: line %d Type = %d is not an EDGEID!\n", iline, it);
-            printf("        Found %d edges when expecting %d\n", iedge, numEdges-nDegen);
-            status = CAPS_MISMATCH;
+        // Check the ID type
+        if (it != EDGEID) {
+            printf(" Error: line %d Expected Edge ID!\n", iline);
             goto cleanup;
         }
+        // Check the Edge index
+        if ((in < 0) || (in >= bodydata[ib].nedges)) {
+            printf(" Error: line %d Bad Edge index = %d [1-%d]!\n", iline, in+1, bodydata[ib].nedges);
+            goto cleanup;
+        }
+        // skip the comment line
+        status = getline(&line, &nline, fp); iline++;
+        if (status == -1) {
+          printf(" Error: line %d Failed to read comment!\n", iline);
+          goto cleanup;
+        }
+
+        edge   = bodydata[ib].edges[in];
+        status = EG_getTopology(edge, &geom, &oclass, &mtype, trange, &numNodes, &nodes, &senses);
+        if (status != EGADS_SUCCESS) {
+            printf(" Error: line %d Bad Edge status = %d!\n", iline, status);
+            goto cleanup;
+        }
+        if (geom->mtype == BSPLINE) {
+            status = EG_getRange(geom, trange, &iper);
+            if (status != EGADS_SUCCESS) {
+                printf(" Error: line %d EG_getRange C = %d!\n", iline, status);
+                goto cleanup;
+            }
+        }
+
+        // get the tolerance of the edge
+        status = EG_getTolerance(bodydata[ib].edges[in], &ptol);
+        if (status != EGADS_SUCCESS) goto cleanup;
+
+        bodydata[ib].tedges[in].npts = npts;
+        bodydata[ib].tedges[in].xyz  = (double *) EG_alloc(3*npts*sizeof(double));
+        bodydata[ib].tedges[in].t    = (double *) EG_alloc(  npts*sizeof(double));
+        bodydata[ib].tedges[in].ivp  = (int *)    EG_alloc(  npts*sizeof(int)   );
+
+        for (i = 0; i < npts; i++) {
+            status = fscanf(fp, "%d %d %lf\n", &ivp, &edgeID, &t); iline++;
+            if (status != 3) {
+                printf(" Error: read line %d return = %d\n", iline, status);
+                goto cleanup;
+            }
+            if (edgeID != egadsID) {
+                printf(" Error: line %d Connector vertex ID (%d) does not match Edge ID (%d)\n", iline, edgeID, egadsID);
+                goto cleanup;
+            }
+            bodydata[ib].tedges[in].ivp[i] = ivp;
+            ivp--;
+
+            /* t-values from pointwise are always normalized in the range 0-1 */
+            t = trange[0] + t*(trange[1]-trange[0]);
+
+            bodydata[ib].tedges[in].xyz[3*i+0] = volumeMesh->node[ivp].xyz[0];
+            bodydata[ib].tedges[in].xyz[3*i+1] = volumeMesh->node[ivp].xyz[1];
+            bodydata[ib].tedges[in].xyz[3*i+2] = volumeMesh->node[ivp].xyz[2];
+            bodydata[ib].tedges[in].t[i] = t;
+#ifdef CHECKGRID
+            status = EG_evaluate(edge, &t, result);
+
+            if (status != EGADS_SUCCESS) {
+              printf(" Error: line %d Bad Edge status = %d!\n", iline, status);
+              goto cleanup;
+            }
+            d = dist_DoubleVal(result, volumeMesh->node[ivp].xyz);
+            if (d > MAX(1e-5,ptol)) {
+              printf(" line %3d: Body %d Edge %d Edge deviation = %le  t = %lf mtype = %d\n",
+                                 iline, ib+1, in+1, d, t, geom->mtype);
+
+              status = EG_invEvaluate(edge, volumeMesh->node[ivp].xyz, &t, result);
+              if (status != EGADS_SUCCESS) goto cleanup;
+              d = dist_DoubleVal(result, volumeMesh->node[ivp].xyz);
+              printf("           %d  %le  %lf [%lf %lf]\n", status, d, t, limits[0], limits[1]);
+            }
+#endif
+        }
+
+        orientEdgeTess(&bodydata[ib].tedges[in]);
     }
 
-    // logical flag to tag which points are on a face
-    face_pnt = (int *) EG_alloc(nSurfPts*sizeof(int));
-    if (face_pnt == NULL ) { status = EGADS_MALLOC; goto cleanup; }
+    elemIndex = volumeMesh->numElement;
 
-    // map from the total index to a face local index in a face tessellation
-    // the size is doubled to account for edge that require points to be duplicated
-    face_ind = (int *) EG_alloc(2*nSurfPts*sizeof(int));
-    if (face_ind == NULL ) { status = EGADS_MALLOC; goto cleanup; }
+    for (iDom = 0; iDom < numDomain; iDom++) {
+        // Read the EGADS ID and the number of vertexes, triangles, and quads
+        status = nextHeader(&line, &nline, &iline, fp);
+        if (status != CAPS_SUCCESS) {
+            printf(" Error: line %d Could not find next Domain header!\n", iline);
+            goto cleanup;
+        }
 
-    // read in the face tessellation connectivity
-    for (iface = 0; iface < numFaces; iface++) {
-        status = fscanf(fp, "%d %d %d\n", &id, &ntri, &nquad); iline++;
-        if (status != 3) {
+        status = sscanf(line, "%d %d %d %d", &egadsID, &npts, &ntri, &nquad);
+        if (status != 4) {
             printf(" Error: read line %d return = %d\n", iline, status);
             goto cleanup;
         }
-        decodeEgadsID(id, &it, &ib, &in);
+        decodeEgadsID(egadsID, &it, &ib, &in);
+        ib = bodyIndex[ib];
 
-        if (it == FACEID) {
-          /* Faces */
-          if ((in < 0) || (in >= bodydata[ib].nfaces)) {
+        // Check the ID type
+        if (it != FACEID) {
+            printf(" Error: line %d Expected Face ID!\n", iline);
+            goto cleanup;
+        }
+        // Check the Edge index
+        if ((in < 0) || (in >= bodydata[ib].nfaces)) {
             printf(" Error: line %d Bad Face index = %d [1-%d]!\n", iline, in+1, bodydata[ib].nfaces);
             goto cleanup;
-          }
+        }
+        // skip the comment line
+        status = getline(&line, &nline, fp); iline++;
+        if (status == -1 || nline == 0 || line[0] != '#') {
+          printf(" Error: line %d Failed to read comment!\n", iline);
+          goto cleanup;
+        }
+        if (nquad != 0) {
+          printf(" Error: line %d Quads are currently not supported!\n", iline);
+          goto cleanup;
+        }
 
-          obj  = bodydata[ib].faces[in];
-          status = EG_getTopology(obj, &geom, &oclass, &mtype, limits, &n, &objs, &senses);
-          if (status != EGADS_SUCCESS) {
-              printf(" Error: line %d Bad Face status = %d!\n", iline, status);
-              goto cleanup;
-          }
-          status = EG_getRange(obj, limits, &periodic);
-          if (status != EGADS_SUCCESS) {
-              printf(" Error: line %d Bad EG_getRange status = %d!\n", iline, status);
-              goto cleanup;
-          }
+        // allocate new surface elements
+        volumeMesh->numElement += ntri+nquad;
+        volumeMesh->element = (meshElementStruct *) EG_reall(volumeMesh->element, volumeMesh->numElement*sizeof(meshElementStruct));
+        if (volumeMesh->element == NULL) {
+          status = EGADS_MALLOC;
+          goto cleanup;
+        }
 
-          // Look for component/boundary ID for attribute mapper based on capsGroup
-          status = retrieve_CAPSGroupAttr(obj, &groupName);
-          if (status != CAPS_SUCCESS) {
-              printf("Error: No capsGroup attribute found on Face %d, unable to assign a boundary index value\n", in+1);
-              printf("Available attributes are:\n");
-              print_AllAttr( obj );
-              goto cleanup;
-          }
+        // initialize the new elements
+        for (i = elemIndex; i < volumeMesh->numElement; i++ ) {
+          status = initiate_meshElementStruct(&volumeMesh->element[i], volumeMesh->analysisType);
+          if (status != CAPS_SUCCESS) return status;
+        }
 
-          status = get_mapAttrToIndexIndex(&pointwiseInstance[iIndex].attrMap, groupName, &cID);
-          if (status != CAPS_SUCCESS) {
-              printf("Error: Unable to retrieve boundary index from capsGroup %s\n", groupName);
-              goto cleanup;
-          }
+        face = bodydata[ib].faces[in];
+        geom = bodydata[ib].surfaces[in];
 
-          // check how many times an edge occurs in the loop
-          getFaceEdgeCount(bodydata[ib].body, obj, &nedge, &edges, &edgeCount);
+        status = EG_getGeometry(geom, &oclass, &mtype, &ref, NULL, NULL);
+        if (status != EGADS_SUCCESS) goto cleanup;
+        if (mtype == BSPLINE) {
+          geomBspl = geom;
+        } else {
+          geomBspl = bodydata[ib].surfaces[in+bodydata[ib].nfaces];
+        }
+        status = EG_getRange(geomBspl, limits, &iper);
+        if (status != EGADS_SUCCESS) goto cleanup;
 
-          // reset the face index flags
-          for (isp = 0; isp < nSurfPts; isp++) {
-            face_pnt[isp] = 0;
-            face_ind[isp] = -1;
-          }
-          for (isp = nSurfPts; isp < 2*nSurfPts; isp++) {
-            face_ind[isp] = -1;
-          }
+        /* correct UV-values for periodic shapes */
+        status = correctUV(face, geom, geomBspl, bodydata[ib].rvec[in], offuv);
+        if (status != EGADS_SUCCESS) goto cleanup;
 
-          bodydata[ib].faces_ntri[in] = ntri;
-          bodydata[ib].faces_tris[in] = (int *) EG_alloc(3*ntri*sizeof(int));
-          if (bodydata[ib].faces_tris[in] == NULL ) { status = EGADS_MALLOC; goto cleanup; }
+        // get the tolerance of the face
+        status = EG_getTolerance(face, &ptol);
+        if (status != EGADS_SUCCESS) goto cleanup;
 
-          bodydata[ib].faces_nquad[in] = nquad;
-          if (nquad != 0) {
-            printf(" Error: line %d Quads are currently not supported!\n", iline);
+        // Look for component/boundary ID for attribute mapper based on capsGroup
+        status = retrieve_CAPSGroupAttr(face, &groupName);
+        if (status != CAPS_SUCCESS) {
+          printf("Error: No capsGroup attribute found on Face %d, unable to assign a boundary index value\n", in+1);
+          printf("Available attributes are:\n");
+          print_AllAttr( face );
+          goto cleanup;
+        }
+
+        status = get_mapAttrToIndexIndex(&pointwiseInstance[iIndex].attrMap, groupName, &cID);
+        if (status != CAPS_SUCCESS) {
+          printf("Error: Unable to retrieve boundary index from capsGroup %s\n", groupName);
+          goto cleanup;
+        }
+
+
+        bodydata[ib].tfaces[in].npts  = npts;
+        bodydata[ib].tfaces[in].xyz   = (double *) EG_alloc(3*npts*sizeof(double));
+        bodydata[ib].tfaces[in].uv    = (double *) EG_alloc(2*npts*sizeof(double));
+        bodydata[ib].tfaces[in].ntri  = ntri;
+        bodydata[ib].tfaces[in].nquad = nquad;
+        bodydata[ib].tfaces[in].tris  = (int *) EG_alloc(3*ntri*sizeof(int));
+        bodydata[ib].tfaces[in].ivp   = (int *) EG_alloc(  npts*sizeof(int));
+
+        for (i = 0; i < npts; i++) {
+          status = getline(&line, &nline, fp); iline++;
+          if (status == -1 || nline == 0) {
+            printf(" Error: line %d Failed to read line!\n", iline);
             goto cleanup;
           }
-
-          for (i = 0; i < ntri; i++) {
-            status = fscanf(fp, "%d %d %d\n", &elem[0], &elem[1], &elem[2]); iline++;
-            if (status != 3) {
-              printf(" Error: read line %d return = %d\n", iline, status);
-              goto cleanup;
-            }
-            for (j = 0; j < 3; j++) {
-              if ((elem[j] < 1) || (elem[j] > nVolPts)) {
-                printf(" Error: line %d Bad Vertex index = %d [1-%d]!\n", iline, elem[j], nVolPts);
-                goto cleanup;
-              }
-            }
-
-            // find the element index from the table and set the face marker
-            status = hash_getIndex(3, elem, &table, &elemIndex);
-            if (status != CAPS_SUCCESS) goto cleanup;
-            volumeMesh->element[elemIndex+volumeMesh->meshQuickRef.startIndexTriangle].markerID = cID;
-            volumeMesh->element[elemIndex+volumeMesh->meshQuickRef.startIndexTriangle].topoIndex = in+1;
-
-            // map the index to the surface
-            elem[0] = surf_ind[elem[0]-1];
-            elem[1] = surf_ind[elem[1]-1];
-            elem[2] = surf_ind[elem[2]-1];
-
-            // these triangle now map into surfacedata
-            bodydata[ib].faces_tris[in][3*i  ] = elem[0];
-            bodydata[ib].faces_tris[in][3*i+1] = elem[1];
-            bodydata[ib].faces_tris[in][3*i+2] = elem[2];
-
-            // mark the points that are part of this face
-            face_pnt[elem[0]] = 1;
-            face_pnt[elem[1]] = 1;
-            face_pnt[elem[2]] = 1;
+          status = sscanf(line, "%d %d %lf %lf", &ivp, &faceID, &uv[0], &uv[1]);
+          if (status != 4) {
+            printf(" Error: read line %d return = %d (!= 4)\n", iline, status);
+            goto cleanup;
           }
-
-          // count the number of face points and create the map to face local indexing
-          npts = 0;
-          for (isp = 0; isp < nSurfPts; isp++) {
-            if (face_pnt[isp] == 1) {
-              face_ind[isp] = npts;
-              npts++;
-            }
+          if (faceID != egadsID) {
+            printf(" Error: line %d Domain vertex ID (%d) does not match Face ID (%d)\n", iline, edgeID, egadsID);
+            goto cleanup;
           }
+          bodydata[ib].tfaces[in].ivp[i] = ivp;
+          ivp--;
 
-          // add duplicated points
-          for (iedge = 0; iedge < nedge; iedge++) {
-            if (edgeCount[iedge] == 2) {
-              edgeIndex = EG_indexBodyTopo(bodies[ib], edges[iedge]);
-              edge_npts = bodydata[ib].edges_npts[edgeIndex-1];
+          /* UV-values from pointwise are always normalized in the range 0-1 */
+          uv[0] = limits[0] + uv[0]*(limits[1]-limits[0]) + offuv[0];
+          uv[1] = limits[2] + uv[1]*(limits[3]-limits[2]) + offuv[1];
 
-              for (i = 0; i < edge_npts; i++) {
-                // offset the surface index by the total number of surface points
-                isp = bodydata->edges_isp[edgeIndex-1][i] + nSurfPts;
-
-                face_ind[isp] = npts;
-                npts++;
-              }
-            }
-          }
-
-          // allocate the vertex memory
-          bodydata[ib].faces_npts[in] = npts;
-          bodydata[ib].faces_xyz[in]  = (double *) EG_alloc(3*npts*sizeof(double));
-          bodydata[ib].faces_uv[in]   = (double *) EG_alloc(2*npts*sizeof(double));
-
-          if (bodydata[ib].faces_xyz[in] == NULL ||
-              bodydata[ib].faces_uv[in]  == NULL) { status = EGADS_MALLOC; goto cleanup; }
-
-          // get the face UV values from the triangles and edges
-          getFacePoints(bodydata+ib, ib, in, volumeMesh, nSurfPts, surfacedata, face_pnt, face_ind, uv);
+          bodydata[ib].tfaces[in].xyz[3*i+0] = volumeMesh->node[ivp].xyz[0];
+          bodydata[ib].tfaces[in].xyz[3*i+1] = volumeMesh->node[ivp].xyz[1];
+          bodydata[ib].tfaces[in].xyz[3*i+2] = volumeMesh->node[ivp].xyz[2];
+          bodydata[ib].tfaces[in].uv[2*i+0] = uv[0];
+          bodydata[ib].tfaces[in].uv[2*i+1] = uv[1];
 
 #ifdef CHECKGRID
           // check the face vertexes
-          for (isp = 0; isp < nSurfPts; isp++) {
-            if (face_pnt[isp] == 1) {
+          status = EG_evaluate(face, uv, result);
+          if (status != EGADS_SUCCESS) {
+            printf(" Error: line %d Bad Face stat = %d!\n", iline, status);
+            goto cleanup;
+          }
 
-              ivp = surfacedata[isp].ind-1;
-              ifp = face_ind[isp];
-
-              uv[0] = bodydata[ib].faces_uv[in][2*ifp  ];
-              uv[1] = bodydata[ib].faces_uv[in][2*ifp+1];
-
-              status = EG_evaluate(obj, uv, result);
-              if (status != EGADS_SUCCESS) {
-                printf(" Error: line %d Bad Face stat = %d!\n", iline, status);
-                goto cleanup;
-              }
-              d = dist_DoubleVal(result, volumeMesh->node[ivp].xyz);
-              if (d > PTOL) printf(" line %d: %d %d Face deviation = %le  %d  %d\n",
-                                   iline, ib+1, in+1, d, geom->mtype, surfacedata[isp].egadsID);
-            }
+          d = dist_DoubleVal(result, volumeMesh->node[ivp].xyz);
+          if (d > MAX(1e-5,ptol)) {
+            printf(" line %d: %d %d Face deviation = %le  %d  %d\n",
+                   iline, ib+1, in+1, d, geom->mtype, egadsID);
           }
 #endif
+        }
 
-          for (i = 0; i < ntri; i++) {
-            // get the connectivity
-            elem[0] = bodydata[ib].faces_tris[in][3*i  ];
-            elem[1] = bodydata[ib].faces_tris[in][3*i+1];
-            elem[2] = bodydata[ib].faces_tris[in][3*i+2];
-
-
-            // update element connectivity based on periodicity
-            for (j = 0; j < 3; j++) {
-              decodeEgadsID(surfacedata[elem[j]].egadsID, &it2, &ib2, &in2);
-
-              duplicate = (int) false;
-
-              if (it2 == NODEID) {
-                status = EG_getBodyTopos(bodies[ib], bodydata[ib].nodes[in2], EDGE, &nNodeEdge, &nodeEdges);
-                if (status != EGADS_SUCCESS) goto cleanup;
-
-                for (iedge = 0; iedge < nedge && duplicate == (int)false; iedge++) {
-                  for (k = 0; k < nNodeEdge; k++)
-                    if (nodeEdges[k] == edges[iedge] && edgeCount[iedge] == 2) {
-                      duplicate = (int)true;
-                      break;
-                    }
-                }
-                EG_free(nodeEdges); nodeEdges = NULL;
-              }
-
-              if (it2 == EDGEID) {
-                for (iedge = 0; iedge < nedge; iedge++) {
-                  edgeIndex = EG_indexBodyTopo(bodies[ib], edges[iedge]);
-
-                  if (edgeIndex == in2 && edgeCount[iedge] == 2) {
-                    duplicate = (int)true;
-                    break;
-                  }
-                }
-              }
-
-              if ( duplicate == (int)true ){
-
-                status = EG_getRange(bodydata[ib].edges[in2], trange, &iper);
-                if (status != EGADS_SUCCESS) goto cleanup;
-
-                // get the original uv
-                ifp = face_ind[elem[j]];
-
-                uv_orig[0] = bodydata[ib].faces_uv[in][2*ifp  ];
-                uv_orig[1] = bodydata[ib].faces_uv[in][2*ifp+1];
-
-                // and the duplicated uv
-                ifp = face_ind[elem[j]+nSurfPts];
-
-                uv_dup[0] = bodydata[ib].faces_uv[in][2*ifp  ];
-                uv_dup[1] = bodydata[ib].faces_uv[in][2*ifp+1];
-
-                // look for a vertex not on the edge
-                for (k = 0; k < 3; k++) {
-                  if (k == j) continue;
-
-                  decodeEgadsID(surfacedata[elem[k]].egadsID, &it3, &ib3, &in3);
-
-                  // the vertex cannot be on the same edge
-                  if (it3 == EDGEID && in2 == in3) continue;
-
-                  ifp = face_ind[elem[k]];
-
-                  uv[0] = bodydata[ib].faces_uv[in][2*ifp  ];
-                  uv[1] = bodydata[ib].faces_uv[in][2*ifp+1];
-
-                  du_orig = fabs( uv[0] - uv_orig[0] );
-                  dv_orig = fabs( uv[1] - uv_orig[1] );
-
-                  du_dup = fabs( uv[0] - uv_dup[0] );
-                  dv_dup = fabs( uv[1] - uv_dup[1] );
-
-                  if (periodic == 1) { // periodicity in u
-
-                    if (du_dup < du_orig) {
-                      elem[j] += nSurfPts;
-                      break;
-                    }
-
-                  } else if (periodic == 2) { // periodicity in v
-
-                    if (dv_dup < dv_orig) {
-                      elem[j] += nSurfPts;
-                      break;
-                    }
-
-                  } else if (periodic == 3) { // periodicity in both u and v
-
-                    status = EG_getEdgeUVeval(faces[i], objs[j], 1, (trange[0]+trange[1])/2, result);
-                    if (status != EGADS_SUCCESS) {
-                      printf(" EGADS Internal: EG_getEdgeUVeval = %d\n", status);
-                      continue;
-                    }
-
-                    // du/dt != 0 means variation in u, and constant v
-                    if (result[3] != 0.0) {
-                      if (du_dup < du_orig) {
-                        elem[j] += nSurfPts;
-                        break;
-                      }
-                    } else { // otherwase the variation is in v
-                      if (dv_dup < dv_orig) {
-                        elem[j] += nSurfPts;
-                        break;
-                      }
-                    }
-                  }
-                }
-              }
-            }
-
-
-
-            // map the connectivity to face indexing
-            elem[0] = face_ind[elem[0]];
-            elem[1] = face_ind[elem[1]];
-            elem[2] = face_ind[elem[2]];
-
-            // put it back 1-based
-            bodydata[ib].faces_tris[in][3*i  ] = elem[0]+1;
-            bodydata[ib].faces_tris[in][3*i+1] = elem[1]+1;
-            bodydata[ib].faces_tris[in][3*i+2] = elem[2]+1;
-          }
-
-          EG_free(edges); edges = NULL;
-          EG_free(edgeCount); edgeCount = NULL;
-        } else {
-          printf(" Error: line %d Type = %d is not a FACEID!\n", iline, it);
-          printf("        Found %d faces when expecting %d\n", iface, numFaces);
+        // skip the comment line
+        status = getline(&line, &nline, fp); iline++;
+        if (status == -1 || line == NULL || line[0] != '#') {
+          printf(" Error: line %d Failed to read comment!\n", iline);
           goto cleanup;
         }
+
+        for (i = 0; i < ntri; i++) {
+          status = fscanf(fp, "%d %d %d\n", &elem[0], &elem[1], &elem[2]); iline++;
+          if (status != 3) {
+            printf(" Error: read line %d return = %d\n", iline, status);
+            goto cleanup;
+          }
+          for (j = 0; j < 3; j++) {
+            if ((elem[j] < 1) || (elem[j] > npts)) {
+              printf(" Error: line %d Bad Vertex index = %d [1-%d]!\n", iline, elem[j], nVolPts);
+              goto cleanup;
+            }
+          }
+
+          // these triangles map into surfacedata
+          bodydata[ib].tfaces[in].tris[3*i  ] = elem[0];
+          bodydata[ib].tfaces[in].tris[3*i+1] = elem[1];
+          bodydata[ib].tfaces[in].tris[3*i+2] = elem[2];
+
+
+          // get the volume index of the triangle
+          velem[0] = bodydata[ib].tfaces[in].ivp[elem[0]-1];
+          velem[1] = bodydata[ib].tfaces[in].ivp[elem[1]-1];
+          velem[2] = bodydata[ib].tfaces[in].ivp[elem[2]-1];
+
+          volumeMesh->element[elemIndex].elementType = Triangle;
+          volumeMesh->element[elemIndex].elementID   = elemIndex+1;
+
+          status = mesh_allocMeshElementConnectivity(&volumeMesh->element[elemIndex]);
+          if (status != CAPS_SUCCESS) return status;
+
+          volumeMesh->element[elemIndex].connectivity[0] = velem[0];
+          volumeMesh->element[elemIndex].connectivity[1] = velem[1];
+          volumeMesh->element[elemIndex].connectivity[2] = velem[2];
+
+          volumeMesh->element[elemIndex].markerID = cID;
+          volumeMesh->element[elemIndex].topoIndex = in+1;
+          elemIndex++;
+        }
     }
+
     // done reading the file
     fclose(fp); fp = NULL;
 
+    // generate the QuickRefLists now that all surface elements have been added
+    status = mesh_fillQuickRefList(volumeMesh);
+    if (status != CAPS_SUCCESS) goto cleanup;
+
+    // construct a map between coincident Solid/Sheet body Edges
+    status = matchSameEdges(bodies, numBody, &edgeMap);
+    if (status != CAPS_SUCCESS) goto cleanup;
 
     // Allocate surfaceMesh from number of bodies
-    pointwiseInstance[iIndex].numSurfaceMesh = numBody;
-    pointwiseInstance[iIndex].surfaceMesh = (meshStruct *) EG_alloc(pointwiseInstance[iIndex].numSurfaceMesh*sizeof(meshStruct));
-    if (pointwiseInstance[iIndex].surfaceMesh == NULL) {
-        pointwiseInstance[iIndex].numSurfaceMesh = 0;
-        status = EGADS_MALLOC;
-        goto cleanup;
+    volumeMesh->numReferenceMesh = numBody;
+    volumeMesh->referenceMesh = (meshStruct *) EG_alloc(volumeMesh->numReferenceMesh*sizeof(meshStruct));
+    if (volumeMesh->referenceMesh == NULL) {
+      volumeMesh->numReferenceMesh = 0;
+      status = EGADS_MALLOC;
+      goto cleanup;
     }
+    surfaceMeshes = volumeMesh->referenceMesh;
 
     // Initiate surface meshes
     for (ib = 0; ib < numBody; ib++){
-        status = initiate_meshStruct(&pointwiseInstance[iIndex].surfaceMesh[ib]);
+        status = initiate_meshStruct(&surfaceMeshes[ib]);
         if (status != CAPS_SUCCESS) goto cleanup;
     }
-    surfaceMeshes = pointwiseInstance[iIndex].surfaceMesh;
 
     // populate the tess objects
     for (ib = 0; ib < numBody; ib++) {
@@ -3223,27 +3360,45 @@ aimPostAnalysis(/*@unused@*/ int iIndex, /*@unused@*/ void *aimInfo,
         status = EG_initTessBody(bodies[ib], &tess);
         if (status != EGADS_SUCCESS) goto cleanup;
 
-        for ( iedge = 0; iedge < bodydata[ib].nedges; iedge++ )
-        {
-          // Check if the edge is degenerate
-          status = EG_getTopology( bodydata[ib].edges[iedge], &ref, &oclass, &mtype, limits, &n, &objs, &senses);
-          if (status != EGADS_SUCCESS) goto cleanup;
-          if ( mtype == DEGENERATE ) continue;
+        for ( ie = 0; ie < bodydata[ib].nedges; ie++ ) {
 
-          // set the edge tessellation on the tess object
-          status = EG_setTessEdge( tess, iedge+1, bodydata[ib].edges_npts[iedge],
-                                   bodydata[ib].edges_xyz[iedge], bodydata[ib].edges_t[iedge] );
-          if (status != EGADS_SUCCESS) goto cleanup;
+            // Check if the edge is degenerate
+            status = EG_getTopology( bodydata[ib].edges[ie], &ref, &oclass, &mtype, limits, &n, &objs, &senses);
+            if (status != EGADS_SUCCESS) goto cleanup;
+            if ( mtype == DEGENERATE ) continue;
+
+            // set the edge tessellation on the tess object
+            if (bodydata[ib].tedges[ie].npts > 0) {
+              ibody = ib;
+              iedge = ie;
+            } else {
+              ibody = edgeMap[ib][ie].ibody;
+              iedge = edgeMap[ib][ie].iedge;
+            }
+
+            status = EG_setTessEdge( tess, ie+1, bodydata[ibody].tedges[iedge].npts,
+                                     bodydata[ibody].tedges[iedge].xyz, bodydata[ibody].tedges[iedge].t );
+            if (status != EGADS_SUCCESS) {
+              printf(" Error: Failed to set tessellation on Edge %d!\n", iedge+1);
+              goto cleanup;
+            }
+
+            // Add the unique indexing of the edge tessellation
+            snprintf(attrname, 128, "edgeVertID_%d",ie+1);
+            status = EG_attributeAdd(tess, attrname, ATTRINT,
+                                     bodydata[ibody].tedges[iedge].npts,
+                                     bodydata[ibody].tedges[iedge].ivp, NULL, NULL);
+            if (status != EGADS_SUCCESS) goto cleanup;
        }
 
         for (iface = 0; iface < bodydata[ib].nfaces; iface++) {
 
-            ntri  = bodydata[ib].faces_ntri[iface];
-            nquad = bodydata[ib].faces_ntri[iface];
+            ntri  = bodydata[ib].tfaces[iface].ntri;
+            nquad = bodydata[ib].tfaces[iface].nquad;
 
-            face_tris = bodydata[ib].faces_tris[iface];
-            face_uv   = bodydata[ib].faces_uv[iface];
-            face_xyz  = bodydata[ib].faces_xyz[iface];
+            face_tris = bodydata[ib].tfaces[iface].tris;
+            face_uv   = bodydata[ib].tfaces[iface].uv;
+            face_xyz  = bodydata[ib].tfaces[iface].xyz;
 
             // check the normals of the elements match the geometry normals
             // only need to check one element per face to decide for all
@@ -3259,7 +3414,7 @@ aimPostAnalysis(/*@unused@*/ int iIndex, /*@unused@*/ void *aimInfo,
             status = EG_evaluate(bodydata[ib].faces[iface], uv, result);
             if (status != EGADS_SUCCESS) goto cleanup;
 
-            // use cross dX/du x dX/dv to get geometey normal
+            // use cross dX/du x dX/dv to get geometry normal
             v1[0] = result[3]; v1[1] = result[4]; v1[2] = result[5];
             v2[0] = result[6]; v2[1] = result[7]; v2[2] = result[8];
             CROSS(faceNormal, v1, v2);
@@ -3287,27 +3442,45 @@ aimPostAnalysis(/*@unused@*/ int iIndex, /*@unused@*/ void *aimInfo,
 
             // if the normals are opposite, swap all triangles
             if (ndot < 0) {
+              // swap two vertices to reverse the normal
               for (i = 0; i < ntri; i++) {
-                elem[0] = face_tris[3*i+0];
-                elem[1] = face_tris[3*i+1];
-                elem[2] = face_tris[3*i+2];
-
-                // swap two vertices to reverse the normal
-                face_tris[3*i + 0] = elem[2];
-                face_tris[3*i + 1] = elem[1];
-                face_tris[3*i + 2] = elem[0];
+                swapi(&face_tris[3*i+0], &face_tris[3*i+2]);
               }
             }
 
             status = EG_setTessFace(tess,
                                     iface+1,
-                                    bodydata[ib].faces_npts[iface],
+                                    bodydata[ib].tfaces[iface].npts,
                                     face_xyz,
                                     face_uv,
                                     ntri,
                                     face_tris);
-
             if (status != CAPS_SUCCESS) goto cleanup;
+
+
+            // The points get reindexed to be consistent with loops in EG_setTessFace
+            // This uses the new triangulation to map that index change.
+            status = EG_getTessFace(tess, iface+1, &npts, &pxyz, &puv, &ptype, &pindex,
+                                    &ntri, &tris, &tric);
+            if (status != CAPS_SUCCESS) goto cleanup;
+
+            faceVertID = (int*)EG_alloc(bodydata[ib].tfaces[iface].npts*sizeof(int));
+            if (faceVertID == NULL) { status = EGADS_MALLOC; goto cleanup; }
+
+            for (i = 0; i < ntri; i++) {
+              for (j = 0; j < 3; j++) {
+                faceVertID[tris[3*i+j]-1] = bodydata[ib].tfaces[iface].ivp[face_tris[3*i+j]-1];
+              }
+            }
+
+            // Add the unique indexing of the edge tessellation
+            snprintf(attrname, 128, "faceVertID_%d",iface+1);
+            status = EG_attributeAdd(tess, attrname, ATTRINT,
+                                     bodydata[ib].tfaces[iface].npts,
+                                     faceVertID, NULL, NULL);
+            if (status != EGADS_SUCCESS) goto cleanup;
+
+            EG_free(faceVertID); faceVertID = NULL;
         }
 
         // finalize the tessellation
@@ -3319,6 +3492,7 @@ aimPostAnalysis(/*@unused@*/ int iIndex, /*@unused@*/ void *aimInfo,
 
         // construct the surface mesh object
         surfaceMeshes[ib].bodyTessMap.egadsTess = tess;
+        tess = NULL;
 
         surfaceMeshes[ib].bodyTessMap.numTessFace = bodydata[ib].nfaces; // Number of faces in the tessellation
         surfaceMeshes[ib].bodyTessMap.tessFaceQuadMap = NULL; // Save off the quad map
@@ -3351,28 +3525,34 @@ aimPostAnalysis(/*@unused@*/ int iIndex, /*@unused@*/ void *aimInfo,
 
     status = CAPS_SUCCESS;
 
-    cleanup:
-        if (status != CAPS_SUCCESS) {
-          printf("Error: Premature exit in pointwiseAIM aimPostAnalysis, status %d\n", status);
-          printf("\n");
-          printf("       Please make sure you are using Pointwise V18.2 or newer.\n");
-          printf("*********************************************************\n");
-        }
+cleanup:
+    if (status != CAPS_SUCCESS) {
+      printf("Error: Premature exit in pointwiseAIM aimPostAnalysis, status %d\n", status);
+      printf("\n");
+      printf("       Please make sure you are using Pointwise V18.2 or newer.\n");
+      printf("*********************************************************\n");
+    }
 
-        destroy_bodyData(numBody, bodydata);
-        destroy_hashTable(&table);
-        EG_free(surfacedata);
-        EG_free(bodydata);
-        EG_free(faces);
-        EG_free(edges);
-        EG_free(face_pnt);
-        EG_free(face_ind);
-        EG_free(surf_ind);
-        if (fp != NULL) fclose(fp);
+    EG_free(bodyIndex);
+    EG_deleteObject(model); model=NULL;
+    EG_deleteObject(tess); tess=NULL;
+    destroy_bodyData(numBody, bodydata);
+    EG_free(bodydata);
+    EG_free(faceVertID);
+    EG_free(faces);
+    EG_free(edges);
+    if (edgeMap != NULL) {
+      for (i = 0; i < numBody; i++)
+        EG_free(edgeMap[i]);
+      EG_free(edgeMap);
+    }
+    if (fp != NULL) fclose(fp);
 
-        chdir(currentPath);
+    if(line != NULL) free(line); // allocated by getline, must use free
 
-        return status;
+    chdir(currentPath);
+
+    return status;
 }
 
 

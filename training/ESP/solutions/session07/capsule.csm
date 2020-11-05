@@ -1,0 +1,54 @@
+# capsule
+# written by John Dannenhoffer
+
+DESPMTR   width       2.75000
+DESPMTR   baserad     6.47570
+DESPMTR   cornrad     0.27500
+DESPMTR   coneangle   20.00000
+DESPMTR   height      4.40000
+
+# base sketch
+SKBEG     0   0   0   1
+   SKVAR     xy   "0.000000; 0.000000; 0.000000;\
+                   2.810094; 0.267725; 0.135983;\
+                   3.120499; 1.229982; 0.074657;\
+                   1.847836; 4.178836; 0.000000;\
+                   0.978700; 4.427160; 0.049733;\
+                   0.000000; 4.400000; 0.000000;"
+
+   SKCON     X   1   -1  0
+   SKCON     Y   1   -1  0
+   SKCON     H   5    6  0
+   SKCON     V   6    1  0
+   SKCON     R   1    2  baserad
+   SKCON     R   2    3  cornrad
+   SKCON     I   3    4  90+coneangle
+   SKCON     R   4    5  cornrad
+   SKCON     L   6    1  height
+   SKCON     X   1    2  0
+   SKCON     X   2    3  width-cornrad
+   SKCON     T   2   -1  0
+   SKCON     T   3   -1  0
+   SKCON     T   4   -1  0
+   SKCON     T   5   -1  0
+
+   ARC       ::x[2]   ::y[2]   0   ::d[2]   xy
+   ARC       ::x[3]   ::y[3]   0   ::d[3]   xy
+   LINSEG    ::x[4]   ::y[4]   0
+   ARC       ::x[5]   ::y[5]   0   ::d[5]   xy
+   LINSEG    ::x[6]   ::y[6]   0
+   LINSEG    ::x[1]   ::y[1]   0
+SKEND
+
+# make half of capsule
+REVOLVE   0   0   0   0   1   0   180
+
+# mirror for second half
+STORE     half   0   1
+RESTORE   half   0
+MIRROR    0   0   1   0
+
+# put it all together
+JOIN     0    0
+
+END

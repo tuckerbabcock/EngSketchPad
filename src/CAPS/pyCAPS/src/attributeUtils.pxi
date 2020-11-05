@@ -69,7 +69,7 @@ cdef object createAttributeDict(cEGADS.ego obj, object getInternalAttr):
     
         elif status != cEGADS.EGADS_NOTFOUND:
         
-            if getInternalAttr is False and attrName[0] == '_':
+            if getInternalAttr is False and attrName[0] == b'_':
                 continue
             
             attrDict[_strify(attrName)] = sortAttrType(atype, alen, ints, reals, string)

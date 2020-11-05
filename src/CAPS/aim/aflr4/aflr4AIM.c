@@ -108,11 +108,16 @@
  * 3. Else, component identifiers are set an index based on topologically closed
  *    surfaces/bodies of the overall configuration.<br>
  * <br>
- * - <b> AFLR4_Scale_Factor</b> [Optional FACE attribute: Default 1.0]<br>
- * EGADS attribute AFLR4_Scale_Factor represents the AFLR4 surface mesh spacing
- * scale factor for a given face/surface. Curvature dependent spacing can be
- * scaled on the face/surface by the value of the scale factor set with
- * AFLR4_Scale_Factor.<br>
+ * - <b> AFLR4_Isolated_Edge_Refinement_Flag </b> [Optional FACE attribute: Integer Range 0 to 2]<br>
+ * Isolated edge refinement flag.
+ * If Flag = 0 then do not refine isolated interior edges.
+ * If Flag = 1 then refine isolated interior edges if the surface has local
+ * curvature (as defined using cier).
+ * If Flag = 2 then refine all isolated interior edges.
+ * An isolated interior edges is connected only to boundary nodes. Isolated edges
+ * are refined by placing a new node in the middle of of the edge.
+ * Note that if not set then the isolated edge refinement flag is set to the global
+ * value AFLR4_mier.
  * <br>
  * - <b> AFLR4_Edge_Refinement_Weight</b> [Optional FACE attribute: Default 0.0, Range 0 to 1]<br>
  * EGADS attribute AFLR4_Edge_Refinement_Weight represents the edge mesh spacing
@@ -124,7 +129,13 @@
  * applies the maximum modification and a value of zero applies no change in edge
  * spacing. Note that no modification is done to edges that belong to farfield or
  * BL intersecting face/surface.
- *
+ * <br>
+ * - <b> AFLR4_Scale_Factor</b> [Optional FACE attribute: Default 1.0]<br>
+ * EGADS attribute AFLR4_Scale_Factor represents the AFLR4 surface mesh spacing
+ * scale factor for a given face/surface. Curvature dependent spacing can be
+ * scaled on the face/surface by the value of the scale factor set with
+ * AFLR4_Scale_Factor.<br>
+ * <br>
  */
 
 #ifdef WIN32
@@ -132,7 +143,7 @@
 #define strcasecmp  stricmp
 #define strncasecmp _strnicmp
 #define PATH_MAX    _MAX_PATH
-typedef int         pid_t;        
+typedef int         pid_t;
 #else
 #include <unistd.h>
 #include <limits.h>
@@ -146,9 +157,6 @@ typedef int         pid_t;
 #include "meshUtils.h"       // Collection of helper functions for meshing
 #include "miscUtils.h"       // Collection of helper functions for miscellaneous analysis
 #include "aflr4_Interface.h" // Bring in AFLR4 'interface' functions
-
-extern int
-EG_saveTess(ego tess, const char *name); // super secret experimental EGADS tessellation format
 
 #include <ug/UG_LIB.h>
 #include <aflr4/AFLR4_LIB.h> // Bring in AFLR4 API library
@@ -252,7 +260,7 @@ static int setAFLR4Attr(ego body,
                 // Check if the mesh property applies to the capsGroup of this face
                 if (meshProp[propIndex].attrIndex != attrIndex) continue;
 
-                // If scaleFactor specified in meshProp
+                // If bcType specified in meshProp
                 if (meshProp[propIndex].bcType != NULL) {
 
                     bcType = meshProp[propIndex].bcType;
@@ -440,7 +448,7 @@ int aimInputs(/*@unused@*/ int iIndex, void *aimInfo, int index, char **ainame,
         /*! \page aimInputsAFLR4
          * - <B> Mesh_Format = "AFLR3"</B> <br>
          * Mesh output format. Available format names include: "AFLR3", "VTK", "TECPLOT", "STL" (quadrilaterals will be
-         * split into triangles), "FAST".
+         * split into triangles), "FAST", "ETO".
          */
 
     } if (index == ++input) {
@@ -1011,7 +1019,8 @@ int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValu
     }
 
 
-    status = aflr4_Surface_Mesh(aflr4Instance[iIndex].meshInput.quiet,
+    status = aflr4_Surface_Mesh(aflr4Instance[iIndex].meshInput.outputDirectory,
+                                aflr4Instance[iIndex].meshInput.quiet,
                                 numBody, bodies,
                                 aimInfo, aimInputs,
                                 aflr4Instance[iIndex].meshInput,
@@ -1094,7 +1103,6 @@ int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValu
 
             } else if (strcasecmp(aflr4Instance[iIndex].meshInput.outputFormat, "ETO") == 0) {
 
-                // This format is not yet anything official. Do not document it!
                 filename = (char *) EG_reall(filename,(strlen(filename) + 5) *sizeof(char));
                 if (filename == NULL) {
                     status = EGADS_MALLOC;

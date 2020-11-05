@@ -113,14 +113,20 @@ $(function() {
  Domain T-Rex cell type (Triangle or TriangleQuad).</li>
 <li><b> Domain_TRex_ARLimit = 200.0</b> <br />
  Domain T-Rex maximum aspect ratio limit (0 - not used).</li>
+<li><b> Domain_TRex_AngleBC = 0.0</b> <br />
+ Domain T-Rex spacing from surface curvature.</li>
 <li><b> Domain_Decay = 0.5</b> <br />
  Domain boundary decay.</li>
 <li><b> Domain_Min_Edge = 0.0</b> <br />
- Domain minimum edge length.</li>
+ Domain minimum edge length (relative to capsMeshLength).</li>
 <li><b> Domain_Max_Edge = 0.0</b> <br />
- Domain minimum edge length.</li>
+ Domain minimum edge length (relative to capsMeshLength).</li>
 <li><b> Domain_Adapt = False</b> <br />
  Set up all domains for adaptation.</li>
+<li><b> Domain_Wall_Spacing = 0.0</b> <br />
+ Defined spacing when geometry attributed with PW:WallSpacing $wall (relative to capsMeshLength)</li>
+<li><b> Domain_Structure_AR_Convert = 0.0</b> <br />
+ Aspect ratio to trigger converting domains to structured.</li>
 <li><b> Domain_Algorithm = "Delaunay"</b> <br />
  Isotropic (Delaunay, Voxel) (V18.3+).</li>
 <li><b> Block_Voxel_Layers = 3</b> <br />
@@ -131,6 +137,8 @@ $(function() {
  Collision buffer for colliding T-Rex fronts.</li>
 <li><b> Block_Max_Skew_Angle = 180.0</b> <br />
  Maximum skew angle for T-Rex extrusion.</li>
+<li><b> Block_TRex_Skew_Delay = 0</b> <br />
+ Number of layers to delay enforcement of skew criteria</li>
 <li><b> Block_Edge_Max_Growth_Rate = 1.8</b> <br />
  Volumetric edge ratio.</li>
 <li><b> Block_Full_Layers = 0</b> <br />
@@ -142,7 +150,7 @@ $(function() {
 <li><b> Block_TRexType = "TetPyramid"</b> <br />
  T-Rex cell type (TetPyramid, TetPyramidPrismHex, AllAndConvertWallDoms).</li>
 <li><b> Gen_Source_Box_Length_Scale = 0.0</b> <br />
- Length scale of enclosed viscous walls in source box (0 - no box).</li>
+ Length scale of enclosed viscous walls in source box (0 - no box) (relative to capsMeshLength).</li>
 <li><b> Gen_Source_Box_Direction = [1.0, 0.0, 0.0]</b> <br />
  Principal direction vector (i.e. normalized freestream vector).</li>
 <li><b> Gen_Source_Box_Angle = 0.0</b> <br />
@@ -153,7 +161,7 @@ $(function() {
 </div></div><!-- contents -->
 <!-- start footer part -->
 <hr class="footer"/><address class="footer"><small>
-Generated on Thu May 28 2020 06:21:57 for Pointwise Analysis Interface Module (AIM) by &#160;<a href="http://www.doxygen.org/index.html">
+Generated on Tue Aug 18 2020 07:56:13 for Pointwise Analysis Interface Module (AIM) by &#160;<a href="http://www.doxygen.org/index.html">
 <img class="footer" src="doxygen.png" alt="doxygen"/>
 </a> 1.8.13
 </small></address>

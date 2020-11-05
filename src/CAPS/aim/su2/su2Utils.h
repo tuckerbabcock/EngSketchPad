@@ -34,6 +34,9 @@ int su2_writeCongfig_Raven(void *aimInfo, const char *analysisPath, capsValue *a
 // Write SU2 configuration file for version Falcon (6.1)
 int su2_writeCongfig_Falcon(void *aimInfo, const char *analysisPath, capsValue *aimInputs, cfdBCsStruct bcProps, int withMotion);
 
+// Write SU2 configuration file for version Falcon (7.0.7)
+int su2_writeCongfig_Blackbird(void *aimInfo, const char *analysisPath, capsValue *aimInputs, cfdBCsStruct bcProps, int withMotion);
+
 #ifdef __cplusplus
 }
 #endif

@@ -74,7 +74,7 @@ $(LDIR)/libcaps.dll:	$(OBJS)
 			-L$(LDIR) -ludunits2 -locsm -legads -ldl )
 
 $(OBJS): %.o: 	%.c ../include/capsErrors.h ../include/capsTypes.h capsBase.h \
-		$(IDIR)/OpenCSM.h $(IDIR)/common.h
+		capsFunIDs.h $(IDIR)/OpenCSM.h $(IDIR)/common.h
 	$(CC) -c $(COPTS) $(DEFINE) -I../include -I$(IDIR) -I. \
 		-I/usr/include/udunits2 $< -o $(ODIR)/$@
 

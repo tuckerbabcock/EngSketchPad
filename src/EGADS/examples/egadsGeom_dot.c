@@ -706,7 +706,7 @@ setLineBody_dot( const double *x0,     /* (in)  coordinates of the first point  
   tdata_dot[0] = 0;
   tdata_dot[1] = (data[3]*data_dot[3] + data[4]*data_dot[4] + data[5]*data_dot[5])/tdata[1];
 
-  status = EG_setGeometry_dot(eedges[0], EDGE, TWONODE, NULL, tdata, tdata_dot);
+  status = EG_setRange_dot(eedges[0], EDGE, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   status = EGADS_SUCCESS;
@@ -916,7 +916,7 @@ setCircleBody_dot( const double *xcent,     /* (in)  Center          */
   tdata_dot[0] = 0;
   tdata_dot[1] = 0;
 
-  status = EG_setGeometry_dot(eedges[0], EDGE, ONENODE, NULL, tdata, tdata_dot);
+  status = EG_setRange_dot(eedges[0], EDGE, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   /* set the Circle data and velocity */
@@ -1179,7 +1179,7 @@ setEllipseBody_dot( const double *xcent,     /* (in)  Center                */
   tdata_dot[0] = 0;
   tdata_dot[1] = 0;
 
-  status = EG_setGeometry_dot(eedges[0], EDGE, ONENODE, NULL, tdata, tdata_dot);
+  status = EG_setRange_dot(eedges[0], EDGE, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   /* set the sensitivity of the Node */
@@ -1438,7 +1438,7 @@ setParabolaBody_dot( const double *xcent,   /* (in)  Center          */
   tdata_dot[0] = 0;
   tdata_dot[1] = 0;
 
-  status = EG_setGeometry_dot(eedges[0], EDGE, TWONODE, NULL, tdata, tdata_dot);
+  status = EG_setRange_dot(eedges[0], EDGE, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   /* set the Circle data and velocity */
@@ -1703,7 +1703,7 @@ setHyperbolaBody_dot( const double *xcent,     /* (in)  Center                */
   tdata_dot[0] = 0;
   tdata_dot[1] = 0;
 
-  status = EG_setGeometry_dot(eedges[0], EDGE, TWONODE, NULL, tdata, tdata_dot);
+  status = EG_setRange_dot(eedges[0], EDGE, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   /* set the Circle data and velocity */
@@ -1996,14 +1996,14 @@ setOffsetCurveBody_dot( const double *x0,        /* (in)  coordinates of the fir
   status = EG_setGeometry_dot(eline, CURVE, LINE, NULL, data, data_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
-  /* set the t-range sensitivity */
+  /* set the Edge t-range sensitivity */
   tdata[0] = 0;
   tdata[1] = sqrt(data[3]*data[3] + data[4]*data[4] + data[5]*data[5]);
 
   tdata_dot[0] = 0;
   tdata_dot[1] = (data[3]*data_dot[3] + data[4]*data_dot[4] + data[5]*data_dot[5])/tdata[1];
 
-  status = EG_setGeometry_dot(eedges[0], EDGE, TWONODE, NULL, tdata, tdata_dot);
+  status = EG_setRange_dot(eedges[0], EDGE, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   /* set the offset curve velocity */
@@ -2230,7 +2230,7 @@ setBezierCurveBody_dot( const int npts,        /* (in)  number of points        
   tdata_dot[0] = 0;
   tdata_dot[1] = 0;
 
-  status = EG_setGeometry_dot(eedges[0], EDGE, TWONODE, NULL, tdata, tdata_dot);
+  status = EG_setRange_dot(eedges[0], EDGE, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   /* set the sensitivity of the Nodes */
@@ -2446,7 +2446,7 @@ setBsplineCurveBody_dot( const int npts,        /* (in)  number of points       
   tdata_dot[0] = 0;
   tdata_dot[1] = 0;
 
-  status = EG_setGeometry_dot(eedges[0], EDGE, TWONODE, NULL, tdata, tdata_dot);
+  status = EG_setRange_dot(eedges[0], EDGE, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   /* set the sensitivity of the Nodes */
@@ -2664,14 +2664,14 @@ setLineEdge_dot( ego eedge )      /* (in/out) Edge with velocity */
   status = EG_setGeometry_dot(eline, CURVE, LINE, NULL, data, data_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
-  /* set the t-range sensitivity */
+  /* set the Edge t-range sensitivity */
   tdata[0] = 0;
   tdata[1] = sqrt(data[3]*data[3] + data[4]*data[4] + data[5]*data[5]);
 
   tdata_dot[0] = 0;
   tdata_dot[1] = (data[3]*data_dot[3] + data[4]*data_dot[4] + data[5]*data_dot[5])/tdata[1];
 
-  status = EG_setGeometry_dot(eedge, EDGE, TWONODE, NULL, tdata, tdata_dot);
+  status = EG_setRange_dot(eedge, EDGE, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   status = EGADS_SUCCESS;
@@ -3248,14 +3248,14 @@ setSphericalBody_dot( const double *xcent,     /* (in)  Center          */
   tdata[0]     = -PI/2;
   tdata[1]     =  PI/2;
 
-  status = EG_setGeometry_dot(eedges[0], EDGE, TWONODE, NULL, tdata, tdata_dot);
+  status = EG_setRange_dot(eedges[0], EDGE, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   tdata[0]     = 0;
   tdata[1]     = TWOPI;
-  status = EG_setGeometry_dot(eedges[1], EDGE, DEGENERATE, NULL, tdata, tdata_dot);
+  status = EG_setRange_dot(eedges[1], EDGE, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
-  status = EG_setGeometry_dot(eedges[3], EDGE, DEGENERATE, NULL, tdata, tdata_dot);
+  status = EG_setRange_dot(eedges[3], EDGE, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   /* set the Sphere data and velocity */
@@ -3864,16 +3864,16 @@ setConicalBody_dot( const double *xcent,     /* (in)  Center          */
   tdata_dot[0] = vmin_dot;
   tdata_dot[1] = 0;
 
-  status = EG_setGeometry_dot(eedges[0], EDGE, TWONODE, NULL, tdata, tdata_dot);
+  status = EG_setRange_dot(eedges[0], EDGE, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   tdata[0]     = 0;
   tdata[1]     = TWOPI;
   tdata_dot[0] = 0;
   tdata_dot[1] = 0;
-  status = EG_setGeometry_dot(eedges[1], EDGE, DEGENERATE, NULL, tdata, tdata_dot);
+  status = EG_setRange_dot(eedges[1], EDGE, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
-  status = EG_setGeometry_dot(eedges[3], EDGE, ONENODE, NULL, tdata, tdata_dot);
+  status = EG_setRange_dot(eedges[3], EDGE, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
 #ifdef PCURVE_SENSITIVITY
@@ -4394,9 +4394,9 @@ setCylindricalBody_dot( const double *xcent,     /* (in)  Center          */
   tdata[1]     = TWOPI;
   tdata_dot[0] = 0;
   tdata_dot[1] = 0;
-  status = EG_setGeometry_dot(eedges[1], EDGE, ONENODE, NULL, tdata, tdata_dot);
+  status = EG_setRange_dot(eedges[1], EDGE, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
-  status = EG_setGeometry_dot(eedges[3], EDGE, ONENODE, NULL, tdata, tdata_dot);
+  status = EG_setRange_dot(eedges[3], EDGE, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   status = EGADS_SUCCESS;
@@ -4781,15 +4781,15 @@ setToroidalBody_dot( const double *xcent,     /* (in)  Center                  *
   tdata_dot[1] = 0;
   tdata[0]     = 0;
   tdata[1]     = TWOPI;
-  status = EG_setGeometry_dot(eedges[0], EDGE, ONENODE, NULL, tdata, tdata_dot);
+  status = EG_setRange_dot(eedges[0], EDGE, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
-  status = EG_setGeometry_dot(eedges[2], EDGE, ONENODE, NULL, tdata, tdata_dot);
+  status = EG_setRange_dot(eedges[2], EDGE, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   tdata[0]     = 0;
   tdata[1]     = PI;
 
-  status = EG_setGeometry_dot(eedges[1], EDGE, TWONODE, NULL, tdata, tdata_dot);
+  status = EG_setRange_dot(eedges[1], EDGE, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
 
@@ -5398,9 +5398,9 @@ setRevolutionBody_dot( const double *xcent,     /* (in)  Center                 
   tdata_dot[1] = 0;
   tdata[0]     = 0;
   tdata[1]     = TWOPI;
-  status = EG_setGeometry_dot(eedges[1], EDGE, ONENODE, NULL, tdata, tdata_dot);
+  status = EG_setRange_dot(eedges[1], EDGE, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
-  status = EG_setGeometry_dot(eedges[3], EDGE, ONENODE, NULL, tdata, tdata_dot);
+  status = EG_setRange_dot(eedges[3], EDGE, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   /* set the velocity on the surface */
@@ -5883,9 +5883,9 @@ setExtrusionBody_dot( const double *xcent,     /* (in)  Center                  
   tdata[1]     = TWOPI;
   tdata_dot[0] = 0;
   tdata_dot[1] = 0;
-  status = EG_setGeometry_dot(eedges[1], EDGE, ONENODE, NULL, tdata, tdata_dot);
+  status = EG_setRange_dot(eedges[1], EDGE, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
-  status = EG_setGeometry_dot(eedges[3], EDGE, ONENODE, NULL, tdata, tdata_dot);
+  status = EG_setRange_dot(eedges[3], EDGE, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   status = EGADS_SUCCESS;
@@ -6408,13 +6408,13 @@ setBezierSurfaceBody_dot( const int nCPu,        /* (in)  number of points in u 
   tdata[1]     = 1;
   tdata_dot[0] = 0;
   tdata_dot[1] = 0;
-  status = EG_setGeometry_dot(eedges[0], EDGE, TWONODE, NULL, tdata, tdata_dot);
+  status = EG_setRange_dot(eedges[0], EDGE, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
-  status = EG_setGeometry_dot(eedges[1], EDGE, TWONODE, NULL, tdata, tdata_dot);
+  status = EG_setRange_dot(eedges[1], EDGE, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
-  status = EG_setGeometry_dot(eedges[2], EDGE, TWONODE, NULL, tdata, tdata_dot);
+  status = EG_setRange_dot(eedges[2], EDGE, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
-  status = EG_setGeometry_dot(eedges[3], EDGE, TWONODE, NULL, tdata, tdata_dot);
+  status = EG_setRange_dot(eedges[3], EDGE, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   status = EGADS_SUCCESS;
@@ -7322,13 +7322,13 @@ setBsplineSurfaceBody_dot( const int nCPu,        /* (in)  number of points in u
   tdata[1]     = 1;
   tdata_dot[0] = 0;
   tdata_dot[1] = 0;
-  status = EG_setGeometry_dot(eedges[0], EDGE, TWONODE, NULL, tdata, tdata_dot);
+  status = EG_setRange_dot(eedges[0], EDGE, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
-  status = EG_setGeometry_dot(eedges[1], EDGE, TWONODE, NULL, tdata, tdata_dot);
+  status = EG_setRange_dot(eedges[1], EDGE, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
-  status = EG_setGeometry_dot(eedges[2], EDGE, TWONODE, NULL, tdata, tdata_dot);
+  status = EG_setRange_dot(eedges[2], EDGE, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
-  status = EG_setGeometry_dot(eedges[3], EDGE, TWONODE, NULL, tdata, tdata_dot);
+  status = EG_setRange_dot(eedges[3], EDGE, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   status = EGADS_SUCCESS;
@@ -7688,7 +7688,7 @@ checkCurve_dot(ego context)
                            tdata, 2, enodes, NULL, &eedge);
   if (status != EGADS_SUCCESS) goto cleanup;
 
-  status = EG_setGeometry_dot(eedge, EDGE, TWONODE, NULL, tdata, tdata_dot);
+  status = EG_setRange_dot(eedge, EDGE, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   /* hasGeometry_dot checks the Edge t-range, curve and nodes for an edge */
@@ -8009,7 +8009,7 @@ checkSurface_dot(ego context)
                            tdata, 2, enodes, NULL, &eedges[0]);
   if (status != EGADS_SUCCESS) goto cleanup;
 
-  status = EG_setGeometry_dot(eedges[0], EDGE, TWONODE, NULL, tdata, tdata_dot);
+  status = EG_setRange_dot(eedges[0], EDGE, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   /* make the Degenerate Edges on the Nodes */
@@ -8022,7 +8022,7 @@ checkSurface_dot(ego context)
                            tdata, 1, &enodes[0], NULL, &eedges[1]);
   if (status != EGADS_SUCCESS) goto cleanup;
 
-  status = EG_setGeometry_dot(eedges[1], EDGE, DEGENERATE, NULL, tdata, tdata_dot);
+  status = EG_setRange_dot(eedges[1], EDGE, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   eedges[2] = eedges[0]; /* repeat the circle edge */
@@ -8031,7 +8031,7 @@ checkSurface_dot(ego context)
                            tdata, 1, &enodes[1], NULL, &eedges[3]);
   if (status != EGADS_SUCCESS) goto cleanup;
 
-  status = EG_setGeometry_dot(eedges[3], EDGE, DEGENERATE, NULL, tdata, tdata_dot);
+  status = EG_setRange_dot(eedges[3], EDGE, tdata, tdata_dot);
   if (status != EGADS_SUCCESS) goto cleanup;
 
   /* create P-curves */

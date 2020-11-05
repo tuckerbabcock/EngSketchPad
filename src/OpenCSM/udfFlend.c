@@ -28,7 +28,7 @@
  */
 
 #define NUMUDPINPUTBODYS -2
-#define NUMUDPARGS        4
+#define NUMUDPARGS        7
 
 /* set up the necessary structures (uses NUMUDPARGS) */
 #include "udpUtilities.h"
@@ -37,12 +37,15 @@
 #define FRACA( IUDP)     ((double *) (udps[IUDP].arg[0].val))[0]
 #define FRACB( IUDP)     ((double *) (udps[IUDP].arg[1].val))[0]
 #define TOLER( IUDP)     ((double *) (udps[IUDP].arg[2].val))[0]
-#define PLOT(  IUDP)     ((int    *) (udps[IUDP].arg[3].val))[0]
+#define EQUIS( IUDP)     ((int    *) (udps[IUDP].arg[3].val))[0]
+#define NPNT(  IUDP)     ((int    *) (udps[IUDP].arg[4].val))[0]
+#define SLPFAC(IUDP)     ((double *) (udps[IUDP].arg[5].val))[0]
+#define PLOT(  IUDP)     ((int    *) (udps[IUDP].arg[6].val))[0]
 
-static char  *argNames[NUMUDPARGS] = {"fraca",  "fracb",  "toler",  "plot",  };
-static int    argTypes[NUMUDPARGS] = {ATTRREAL, ATTRREAL, ATTRREAL, ATTRINT, };
-static int    argIdefs[NUMUDPARGS] = {0,        0,        0,        0,       };
-static double argDdefs[NUMUDPARGS] = {0.20,     0.20,     1.0e-6,   0.,      };
+static char  *argNames[NUMUDPARGS] = {"fraca",  "fracb",  "toler",  "equis", "npnt",  "slpfac", "plot",  };
+static int    argTypes[NUMUDPARGS] = {ATTRREAL, ATTRREAL, ATTRREAL, ATTRINT, ATTRINT, ATTRREAL, ATTRINT, };
+static int    argIdefs[NUMUDPARGS] = {0,        0,        0,        0,       33,      0,        0,       };
+static double argDdefs[NUMUDPARGS] = {0.20,     0.20,     1.0e-6,   0.,      0.,      10.,      0.,      };
 
 /* get utility routines: udpErrorStr, udpInitialize, udpReset, udpSet,
                          udpGet, udpVel, udpClean, udpMesh */
@@ -92,18 +95,18 @@ udpExecute(ego  emodel,                 /* (in)  input model */
     ego     context, *ebodys;
 
     int     nloop = 4;        // number of Loops
-    int     npnt  = 33;       // number of points on each Edge
 
     int      nedgeA, iedgeA, nfaceA, ifaceA, nlistA, *sensesA;
     int      nedgeB, iedgeB, nfaceB, ifaceB, nlistB, *sensesB;
     int      iloop, ipnt, nfacelist, brchattr[2], bodyattr[2];
     int      oclass, mtype, nchild, *senses, ntemp, atype, alen, count, itemp, iedge, jedge, periodic;
-    int      nnode, nedge2, iedge2;
+    int      npnt, nnode, nedge2, iedge2;
     CINT     *tempIlist;
     double   data[18], value, dot, trangeA[2], trangeB[2], fraci, fracj, tt;
     double   uvA[2], uvB[2], tangA[18], tangB[18], vold[3], vnew[3], *point=NULL;
     double   stepT, stepU, stepV, dxyzbeg[3], dxyzend[3];
     double   *spln=NULL, *west=NULL, *east=NULL, toler=1.0e-8;
+    double   lenA, lenB, tleft, trite, ss, stgt;
     CDOUBLE  *tempRlist;
     char     temp[1];
     CCHAR    *tempClist;
@@ -111,15 +114,18 @@ udpExecute(ego  emodel,                 /* (in)  input model */
     ego      *eedgesB, *efacesB=NULL, *elistB=NULL;
     ego      eref, *etemps, *eloops=NULL, *echilds;
     ego      *eedgelist=NULL, *efacelist=NULL;
-    ego      esurf, enode, eedge, *enodes, *eedges2;
+    ego      esurf, enode, eedge, *enodes, *eedges2, topRef, prev, next;
     void     *modl;
 
 #ifdef DEBUG
     printf("udpExecute(emodel=%llx)\n", (long long)emodel);
-    printf("fraca(0) = %f\n", FRACA(0));
-    printf("fracb(0) = %f\n", FRACB(0));
-    printf("toler(0) = %f\n", TOLER(0));
-    printf("plot( 0) = %d\n", PLOT( 0));
+    printf("fraca( 0) = %f\n", FRACA( 0));
+    printf("fracb( 0) = %f\n", FRACB( 0));
+    printf("toler( 0) = %f\n", TOLER( 0));
+    printf("equis( 0) = %d\n", EQUIS( 0));
+    printf("npnt ( 0) = %d\n", NPNT(  0));
+    printf("slpfac(0) = %f\n", SLPFAC(0));
+    printf("plot(  0) = %d\n", PLOT(  0));
 #endif
 
     /* default return values */
@@ -148,6 +154,11 @@ udpExecute(ego  emodel,                 /* (in)  input model */
         status  =  EGADS_RANGERR;
         goto cleanup;
 
+    } else if (FRACA(0)+FRACB(0) > 1) {
+        printf(" udpExecute: fraca+fracb = %f > 1\n", FRACA(0)+FRACB(0));
+        status  =  EGADS_RANGERR;
+        goto cleanup;
+
     } else if (udps[0].arg[2].size > 1) {
         printf(" udpExecute: toler should be a scalar\n");
         status  = EGADS_RANGERR;
@@ -163,11 +174,23 @@ udpExecute(ego  emodel,                 /* (in)  input model */
         status  = EGADS_RANGERR;
         goto cleanup;
 
+    } else if (SLPFAC(0) < 1) {
+        printf(" udpExecute: plot should be a scalar\n");
+        status  = EGADS_RANGERR;
+        goto cleanup;
+
+    } else if (NPNT(0) < 5) {
+        printf(" udpExecute: npnt = %d < 5\n", NPNT(0));
+        status  =  EGADS_RANGERR;
+        goto cleanup;
+
     } else if (nloop != 4) {
         printf(" udpExecute: nloop = %d != 4\n", nloop);
         status  =  EGADS_RANGERR;
         goto cleanup;
     }
+
+    npnt = NPNT(0);
 
     /* check that Model was input that contains two Bodys */
     status = EG_getTopology(emodel, &eref, &oclass, &mtype,
@@ -205,10 +228,13 @@ udpExecute(ego  emodel,                 /* (in)  input model */
     }
 
 #ifdef DEBUG
-    printf("fraca(%d) = %f\n", numUdp, FRACA(numUdp));
-    printf("fracb(%d) = %f\n", numUdp, FRACB(numUdp));
-    printf("toler(%d) = %f\n", numUdp, TOLER(numUdp));
-    printf("plot( %d) = %d\n", numUdp, PLOT( numUdp));
+    printf("fraca( %d) = %f\n", numUdp, FRACA( numUdp));
+    printf("fracb( %d) = %f\n", numUdp, FRACB( numUdp));
+    printf("toler( %d) = %f\n", numUdp, TOLER( numUdp));
+    printf("equis( %d) = %d\n", numUdp, EQUIS( numUdp));
+    printf("npnt(  %d) = %d\n", numUdp, NPNT(  numUdp));
+    printf("slpfac(%d) = %f\n", numUdp, SLPFAC(numUdp));
+    printf("plot(  %d) = %d\n", numUdp, PLOT(  numUdp));
 #endif
 
     status = EG_getContext(emodel, &context);
@@ -242,16 +268,25 @@ udpExecute(ego  emodel,                 /* (in)  input model */
     }
 
     for (iedgeA = 0; iedgeA < nedgeA; iedgeA++) {
+        status = EG_getInfo(eedgesA[iedgeA], &oclass, &mtype, &topRef, &prev, &next);
+        if (status != EGADS_SUCCESS) goto cleanup;
+
+        if (mtype == DEGENERATE) continue;
+        
         status = EG_getBodyTopos(ebodys[0], eedgesA[iedgeA], FACE, &ntemp, &etemps);
         if (status != EGADS_SUCCESS) goto cleanup;
 
-        count = 0;
-        for (itemp = 0; itemp < ntemp; itemp++) {
-            status = EG_attributeRet(etemps[itemp], "_flend", &atype, &alen,
-                                     &tempIlist, &tempRlist, &tempClist);
-            if (status == EGADS_SUCCESS) {
-                if (atype == ATTRSTRING && strcmp(tempClist, "remove") == 0) {
-                    count++;
+        if (ntemp == 1) {
+            count = 1;
+        } else {
+            count = 0;
+            for (itemp = 0; itemp < ntemp; itemp++) {
+                status = EG_attributeRet(etemps[itemp], "_flend", &atype, &alen,
+                                         &tempIlist, &tempRlist, &tempClist);
+                if (status == EGADS_SUCCESS) {
+                    if (atype == ATTRSTRING && strcmp(tempClist, "remove") == 0) {
+                        count++;
+                    }
                 }
             }
         }
@@ -278,20 +313,29 @@ udpExecute(ego  emodel,                 /* (in)  input model */
     }
 
     for (iedgeB = 0; iedgeB < nedgeB; iedgeB++) {
+        status = EG_getInfo(eedgesB[iedgeB], &oclass, &mtype, &topRef, &prev, &next);
+        if (status != EGADS_SUCCESS) goto cleanup;
+
+        if (mtype == DEGENERATE) continue;
+        
         status = EG_getBodyTopos(ebodys[1], eedgesB[iedgeB], FACE, &ntemp, &etemps);
         if (status != EGADS_SUCCESS) goto cleanup;
 
-        count = 0;
-        for (itemp = 0; itemp < ntemp; itemp++) {
-            status = EG_attributeRet(etemps[itemp], "_flend", &atype, &alen,
-                                     &tempIlist, &tempRlist, &tempClist);
-            if (status == EGADS_SUCCESS) {
-                if (atype == ATTRSTRING && strcmp(tempClist, "remove") == 0) {
-                    count++;
+        if (ntemp == 1) {
+            count = 1;
+        } else {
+            count = 0;
+            for (itemp = 0; itemp < ntemp; itemp++) {
+                status = EG_attributeRet(etemps[itemp], "_flend", &atype, &alen,
+                                         &tempIlist, &tempRlist, &tempClist);
+                if (status == EGADS_SUCCESS) {
+                    if (atype == ATTRSTRING && strcmp(tempClist, "remove") == 0) {
+                        count++;
+                    }
                 }
             }
         }
-
+        
         if (count == 1) {
             elistB[nlistB++] = eedgesB[iedgeB];
         }
@@ -306,8 +350,14 @@ udpExecute(ego  emodel,                 /* (in)  input model */
         printf(" udpExecute: nlistA=%d and nlistB=%d\n", nlistA, nlistB);
         printf("ebodys[0]\n");
         ocsmPrintEgo(ebodys[0]);
+        for (itemp = 0; itemp < nlistA; itemp++) {
+            printf("--- elistA[%d]=%llx\n", itemp, (long long)elistA[itemp]);
+        }
         printf("ebodys[1]\n");
         ocsmPrintEgo(ebodys[1]);
+        for (itemp = 0; itemp < nlistB; itemp++) {
+            printf("--- elistB[%d]=%llx\n", itemp, (long long)elistB[itemp]);
+        }
         status = -281;
         goto cleanup;
     }
@@ -420,37 +470,192 @@ udpExecute(ego  emodel,                 /* (in)  input model */
         status = EG_getRange(eedgesA[iedge], trangeA, &periodic);
         if (status != EGADS_SUCCESS) goto cleanup;
 
+        status = EG_arcLength(eedgesA[iedge], trangeA[0], trangeA[1], &lenA);
+        if (status != EGADS_SUCCESS) goto cleanup;
+
+        printf("sensesA=%d, trangeA=%10.5f %10.5f, lenA=%10.5f\n", sensesA[iedge], trangeA[0], trangeA[1], lenA);
+        (void) EG_evaluate(eedgesA[iedge], &trangeA[0], data);
+        printf("    beg(A) = %10.5f %10.5f %10.5f\n", data[0], data[1], data[2]);
+        (void) EG_evaluate(eedgesA[iedge], &trangeA[1], data);
+        printf("    end(A) = %10.5f %10.5f %10.5f\n", data[0], data[1], data[2]);
+
         status = EG_getRange(eedgesB[iedge], trangeB, &periodic);
         if (status != EGADS_SUCCESS) goto cleanup;
+
+        status = EG_arcLength(eedgesB[iedge], trangeB[0], trangeB[1], &lenB);
+        if (status != EGADS_SUCCESS) goto cleanup;
+
+        printf("sensesB=%d, trangeB=%10.5f %10.5f, lenB=%10.5f\n", sensesB[iedge], trangeB[0], trangeB[1], lenB);
+
+        (void) EG_evaluate(eedgesB[iedge], &trangeB[0], data);
+        printf("    beg(B) = %10.5f %10.5f %10.5f\n", data[0], data[1], data[2]);
+        (void) EG_evaluate(eedgesB[iedge], &trangeB[1], data);
+        printf("    end(B) = %10.5f %10.5f %10.5f\n", data[0], data[1], data[2]);
 
         for (ipnt = 0; ipnt < npnt; ipnt++) {
             fraci = (double)(ipnt) / (double)(npnt-1);
 
-            /* iloop = 0 */
-            if (sensesA[iedge] == SFORWARD) {
-                tt = (1-fraci) * trangeA[0] + fraci * trangeA[1];
+            /* iloop=0: equal arc-length spacing on both Edges */
+            if (EQUIS(0) == 1) {
+                if (sensesA[iedge] == SFORWARD) {
+                    stgt =    fraci  * lenA;
+                } else {
+                    stgt = (1-fraci) * lenA;
+                }
+
+                tleft = trangeA[0];
+                trite = trangeA[1];
+                while (trite-tleft > 1.0e-7) {
+                    tt = (tleft + trite) / 2;
+
+                    status = EG_arcLength(eedgesA[iedge], trangeA[0], tt, &ss);
+                    if (status != EGADS_SUCCESS) goto cleanup;
+
+                    if (ss < stgt) {
+                        tleft = tt;
+                    } else {
+                        trite = tt;
+                    }
+                }
+
+            /* iloop=0: equal t spacing on Edge A and arc-length matching on Edge B */
+            } else if (EQUIS(0) == 2) {
+                if (sensesA[iedge] == SFORWARD) {
+                    tt = (1-fraci) * trangeA[0] + fraci * trangeA[1];
+                } else {
+                    tt = (1-fraci) * trangeA[1] + fraci * trangeA[0];
+                }
+
+            /* iloop=0: equal t spacing on Edge B and arc-length matching on Edge A */
+            } else if (EQUIS(0) == 3) {
+                if (sensesB[iedge] == SFORWARD) {
+                    tt = (1-fraci) * trangeB[0] + fraci * trangeB[1];
+                } else {
+                    tt = (1-fraci) * trangeB[1] + fraci * trangeB[0];
+                }
+                
+                status = EG_arcLength(eedgesB[iedge], trangeB[0], tt, &ss);
+                if (status != EGADS_SUCCESS) goto cleanup;
+
+                if (sensesB[iedge] == sensesA[iedge]) {
+                    stgt =         ss  / lenB * lenA;
+                } else {
+                    stgt = (lenB - ss) / lenB * lenA;
+                }
+                
+                tleft = trangeA[0];
+                trite = trangeA[1];
+                while (trite-tleft > 1.0e-7) {
+                    tt = (tleft + trite) / 2;
+
+                    status = EG_arcLength(eedgesA[iedge], trangeA[0], tt, &ss);
+                    if (status != EGADS_SUCCESS) goto cleanup;
+
+                    if (ss < stgt) {
+                        tleft = tt;
+                    } else {
+                        trite = tt;
+                    }
+                }
+
+            /* iloop=0: equal t spacing on both Edges (the default) */
             } else {
-                tt = (1-fraci) * trangeA[1] + fraci * trangeA[0];
+                if (sensesA[iedge] == SFORWARD) {
+                    tt = (1-fraci) * trangeA[0] + fraci * trangeA[1];
+                } else {
+                    tt = (1-fraci) * trangeA[1] + fraci * trangeA[0];
+                }
             }
+
             status = EG_evaluate(eedgesA[iedge], &tt, data);
             if (status != EGADS_SUCCESS) goto cleanup;
 
             XPNT(iedge,0,ipnt) = data[0];
             YPNT(iedge,0,ipnt) = data[1];
             ZPNT(iedge,0,ipnt) = data[2];
+            printf("A: iedge=%2d, ipnt=%3d, fraci=%10.5f, tt=%10.5f, data=%10.5f %10.5f %10.5f\n",
+                   iedge, ipnt, fraci, tt, data[0], data[1], data[2]);
 
-            /* iloop = nloop-1 */
-            if (sensesB[iedge] == SFORWARD) {
-                tt = (1-fraci) * trangeB[0] + fraci * trangeB[1];
+            /* iloop=nloop-1: equal arc-length spacing on both Edges */
+            if (EQUIS(0) == 1) {
+                if (sensesB[iedge] == SFORWARD) {
+                    stgt =    fraci  * lenB;
+                } else {
+                    stgt = (1-fraci) * lenB;
+                }
+
+                tleft = trangeB[0];
+                trite = trangeB[1];
+                while (trite-tleft > 1.0e-7) {
+                    tt = (tleft + trite) / 2;
+
+                    status = EG_arcLength(eedgesB[iedge], trangeB[0], tt, &ss);
+                    if (status != EGADS_SUCCESS) goto cleanup;
+
+                    if (ss < stgt) {
+                        tleft = tt;
+                    } else {
+                        trite = tt;
+                    }
+                }
+
+            /* iloop=nloop-1: equal t spacing on Edge A and arc-length matching on Edge B */
+            } else if (EQUIS(0) == 2) {
+                if (sensesA[iedge] == SFORWARD) {
+                    tt = (1-fraci) * trangeA[0] + fraci * trangeA[1];
+                } else {
+                    tt = (1-fraci) * trangeA[1] + fraci * trangeA[0];
+                }
+                
+                status = EG_arcLength(eedgesA[iedge], trangeA[0], tt, &ss);
+                if (status != EGADS_SUCCESS) goto cleanup;
+
+                if (sensesA[iedge] == sensesB[iedge]) {
+                    stgt =         ss  / lenA * lenB;
+                } else {
+                    stgt = (lenA - ss) / lenA * lenB;
+                }
+                
+                tleft = trangeB[0];
+                trite = trangeB[1];
+                while (trite-tleft > 1.0e-7) {
+                    tt = (tleft + trite) / 2;
+
+                    status = EG_arcLength(eedgesB[iedge], trangeB[0], tt, &ss);
+                    if (status != EGADS_SUCCESS) goto cleanup;
+
+                    if (ss < stgt) {
+                        tleft = tt;
+                    } else {
+                        trite = tt;
+                    }
+                }
+
+            /* iloop=nloop-1: equal t spacing on Edge B and arc-length matching on Edge A */
+            } else if (EQUIS(0) == 3) {
+                if (sensesB[iedge] == SFORWARD) {
+                    tt = (1-fraci) * trangeB[0] + fraci * trangeB[1];
+                } else {
+                    tt = (1-fraci) * trangeB[1] + fraci * trangeB[0];
+                }
+
+            /* iloop=nloop-1: equal t spacing on both Edges (the default) */
             } else {
-                tt = (1-fraci) * trangeB[1] + fraci * trangeB[0];
+                if (sensesB[iedge] == SFORWARD) {
+                    tt = (1-fraci) * trangeB[0] + fraci * trangeB[1];
+                } else {
+                    tt = (1-fraci) * trangeB[1] + fraci * trangeB[0];
+                }
             }
+
             status = EG_evaluate(eedgesB[iedge], &tt, data);
             if (status != EGADS_SUCCESS) goto cleanup;
 
             XPNT(iedge,nloop-1,ipnt) = data[0];
             YPNT(iedge,nloop-1,ipnt) = data[1];
             ZPNT(iedge,nloop-1,ipnt) = data[2];
+            printf("B: iedge=%2d, ipnt=%3d, fraci=%10.5f, tt=%10.5f, data=%10.5f %10.5f %10.5f\n",
+                   iedge, ipnt, fraci, tt, data[0], data[1], data[2]);
 
             /* interior Loops (1 -> nloop-2) */
             for (iloop = 1; iloop < nloop-1; iloop++) {
@@ -680,47 +885,49 @@ udpExecute(ego  emodel,                 /* (in)  input model */
 
     /* modify the interior Points based upon the displacements
        at the ends (computed above) */
-    for (iedge = 0; iedge < nedgeA; iedge++) {
+    if (EQUIS(0) == 0) {
+        for (iedge = 0; iedge < nedgeA; iedge++) {
 
-        iloop = 1;
+            iloop = 1;
 
-        ipnt  = 0;
-        dxyzbeg[0] = XPNT(iedge,iloop,ipnt) - ((1-FRACA(0)) * XPNT(iedge,0,ipnt) + FRACA(0) * XPNT(iedge,nloop-1,ipnt));
-        dxyzbeg[1] = YPNT(iedge,iloop,ipnt) - ((1-FRACA(0)) * YPNT(iedge,0,ipnt) + FRACA(0) * YPNT(iedge,nloop-1,ipnt));
-        dxyzbeg[2] = ZPNT(iedge,iloop,ipnt) - ((1-FRACA(0)) * ZPNT(iedge,0,ipnt) + FRACA(0) * ZPNT(iedge,nloop-1,ipnt));
+            ipnt  = 0;
+            dxyzbeg[0] = XPNT(iedge,iloop,ipnt) - ((1-FRACA(0)) * XPNT(iedge,0,ipnt) + FRACA(0) * XPNT(iedge,nloop-1,ipnt));
+            dxyzbeg[1] = YPNT(iedge,iloop,ipnt) - ((1-FRACA(0)) * YPNT(iedge,0,ipnt) + FRACA(0) * YPNT(iedge,nloop-1,ipnt));
+            dxyzbeg[2] = ZPNT(iedge,iloop,ipnt) - ((1-FRACA(0)) * ZPNT(iedge,0,ipnt) + FRACA(0) * ZPNT(iedge,nloop-1,ipnt));
 
-        ipnt = npnt - 1;
-        dxyzend[0] = XPNT(iedge,iloop,ipnt) - ((1-FRACA(0)) * XPNT(iedge,0,ipnt) + FRACA(0) * XPNT(iedge,nloop-1,ipnt));
-        dxyzend[1] = YPNT(iedge,iloop,ipnt) - ((1-FRACA(0)) * YPNT(iedge,0,ipnt) + FRACA(0) * YPNT(iedge,nloop-1,ipnt));
-        dxyzend[2] = ZPNT(iedge,iloop,ipnt) - ((1-FRACA(0)) * ZPNT(iedge,0,ipnt) + FRACA(0) * ZPNT(iedge,nloop-1,ipnt));
+            ipnt = npnt - 1;
+            dxyzend[0] = XPNT(iedge,iloop,ipnt) - ((1-FRACA(0)) * XPNT(iedge,0,ipnt) + FRACA(0) * XPNT(iedge,nloop-1,ipnt));
+            dxyzend[1] = YPNT(iedge,iloop,ipnt) - ((1-FRACA(0)) * YPNT(iedge,0,ipnt) + FRACA(0) * YPNT(iedge,nloop-1,ipnt));
+            dxyzend[2] = ZPNT(iedge,iloop,ipnt) - ((1-FRACA(0)) * ZPNT(iedge,0,ipnt) + FRACA(0) * ZPNT(iedge,nloop-1,ipnt));
 
-        for (ipnt = 1; ipnt < npnt-1; ipnt++) {
-            fraci = (double)(ipnt) / (double)(npnt-1);
+            for (ipnt = 1; ipnt < npnt-1; ipnt++) {
+                fraci = (double)(ipnt) / (double)(npnt-1);
 
-            XPNT(iedge,iloop,ipnt) += (1-fraci) * dxyzbeg[0] + fraci * dxyzend[0];
-            YPNT(iedge,iloop,ipnt) += (1-fraci) * dxyzbeg[1] + fraci * dxyzend[1];
-            ZPNT(iedge,iloop,ipnt) += (1-fraci) * dxyzbeg[2] + fraci * dxyzend[2];
-        }
+                XPNT(iedge,iloop,ipnt) += (1-fraci) * dxyzbeg[0] + fraci * dxyzend[0];
+                YPNT(iedge,iloop,ipnt) += (1-fraci) * dxyzbeg[1] + fraci * dxyzend[1];
+                ZPNT(iedge,iloop,ipnt) += (1-fraci) * dxyzbeg[2] + fraci * dxyzend[2];
+            }
 
 
-        iloop = nloop - 2;
+            iloop = nloop - 2;
 
-        ipnt = 0;
-        dxyzbeg[0] = XPNT(iedge,iloop,ipnt) - ((1-FRACB(0)) * XPNT(iedge,nloop-1,ipnt) + FRACB(0) * XPNT(iedge,0,ipnt));
-        dxyzbeg[1] = YPNT(iedge,iloop,ipnt) - ((1-FRACB(0)) * YPNT(iedge,nloop-1,ipnt) + FRACB(0) * YPNT(iedge,0,ipnt));
-        dxyzbeg[2] = ZPNT(iedge,iloop,ipnt) - ((1-FRACB(0)) * ZPNT(iedge,nloop-1,ipnt) + FRACB(0) * ZPNT(iedge,0,ipnt));
+            ipnt = 0;
+            dxyzbeg[0] = XPNT(iedge,iloop,ipnt) - ((1-FRACB(0)) * XPNT(iedge,nloop-1,ipnt) + FRACB(0) * XPNT(iedge,0,ipnt));
+            dxyzbeg[1] = YPNT(iedge,iloop,ipnt) - ((1-FRACB(0)) * YPNT(iedge,nloop-1,ipnt) + FRACB(0) * YPNT(iedge,0,ipnt));
+            dxyzbeg[2] = ZPNT(iedge,iloop,ipnt) - ((1-FRACB(0)) * ZPNT(iedge,nloop-1,ipnt) + FRACB(0) * ZPNT(iedge,0,ipnt));
 
-        ipnt = npnt - 1;
-        dxyzend[0] = XPNT(iedge,iloop,ipnt) - ((1-FRACB(0)) * XPNT(iedge,nloop-1,ipnt) + FRACB(0) * XPNT(iedge,0,ipnt));
-        dxyzend[1] = YPNT(iedge,iloop,ipnt) - ((1-FRACB(0)) * YPNT(iedge,nloop-1,ipnt) + FRACB(0) * YPNT(iedge,0,ipnt));
-        dxyzend[2] = ZPNT(iedge,iloop,ipnt) - ((1-FRACB(0)) * ZPNT(iedge,nloop-1,ipnt) + FRACB(0) * ZPNT(iedge,0,ipnt));
+            ipnt = npnt - 1;
+            dxyzend[0] = XPNT(iedge,iloop,ipnt) - ((1-FRACB(0)) * XPNT(iedge,nloop-1,ipnt) + FRACB(0) * XPNT(iedge,0,ipnt));
+            dxyzend[1] = YPNT(iedge,iloop,ipnt) - ((1-FRACB(0)) * YPNT(iedge,nloop-1,ipnt) + FRACB(0) * YPNT(iedge,0,ipnt));
+            dxyzend[2] = ZPNT(iedge,iloop,ipnt) - ((1-FRACB(0)) * ZPNT(iedge,nloop-1,ipnt) + FRACB(0) * ZPNT(iedge,0,ipnt));
 
-        for (ipnt = 1; ipnt < npnt-1; ipnt++) {
-            fraci = (double)(ipnt) / (double)(npnt-1);
+            for (ipnt = 1; ipnt < npnt-1; ipnt++) {
+                fraci = (double)(ipnt) / (double)(npnt-1);
 
-            XPNT(iedge,iloop,ipnt) += (1-fraci) * dxyzbeg[0] + fraci * dxyzend[0];
-            YPNT(iedge,iloop,ipnt) += (1-fraci) * dxyzbeg[1] + fraci * dxyzend[1];
-            ZPNT(iedge,iloop,ipnt) += (1-fraci) * dxyzbeg[2] + fraci * dxyzend[2];
+                XPNT(iedge,iloop,ipnt) += (1-fraci) * dxyzbeg[0] + fraci * dxyzend[0];
+                YPNT(iedge,iloop,ipnt) += (1-fraci) * dxyzbeg[1] + fraci * dxyzend[1];
+                ZPNT(iedge,iloop,ipnt) += (1-fraci) * dxyzbeg[2] + fraci * dxyzend[2];
+            }
         }
     }
 
@@ -763,7 +970,7 @@ udpExecute(ego  emodel,                 /* (in)  input model */
                   / (tangA[6] * tangA[6] + tangA[7] * tangA[7] + tangA[8] * tangA[8]);
 
 //$$$            printf("tangA %9.5f %9.5f %9.5f  %9.5f %9.5f %9.5f  %9.5f  %9.5f %9.5f\n",
-//$$$                   tangA[3], tangA[4], tangA[5], tangA[6], tangA[7], tangA[8], 
+//$$$                   tangA[3], tangA[4], tangA[5], tangA[6], tangA[7], tangA[8],
 //$$$                   tangA[3]*tangA[6]+tangA[4]*tangA[7]+tangA[5]*tangA[8], stepU, stepV);
 
             vnew[0] = stepU * tangA[3] + stepV * tangA[6];
@@ -771,7 +978,7 @@ udpExecute(ego  emodel,                 /* (in)  input model */
             vnew[2] = stepU * tangA[5] + stepV * tangA[8];
 
 //$$$            printf("A: iedge=%d, iloop=%d, ipnt=%2d, vold=%10.5f %10.5f %10.5f (%10.5f), vnew=%10.5f %10.5f %10.5f (%10.5f)\n",
-//$$$                   iedge, iloop, ipnt, 
+//$$$                   iedge, iloop, ipnt,
 //$$$                   vold[0], vold[1], vold[2], sqrt(vold[0]*vold[0]+vold[1]*vold[1]+vold[2]*vold[2]),
 //$$$                   vnew[0], vnew[1], vnew[2], sqrt(vnew[0]*vnew[0]+vnew[1]*vnew[1]+vnew[2]*vnew[2]));
 
@@ -806,7 +1013,7 @@ udpExecute(ego  emodel,                 /* (in)  input model */
                   / (tangB[6] * tangB[6] + tangB[7] * tangB[7] + tangB[8] * tangB[8]);
 
 //$$$            printf("tangB %9.5f %9.5f %9.5f  %9.5f %9.5f %9.5f  %9.5f  %9.5f %9.5f\n",
-//$$$                   tangB[3], tangB[4], tangB[5], tangB[6], tangB[7], tangB[8], 
+//$$$                   tangB[3], tangB[4], tangB[5], tangB[6], tangB[7], tangB[8],
 //$$$                   tangB[3]*tangB[6]+tangB[4]*tangB[7]+tangB[5]*tangB[8], stepU, stepV);
 
             vnew[0] = stepU * tangB[3] + stepV * tangB[6];
@@ -814,7 +1021,7 @@ udpExecute(ego  emodel,                 /* (in)  input model */
             vnew[2] = stepU * tangB[5] + stepV * tangB[8];
 
 //$$$            printf("B: iedge=%d, iloop=%d, ipnt=%2d, vold=%10.5f %10.5f %10.5f (%10.5f), vnew=%10.5f %10.5f %10.5f (%10.5f)\n",
-//$$$                   iedge, iloop, ipnt, 
+//$$$                   iedge, iloop, ipnt,
 //$$$                   vold[0], vold[1], vold[2], sqrt(vold[0]*vold[0]+vold[1]*vold[1]+vold[2]*vold[2]),
 //$$$                   vnew[0], vnew[1], vnew[2], sqrt(vnew[0]*vnew[0]+vnew[1]*vnew[1]+vnew[2]*vnew[2]));
 
@@ -836,13 +1043,20 @@ udpExecute(ego  emodel,                 /* (in)  input model */
                     for (ipnt = 0; ipnt < npnt; ipnt++) {
                         fprintf(fp, " %9.5f %9.5f %9.5f\n", XPNT(iedge,iloop,ipnt), YPNT(iedge,iloop,ipnt), ZPNT(iedge,iloop,ipnt));
                     }
+
                     fprintf(fp, "%5d %5d pnts_edge_%d_loop_%d\n", npnt, 0, iedge, iloop);
                     for (ipnt = 0; ipnt < npnt; ipnt++) {
                         fprintf(fp, " %9.5f %9.5f %9.5f\n", XPNT(iedge,iloop,ipnt), YPNT(iedge,iloop,ipnt), ZPNT(iedge,iloop,ipnt));
                     }
                 }
+                fprintf(fp, "%5d %5d ties_edge_%d\n", npnt, -1, iedge);
+                for (ipnt = 0; ipnt < npnt; ipnt++) {
+                    fprintf(fp, " %9.5f %9.5f %9.5f\n", XPNT(iedge,0      ,ipnt), YPNT(iedge,0      ,ipnt), ZPNT(iedge,0     ,ipnt));
+                    fprintf(fp, " %9.5f %9.5f %9.5f\n", XPNT(iedge,nloop-1,ipnt), YPNT(iedge,nloop-1,ipnt), ZPNT(iedge,nloop-1,ipnt));
+                }
             }
         }
+        fprintf(fp, "    0    0 end\n");
         fclose(fp);
     }
 
@@ -888,13 +1102,13 @@ udpExecute(ego  emodel,                 /* (in)  input model */
             spln[6*ipnt+4] = YPNT(iedge,3,ipnt);
             spln[6*ipnt+5] = ZPNT(iedge,3,ipnt);
 
-            west[3*ipnt  ] = 10 * (XPNT(iedge,1,ipnt) - XPNT(iedge,0,ipnt));
-            west[3*ipnt+1] = 10 * (YPNT(iedge,1,ipnt) - YPNT(iedge,0,ipnt));
-            west[3*ipnt+2] = 10 * (ZPNT(iedge,1,ipnt) - ZPNT(iedge,0,ipnt));
+            west[3*ipnt  ] = SLPFAC(0) * (XPNT(iedge,1,ipnt) - XPNT(iedge,0,ipnt));
+            west[3*ipnt+1] = SLPFAC(0) * (YPNT(iedge,1,ipnt) - YPNT(iedge,0,ipnt));
+            west[3*ipnt+2] = SLPFAC(0) * (ZPNT(iedge,1,ipnt) - ZPNT(iedge,0,ipnt));
 
-            east[3*ipnt  ] = 10 * (XPNT(iedge,2,ipnt) - XPNT(iedge,3,ipnt));
-            east[3*ipnt+1] = 10 * (YPNT(iedge,2,ipnt) - YPNT(iedge,3,ipnt));
-            east[3*ipnt+2] = 10 * (ZPNT(iedge,2,ipnt) - ZPNT(iedge,3,ipnt));
+            east[3*ipnt  ] = SLPFAC(0) * (XPNT(iedge,2,ipnt) - XPNT(iedge,3,ipnt));
+            east[3*ipnt+1] = SLPFAC(0) * (YPNT(iedge,2,ipnt) - YPNT(iedge,3,ipnt));
+            east[3*ipnt+2] = SLPFAC(0) * (ZPNT(iedge,2,ipnt) - ZPNT(iedge,3,ipnt));
         }
 
         status = EG_spline2dAppx(context, 0, NULL, NULL, NULL, west, east,

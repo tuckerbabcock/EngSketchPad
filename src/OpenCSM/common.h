@@ -46,7 +46,7 @@
         status = BAD_MALLOC;                                            \
         goto cleanup;                                                   \
     }                                                                   \
-    PTR = (TYPE *) malloc((SIZE) * sizeof(TYPE));                       \
+    PTR = (TYPE *) EG_alloc((SIZE) * sizeof(TYPE));                     \
     if (PTR == NULL) {                                                  \
         printf("ERROR:: MALLOC PROBLEM for %s (called from %s:%d)\n", #PTR, routine, __LINE__); \
         status = BAD_MALLOC;                                            \
@@ -56,7 +56,7 @@
     if (PTR == NULL) {                                                  \
         MALLOC(PTR,TYPE,SIZE);                                          \
     } else {                                                            \
-       realloc_temp = realloc(PTR, (SIZE) * sizeof(TYPE));              \
+       realloc_temp = EG_reall(PTR, (SIZE) * sizeof(TYPE));            \
        if (PTR == NULL) {                                               \
            printf("ERROR:: RALLOC PROBLEM for %s (called from %s:%d)\n", #PTR, routine, __LINE__); \
            status = BAD_MALLOC;                                         \
@@ -67,7 +67,7 @@
     }
 #define FREE(PTR)                                               \
     if (PTR != NULL) {                                          \
-        free(PTR);                                              \
+        EG_free(PTR);                                           \
     }                                                           \
     PTR = NULL;
 #define STRLEN(A)   (int)strlen(A)

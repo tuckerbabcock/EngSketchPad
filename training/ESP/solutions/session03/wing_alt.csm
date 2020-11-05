@@ -1,0 +1,52 @@
+# wing
+# written by John Dannenhoffer
+
+# design parameters
+DESPMTR   Xroot     0.00      # X-coordinte of root leading edge
+DESPMTR   Yroot     0.00      # Y-coordinte of root leading edge
+DESPMTR   Zroot     0.00      # Z-coordinte of root leading edge
+DESPMTR   troot     0.12      # thickness/chord of root
+DESPMTR   mroot     0.04      # camber/chord of root
+DESPMTR   aroot     7.50      # angle of attack of root (deg)
+DESPMTR   ttip      0.08      # thickness/chord of tip
+DESPMTR   mtip      0.04      # camber/chord of tip
+DESPMTR   atip     -5.00      # angle of attack of tip (deg)
+
+DESPMTR   area      30.00     # wing area
+DESPMTR   aspect    8.533     # aspect ratio
+DESPMTR   taper     0.875     # taper  ratio
+DESPMTR   sweep     3.583     # wing sweep (deg)
+DESPMTR   dihedral  1.791     # dihedral (deg)
+
+SET       span      sqrt(area*aspect)
+SET       cmean     area/span
+SET       croot     2*cmean/(1+taper)
+SET       ctip      croot*taper
+SET       Xtip      span/2*sind(sweep)
+SET       Ytip      span/2*sind(dihedral)
+SET       Ztip      span/2
+
+MARK
+
+   # rite wing tip
+   UDPRIM    naca   thickness  ttip   camber  mtip
+   SCALE     ctip
+   ROTATEZ  -atip   0      0
+   TRANSLATE Xtip   Ytip  -Ztip
+
+   # wing root
+   UDPRIM    naca   thickness  troot  camber  mroot
+   SCALE     croot
+   ROTATEZ  -aroot  0      0
+   TRANSLATE Xroot  Yroot  Zroot
+
+   # left wing tip
+   UDPRIM    naca   thickness  ttip   camber  mtip
+   SCALE     ctip
+   ROTATEZ  -atip   0      0
+   TRANSLATE Xtip   Ytip   Ztip
+
+# ruled surface
+RULE
+
+END

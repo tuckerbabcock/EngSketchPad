@@ -96,7 +96,7 @@ avl.setAnalysisVal("AVL_Surface", [("Wing" , wing ),
 
 # Taken from the b737.mass avl example file
 I = "massInertia"
-#                    mass                CGx  CGy  CGz               Ixx  Iyy  Izz
+#                    mass                CGx  CGy  CGz             Ixx    Iyy  Izz
 cockpit   = {"mass":[3000, "lb"], "CG":[[  8,  0.,  5], "ft"], I:[[0.0  , 0.0, 0.0  ], "lb*ft^2"]}
 Main_gear = {"mass":[4500, "lb"], "CG":[[ 86,  0., -4], "ft"], I:[[0.5e6, 0.0, 0.5e6], "lb*ft^2"]}
 Nose_gear = {"mass":[1250, "lb"], "CG":[[ 26,  0., -5], "ft"], I:[[0.0  , 0.0, 0.0  ], "lb*ft^2"]}

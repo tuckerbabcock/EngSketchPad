@@ -301,7 +301,7 @@ cdef object writeTreeHTML(object filename, object jsonFile = None, object jsonDa
     
     if internetAccess is False:
         #try:
-        print "Writing D3 Javascript library - ", os.path.join(os.path.dirname(filename), "d3.v3.min.js")
+        print("Writing D3 Javascript library - ", os.path.join(os.path.dirname(filename), "d3.v3.min.js"))
         fp = open(os.path.join(os.path.dirname(filename), "d3.v3.min.js"), "w")
         fp.write(_strify(_byteify(getD3Script())))
         fp.close()

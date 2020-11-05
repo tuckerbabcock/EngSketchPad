@@ -124,6 +124,8 @@
 #include <BRepTools_ReShape.hxx>
 #include <BRepTools_WireExplorer.hxx>
 #include <BRepLib.hxx>
+//#include <BRepLib_FuseEdges.hxx>
+#include "BRepLib_FuseEdges.h"
 #include <BRepBndLib.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
