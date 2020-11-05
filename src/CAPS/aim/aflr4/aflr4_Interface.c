@@ -371,14 +371,11 @@ int aflr4_Surface_Mesh(const char* outputDirectory,
     if (quiet == (int)true )
         status = ug_add_flag_arg ("mmsg=0", &prog_argc, &prog_argv);
 
-    // Output AFLR4 heading.
-
-    else
-        aflr4_message (990, 0, 1200);
-
     // Register AFLR4-EGADS routines for CAD related setup & cleanup,
     // cad evaluation, cad bounds and generating boundary edge grids.
 
+    // these calls are in aflr4_main_register - if that changes then these
+    // need to change these
     aflr4_register_cad_geom_setup (egads_cad_geom_setup);
     aflr4_register_cad_geom_add_ff (egads_cad_geom_add_ff);
     aflr4_register_cad_geom_data_cleanup (egads_cad_geom_data_cleanup);
@@ -406,7 +403,7 @@ int aflr4_Surface_Mesh(const char* outputDirectory,
 
     // Malloc, initialize, and setup AFLR4 input parameter structure.
 
-    status = aflr4_setup_param (&mmsg, 0, prog_argc, prog_argv, &AFLR4_Param_Struct_Ptr);
+    status = aflr4_setup_param (mmsg, 0, prog_argc, prog_argv, &AFLR4_Param_Struct_Ptr);
     if (status != 0) {
         printf("aflr4_setup_param failed!\n");
         status = CAPS_EXECERR;
@@ -429,12 +426,15 @@ int aflr4_Surface_Mesh(const char* outputDirectory,
     // Note that memory management of the CAD geometry data structure is
     // controlled by DGEOM after this call.
 
-    status = egads_set_ext_cad_data (&model);
+    // required for setting input data
+    ug_set_int_param ("geom_type", 1, AFLR4_Param_Struct_Ptr);
+
+    status = aflr4_set_ext_cad_data (&model);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     // Complete all tasks required for AFLR4 surface grid generation.
 
-    status = aflr4_setup_and_grid_gen (mmsg, AFLR4_Param_Struct_Ptr);
+    status = aflr4_setup_and_grid_gen (AFLR4_Param_Struct_Ptr);
     if (status != 0) {
         filename = (char *) EG_alloc((strlen(outputDirectory) + 2 +
                                       strlen(aflr4_debug) + 1)*sizeof(char));
@@ -481,14 +481,14 @@ int aflr4_Surface_Mesh(const char* outputDirectory,
 
       // AFRL4 output arrays
       INT_1D *bcFlag = NULL;
-      INT_1D *blFlag = NULL;
+      INT_1D *idFlag = NULL;
       INT_3D *triCon = NULL;
       INT_4D *quadCon = NULL;
       DOUBLE_2D *uv = NULL;
       DOUBLE_3D *xyz = NULL;
 
       // Get output id index (glue-only composite)
-      status = aflr4_get_idef_output (&glueId);
+      dgeom_def_get_idef (0, &glueId);
 
       FILE *fp = fopen("aflr4_debug.tec", "w");
       fprintf(fp, "VARIABLES = X, Y, Z, u, v\n");
@@ -500,13 +500,12 @@ int aflr4_Surface_Mesh(const char* outputDirectory,
         if (surf+1 == glueId) continue;
 
         status = aflr4_get_def (surf+1,
-                                0, // check normals
                                 0, // If there are quads, don't get them.
                                 &numTriFace,
                                 &numNodes,
                                 &numQuadFace,
-                                &blFlag,
                                 &bcFlag,
+                                &idFlag,
                                 &triCon,
                                 &quadCon,
                                 &uv,
@@ -519,9 +518,8 @@ int aflr4_Surface_Mesh(const char* outputDirectory,
         for (int i = 0; i < numTriFace; i++)
           fprintf(fp, "%d %d %d\n", triCon[i+1][0], triCon[i+1][1], triCon[i+1][2]);
 
-
         ug_free (bcFlag); bcFlag = NULL;
-        ug_free (blFlag); blFlag = NULL;
+        ug_free (idFlag); idFlag = NULL;
         ug_free (triCon); triCon = NULL;
         ug_free (quadCon); quadCon = NULL;
         ug_free (uv); uv = NULL;
