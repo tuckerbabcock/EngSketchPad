@@ -8,7 +8,9 @@ DESPMTR   space      2.0000   # distance between hole centers
 DESPMTR   Rhole      0.8000   # radius of holes
 
 # make sure holes do not intersect with each other
-ASSERT    ifpos(space-Rhole,1,0)  1
+IFTHEN    space LT 2*Rhole
+   THROW  999
+ENDIF
 
 # overall plate
 CYLINDER 0 0 -thick/2 0 0 +thick/2 Rplate

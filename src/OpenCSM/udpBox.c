@@ -75,6 +75,7 @@ udpExecute(ego  context,                /* (in)  EGADS context */
     double  node1[3], node2[3], node3[3], node4[3], node5[3], node6[3], node7[3], node8[3];
     double  cent1[3], cent2[3], cent3[3], cent4[3], axis1[3], axis2[3];
     double  data[18], trange[2];
+    char    *message;
     ego     enodes[9], ecurve, eedges[8], eloop, eface, etemp, *eedges2;
 
 #ifdef DEBUG
@@ -93,49 +94,52 @@ udpExecute(ego  context,                /* (in)  EGADS context */
     *nMesh  = 0;
     *string = NULL;
 
+    message = (char *) EG_alloc(100*sizeof(char));
+    message[0] = '\0';
+
     /* check arguments */
     if (udps[0].arg[0].size > 1) {
-        printf(" udpExecute: dx should be a scalar\n");
+        snprintf(message, 100, "dx should be a scalar");
         status  = EGADS_RANGERR;
         goto cleanup;
 
     } else if (DX(0) < 0) {
-        printf(" udpExecute: dx = %f < 0\n", DX(0));
+        snprintf(message, 100, "dx = %f < 0", DX(0));
         status  = EGADS_RANGERR;
         goto cleanup;
 
     } else if (udps[0].arg[1].size > 1) {
-        printf(" udpExecute: dy should be a scalar\n");
+        snprintf(message, 100, "dy should be a scalar");
         status  = EGADS_RANGERR;
         goto cleanup;
 
     } else if (DY(0) < 0) {
-        printf(" udpExecute: dy = %f < 0\n", DY(0));
+        snprintf(message, 100, "dy = %f < 0", DY(0));
         status  = EGADS_RANGERR;
         goto cleanup;
 
     } else if (udps[0].arg[2].size > 1) {
-        printf(" udpExecute: dz should be a scalar\n");
+        snprintf(message, 100, "dz should be a scalar");
         status  = EGADS_RANGERR;
         goto cleanup;
 
     } else if (DZ(0) < 0) {
-        printf(" udpExecute: dz = %f < 0\n", DZ(0));
+        snprintf(message, 100, "dz = %f < 0", DZ(0));
         status  = EGADS_RANGERR;
         goto cleanup;
 
     } else if (udps[0].arg[3].size > 1) {
-        printf(" udpExecute: rad should be a scalar\n");
+        snprintf(message, 100, "rad should be a scalar");
         status  = EGADS_RANGERR;
         goto cleanup;
 
     } else if (RAD(0) < 0) {
-        printf(" udpExecute: rad = %f < 0\n", RAD(0));
+        snprintf(message, 100, "rad = %f < 0", RAD(0));
         status  = EGADS_RANGERR;
         goto cleanup;
 
     } else if (DX(0) <= 0 && DY(0) <= 0 && DZ(0) <= 0) {
-        printf(" udpExecute: dx=dy=dz=0\n");
+        snprintf(message, 100, "dx=dy=dz=0");
         status  = EGADS_GEOMERR;
         goto cleanup;
     }
@@ -143,7 +147,7 @@ udpExecute(ego  context,                /* (in)  EGADS context */
     /* cache copy of arguments for future use */
     status = cacheUdp();
     if (status < 0) {
-        printf(" udpExecute: problem caching arguments\n");
+        printf("problem caching arguments\n");
         goto cleanup;
     }
 
@@ -162,7 +166,7 @@ udpExecute(ego  context,                /* (in)  EGADS context */
 
         /* make sure that radius is not too big */
         if (2*RAD(0) >= DX(0) || 2*RAD(0) >= DY(0) || 2*RAD(0) >= DZ(0)) {
-            printf(" udpExecute: radius cannot be greater than half of any side length\n");
+            snprintf(message, 100, "radius cannot be greater than half of any side length");
             status = EGADS_GEOMERR;
             goto cleanup;
         }
@@ -283,7 +287,7 @@ udpExecute(ego  context,                /* (in)  EGADS context */
 
         /* check to ensure that rad was not set */
         if (RAD(0) > 0) {
-            printf(" udpExecute: rad cannot be set for wirebody\n");
+            snprintf(message, 100, "rad cannot be set for wirebody");
             status = EGADS_GEOMERR;
             goto cleanup;
         }
@@ -502,7 +506,7 @@ udpExecute(ego  context,                /* (in)  EGADS context */
 
             /* make sure that radius is not too big */
             if (2*RAD(0) >= DX(0) || 2*RAD(0) >= DY(0)) {
-                printf(" udpExecute: radius cannot be greater than half of any side length\n");
+                snprintf(message, 100, "radius cannot be greater than half of any side length");
                 status = EGADS_GEOMERR;
                 goto cleanup;
             }
@@ -568,7 +572,7 @@ udpExecute(ego  context,                /* (in)  EGADS context */
 
             /* make sure that radius is not too big */
             if (2*RAD(0) >= DX(0) || 2*RAD(0) >= DZ(0)) {
-                printf(" udpExecute: radius cannot be greater than half of any side length\n");
+                snprintf(message, 100, "radius cannot be greater than half of any side length");
                 status = EGADS_GEOMERR;
                 goto cleanup;
             }
@@ -634,7 +638,7 @@ udpExecute(ego  context,                /* (in)  EGADS context */
 
             /* make sure that radius is not too big */
             if (2*RAD(0) >= DY(0) || 2*RAD(0) >= DZ(0)) {
-                printf(" udpExecute: radius cannot be greater than half of any side length\n");
+                snprintf(message, 100, "radius cannot be greater than half of any side length");
                 status = EGADS_GEOMERR;
                 goto cleanup;
             }
@@ -973,8 +977,14 @@ udpExecute(ego  context,                /* (in)  EGADS context */
 #endif
 
 cleanup:
-    if (status != EGADS_SUCCESS) {
+    if (strlen(message) > 0) {
+        *string = message;
+        printf("%s\n", message);
+    } else if (status != EGADS_SUCCESS) {
+        EG_free(message);
         *string = udpErrorStr(status);
+    } else {
+        EG_free(message);
     }
 
     return status;

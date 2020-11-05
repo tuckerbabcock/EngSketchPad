@@ -36,7 +36,7 @@ projectName = "aeroelasticIterative"
 numTransferIteration = 2
 
 # Create working directory variable
-workDir = "Aeroelastic_Iterative"
+workDir = "workDir_Aeroelastic_Iterative"
 
 #------------------------------------------------------------------------------#
 

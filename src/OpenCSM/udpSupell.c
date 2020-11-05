@@ -114,6 +114,7 @@ udpExecute(ego  context,                /* (in)  EGADS context */
     double  *pnt_ne=NULL, *pnt_nw=NULL, *pnt_sw=NULL, *pnt_se=NULL, *pnt_save=NULL;
     double  data[18], tdata[2], result[3], range[4], eval[18], norm[3], dx, dy, ds;
     double  dxytol = 1.0e-6;
+    char    *message;
     ego     enodes[5], eedges[4], ecurve[4], eloop, eface, enew;
 
 #ifdef DEBUG
@@ -142,17 +143,20 @@ udpExecute(ego  context,                /* (in)  EGADS context */
     *nMesh  = 0;
     *string = NULL;
 
+    message = (char *) EG_alloc(100*sizeof(char));
+    message[0] = '\0';
+
     /* check arguments */
     for (i = 0; i < NUMUDPARGS; i++) {
         if (udps[0].arg[i].size > 1) {
-            printf(" udpExecute: all arguments should be a scalar\n");
+            snprintf(message, 100, "SUPELL: all arguments should be a scalar");
             status = EGADS_RANGERR;
             goto cleanup;
         }
     }
 
     if (NQUAD(0) != 1 && NQUAD(0) != 2 && NQUAD(0) != 4) {
-        printf(" udpExecute: nquad (%d) should be 1, 2, or 4\n", NQUAD(0));
+        snprintf(message, 100, "SUPELL: nquad (%d) should be 1, 2, or 4", NQUAD(0));
         status  = EGADS_RANGERR;
         goto cleanup;
     }
@@ -181,35 +185,35 @@ udpExecute(ego  context,                /* (in)  EGADS context */
     if (N_NE(0) > 0)                       n_ne = N_NE(0);
 
     if        (rx_w <= 0) {
-        printf(" udpExecute: rx_w should be positive\n");
+        snprintf(message, 100, "SUPELL: rx_w should be positive");
         status  = EGADS_RANGERR;
         goto cleanup;
     } else if (rx_e <= 0) {
-        printf(" udpExecute: rx_e should be positive\n");
+        snprintf(message, 100, "SUPELL: rx_e should be positive");
         status  = EGADS_RANGERR;
         goto cleanup;
     } else if (ry_s <= 0) {
-        printf(" udpExecute: ry_s should be positive\n");
+        snprintf(message, 100, "SUPELL: ry_s should be positive");
         status  = EGADS_RANGERR;
         goto cleanup;
     } else if (ry_n <= 0) {
-        printf(" udpExecute: ry_n should be positive\n");
+        snprintf(message, 100, "SUPELL: ry_n should be positive");
         status  = EGADS_RANGERR;
         goto cleanup;
     } else if (n_sw <= 0) {
-        printf(" udpExecute: n_sw should be positive\n");
+        snprintf(message, 100, "SUPELL: n_sw should be positive");
         status  = EGADS_RANGERR;
         goto cleanup;
     } else if (n_se <= 0) {
-        printf(" udpExecute: n_se should be positive\n");
+        snprintf(message, 100, "SUPELL: n_se should be positive");
         status  = EGADS_RANGERR;
         goto cleanup;
     } else if (n_nw <= 0) {
-        printf(" udpExecute: n_nw should be positive\n");
+        snprintf(message, 100, "SUPELL: n_nw should be positive");
         status  = EGADS_RANGERR;
         goto cleanup;
     } else if (n_ne <= 0) {
-        printf(" udpExecute: n_ne should be positive\n");
+        snprintf(message, 100, "SUPELL: n_ne should be positive");
         status  = EGADS_RANGERR;
         goto cleanup;
     }
@@ -687,8 +691,14 @@ cleanup:
     if (pnt_se   != NULL) EG_free(pnt_se  );
     if (pnt_save != NULL) EG_free(pnt_save);
 
-    if (status != EGADS_SUCCESS) {
+    if (strlen(message) > 0) {
+        *string = message;
+        printf("%s\n", message);
+    } else if (status != EGADS_SUCCESS) {
+        EG_free(message);
         *string = udpErrorStr(status);
+    } else {
+        EG_free(message);
     }
 
     return status;

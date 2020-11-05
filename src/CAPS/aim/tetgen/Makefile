@@ -33,7 +33,7 @@ $(ODIR)/tetgen_Interface.o:	tetgen_Interface.cpp ../utils/meshUtils.h
 		-DTETLIBRARY tetgen_Interface.cpp -o $(ODIR)/tetgen_Interface.o
 
 $(ODIR)/predicates.o:	$(TETGEN)/predicates.cxx
-	$(CXX) -c $(COPTS) -O0 $(TETGEN)/predicates.cxx -o $(ODIR)/predicates.o
+	$(CXX) -c $(COPTS) -O0 -w $(TETGEN)/predicates.cxx -o $(ODIR)/predicates.o
 
 $(ODIR)/tetgen.o:	$(TETGEN)/tetgen.cxx
 	$(CXX) -c $(COPTS) -DTETLIBRARY -w $(TETGEN)/tetgen.cxx -o $(ODIR)/tetgen.o

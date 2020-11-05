@@ -39,6 +39,8 @@
 
   extern void EG_initOCC( );
   extern void EG_exactInit( );
+  extern void EG_uvmapInit( );
+  extern void EG_destroyEBody( egObject *ebobj, int flag );
   extern int  EG_destroyGeometry( egObject *geom );
   extern int  EG_destroyTopology( egObject *topo );
   extern int  EG_copyGeometry( /*@null@*/ egObject *cntxt, const egObject *geom,
@@ -388,6 +390,7 @@ EG_open(egObject **context)
 
   EG_initOCC();
   EG_exactInit();
+  EG_uvmapInit();
   *context = object;
   return EGADS_SUCCESS;
 }
@@ -718,7 +721,12 @@ EG_derefObj(egObject *object, /*@null@*/ const egObject *refx, int flg)
   
     if ((object->oclass != NIL) && (flg == 0))
       stat = EG_destroyGeometry(object);
+    
+  } else if (object->oclass == EBODY) {
   
+    stat = EGADS_SUCCESS;
+    EG_destroyEBody(object, 0);
+    
   } else {
   
     if (flg == 0) stat = EG_destroyTopology(object);
@@ -786,11 +794,13 @@ EG_deleteObject(egObject *object)
   egObject *context, *obj, *next, *pobj, **bodies;
   egCntxt  *cntx;
 
-  if (object == NULL)               return EGADS_NULLOBJ;
-  if (object->magicnumber != MAGIC) return EGADS_NOTOBJ;
-  if (object->oclass == EMPTY)      return EGADS_EMPTY;
-  if (object->oclass == REFERENCE)  return EGADS_REFERCE;
-  if (object->oclass != CONTXT) {
+  if  (object == NULL)               return EGADS_NULLOBJ;
+  if  (object->magicnumber != MAGIC) return EGADS_NOTOBJ;
+  if  (object->oclass == EMPTY)      return EGADS_EMPTY;
+  if  (object->oclass == REFERENCE)  return EGADS_REFERCE;
+  if ((object->oclass >= EEDGE) &&
+      (object->oclass <= ESHELL))    return EGADS_EFFCTOBJ;
+  if  (object->oclass != CONTXT) {
     /* normal dereference */
     context = EG_context(object);
     if (context == NULL)            return EGADS_NOTCNTX;
@@ -1422,6 +1432,25 @@ EG_close(egObject *context)
   /* delete unattached geometry and topology objects */
   
   EG_deleteObject(context);
+ 
+  /* delete Effective Bodies objects */
+
+  obj  = context->next;
+  last = NULL;
+  while (obj != NULL) {
+    next = obj->next;
+    if (obj->oclass == EBODY)
+      if (EG_deleteObject(obj) == EGADS_SUCCESS) {
+        obj = last;
+        if (obj == NULL) {
+          next = context->next;
+        } else {
+          next = obj->next;
+        }
+      }
+    last = obj;
+    obj  = next;
+  }
   
   /* delete tessellation objects */
 

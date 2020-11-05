@@ -10,6 +10,7 @@
  */
 
 #include "capsTypes.h"
+#include "capsFunIDs.h"
 
 extern void caps_getStaticStrings(char ***signature, char **pID, char **user);
 extern void caps_fillDateTime(short *datetime);
@@ -24,7 +25,8 @@ extern void caps_freeAttrs(egAttrs **attrx);
 extern int  caps_makeObject(capsObject **objs);
 extern int  caps_makeVal(enum capsvType type, int len, const void *data,
                          capsValue **val);
-extern int  caps_findProblem(const capsObject *object, capsObject **pobject);
+extern int  caps_findProblem(const capsObject *object, int funID,
+                                   capsObject **pobject);
 extern int  caps_makeSimpleErr(/*@null@*/ capsObject *object, const char *line1,
                                /*@null@*/ const char *line2,
                                /*@null@*/ const char *line3,

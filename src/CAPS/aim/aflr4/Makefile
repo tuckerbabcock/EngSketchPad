@@ -50,11 +50,15 @@ EGADS_INC_FILES   = $(wildcard $(IDIR)/egads*.h)
 #UG3_FILES = $(wildcard $(AFLR)/src/ug3/*.c)
 #UG3_OBJS  = $(subst $(AFLR)/src/ug3,$(ODIR),$(UG3_FILES:.c=.o))
 
+#VPATH      += $(AFLR)/src/dgeom
+#DGEOM_FILES = $(wildcard $(AFLR)/src/dgeom/*.c)
+#DGEOM_OBJS  = $(subst $(AFLR)/src/dgeom,$(ODIR),$(DGEOM_FILES:.c=.o))
+
 #VPATH              += $(AFLR)/src/surf_auto_cpp
 #SURF_AUTO_CPP_FILES = $(wildcard $(AFLR)/src/surf_auto_cpp/*.cpp)
 #SURF_AUTO_CPP_OBJS  = $(subst $(AFLR)/src/surf_auto_cpp,$(ODIR),$(SURF_AUTO_CPP_FILES:.cpp=.o))
 
-OBJS=$(EGADS_AFLR4_OBJS) $(AFLR4_OBJS) $(SURF_AUTO_OBJS) $(UG3_OBJS)
+OBJS=$(EGADS_AFLR4_OBJS) $(AFLR4_OBJS) $(SURF_AUTO_OBJS) $(UG3_OBJS) $(DGEOM_OBJS)
 #OBJSP=$(SURF_AUTO_CPP_OBJS)
 ###############################################################################
 

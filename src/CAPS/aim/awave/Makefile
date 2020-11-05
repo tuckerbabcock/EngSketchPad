@@ -33,7 +33,11 @@ $(TDIR)/awave:	$(ODIR)/awave.o
 	$(FCOMP) -o $(TDIR)/awave $(ODIR)/awave.o
 
 $(ODIR)/awave.o:	$(AWAVE)
+ifeq ($(EFCOMP),ifort)
 	$(FCOMP) -c $(FOPTS) $(AWAVE) -o $(ODIR)/awave.o
+else
+	$(FCOMP) -c $(FOPTS) -std=legacy $(AWAVE) -o $(ODIR)/awave.o
+endif
 
 clean:
 	-rm -f $(ODIR)/awave.o $(ODIR)/awaveAIM.o

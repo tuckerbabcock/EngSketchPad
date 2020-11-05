@@ -15,11 +15,12 @@ DESPMTR   htail:xroot       145    # xloc of root LE
 DESPMTR   htail:zroot         5    # zloc of root LE
 
 # vertical tail design parameters
-DESPMTR   vtail:area        610    # vtail area
-DESPMTR   vtail:aspect     1.80    # vtail aspect ratio
-DESPMTR   vtail:thick      0.08    # vtail thickness
-DESPMTR   vtail:xroot       150    # xloc of root LE
-DESPMTR   vtail:zroot         9    # zloc of root LE
+DIMENSION vtail 5 1
+DESPMTR   vtail            "610; \ # 1 vtail area
+                           1.80; \ # 2 vtail aspect ratio
+                           0.08; \ # 3 vtail thickness
+                            150; \ # 4 xloc of root LE
+                              9"   # 5 zloc of root LE
 
 # fuselage design parameters
 DESPMTR   fuse:length       180    # fuselage length
@@ -31,11 +32,11 @@ DESPMTR   fuse:height        20    # height of mid fuselage
 OUTPMTR  wing:wet
 OUTPMTR  wing:volume
 
-OUTPMTR  htail:wet
-OUTPMTR  htail:volume
+DIMENSION htail:prop 2 1
+OUTPMTR   htail:prop
 
-OUTPMTR  vtail:wet
-OUTPMTR  vtail:volume
+DIMENSION vtail:prop 2 1
+OUTPMTR   vtail:prop
 
 OUTPMTR  fuse:wet
 OUTPMTR  fuse:volume
@@ -46,6 +47,7 @@ SET       wing:span      sqrt(wing:aspect*wing:area)
 SET       wing:chord     wing:area/wing:span
 
 BOX  wing:xroot  -wing:span/2  wing:zroot   wing:chord  wing:span  wing:chord*wing:thick
+SELECT face
     ATTRIBUTE capsGroup  $wing:faces
 SELECT body
     ATTRIBUTE capsAIM    $masstranAIM;astrosAIM
@@ -61,21 +63,23 @@ SET       htail:span      sqrt(htail:aspect*htail:area)
 SET       htail:chord     htail:area/htail:span
 
 BOX  htail:xroot  -htail:span/2  htail:zroot   htail:chord  htail:span  htail:chord*htail:thick
+SELECT face
     ATTRIBUTE capsGroup  $htail:faces
 SELECT body
     ATTRIBUTE capsAIM    $masstranAIM;astrosAIM
     ATTRIBUTE capsIntent $htail;tail
     ATTRIBUTE _name      $Htail
 
-SET  htail:wet    @area
-SET  htail:volume @volume
+SET  htail:prop[1] @area
+SET  htail:prop[2] @volume
 
 #================================================
 # Vtail
-SET       vtail:span      sqrt(vtail:aspect*vtail:area)
-SET       vtail:chord     vtail:area/vtail:span
+SET       vtail:span      sqrt(vtail[1]*vtail[2])
+SET       vtail:chord     vtail[1]/vtail:span
 
-BOX  vtail:xroot  0  vtail:zroot   vtail:chord  vtail:chord*vtail:thick  vtail:span
+BOX  vtail[4]  0  vtail[5]   vtail:chord  vtail:chord*vtail[3]  vtail:span
+SELECT face
     ATTRIBUTE capsGroup  $vtail:faces
 SELECT body
     ATTRIBUTE capsAIM    $masstranAIM;astrosAIM
@@ -87,7 +91,6 @@ SET  vtail:volume @volume
 
 #================================================
 # fuselage
-
 BOX  0  -fuse:width/2  -fuse:height/2   fuse:length  fuse:width  fuse:height
 SELECT face 1
     ATTRIBUTE capsGroup  $fuse:nose

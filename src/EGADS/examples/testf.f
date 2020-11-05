@@ -14,7 +14,7 @@ c
 	integer*8       bodies(*),          shells(*)
         pointer (psenses, senses)
 	integer           senses(*)
-	integer*8    context8, model8, geom8, topo8
+	integer*8    context8, model8(2), geom8, topo8(2)
 	real*8       limits(4)
 	character*80 name
 

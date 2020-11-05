@@ -50,9 +50,9 @@ typedef int (*udpI)    (int *, char ***, int **, int **, double **);
 typedef int (*udpN)    (int *);
 typedef int (*udpR)    (int);
 typedef int (*udpC)    (ego);
-typedef int (*udpS)    (char *, void *, int);
+typedef int (*udpS)    (char *, void *, int, char *);
 typedef int (*udpE)    (ego, ego *, int *, char **);
-typedef int (*udpG)    (ego, char *, char **);
+typedef int (*udpG)    (ego, char *, char **, char *);
 typedef int (*udpM)    (ego, int, int *, int *, int *, double **);
 typedef int (*udpV)    (ego, char *, double *, int);
 typedef int (*udpP)    (ego, int, int, int, double *, double *);
@@ -351,14 +351,15 @@ int udp_clean(const char primName[],
 int udp_setArgument(const char primName[],
                     char       name[],
                     void       *value,
-                    int        nvalue)
+                    int        nvalue,
+                    char       message[])
 {
     int i;
 
     i = udpDLoaded(primName);
     if (i == -1) return EGADS_NOTFOUND;
 
-    return udpSet[i](name, value, nvalue);
+    return udpSet[i](name, value, nvalue, message);
 }
 
 
@@ -380,7 +381,8 @@ int udp_executePrim(const char primName[],
 int udp_getOutput(const char primName[],
                   ego        body,
                   char       name[],
-                  void       *value)
+                  void       *value,
+                  char       message[])
 {
   int i;
 
@@ -388,7 +390,7 @@ int udp_getOutput(const char primName[],
   if (i == -1) return EGADS_NOTFOUND;
   if (udpGet[i] == NULL) return EGADS_EMPTY;
 
-  return udpGet[i](body, name, value);
+  return udpGet[i](body, name, value, message);
 }
 
 

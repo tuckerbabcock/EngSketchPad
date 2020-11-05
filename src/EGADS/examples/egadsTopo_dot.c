@@ -28,8 +28,8 @@ pingBodies(ego tess1, ego tess2, double dtime, int iparam, const char *shape, do
 {
   int    status = EGADS_SUCCESS;
   int    n, d, np1, np2, nt1, nt2, nerr=0;
-  int    nface, nedge, nnode, iface, iedge, inode, oclass, mtype;
-  double p1_dot[18], p1[18], p2[18], fd_dot[3];
+  int    nface, nedge, nnode, iface, iedge, inode, oclass, mtype, periodic;
+  double p1_dot[18], p1[18], p2[18], fd_dot[3], range1[4], range2[4], range_dot[4];
   const int    *pt1, *pi1, *pt2, *pi2, *ts1, *tc1, *ts2, *tc2;
   const double *t1, *t2, *x1, *x2, *uv1, *uv2;
   ego    ebody1, ebody2;
@@ -148,6 +148,24 @@ pingBodies(ego tess1, ego tess2, double dtime, int iparam, const char *shape, do
       //printf("p1_dot = (%+f, %+f, %+f)\n", p1_dot[0], p1_dot[1], p1_dot[2]);
       //printf("fd_dot = (%+f, %+f, %+f)\n", fd_dot[0], fd_dot[1], fd_dot[2]);
       //printf("\n");
+    }
+
+    /* check t-range sensitivity */
+    status = EG_getRange_dot( eedges1[iedge], range1, range_dot, &periodic );
+    if (status != EGADS_SUCCESS) goto cleanup;
+
+    status = EG_getRange( eedges2[iedge], range2, &periodic );
+    if (status != EGADS_SUCCESS) goto cleanup;
+
+    fd_dot[0] = (range2[0] - range1[0])/dtime;
+    fd_dot[1] = (range2[1] - range1[1])/dtime;
+
+    for (d = 0; d < 2; d++) {
+      if (fabs(range_dot[d] - fd_dot[d]) > etol) {
+        printf("%s Edge %d iparam=%d, trng[%d]=%+le fabs(%+le - %+le) = %+le > %e\n",
+               shape, iedge+1, iparam, d, range1[d], range_dot[d], fd_dot[d], fabs(range_dot[d] - fd_dot[d]), etol);
+        nerr++;
+      }
     }
   }
 

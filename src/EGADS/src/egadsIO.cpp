@@ -14,16 +14,41 @@
 #include <string.h>
 #include <math.h>
 
+//#define STEPATTRS
+
 #include "egadsTypes.h"
 #include "egadsInternals.h"
 #include "egadsClasses.h"
+#include <IGESControl_Controller.hxx>
+#include <IGESBasic_Name.hxx>
+#ifdef STEPATTRS
+#include <StepBasic_Product.hxx>
+#include <StepBasic_ProductDefinition.hxx>
+#include <StepBasic_ProductDefinitionFormation.hxx>
+#include <StepRepr_ProductDefinitionShape.hxx>
+#include <StepRepr_NextAssemblyUsageOccurrence.hxx>
+#include <StepRepr_RepresentationItem.hxx>
+#endif
+#include <Interface_Graph.hxx>
+#include <Interface_EntityIterator.hxx>
+#include <XSControl_WorkSession.hxx>
+#include <XSControl_TransferReader.hxx>
+
+
+class egadsLabel
+{
+public:
+  TopoDS_Shape shape;
+  char        *shapeName;
+};
+
 
 #ifdef WIN32
 #define snprintf _snprintf
 #endif
 
 
-/* #define INTERIM  */
+#define INTERIM
 
 #define UVTOL    1.e-4
 
@@ -33,6 +58,9 @@
   extern "C" int  EG_destroyTopology( egObject *topo );
   extern "C" int  EG_fullAttrs( const egObject *obj );
   extern "C" void EG_attrBuildSeq( egAttrs *attrs );
+  extern "C" void EG_readAttrs( egObject *obj, int nattr, FILE *fp );
+  extern "C" void EG_writeAttr( egAttrs *attrs, FILE *fp );
+  extern "C" int  EG_writeNumAttr( egAttrs *attrs );
 
   extern "C" int  EG_loadModel( egObject *context, int bflg, const char *name, 
                                 egObject **model );
@@ -41,6 +69,10 @@
   extern "C" int  EG_loadTess( egObject *body, const char *name,
                                egObject **tess );
 
+  extern "C" int  EG_attributeAdd( egObject *obj, const char *name, int type,
+                                   int len, /*@null@*/ const int    *ints,
+                                            /*@null@*/ const double *reals,
+                                            /*@null@*/ const char   *str );
   extern "C" int  EG_statusTessBody( egObject *tess, egObject **body,
                                      int *state, int *npts );
   extern "C" int  EG_getBodyTopos( const egObject *body, egObject *src,
@@ -414,7 +446,7 @@ EG_attriBodyCopy(const egObject *src, /*@null@*/ double *xform, egObject *dst)
 }
 
 
-static void
+void
 EG_readAttrs(egObject *obj, int nattr, FILE *fp)
 {
   int     i, j, n, type, namlen, len, ival, nseq, *ivec = NULL;
@@ -561,15 +593,18 @@ EG_initOCC()
 int
 EG_loadModel(egObject *context, int bflg, const char *name, egObject **model)
 {
-  int          i, j, stat, outLevel, len, nattr, nerr, hite, hitf, egads = 0;
+  int          i, j, stat, outLevel, len, nattr, nerr, hite, hitf, nbs, egads;
   double       scale = 1.0;
   const char   *units;
   egObject     *omodel, *aobj;
   TopoDS_Shape source;
   egadsModel   *mshape = NULL;
+  egadsLabel   *labels = NULL;
   FILE         *fp;
   
   *model = NULL;
+  egads  = 0;
+  nbs    = 0;
   if (context == NULL)               return EGADS_NULLOBJ;
   if (context->magicnumber != MAGIC) return EGADS_NOTOBJ;
   if (context->oclass != CONTXT)     return EGADS_NOTCNTX;
@@ -668,7 +703,7 @@ EG_loadModel(egObject *context, int bflg, const char *name, egObject **model)
         printf(" EGADS Warning: Transfer %d/%d is not OK!\n", i, nroot);
     }
 
-    int nbs = aReader.NbShapes();
+    nbs = aReader.NbShapes();
     if (nbs <= 0) {
       if (outLevel > 0)
         printf(" EGADS Error: %s has No Shapes (EG_loadModel)!\n", 
@@ -678,11 +713,59 @@ EG_loadModel(egObject *context, int bflg, const char *name, egObject **model)
     if (outLevel > 1)    
       printf(" EGADS Info: %s has %d Shape(s)\n", name, nbs);
 
+#ifdef STEPATTRS
+    const Handle(XSControl_WorkSession)& workSession = aReader.WS();
+    const Handle(XSControl_TransferReader)& TR = workSession->TransferReader();
+    Handle(Standard_Type) tNAUO = STANDARD_TYPE(
+                                       StepRepr_NextAssemblyUsageOccurrence);
+    Handle(Standard_Type) tPD   = STANDARD_TYPE(StepBasic_ProductDefinition);
+#endif
+
     TopoDS_Compound compound;
     BRep_Builder    builder3D;
     builder3D.MakeCompound(compound);
     for (i = 1; i <= nbs; i++) {
       TopoDS_Shape aShape = aReader.Shape(i);
+#ifdef STEPATTRS
+      Handle(Standard_Transient) ent = TR->EntityFromShapeResult(aShape, 3);
+      if (!ent.IsNull()) {
+        if (ent->DynamicType() == tNAUO) {
+          Handle(StepRepr_NextAssemblyUsageOccurrence) NAUO =
+              Handle(StepRepr_NextAssemblyUsageOccurrence)::DownCast(ent);
+          if (!NAUO.IsNull()) {
+            Interface_EntityIterator subs = workSession->Graph().Sharings(NAUO);
+            for (subs.Start(); subs.More(); subs.Next()) {
+              Handle(StepRepr_ProductDefinitionShape) PDS =
+                Handle(StepRepr_ProductDefinitionShape)::DownCast(subs.Value());
+              if (!PDS.IsNull()) {
+                Handle(StepBasic_ProductDefinitionRelationship) PDR =
+                              PDS->Definition().ProductDefinitionRelationship();
+                if (!PDR.IsNull()) {
+                  if (PDR->HasDescription() && PDR->Description()->Length() > 0) {
+                    printf(" NAUOa = %s\n", PDR->Description()->ToCString());
+                  } else if (PDR->Name()->Length() > 0) {
+                    printf(" NAUOb = %s\n", PDR->Name()->ToCString());
+                  } else {
+                    printf(" NAUOc = %s\n", PDR->Id()->ToCString());
+                  }
+                }
+              }
+            }
+          }
+        } else if (ent->DynamicType() == tPD) {
+          Handle(StepBasic_ProductDefinition) PD =
+              Handle(StepBasic_ProductDefinition)::DownCast(ent);
+          if (!PD.IsNull()) {
+            Handle(StepBasic_Product) Prod = PD->Formation()->OfProduct();
+            if (Prod->Name()->UsefullLength() > 0) {
+              printf(" PDa   = %s\n", Prod->Name()->ToCString());
+            } else {
+              printf(" PDb   = %s\n", Prod->Id()->ToCString());
+            }
+          }
+        }
+      }
+#endif
       if ((bflg&8) != 0) {
         ShapeUpgrade_UnifySameDomain uShape(aShape, Standard_True,
                                             Standard_True, Standard_True);
@@ -751,7 +834,7 @@ EG_loadModel(egObject *context, int bflg, const char *name, egObject **model)
     }
     iReader.TransferRoots();
 
-    int nbs = iReader.NbShapes();
+    nbs = iReader.NbShapes();
     if (nbs <= 0) {
       if (outLevel > 0)
         printf(" EGADS Error: %s has No Shapes (EG_loadModel)!\n", 
@@ -760,17 +843,31 @@ EG_loadModel(egObject *context, int bflg, const char *name, egObject **model)
     }
     if (outLevel > 1)    
       printf(" EGADS Info: %s has %d Shape(s)\n", name, nbs);
+    
+    const Handle(XSControl_WorkSession)& workSession = iReader.WS();
+    const Handle(XSControl_TransferReader)& transferReader =
+          workSession->TransferReader();
+    labels = new egadsLabel[nbs];
 
     TopoDS_Compound compound;
     BRep_Builder    builder3D;
     builder3D.MakeCompound(compound);
     for (i = 1; i <= nbs; i++) {
       TopoDS_Shape aShape = iReader.Shape(i);
+      
+      labels[i-1].shapeName = NULL;
+      const Handle(IGESData_IGESEntity)& shapeEntity =
+            Handle(IGESData_IGESEntity)::DownCast(
+                  transferReader->EntityFromShapeResult(aShape, -1));
+      if (shapeEntity->HasName())
+        labels[i-1].shapeName = EG_strdup(shapeEntity->NameValue()->ToCString());
+      
       if ((bflg&8) != 0) {
         ShapeUpgrade_UnifySameDomain uShape(aShape);
         uShape.Build();
         aShape = uShape.Shape();
       }
+      labels[i-1].shape = aShape;
       builder3D.Add(compound, aShape);
     }
     source = compound;
@@ -1024,13 +1121,13 @@ EG_loadModel(egObject *context, int bflg, const char *name, egObject **model)
         TopoDS_Shape fixedShape = sfs->Shape();
         if (fixedShape.IsNull()) {
           if (outLevel > 0)
-            printf(" EGADS Warning: Body %d is an Invalid WireBody!\n", i);
+            printf(" EGADS Warning: Body %d is an Invalid WireBody!\n", i+1);
         } else {
           BRepCheck_Analyzer wfCheck(fixedShape);
           if (!wfCheck.IsValid()) {
             if (outLevel > 0)
               printf(" EGADS Warning: Fixed Body %d is an Invalid WireBody!\n",
-                     i);
+                     i+1);
           } else {
             pbody->shape = fixedShape;
           }
@@ -1051,13 +1148,13 @@ EG_loadModel(egObject *context, int bflg, const char *name, egObject **model)
         TopoDS_Shape fixedShape = sfs->Shape();
         if (fixedShape.IsNull()) {
           if (outLevel > 0)
-            printf(" EGADS Warning: Body %d is an Invalid FaceBody!\n", i);
+            printf(" EGADS Warning: Body %d is an Invalid FaceBody!\n", i+1);
         } else {
           BRepCheck_Analyzer ffCheck(fixedShape);
           if (!ffCheck.IsValid()) {
             if (outLevel > 0)
               printf(" EGADS Warning: Fixed Body %d is an Invalid FaceBody!\n",
-                     i);
+                     i+1);
           } else {
             pbody->shape = fixedShape;
           }
@@ -1078,13 +1175,13 @@ EG_loadModel(egObject *context, int bflg, const char *name, egObject **model)
         TopoDS_Shape fixedShape = sfs->Shape();
         if (fixedShape.IsNull()) {
           if (outLevel > 0)
-            printf(" EGADS Warning: Body %d is an Invalid SheetBody!\n", i);
+            printf(" EGADS Warning: Body %d is an Invalid SheetBody!\n", i+1);
         } else {
           BRepCheck_Analyzer sfCheck(fixedShape);
           if (!sfCheck.IsValid()) {
             if (outLevel > 0)
               printf(" EGADS Warning: Fixed Body %d is an Invalid SheetBody!\n",
-                     i);
+                     i+1);
           } else {
             pbody->shape = fixedShape;
           }
@@ -1106,13 +1203,13 @@ EG_loadModel(egObject *context, int bflg, const char *name, egObject **model)
         TopoDS_Shape fixedShape = sfs->Shape();
         if (fixedShape.IsNull()) {
           if (outLevel > 0)
-            printf(" EGADS Warning: Body %d is an Invalid SolidBody!\n", i);
+            printf(" EGADS Warning: Body %d is an Invalid SolidBody!\n", i+1);
         } else {
           BRepCheck_Analyzer sfCheck(fixedShape);
           if (!sfCheck.IsValid()) {
             if (outLevel > 0)
               printf(" EGADS Warning: Fixed Body %d is an Invalid SolidBody!\n",
-                     i);
+                     i+1);
           } else {
             pbody->shape = fixedShape;
           }
@@ -1138,7 +1235,7 @@ EG_loadModel(egObject *context, int bflg, const char *name, egObject **model)
   omodel->blind  = mshape;
   EG_referenceObject(omodel, context);
   
-  for (i = 0; i < nBody; i++) {
+  for (j = i = 0; i < nBody; i++) {
     egObject  *pobj  = mshape->bodies[i];
     egadsBody *pbody = (egadsBody *) pobj->blind;
     pobj->topObj     = omodel;
@@ -1146,13 +1243,60 @@ EG_loadModel(egObject *context, int bflg, const char *name, egObject **model)
     if (((bflg&2) != 0) && (egads == 0)) EG_splitMultiplicity(pbody, outLevel);
     stat = EG_traverseBody(context, i, pobj, omodel, pbody, &nerr);
     if (stat != EGADS_SUCCESS) {
-      mshape->nbody = i;
+      if (egads == 1) {
+        mshape->nbody = i;
+        EG_destroyTopology(omodel);
+        return stat;
+      }
+      if (outLevel > 0)
+        printf(" EGADS Warning: Body  %d parse = %d!\n", i+1, stat);
+      continue;
+    }
+    mshape->bodies[j] = mshape->bodies[i];
+    j++;
+  }
+  if (j != mshape->nbody) {
+    if (outLevel > 0)
+      printf(" EGADS Inform:  %d Bodies not included!\n\n", mshape->nbody-j);
+    mshape->nbody = j;
+    if (j == 0) {
       EG_destroyTopology(omodel);
-      return stat;
+      return EGADS_TOPOERR;
     }
   }
-
   *model = omodel;
+  
+  /* possibly assign attributes from IGES/STEP read */
+  if (labels != NULL) {
+    for (i = 0; i < nbs; i++) {
+      if (labels[i].shapeName == NULL) continue;
+      char *value = labels[i].shapeName;
+/*    printf(" Shape %2d: %s\n", i+1, value);  */
+      for (int ibody = 0; ibody < mshape->nbody; ibody++) {
+        egObject  *pobj   = mshape->bodies[ibody];
+        egadsBody *pbody  = (egadsBody *) pobj->blind;
+        if (pbody->shape == labels[i].shape)
+          EG_attributeAdd(pobj, "Name", ATTRSTRING, 1, NULL, NULL, value);
+        j = pbody->nodes.map.FindIndex(labels[i].shape);
+        if (j != 0) EG_attributeAdd(pbody->nodes.objs[j-1],  "Name", ATTRSTRING,
+                                    1, NULL, NULL, value);
+        j = pbody->edges.map.FindIndex(labels[i].shape);
+        if (j != 0) EG_attributeAdd(pbody->edges.objs[j-1],  "Name", ATTRSTRING,
+                                    1, NULL, NULL, value);
+        j = pbody->loops.map.FindIndex(labels[i].shape);
+        if (j != 0) EG_attributeAdd(pbody->loops.objs[j-1],  "Name", ATTRSTRING,
+                                    1, NULL, NULL, value);
+        j = pbody->faces.map.FindIndex(labels[i].shape);
+        if (j != 0) EG_attributeAdd(pbody->faces.objs[j-1],  "Name", ATTRSTRING,
+                                    1, NULL, NULL, value);
+        j = pbody->shells.map.FindIndex(labels[i].shape);
+        if (j != 0) EG_attributeAdd(pbody->shells.objs[j-1], "Name", ATTRSTRING,
+                                    1, NULL, NULL, value);
+      }
+      EG_free(value);
+    }
+    delete [] labels;
+  }
   if (egads != 1) return EGADS_SUCCESS;
 
   /* get the attributes from the EGADS files */
@@ -1236,7 +1380,7 @@ EG_loadModel(egObject *context, int bflg, const char *name, egObject **model)
 }
 
 
-static void
+void
 EG_writeAttr(egAttrs *attrs, FILE *fp)
 {
   char c;
@@ -1267,10 +1411,10 @@ EG_writeAttr(egAttrs *attrs, FILE *fp)
       }
     } else if ((attr[i].type == ATTRREAL) || (attr[i].type == ATTRCSYS)) {
       if (attr[i].length == 1) {
-        fprintf(fp, "%19.12e\n", attr[i].vals.real);
+        fprintf(fp, "%19.12le\n", attr[i].vals.real);
       } else {
         for (int j = 0; j < attr[i].length; j++)
-          fprintf(fp, "%19.12e ", attr[i].vals.reals[j]);
+          fprintf(fp, "%19.12le ", attr[i].vals.reals[j]);
         fprintf(fp, "\n");
       }    
     } else if (attr[i].type == ATTRSTRING) {
@@ -1285,7 +1429,7 @@ EG_writeAttr(egAttrs *attrs, FILE *fp)
 }
 
 
-static int
+int
 EG_writeNumAttr(egAttrs *attrs)
 {
   int num = 0;

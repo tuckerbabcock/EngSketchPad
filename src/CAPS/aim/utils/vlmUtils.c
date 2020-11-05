@@ -686,6 +686,7 @@ int initiate_vlmSectionStruct(vlmSectionStruct *section) {
 
     section->Nspan = 0;
     section->Sspace = 0.0;
+    section->Sset = (int)false;
 
     section->numControl = 0;
     section->vlmControl = NULL;
@@ -723,6 +724,10 @@ int destroy_vlmSectionStruct(vlmSectionStruct *section) {
     section->normal[0] = 0.0;
     section->normal[1] = 0.0;
     section->normal[2] = 0.0;
+
+    section->Nspan = 0;
+    section->Sspace = 0.0;
+    section->Sset = (int)false;
 
     if (section->vlmControl != NULL) {
 
@@ -890,22 +895,14 @@ int get_ControlSurface(ego bodies[],
             //printf("AttrName = %s\n", attrName);
 
             vlmSurface->vlmSection[section].numControl += 1;
-
-            index = vlmSurface->vlmSection[section].numControl-1; // Make copy to shorten the following lines of code
-
-            if (vlmSurface->vlmSection[section].numControl == 1) {
-                vlmSurface->vlmSection[section].vlmControl = (vlmControlStruct *) EG_alloc(vlmSurface->vlmSection[section].numControl*sizeof(vlmControlStruct));
-
-            } else {
-
-                vlmSurface->vlmSection[section].vlmControl = (vlmControlStruct *) EG_reall(vlmSurface->vlmSection[section].vlmControl,
-                        vlmSurface->vlmSection[section].numControl*sizeof(vlmControlStruct));
-            }
-
+            vlmSurface->vlmSection[section].vlmControl = (vlmControlStruct *) EG_reall(vlmSurface->vlmSection[section].vlmControl,
+                                                                                       vlmSurface->vlmSection[section].numControl*sizeof(vlmControlStruct));
             if (vlmSurface->vlmSection[section].vlmControl == NULL) {
               status = EGADS_MALLOC;
               goto cleanup;
             }
+
+            index = vlmSurface->vlmSection[section].numControl-1; // Make copy to shorten the following lines of code
 
             status = initiate_vlmControlStruct(&vlmSurface->vlmSection[section].vlmControl[index]);
             if (status != CAPS_SUCCESS) return status;
@@ -1103,6 +1100,7 @@ int copy_vlmSectionStruct(vlmSectionStruct *sectionIn, vlmSectionStruct *section
 
     sectionOut->Nspan = sectionIn->Nspan;   // number of spanwise vortices (elements)
     sectionOut->Sspace = sectionIn->Sspace; // spanwise point distribution
+    sectionOut->Sset = sectionIn->Sset;
 
     sectionOut->numControl = sectionIn->numControl;
 
@@ -1911,6 +1909,7 @@ int vlm_getSections(int numBody,
             status = retrieve_doubleAttrOptional(bodies[body], "vlmSspace", &Sspace);
             if (status == EGADS_ATTRERR) goto cleanup;
             (*vlmSurface)[surf].vlmSection[section].Sspace = Sspace;
+            (*vlmSurface)[surf].vlmSection[section].Sset = (int)(status == CAPS_SUCCESS);
 
             // Get the section normal
             status = vlm_secNormal(bodies[body],

@@ -60,9 +60,10 @@ UDPRIM    naca  Thickness wing:thick  Camber wing:camber
 SCALE     wing:croot
 ROTATEX   90        0         0
 TRANSLATE wing:xroot    0    wing:zroot
-    ATTRIBUTE capsGroup               $Wing
+SELECT body
     ATTRIBUTE vlmControl_AileronLeft  0.8  #Hinge line 80% chord
     ATTRIBUTE vlmControl_AileronRight 0.8  #Hinge line 80% chord
+    ATTRIBUTE capsGroup               $Wing
     ATTRIBUTE capsAIM                 $avlAIM
     ATTRIBUTE capsReferenceArea       wing:area
     ATTRIBUTE capsReferenceSpan       wing:span
@@ -75,18 +76,20 @@ UDPRIM    naca  Thickness wing:thick  Camber wing:camber
 SCALE     wing:ctip
 ROTATEX   90        0         0
 TRANSLATE wing:xtip    -wing:span/2    wing:ztip
+SELECT body
+    ATTRIBUTE vlmControl_AileronRight 0.8  #Hinge line 80% chord
     ATTRIBUTE capsGroup               $Wing
     ATTRIBUTE capsAIM                 $avlAIM
     ATTRIBUTE _name                   $wing:right
-    ATTRIBUTE vlmControl_AileronRight 0.8 
 
 # Left tip
 UDPRIM    naca  Thickness wing:thick  Camber wing:camber
 SCALE     wing:ctip
 ROTATEX   90        0         0
 TRANSLATE wing:xtip     wing:span/2    wing:ztip
+SELECT body
+    ATTRIBUTE vlmControl_AileronLeft 0.8  #Hinge line 80% chord
     ATTRIBUTE capsGroup              $Wing
-    ATTRIBUTE vlmControl_AileronLeft 0.8 
     ATTRIBUTE capsAIM                $avlAIM
     ATTRIBUTE _name                  $wing:left
 
@@ -97,6 +100,7 @@ UDPRIM    naca  Thickness wing:thick  Camber wing:camber
 SCALE     htail:croot
 ROTATEX   90        0         0
 TRANSLATE htail:xroot    0    htail:zroot
+SELECT body
     ATTRIBUTE capsGroup           $Htail
     ATTRIBUTE vlmControl_Elevator 0.75 
     ATTRIBUTE capsAIM             $avlAIM
@@ -107,6 +111,7 @@ UDPRIM    naca  Thickness wing:thick  Camber wing:camber
 SCALE     htail:ctip
 ROTATEX   90        0         0
 TRANSLATE htail:xtip    -htail:span/2    htail:ztip
+SELECT body
     ATTRIBUTE capsGroup           $Htail
     ATTRIBUTE vlmControl_Elevator 0.75 
     ATTRIBUTE capsAIM             $avlAIM
@@ -117,6 +122,7 @@ UDPRIM    naca  Thickness wing:thick  Camber wing:camber
 SCALE     htail:ctip
 ROTATEX   90        0         0
 TRANSLATE htail:xtip     htail:span/2    htail:ztip
+SELECT body
     ATTRIBUTE capsGroup $Htail
     ATTRIBUTE vlmControl_Elevator 0.75 
     ATTRIBUTE capsAIM   $avlAIM
@@ -128,6 +134,7 @@ TRANSLATE htail:xtip     htail:span/2    htail:ztip
 UDPRIM    naca  Thickness vtail:thick
 SCALE     vtail:croot
 TRANSLATE vtail:xroot    0    vtail:zroot
+SELECT body
     ATTRIBUTE capsGroup         $Vtail
     ATTRIBUTE vlmControl_Rudder 0.75 
     ATTRIBUTE capsAIM           $avlAIM
@@ -137,6 +144,7 @@ TRANSLATE vtail:xroot    0    vtail:zroot
 UDPRIM    naca  Thickness vtail:thick
 SCALE     vtail:ctip
 TRANSLATE vtail:xtip    0    vtail:span
+SELECT body
     ATTRIBUTE capsGroup         $Vtail
     ATTRIBUTE vlmControl_Rudder 0.75 
     ATTRIBUTE capsAIM           $avlAIM

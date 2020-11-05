@@ -66,10 +66,12 @@
 #include "fun3dNamelist.h" // Bring in Cython generated header file
 // for namelist generation wiht Python
 
-#if PY_MAJOR_VERSION < 3
-#define Initialize_fun3dNamelist initfun3dNamelist
-#else
-#define Initialize_fun3dNamelist PyInit_fun3dNamelist
+#ifndef CYTHON_PEP489_MULTI_PHASE_INIT
+#define CYTHON_PEP489_MULTI_PHASE_INIT (PY_VERSION_HEX >= 0x03050000)
+#endif
+
+#if CYTHON_PEP489_MULTI_PHASE_INIT
+static int fun3dNamelist_Initialized = (int)false;
 #endif
 
 #endif
@@ -857,6 +859,14 @@ int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath,
     char **transferName = NULL;
     int numTransferName;
 
+#ifdef HAVE_PYTHON
+    PyObject* mobj = NULL;
+#if CYTHON_PEP489_MULTI_PHASE_INIT
+    PyModuleDef *mdef = NULL;
+    PyObject *modname = NULL;
+#endif
+#endif
+
     // NULL out errors
     *errs = NULL;
 
@@ -1196,20 +1206,20 @@ int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath,
             //  BackPressure, Symmetry, SubsonicInflow, SubsonicOutflow,
             //  MassflowIn, MassflowOut, FixedInflow, FixedOutflow}
 
-            if      (bcProps.surfaceProps[i].surfaceType == Inviscid) bndConds.bcVal[i] = 3000;
-            else if (bcProps.surfaceProps[i].surfaceType == Viscous)  bndConds.bcVal[i] = 4000;
-            else if (bcProps.surfaceProps[i].surfaceType == Farfield) bndConds.bcVal[i] = 5000;
-            else if (bcProps.surfaceProps[i].surfaceType == Extrapolate) bndConds.bcVal[i] = 5026;
-            else if (bcProps.surfaceProps[i].surfaceType == Freestream)  bndConds.bcVal[i] = 5050;
-            else if (bcProps.surfaceProps[i].surfaceType == BackPressure)    bndConds.bcVal[i] = 5051;
-            else if (bcProps.surfaceProps[i].surfaceType == SubsonicInflow)  bndConds.bcVal[i] = 7011;
+            if      (bcProps.surfaceProps[i].surfaceType == Inviscid       ) bndConds.bcVal[i] = 3000;
+            else if (bcProps.surfaceProps[i].surfaceType == Viscous        ) bndConds.bcVal[i] = 4000;
+            else if (bcProps.surfaceProps[i].surfaceType == Farfield       ) bndConds.bcVal[i] = 5000;
+            else if (bcProps.surfaceProps[i].surfaceType == Extrapolate    ) bndConds.bcVal[i] = 5026;
+            else if (bcProps.surfaceProps[i].surfaceType == Freestream     ) bndConds.bcVal[i] = 5050;
+            else if (bcProps.surfaceProps[i].surfaceType == BackPressure   ) bndConds.bcVal[i] = 5051;
+            else if (bcProps.surfaceProps[i].surfaceType == SubsonicInflow ) bndConds.bcVal[i] = 7011;
             else if (bcProps.surfaceProps[i].surfaceType == SubsonicOutflow) bndConds.bcVal[i] = 7012;
-            else if (bcProps.surfaceProps[i].surfaceType == MassflowIn)      bndConds.bcVal[i] = 7036;
-            else if (bcProps.surfaceProps[i].surfaceType == MassflowOut)     bndConds.bcVal[i] = 7031;
-            else if (bcProps.surfaceProps[i].surfaceType == FixedInflow)     bndConds.bcVal[i] = 7100;
-            else if (bcProps.surfaceProps[i].surfaceType == FixedOutflow)    bndConds.bcVal[i] = 7105;
-            else if (bcProps.surfaceProps[i].surfaceType == MachOutflow)     bndConds.bcVal[i] = 5052;
-            else if (bcProps.surfaceProps[i].surfaceType == Symmetry) {
+            else if (bcProps.surfaceProps[i].surfaceType == MassflowIn     ) bndConds.bcVal[i] = 7036;
+            else if (bcProps.surfaceProps[i].surfaceType == MassflowOut    ) bndConds.bcVal[i] = 7031;
+            else if (bcProps.surfaceProps[i].surfaceType == FixedInflow    ) bndConds.bcVal[i] = 7100;
+            else if (bcProps.surfaceProps[i].surfaceType == FixedOutflow   ) bndConds.bcVal[i] = 7105;
+            else if (bcProps.surfaceProps[i].surfaceType == MachOutflow    ) bndConds.bcVal[i] = 5052;
+            else if (bcProps.surfaceProps[i].surfaceType == Symmetry       ) {
 
                 if      (bcProps.surfaceProps[i].symmetryPlane == 1) bndConds.bcVal[i] = 6661;
                 else if (bcProps.surfaceProps[i].symmetryPlane == 2) bndConds.bcVal[i] = 6662;
@@ -1331,14 +1341,51 @@ int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath,
                 initPy = (int) false;
             }
 
-
-            (void) Initialize_fun3dNamelist();
+            // Taken from "main" by running cython with --embed
+            #if PY_MAJOR_VERSION < 3
+            initfun3dNamelist();
+            #elif CYTHON_PEP489_MULTI_PHASE_INIT
+            if (fun3dNamelist_Initialized == (int)false || initPy == (int)true) {
+                fun3dNamelist_Initialized = (int)true;
+                mobj = PyInit_fun3dNamelist();
+                if (!PyModule_Check(mobj)) {
+                    mdef = (PyModuleDef *) mobj;
+                    modname = PyUnicode_FromString("__main__");
+                    mobj = NULL;
+                    if (modname) {
+                        mobj = PyModule_NewObject(modname);
+                        Py_DECREF(modname);
+                        if (mobj) PyModule_ExecDef(mobj, mdef);
+                    }
+                }
+            }
+            #else
+            mobj = PyInit_fun3dNamelist();
+            #endif
+            if (PyErr_Occurred()) {
+                PyErr_Print();
+                #if PY_MAJOR_VERSION < 3
+                if (Py_FlushLine()) PyErr_Clear();
+                #endif
+                status = CAPS_BADVALUE;
+                goto cleanup;
+            }
+            Py_XDECREF(mobj);
 
             status = fun3d_writeNMLPython(aimInfo, analysisPath, aimInputs, bcProps);
             if (status == -1) {
                 printf("\tWarning: Python error occurred while writing namelist file\n");
             } else {
                 printf("\tDone writing nml file with Python\n");
+            }
+
+            if (PyErr_Occurred()) {
+                PyErr_Print();
+                #if PY_MAJOR_VERSION < 3
+                if (Py_FlushLine()) PyErr_Clear();
+                #endif
+                status = CAPS_BADVALUE;
+                goto cleanup;
             }
 
             // Close down python

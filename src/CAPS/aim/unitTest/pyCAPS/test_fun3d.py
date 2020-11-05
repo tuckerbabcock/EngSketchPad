@@ -5,6 +5,9 @@ import shutil
 
 from sys import version_info as pyVersion
 
+# f90nml is used to write fun3d inputs not available in the aim
+import f90nml
+
 import pyCAPS
 
 class TestFUN3D(unittest.TestCase):
@@ -43,6 +46,15 @@ class TestFUN3D(unittest.TestCase):
 
         if os.path.exists(cls.analysisDir + '_4'):
             shutil.rmtree(cls.analysisDir + '_4')
+            
+        if os.path.exists(cls.analysisDir + '_5'):
+            shutil.rmtree(cls.analysisDir + '_5')
+            
+        if os.path.exists(cls.analysisDir + '_6'):
+            shutil.rmtree(cls.analysisDir + '_6')
+            
+        if os.path.exists(cls.analysisDir + '_7'):
+            shutil.rmtree(cls.analysisDir + '_7')
 
 #         # Remove created files
 #         if os.path.isfile("myGeometry.egads"):
@@ -108,7 +120,7 @@ class TestFUN3D(unittest.TestCase):
         
         myAnalysis.setAnalysisVal("Boundary_Condition", ("Wing1", {"bcType" : "Inviscid"}))
         
-        myAnalysis.preAnalysis() # Don't except an config file because Overwrite_NML = False
+        myAnalysis.preAnalysis() # Don't except a config file because Overwrite_NML = False
     
         self.assertEqual(os.path.isfile(os.path.join(myAnalysis.analysisDir, self.configFile)), False)
 
@@ -149,6 +161,77 @@ class TestFUN3D(unittest.TestCase):
 
         myAnalysis.preAnalysis()
         myAnalysis.postAnalysis()
+        
+    # Test using Cython to write and modify the *.nml file
+    def test_cythonNML(self):
+        
+        # Create a new instance
+        myAnalysis = self.myProblem.loadAIM(aim = "fun3dAIM",
+                                            analysisDir = self.analysisDir + "_5")
+        
+        fun3dnml = f90nml.Namelist()
+        fun3dnml['boundary_output_variables'] = f90nml.Namelist()
+        fun3dnml['boundary_output_variables']['mach'] = True
+        fun3dnml['boundary_output_variables']['cp'] = True
+        fun3dnml['boundary_output_variables']['average_velocity'] = True
 
+        fun3dnml.write(os.path.join(myAnalysis.analysisDir,self.configFile), force=True)
+
+        myAnalysis.setAnalysisVal("Use_Python_NML", True)
+        myAnalysis.setAnalysisVal("Overwrite_NML", False) # append
+        
+        myAnalysis.setAnalysisVal("Boundary_Condition", ("Wing1", {"bcType" : "Inviscid"}))
+        
+        myAnalysis.preAnalysis()
+    
+        self.assertEqual(os.path.isfile(os.path.join(myAnalysis.analysisDir, self.configFile)), True)
+
+     # Test using Cython to write and modify the *.nml file with reentrance into the AIM
+    def test_cythonNMLReentrance(self):
+        
+        # Create a new instance
+        myAnalysis = self.myProblem.loadAIM(aim = "fun3dAIM",
+                                            analysisDir = self.analysisDir + "_6")
+        
+        myAnalysis.setAnalysisVal("Use_Python_NML", True)
+        myAnalysis.setAnalysisVal("Overwrite_NML", False) # append
+        
+        myAnalysis.setAnalysisVal("Boundary_Condition", ("Wing1", {"bcType" : "Inviscid"}))
+        
+        myAnalysis.preAnalysis()
+    
+        self.assertEqual(os.path.isfile(os.path.join(myAnalysis.analysisDir, self.configFile)), True)
+        
+        myAnalysis.postAnalysis()
+        
+        myAnalysis.setAnalysisVal("Mach", 0.8)
+         
+        myAnalysis.preAnalysis()
+             
+        self.assertEqual(os.path.isfile(os.path.join(myAnalysis.analysisDir, self.configFile)), True)
+        
+        myAnalysis.postAnalysis()
+        
+    # Test using Cython to write and modify the *.nml file - catch an error
+    def test_cythonNMLError(self):
+    
+        # Create a new instance
+        myAnalysis = self.myProblem.loadAIM(aim = "fun3dAIM",
+                                            analysisDir = self.analysisDir + "_7")
+        
+        # Create a bad nml file 
+        f = open(os.path.join(myAnalysis.analysisDir,self.configFile), "w")
+        f.write("&badNamelist")
+        f.close()
+        
+        myAnalysis.setAnalysisVal("Use_Python_NML", True)
+        myAnalysis.setAnalysisVal("Overwrite_NML", False) # append
+     
+        myAnalysis.setAnalysisVal("Boundary_Condition", ("Wing1", {"bcType" : "Inviscid"}))
+        
+        with self.assertRaises(pyCAPS.CAPSError) as e:
+            myAnalysis.preAnalysis()
+            self.assertEqual(e.exception.errorName, "CAPS_BADVALUE")
+        
 if __name__ == '__main__':
     unittest.main()

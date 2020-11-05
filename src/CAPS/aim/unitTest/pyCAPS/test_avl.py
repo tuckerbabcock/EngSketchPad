@@ -147,14 +147,13 @@ class TestavlAIM(unittest.TestCase):
 
         htail = {"groupName"         : "hTail",
                  "numChord"          : 8,
-                 "spaceChord"        : 1.0,
-                 "numSpanTotal"      : 8,
-                 "spaceSpan"         : 1.0}
+                 "spaceChord"        : 0.7,
+                 "numSpanTotal"      : 10}
 
         vtail = {"numChord"          : 8,
                  "spaceChord"        : 1.0,
                  "numSpanTotal"      : 8,
-                 "spaceSpan"         : 1.0}
+                 "spaceSpan"         : 0.5}
 
         avl.setAnalysisVal("AVL_Surface", [("Wing", wing),("hTail", htail),
                                            ("vTail", vtail)])
@@ -168,8 +167,8 @@ class TestavlAIM(unittest.TestCase):
         #print("CLtot = ", CLtot)
         #print("CDtot = ", CDtot)
 
-        CLtotTrue  = 0.15794
-        CDtotTrue  = 0.02268
+        CLtotTrue  = 0.16271
+        CDtotTrue  = 0.02286
         self.assertAlmostEqual(CLtotTrue, CLtot, 4)
         self.assertAlmostEqual(CDtotTrue, CDtot, 4)
 

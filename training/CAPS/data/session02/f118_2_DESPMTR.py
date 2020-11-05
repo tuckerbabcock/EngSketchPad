@@ -3,7 +3,7 @@
 # Allow print statement to be compatible between Python 2 and 3
 from __future__ import print_function
 
-# Import pyCAPS class
+# Import capsProblem class from pyCAPS
 from pyCAPS import capsProblem
 
 #------------------------------------------------------------------------------#
@@ -25,6 +25,11 @@ f118.setGeometryVal("htail:area", htail_area*2)
 
 print ("--> old htail:area = ", htail_area)
 print ("--> new htail:area = ", f118.getGeometryVal("htail:area"))
+
+# Double the vtail area in an array
+vtail = f118.getGeometryVal("vtail")
+vtail[0]= vtail[0]*2
+f118.setGeometryVal("vtail", vtail)
 
 # Build and view the geometry with the capsViewer
 print ('\n==> Bulding and viewing geometry...')

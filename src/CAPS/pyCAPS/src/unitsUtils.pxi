@@ -92,7 +92,7 @@ cpdef capsConvert(value, fromUnits, toUnits, ignoreWarning = True):
         elif status == <int> cUDUNITS.UT_OS:
             msg = "Operating-system error!"
    
-        print "Unable to create new unit sytem!"
+        print("Unable to create new unit sytem!")
         
         raise ValueError(msg)
         #return None
@@ -120,7 +120,7 @@ cpdef capsConvert(value, fromUnits, toUnits, ignoreWarning = True):
                   + ") is meaningless/not possible (e.g. 'fromUnits' is 'meter' " \
                   + "and 'toUnits' is 'kilogram')!"
     
-        print "Unit conversion failure!" # Add better information here
+        print("Unit conversion failure!") # Add better information here
         
         if unitIn:
             cUDUNITS.ut_free(unitIn)
@@ -150,7 +150,7 @@ cpdef capsConvert(value, fromUnits, toUnits, ignoreWarning = True):
                  + ") is meaningless/not possible (e.g. 'fromUnits' is 'meter' " \
                   + "and 'toUnits' is 'kilogram')!"
     
-        print "Issue getting converter!"
+        print("Issue getting converter!")
         
         if unitIn:
             cUDUNITS.ut_free(unitIn)

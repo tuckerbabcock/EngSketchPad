@@ -3378,7 +3378,7 @@ splineWithGaps2d(int      nvrt,              /* (in)   number of Vertices to fit
     for (i = 0; i < nu; i++) {
         DPRINT1x(" %5d     ", i);
     }
-    DPRINT0("");
+    DPRINT0(" ");
 
     for (j = 0; j < nv; j++) {
         DPRINT1x("j=%3d", j);
@@ -3386,7 +3386,7 @@ splineWithGaps2d(int      nvrt,              /* (in)   number of Vertices to fit
             ij = (i) + nu * (j);
             DPRINT1x(" %10.5f", xx[ij]);
         }
-        DPRINT0("");
+        DPRINT0(" ");
     }
 #endif
 
@@ -3686,7 +3686,7 @@ prm_BestGrid(int      nvrt,                  /* (in)   number of Vertices */
         for (ivar = 0; ivar < nvar; ivar++) {
             DPRINT1x("%10.5f ", var[ivar+nvar*ivrt]);
         }
-        DPRINT0("");
+        DPRINT0(" ");
     }
 
     /* ----------------------------------------------------------------------- */
@@ -4131,7 +4131,7 @@ prm_EvalGrid(gridTree tree,                  /* (in)   Grid Tree */
 //    for (ivar = 0; ivar < nvar; ivar++) {
 //        DPRINT1x("%12.6f ", var[ivar]);
 //    }
-//    DPRINT0("");
+//    DPRINT0(" ");
 
 //    DPRINT2("%s --> status=%d}", routine, status);
     return status;

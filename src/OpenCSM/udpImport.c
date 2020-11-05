@@ -82,6 +82,7 @@ udpExecute(ego  context,                /* (in)  EGADS context */
     int     status = EGADS_SUCCESS;
 
     int      oclass, mtype, nbody, *senses;
+    char     *message;
     ego      geom, *bodies;
     TIMELONG dt;
 
@@ -102,16 +103,19 @@ udpExecute(ego  context,                /* (in)  EGADS context */
     *nMesh  = 0;
     *string = NULL;
 
+    message = (char *) EG_alloc(100*sizeof(char));
+    message[0] = '\0';
+
     /* check arguments */
     if (udps[0].arg[1].size > 1) {
-        printf(" udpExecute: bodynumber should be a scalar\n");
+        snprintf(message, 100, "bodynumber should be a scalar");
         status  = EGADS_RANGERR;
         goto cleanup;
 
     } else if (BODYNUMBER(0) == -1) {
 
     } else if (BODYNUMBER(0) <= 0) {
-        printf(" udpExecute: BodyNumber = %d < 0\n", BODYNUMBER(0));
+        snprintf(message, 100, "BodyNumber = %d < 0", BODYNUMBER(0));
         status  = EGADS_RANGERR;
         goto cleanup;
     }
@@ -211,8 +215,14 @@ udpExecute(ego  context,                /* (in)  EGADS context */
 #endif
 
 cleanup:
-    if (status != EGADS_SUCCESS) {
+    if (strlen(message) > 0) {
+        *string = message;
+        printf("%s\n", message);
+    } else if (status != EGADS_SUCCESS) {
+        EG_free(message);
         *string = udpErrorStr(status);
+    } else {
+        EG_free(message);
     }
 
     return status;

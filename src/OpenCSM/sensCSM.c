@@ -303,19 +303,19 @@ main(int       argc,                    /* (in)  number of arguments */
     /* print out the global Attributes, Parameters, and Branches */
     SPRINT0(1, "External Parameter(s):");
     if (outLevel > 0) {
-        status = ocsmPrintPmtrs(modl, stdout);
+        status = ocsmPrintPmtrs(modl, "");
         CHECK_STATUS(ocsmPrintPmtrs);
     }
 
     SPRINT0(1, "Branch(es):");
     if (outLevel > 0) {
-        status = ocsmPrintBrchs(modl, stdout);
+        status = ocsmPrintBrchs(modl, "");
         CHECK_STATUS(ocsmPrintBrchs);
     }
 
     SPRINT0(1, "Global Attribute(s):");
     if (outLevel > 0) {
-        status = ocsmPrintAttrs(modl, stdout);
+        status = ocsmPrintAttrs(modl, "");
         CHECK_STATUS(ocsmPrintAttrs);
     }
 
@@ -329,7 +329,7 @@ main(int       argc,                    /* (in)  number of arguments */
     /* print out the Bodys */
     SPRINT0(1, "Body(s):");
     if (outLevel > 0) {
-        status = ocsmPrintBodys(modl, stdout);
+        status = ocsmPrintBodys(modl, "");
         CHECK_STATUS(ocsmPrintBodys);
     }
 
@@ -383,7 +383,7 @@ main(int       argc,                    /* (in)  number of arguments */
 
     /* loop through all design Parameters */
     for (ipmtr = 1; ipmtr <= MODL->npmtr; ipmtr++) {
-        if (MODL->pmtr[ipmtr].type != OCSM_EXTERNAL) continue;
+        if (MODL->pmtr[ipmtr].type != OCSM_DESPMTR) continue;
 
         if (strlen(pmtrname) > 0 &&
             strcmp(pmtrname, MODL->pmtr[ipmtr].name) != 0) continue;
@@ -1082,16 +1082,16 @@ checkTesselSens(int    ipmtr,           /* (in)  Parameter index (bias-1) */
     int       status = SUCCESS;
 
     int       ibody, atype, alen, nbody, builtTo, nbad;
-    int       nerror=0, nerror2, inode, iedge, iface, ipnt, itri, iseg, ixyz, ip0, ip1, ip2;
+    int       nerror=0, nerror2, inode, jnode, iedge, jedge, iface, jface, ipnt, itri, iseg, ixyz, ip0, ip1, ip2;
     int       npnt_tess, ntri_tess, oclass, mtype, nchild, *senses;
-    CINT      *ptype, *pindx, *tris, *tric, *tempIlist;
+    CINT      *ptype, *pindx, *tris, *tric, *tempIlist, *nMap, *eMap, *fMap;
     double    data[18], old_value, old_dot, scaled_dtime, uv_clos[2], xyz_clos[18], dist;
     double    face_errmax, edge_errmax, node_errmax;
     double    xa, ya, za, xb, yb, zb, areax1, areay1, areaz1, areax2, areay2, areaz2, dot;
     double    **face_ptrb=NULL, **edge_ptrb=NULL, **node_ptrb=NULL;
     CDOUBLE   *tempRlist, *xyz, *uv, *t, *dxyz;
     CCHAR     *tempClist;
-    ego       eref, *echilds;
+    ego       eref, *echilds, eNewBody;
     clock_t   old_time, new_time;
     FILE      *fp_badtri=NULL;
     void      *ptrb;
@@ -1204,6 +1204,34 @@ checkTesselSens(int    ipmtr,           /* (in)  Parameter index (bias-1) */
 
         status = ocsmSetDtime(MODL, 0);
         CHECK_STATUS(ocsmSetDtime);
+
+        /* determine if there is a mapping between the MODL and the PTRB */
+        status = EG_mapBody(MODL->body[ibody].ebody, PTRB->body[ibody].ebody, "_faceID", &eNewBody);
+        CHECK_STATUS(EG_mapBody);
+
+        if (eNewBody == NULL) {
+            nMap = NULL;
+            eMap = NULL;
+            fMap = NULL;
+        } else {
+            status = EG_attributeRet(eNewBody, ".nMap",
+                                     &atype, &alen, &nMap, &tempRlist, &tempClist);
+            if (status != EGADS_SUCCESS) {
+                nMap = NULL;
+            }
+
+            status = EG_attributeRet(eNewBody, ".eMap",
+                                     &atype, &alen, &eMap, &tempRlist, &tempClist);
+            if (status != EGADS_SUCCESS) {
+                eMap = NULL;
+            }
+
+            status = EG_attributeRet(eNewBody, ".fMap",
+                                     &atype, &alen, &fMap, &tempRlist, &tempClist);
+            if (status != EGADS_SUCCESS) {
+                fMap = NULL;
+            }
+        }
 
         /* save perturbed points (which are the base plus their sensitivities) for each Face */
         MALLOC(face_ptrb, double*, MODL->body[ibody].nface+1);
@@ -1422,6 +1450,16 @@ checkTesselSens(int    ipmtr,           /* (in)  Parameter index (bias-1) */
         /* check how far each perturbed Face point is from the perturbed configuration */
         nerror = 0;
         for (iface = 1; iface <= MODL->body[ibody].nface; iface++) {
+
+            /* find the equivalent Face in PTRB */
+#ifndef __clang_analyzer__
+            if (fMap == NULL) {
+                jface = iface;
+            } else {
+                jface = fMap[iface-1];
+            }
+#endif
+
             status = EG_attributeRet(MODL->body[ibody].face[iface].eface, "_sensCheck",
                                      &atype, &alen, &tempIlist, &tempRlist, &tempClist);
             if (status == EGADS_SUCCESS && atype == ATTRSTRING && strcmp(tempClist, "skip") == 0) {
@@ -1438,7 +1476,7 @@ checkTesselSens(int    ipmtr,           /* (in)  Parameter index (bias-1) */
             for (ipnt = 0; ipnt < npnt_tess; ipnt++) {
                 uv_clos[ 0] = uv[2*ipnt  ];
                 uv_clos[ 1] = uv[2*ipnt+1];
-                status = EG_invEvaluateGuess(PTRB->body[ibody].face[iface].eface,
+                status = EG_invEvaluateGuess(PTRB->body[ibody].face[jface].eface,
                                              &(face_ptrb[iface][3*ipnt]), uv_clos, xyz_clos);
                 CHECK_STATUS(EG_invEvaluateGuess);
 
@@ -1449,7 +1487,7 @@ checkTesselSens(int    ipmtr,           /* (in)  Parameter index (bias-1) */
                 if (dist > face_errmax) face_errmax = dist;
                 if (dist > errlist) {
                     if (nerror2 < maxlist) {
-                        SPRINT12(0, "iface=%4d, ipnt=%4d: anal=%13.8f %13.8f %13.8f, ptrb=%13.8f %13.8f %13.8f, dist=%13.8f (at %13.8f %13.8f %13.8f)",
+                        SPRINT12(0, "iface=%4d, ipnt=%4d: anal=%13.8f %13.8f %13.8f, clos=%13.8f %13.8f %13.8f, dist=%13.8f (at %13.8f %13.8f %13.8f)",
                                  iface, ipnt,
                                  face_ptrb[iface][3*ipnt], face_ptrb[iface][3*ipnt+1], face_ptrb[iface][3*ipnt+2],
                                  xyz_clos[             0], xyz_clos[               1], xyz_clos[               2], dist,
@@ -1472,6 +1510,16 @@ checkTesselSens(int    ipmtr,           /* (in)  Parameter index (bias-1) */
         /* check how far each perturbed Edge point is from the perturbed configuration */
         nerror = 0;
         for (iedge = 1; iedge <= MODL->body[ibody].nedge; iedge++) {
+
+            /* find the equivalent Edge in PTRB */
+#ifndef __clang_analyzer__
+            if (eMap == NULL) {
+                jedge = iedge;
+            } else {
+                jedge = eMap[iedge-1];
+            }
+#endif
+
             status = EG_attributeRet(MODL->body[ibody].edge[iedge].eedge, "_sensCheck",
                                      &atype, &alen, &tempIlist, &tempRlist, &tempClist);
             if (status == EGADS_SUCCESS && atype == ATTRSTRING && strcmp(tempClist, "skip") == 0) {
@@ -1494,7 +1542,7 @@ checkTesselSens(int    ipmtr,           /* (in)  Parameter index (bias-1) */
             nerror2 = 0;
             for (ipnt = 0; ipnt < npnt_tess; ipnt++) {
                 uv_clos[ 0] = t[ipnt];
-                status = EG_invEvaluateGuess(PTRB->body[ibody].edge[iedge].eedge,
+                status = EG_invEvaluateGuess(PTRB->body[ibody].edge[jedge].eedge,
                                              &(edge_ptrb[iedge][3*ipnt]), uv_clos, xyz_clos);
                 CHECK_STATUS(EG_invEvaluateGuess);
 
@@ -1505,7 +1553,7 @@ checkTesselSens(int    ipmtr,           /* (in)  Parameter index (bias-1) */
                 if (dist > edge_errmax) edge_errmax = dist;
                 if (dist > errlist) {
                     if (nerror2 < maxlist) {
-                        SPRINT12(0, "iedge=%4d, ipnt=%4d: anal=%13.8f %13.8f %13.8f, ptrb=%13.8f %13.8f %13.8f, dist=%13.8f (at %13.8f %13.8f %13.8f)",
+                        SPRINT12(0, "iedge=%4d, ipnt=%4d: anal=%13.8f %13.8f %13.8f, clos=%13.8f %13.8f %13.8f, dist=%13.8f (at %13.8f %13.8f %13.8f)",
                                  iedge, ipnt,
                                  edge_ptrb[iedge][3*ipnt], edge_ptrb[iedge][3*ipnt+1], edge_ptrb[iedge][3*ipnt+2],
                                  xyz_clos[             0], xyz_clos[               1], xyz_clos[               2], dist,
@@ -1528,12 +1576,22 @@ checkTesselSens(int    ipmtr,           /* (in)  Parameter index (bias-1) */
         /* check how far each perturbed Node point is from the perturbed configuration */
         nerror = 0;
         for (inode = 1; inode <= MODL->body[ibody].nnode; inode++) {
+
+            /* find the equivalent Node in PTRB */
 #ifndef __clang_analyzer__
-            status = EG_getTopology(PTRB->body[ibody].node[inode].enode, &eref,
+            if (nMap == NULL) {
+                jnode = inode;
+            } else {
+                jnode = nMap[inode-1];
+            }
+#endif
+
+#ifndef __clang_analyzer__
+            status = EG_getTopology(PTRB->body[ibody].node[jnode].enode, &eref,
                                     &oclass, &mtype, data, &nchild, &echilds, &senses);
             CHECK_STATUS(EG_getTopology);
 
-            status = EG_getTopology(PTRB->body[ibody].node[inode].enode, &eref,
+            status = EG_getTopology(PTRB->body[ibody].node[jnode].enode, &eref,
                                     &oclass, &mtype, xyz_clos, &nchild, &echilds, &senses);
             CHECK_STATUS(EG_getTopology);
 
@@ -1543,7 +1601,7 @@ checkTesselSens(int    ipmtr,           /* (in)  Parameter index (bias-1) */
 
             if (dist > node_errmax) node_errmax = dist;
             if (dist > errlist) {
-                SPRINT11(0, "inode=%4d:            anal=%13.8f %13.8f %13.8f, ptrb=%13.8f %13.8f %13.8f, dist=%13.8f (at %13.8f %13.8f %13.8f)",
+                SPRINT11(0, "inode=%4d:            anal=%13.8f %13.8f %13.8f, clos=%13.8f %13.8f %13.8f, dist=%13.8f (at %13.8f %13.8f %13.8f)",
                          inode,
                          node_ptrb[inode][0], node_ptrb[inode][1], node_ptrb[inode][2],
                          data[            0], data[            1], data[            2], dist,
@@ -1561,6 +1619,11 @@ checkTesselSens(int    ipmtr,           /* (in)  Parameter index (bias-1) */
         FREE(face_ptrb);
         FREE(edge_ptrb);
         FREE(node_ptrb);
+
+        if (eNewBody != NULL) {
+            status = EG_deleteObject(eNewBody);
+            CHECK_STATUS(EG_deleteObject);
+        }
     }
 
 cleanup:

@@ -70,7 +70,8 @@ caps.res:	caps.rc
 	rc caps
 
 $(OBJS): 	$(IDIR)\capsErrors.h $(IDIR)\capsTypes.h $(IDIR)\prm.h \
-		capsBase.h $(IDIR)\OpenCSM.h $(IDIR)\common.h $(OBJS:.obj=.c)
+		capsFunIDs.h capsBase.h $(IDIR)\OpenCSM.h $(IDIR)\common.h \
+		$(OBJS:.obj=.c)
 	cl /c $(COPTS) $(DEFINE) /I$(IDIR) $*.c 
 
 end:

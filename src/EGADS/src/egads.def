@@ -55,6 +55,7 @@ EG_hasGeometry_dot
 EG_makeGeometry
 EG_getRange
 EG_getRange_dot
+EG_setRange_dot
 EG_evaluate
 EG_evaluate_dot
 EG_invEvaluate
@@ -177,6 +178,12 @@ EG_spline1dTan
 EG_spline1dTan_dot
 EG_spline2dEval
 EG_exportModel
+EG_virtualize
+EG_finalize
+EG_makeComposite
+EG_makeAttrComposites
+EG_effectiveMap
+EG_getEdgeList
 prm_CreateUV
 prm_BestCfit
 prm_BestGrid

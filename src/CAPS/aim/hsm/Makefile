@@ -22,12 +22,13 @@ endif
 
 $(LDIR)/hsmAIM.so:	$(ODIR)/hsmAIM.o $(ODIR)/hsmUtils.o $(ODIR)/hsmAdj.o \
 			$(ODIR)/rcm.o $(ODIR)/genrcmi.o \
-			$(LDIR)/libutils.a $(LDIR)/libhsm.a  $(LDIR)/libaimUtil.a
+			$(LDIR)/libutils.a $(LDIR)/libhsm.a $(LDIR)/libaimUtil.a
 			
 	touch $(LDIR)/hsmAIM.so
 	rm $(LDIR)/hsmAIM.so
-	$(FCOMP) $(SOFLGS) -o $(LDIR)/hsmAIM.so \
-		$(ODIR)/hsmAIM.o $(ODIR)/hsmUtils.o $(ODIR)/hsmAdj.o $(ODIR)/rcm.o $(ODIR)/genrcmi.o \
+	$(FCOMP) $(FSOFLG) -o $(LDIR)/hsmAIM.so \
+		$(ODIR)/hsmAIM.o $(ODIR)/hsmUtils.o $(ODIR)/hsmAdj.o \
+		$(ODIR)/rcm.o $(ODIR)/genrcmi.o \
 		 -L$(LDIR) -lutils -laimUtil -locsm \
 		-legads -ludunits2 -lhsm $(FRPATH) $(CPPSLB) $(ESPFLIBS)
 

@@ -156,16 +156,19 @@ int
 caps_boundInfo(const capsObject *object, enum capsState *state, int *dim,
                double *plims)
 {
-  capsBound *bound;
+  int        status;
+  capsObject *pobject;
+  capsBound  *bound;
 
   *state = Empty;
   *dim   = 0;
-
-  if (object              == NULL)      return CAPS_NULLOBJ;
-  if (object->magicnumber != CAPSMAGIC) return CAPS_BADOBJECT;
-  if (object->type        != BOUND)     return CAPS_BADTYPE;
-  if (object->blind       == NULL)      return CAPS_NULLBLIND;
-  bound = (capsBound *) object->blind;
+  if (object              == NULL)         return CAPS_NULLOBJ;
+  if (object->magicnumber != CAPSMAGIC)    return CAPS_BADOBJECT;
+  if (object->type        != BOUND)        return CAPS_BADTYPE;
+  if (object->blind       == NULL)         return CAPS_NULLBLIND;
+  status = caps_findProblem(object, CAPS_BOUNDINFO, &pobject);
+  if (status              != CAPS_SUCCESS) return status;
+  bound  = (capsBound *) object->blind;
   
   *dim   = bound->dim;
   *state = bound->state;
@@ -199,6 +202,7 @@ caps_makeBound(capsObject *pobject, int dim, const char *bname,
   if (bname == NULL)                     return CAPS_NULLNAME;
   if ((dim < 1) || (dim > 3))            return CAPS_RANGEERR;
   problem = (capsProblem *) pobject->blind;
+  problem->funID = CAPS_MAKEBOUND;
   
   /* same name? */
   for (i = 0; i < problem->nBound; i++) {
@@ -266,18 +270,21 @@ caps_makeBound(capsObject *pobject, int dim, const char *bname,
 int
 caps_completeBound(capsObject *bobject)
 {
-  int           i, j, k, l, n;
+  int           i, j, k, l, n, status;
   char          *name;
+  capsObject    *pobject;
   capsBound     *bound;
   capsVertexSet *vertexset, *othervs;
   capsDataSet   *dataset,   *otherds;
   
-  if (bobject              == NULL)      return CAPS_NULLOBJ;
-  if (bobject->magicnumber != CAPSMAGIC) return CAPS_BADOBJECT;
-  if (bobject->type        != BOUND)     return CAPS_BADTYPE;
-  if (bobject->blind       == NULL)      return CAPS_NULLBLIND;
+  if (bobject              == NULL)         return CAPS_NULLOBJ;
+  if (bobject->magicnumber != CAPSMAGIC)    return CAPS_BADOBJECT;
+  if (bobject->type        != BOUND)        return CAPS_BADTYPE;
+  if (bobject->blind       == NULL)         return CAPS_NULLBLIND;
   bound = (capsBound *) bobject->blind;
-  if (bound->state         != Open)      return CAPS_STATEERR;
+  if (bound->state         != Open)         return CAPS_STATEERR;
+  status = caps_findProblem(bobject, CAPS_COMPLETEBOUND, &pobject);
+  if (status               != CAPS_SUCCESS) return status;
   
   /* do we have any entries? */
   if (bound->nVertexSet    == 0)         return CAPS_NOTFOUND;
@@ -374,6 +381,7 @@ caps_makeDataSet(capsObject *vobject, const char *dname, enum capsdMethod meth,
   if (pobject->type        != PROBLEM)   return CAPS_BADTYPE;
   if (pobject->blind       == NULL)      return CAPS_NULLBLIND;
   problem = (capsProblem *) pobject->blind;
+  problem->funID = CAPS_MAKEDATASET;
   
   /* is that a legal name? */
 
@@ -417,10 +425,12 @@ caps_makeDataSet(capsObject *vobject, const char *dname, enum capsdMethod meth,
                              name);
         if (status < SUCCESS) {
           printf("caps_makeDataSet: %s ocsmGetPmtr = %d!\n", dname, status);
+          if (open != 0) EG_free(pname);
           return status;
         }
-        if (type != OCSM_EXTERNAL) {
+        if (type != OCSM_DESPMTR) {
           printf("caps_makeDataSet: %s is NOT a Design Parameter!\n", dname);
+          if (open != 0) EG_free(pname);
           return CAPS_NOSENSITVTY;
         }
         if ((irow != 1) || (icol != 1)) {
@@ -560,14 +570,16 @@ caps_makeVertexSet(capsObject *bobject, /*@null@*/ capsObject *aobject,
   capsAnalysis  *analysis;
   capsBound     *bound;
   capsVertexSet *vertexset;
-  capsObject    *object, **tmp, *ds[4] = {NULL, NULL, NULL, NULL};
+  capsObject    *object, *pobject, **tmp, *ds[4] = {NULL, NULL, NULL, NULL};
   
-  if (bobject              == NULL)        return CAPS_NULLOBJ;
-  if (bobject->magicnumber != CAPSMAGIC)   return CAPS_BADOBJECT;
-  if (bobject->type        != BOUND)       return CAPS_BADTYPE;
-  if (bobject->blind       == NULL)        return CAPS_NULLBLIND;
+  if (bobject              == NULL)         return CAPS_NULLOBJ;
+  if (bobject->magicnumber != CAPSMAGIC)    return CAPS_BADOBJECT;
+  if (bobject->type        != BOUND)        return CAPS_BADTYPE;
+  if (bobject->blind       == NULL)         return CAPS_NULLBLIND;
   bound = (capsBound *) bobject->blind;
-  if (bound->state         != Open)        return CAPS_STATEERR;
+  if (bound->state         != Open)         return CAPS_STATEERR;
+  status = caps_findProblem(bobject, CAPS_MAKEVERTEXSET, &pobject);
+  if (status               != CAPS_SUCCESS) return status;
   
   name = vname;
   if (aobject != NULL) {
@@ -718,14 +730,18 @@ int
 caps_vertexSetInfo(const capsObject *vobject, int *nGpts, int *nDpts,
                          capsObject **bobj, capsObject **aobj)
 {
+  int           status;
+  capsObject    *pobject;
   capsVertexSet *vertexset;
   
   *nGpts = *nDpts = 0;
   *bobj  = *aobj  = NULL;
-  if (vobject              == NULL)      return CAPS_NULLOBJ;
-  if (vobject->magicnumber != CAPSMAGIC) return CAPS_BADOBJECT;
-  if (vobject->type        != VERTEXSET) return CAPS_BADTYPE;
-  if (vobject->blind       == NULL)      return CAPS_NULLBLIND;
+  if (vobject              == NULL)         return CAPS_NULLOBJ;
+  if (vobject->magicnumber != CAPSMAGIC)    return CAPS_BADOBJECT;
+  if (vobject->type        != VERTEXSET)    return CAPS_BADTYPE;
+  if (vobject->blind       == NULL)         return CAPS_NULLBLIND;
+  status = caps_findProblem(vobject, CAPS_VERTEXSETINFO, &pobject);
+  if (status               != CAPS_SUCCESS) return status;
   vertexset = (capsVertexSet *) vobject->blind;
   
   if (vertexset->discr != NULL) {
@@ -768,6 +784,7 @@ caps_fillUnVertexSet(capsObject *vobject, int npts, const double *xyzs)
   if (pobject->type        != PROBLEM)   return CAPS_BADTYPE;
   if (pobject->blind       == NULL)      return CAPS_NULLBLIND;
   problem = (capsProblem *) pobject->blind;
+  problem->funID = CAPS_FILLUNVERTEXSET;
 
   caps_freeOwner(&vobject->last);
   vobject->last.sNum  = 0;
@@ -818,20 +835,23 @@ caps_fillUnVertexSet(capsObject *vobject, int npts, const double *xyzs)
 int
 caps_initDataSet(capsObject *dobject, int rank, const double *startup)
 {
-  int         i;
+  int         i, status;
   double      *data;
+  capsObject  *pobject;
   capsDataSet *dataset;
   
-  if  (dobject              == NULL)      return CAPS_NULLOBJ;
-  if  (dobject->magicnumber != CAPSMAGIC) return CAPS_BADOBJECT;
-  if  (dobject->type        != DATASET)   return CAPS_BADTYPE;
-  if  (dobject->blind       == NULL)      return CAPS_NULLBLIND;
-  if  (startup == NULL)                   return CAPS_NULLVALUE;
+  if  (dobject              == NULL)         return CAPS_NULLOBJ;
+  if  (dobject->magicnumber != CAPSMAGIC)    return CAPS_BADOBJECT;
+  if  (dobject->type        != DATASET)      return CAPS_BADTYPE;
+  if  (dobject->blind       == NULL)         return CAPS_NULLBLIND;
+  if  (startup == NULL)                      return CAPS_NULLVALUE;
   dataset = (capsDataSet *) dobject->blind;
-  if  (dataset->rank        != rank)      return CAPS_BADRANK;
+  if  (dataset->rank        != rank)         return CAPS_BADRANK;
   if ((dataset->method      != Interpolate) &&
-      (dataset->method      != Conserve)) return CAPS_BADMETHOD;
-  if  (dataset->startup     != NULL)      return CAPS_EXISTS;
+      (dataset->method      != Conserve))    return CAPS_BADMETHOD;
+  if  (dataset->startup     != NULL)         return CAPS_EXISTS;
+  status = caps_findProblem(dobject, CAPS_INITDATASET, &pobject);
+  if (status                != CAPS_SUCCESS) return status;
   
   data = (double *) EG_alloc(rank*sizeof(double));
   if (data == NULL) return EGADS_MALLOC;
@@ -882,6 +902,7 @@ caps_setData(capsObject *dobject, int nverts, int rank, const double *data,
   if (pobject->type        != PROBLEM)   return CAPS_BADTYPE;
   if (pobject->blind       == NULL)      return CAPS_NULLBLIND;
   problem = (capsProblem *) pobject->blind;
+  problem->funID = CAPS_SETDATA;
 
   darray = (double *) EG_alloc(rank*nverts*sizeof(double));
   if (darray == NULL) return EGADS_MALLOC;
@@ -1224,7 +1245,8 @@ int
 caps_triangulate(const capsObject *vobject, int *nGtris, int **gtris,
                  int *nDtris, int **dtris)
 {
-  int           i, j, n, ntris, eType, *tris;
+  int           i, j, n, status, ntris, eType, *tris;
+  capsObject    *pobject;
   capsVertexSet *vertexset;
   capsDiscr     *discr;
   
@@ -1232,10 +1254,12 @@ caps_triangulate(const capsObject *vobject, int *nGtris, int **gtris,
   *nDtris = 0;
   *gtris  = NULL;
   *dtris  = NULL;
-  if (vobject              == NULL)      return CAPS_NULLOBJ;
-  if (vobject->magicnumber != CAPSMAGIC) return CAPS_BADOBJECT;
-  if (vobject->type        != VERTEXSET) return CAPS_BADTYPE;
-  if (vobject->blind       == NULL)      return CAPS_NULLBLIND;
+  if (vobject              == NULL)         return CAPS_NULLOBJ;
+  if (vobject->magicnumber != CAPSMAGIC)    return CAPS_BADOBJECT;
+  if (vobject->type        != VERTEXSET)    return CAPS_BADTYPE;
+  if (vobject->blind       == NULL)         return CAPS_NULLBLIND;
+  status = caps_findProblem(vobject, CAPS_TRIANGULATE, &pobject);
+  if (status               != CAPS_SUCCESS) return status;
   vertexset = (capsVertexSet *) vobject->blind;
   
   if (vertexset->discr == NULL) return CAPS_SUCCESS;
@@ -1297,14 +1321,17 @@ caps_outputVertexSet(const capsObject *vobject, const char *filename)
 {
   int           i, j, k, stat, nGtris, *gtris, nDtris, *dtris;
   FILE          *fp;
+  capsObject    *pobject;
   capsVertexSet *vertexset;
   capsDataSet   *dataset;
 
-  if (vobject              == NULL)      return CAPS_NULLOBJ;
-  if (vobject->magicnumber != CAPSMAGIC) return CAPS_BADOBJECT;
-  if (vobject->type        != VERTEXSET) return CAPS_BADTYPE;
-  if (vobject->blind       == NULL)      return CAPS_NULLBLIND;
-  if (filename             == NULL)      return CAPS_NULLNAME;
+  if (vobject              == NULL)         return CAPS_NULLOBJ;
+  if (vobject->magicnumber != CAPSMAGIC)    return CAPS_BADOBJECT;
+  if (vobject->type        != VERTEXSET)    return CAPS_BADTYPE;
+  if (vobject->blind       == NULL)         return CAPS_NULLBLIND;
+  if (filename             == NULL)         return CAPS_NULLNAME;
+  stat = caps_findProblem(vobject, CAPS_OUTPUTVERTEXSET, &pobject);
+  if (stat                 != CAPS_SUCCESS) return stat;
   vertexset = (capsVertexSet *) vobject->blind;
   fp = fopen(filename, "w");
   if (fp                   == NULL)      return CAPS_IOERR;
@@ -1388,6 +1415,7 @@ caps_getData(capsObject *dobject, int *npts, int *rank, double **data,
   if (pobject->type        != PROBLEM)   return CAPS_BADTYPE;
   if (pobject->blind       == NULL)      return CAPS_NULLBLIND;
   problem = (capsProblem *) pobject->blind;
+  problem->funID = CAPS_GETDATA;
   if (aobject != NULL) {
     if (aobject->magicnumber  != CAPSMAGIC)          return CAPS_BADOBJECT;
     if (aobject->type         != ANALYSIS)           return CAPS_BADTYPE;
@@ -1645,15 +1673,19 @@ int
 caps_getHistory(const capsObject *dobject, capsObject **vobject, int *nHist,
                 capsOwn **history)
 {
+  int         status;
+  capsObject  *pobject;
   capsDataSet *dataset;
   
   *vobject = NULL;
   *nHist   = 0;
   *history = NULL;
-  if (dobject              == NULL)      return CAPS_NULLOBJ;
-  if (dobject->magicnumber != CAPSMAGIC) return CAPS_BADOBJECT;
-  if (dobject->type        != DATASET)   return CAPS_BADTYPE;
-  if (dobject->blind       == NULL)      return CAPS_NULLBLIND;
+  if (dobject              == NULL)         return CAPS_NULLOBJ;
+  if (dobject->magicnumber != CAPSMAGIC)    return CAPS_BADOBJECT;
+  if (dobject->type        != DATASET)      return CAPS_BADTYPE;
+  if (dobject->blind       == NULL)         return CAPS_NULLBLIND;
+  status = caps_findProblem(dobject, CAPS_GETHISTORY, &pobject);
+  if (status               != CAPS_SUCCESS) return status;
   dataset = (capsDataSet *) dobject->blind;
 
   *vobject = dobject->parent;
@@ -1668,18 +1700,21 @@ int
 caps_getDataSets(const capsObject *bobject, const char *dname, int *nobj,
                  capsObject ***dobjs)
 {
-  int           i, j, n;
+  int           i, j, n, status;
+  capsObject    *pobject;
   capsBound     *bound;
   capsVertexSet *vertexset;
   capsObject    **objs;
 
   *nobj  = 0;
   *dobjs = NULL;
-  if (dname                == NULL)      return CAPS_NULLNAME;
-  if (bobject              == NULL)      return CAPS_NULLOBJ;
-  if (bobject->magicnumber != CAPSMAGIC) return CAPS_BADOBJECT;
-  if (bobject->type        != BOUND)     return CAPS_BADTYPE;
-  if (bobject->blind       == NULL)      return CAPS_NULLBLIND;
+  if (dname                == NULL)         return CAPS_NULLNAME;
+  if (bobject              == NULL)         return CAPS_NULLOBJ;
+  if (bobject->magicnumber != CAPSMAGIC)    return CAPS_BADOBJECT;
+  if (bobject->type        != BOUND)        return CAPS_BADTYPE;
+  if (bobject->blind       == NULL)         return CAPS_NULLBLIND;
+  status = caps_findProblem(bobject, CAPS_GETDATASETS, &pobject);
+  if (status               != CAPS_SUCCESS) return status;
   bound = (capsBound *) bobject->blind;
 
   for (n = i = 0; i < bound->nVertexSet; i++) {

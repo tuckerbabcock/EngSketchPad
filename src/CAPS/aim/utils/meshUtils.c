@@ -4852,13 +4852,13 @@ int mesh_writeAFLR3(char *fname,
         }
 
         //nodes, tri-face, quad-face, numTetra, numPyr, numPrz, numHex
-        fprintf(fp,"%d, %d, %d, %d, %d, %d, %d\n", mesh->numNode,
-                                                   mesh->meshQuickRef.numTriangle,
-                                                   mesh->meshQuickRef.numQuadrilateral,
-                                                   mesh->meshQuickRef.numTetrahedral,
-                                                   mesh->meshQuickRef.numPyramid,
-                                                   mesh->meshQuickRef.numPrism,
-                                                   mesh->meshQuickRef.numHexahedral);
+        fprintf(fp,"%d %d %d %d %d %d %d\n", mesh->numNode,
+                                             mesh->meshQuickRef.numTriangle,
+                                             mesh->meshQuickRef.numQuadrilateral,
+                                             mesh->meshQuickRef.numTetrahedral,
+                                             mesh->meshQuickRef.numPyramid,
+                                             mesh->meshQuickRef.numPrism,
+                                             mesh->meshQuickRef.numHexahedral);
         // Write nodal coordinates
         for (i = 0; i < mesh->numNode; i++) {
             fprintf(fp,"%f %f %f\n", mesh->node[i].xyz[0]*scaleFactor,

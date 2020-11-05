@@ -30,7 +30,9 @@
 # 
 # \section clearancepyCAPS Clearance Statement
 # This software has been cleared for public release on 25 Jul 2018, case number 88ABW-2018-3793.
- 
+
+# Cython declarations
+#### cython: language_level=3
 
 # C-Imports 
 cimport cCAPS
@@ -41,28 +43,28 @@ cimport cOCSM
 try:
     from cpython.version cimport PY_MAJOR_VERSION
 except: 
-    print "Error: Unable to import cpython.version"
+    print("Error: Unable to import cpython.version")
     raise ImportError
 
 # C-Memory 
 try: 
     from libc.stdlib cimport malloc, realloc, free
 except:
-    print "Error: Unable to import libc.stdlib"
+    print("Error: Unable to import libc.stdlib")
     raise ImportError
 
 # C-string
 #try: 
 #    from libc.string cimport strcat # memcpy, strncasecmp strcat, strncat, memset, memchr, memcmp, memcpy, memmove
 #except:
-#    print "Error: Unable to import libc.string"
+#    print("Error: Unable to import libc.string")
 #    raise ImportError
 
 # C-stdio
 try:
     from libc.stdio cimport sprintf
 except:
-    print "Error: Unable to import libc.stdio"
+    print("Error: Unable to import libc.stdio")
     raise ImportError
 
 # JSON string conversion       
@@ -70,35 +72,35 @@ try:
     from json import dumps as jsonDumps
     from json import loads as jsonLoads
 except:
-    print "Error:  Unable to import json\n"
+    print("Error:  Unable to import json\n")
     raise ImportError
 
 # OS module 
 try:
     import os
 except:
-    print "Error: Unable to import os\n"
+    print("Error: Unable to import os\n")
     raise ImportError
 
 # Time module
 try: 
     import time
 except: 
-    print "Error:  Unable to import time\n"
+    print("Error:  Unable to import time\n")
     raise ImportError
 
 # Math module
 try:
     from math import sqrt
 except:
-    print "Error: Unable to import math\n"
+    print("Error: Unable to import math\n")
     raise ImportError
 
 # atexit module
 try:
     import atexit
 except:
-    print "Error: Unable to import atexit\n"
+    print("Error: Unable to import atexit\n")
     raise ImportError
 
 # Reg. expression module 
@@ -110,7 +112,7 @@ try:
     from re import compile as regCompile
      
 except:
-    print "Error: Unable to import re\n"
+    print("Error: Unable to import re\n")
     raise ImportError
 
 # Set version 
@@ -157,11 +159,11 @@ cdef void report_Errors(int nErr, cCAPS.capsErrs * errors):
 
             status = cCAPS.caps_errorInfo(errors, i+1, &obj, &nLines, &lines)
             if status != 0: 
-                print " CAPS Error: caps_errorInfo[%d] = %d!\n"%(i+1, status)
+                print(" CAPS Error: caps_errorInfo[%d] = %d!\n"%(i+1, status))
                 continue
             
             for j in range(nLines):
-                 print " %s\n"%(lines[j])
+                 print(" %s\n"%(lines[j]))
         
         cCAPS.caps_freeError(errors)
 
@@ -218,8 +220,8 @@ cdef object castValue2PythonObj(const void *data,
         char *byteString
         object rowMajorSwitched = False
     
-    #print "Data", <double> (<double *> data)[0]
-    #print "Nrow = ", numRow, "Ncol = ", numCol
+    #print("Data", <double> (<double *> data)[0])
+    #print("Nrow = ", numRow, "Ncol = ", numCol)
    
     # what else to do with thing...
     if data == NULL: return None
@@ -276,7 +278,7 @@ cdef object castValue2PythonObj(const void *data,
             
             # Tuple
             elif valueType == cCAPS.Tuple:
-                #print "I'm a tuple"
+                #print("I'm a tuple")
                 
                 tupleTemp = (<cCAPS.capsTuple *> data)[length]
                 length += 1
@@ -301,7 +303,7 @@ cdef object castValue2PythonObj(const void *data,
                 
             # Unknown type - Value type most likely 
             else:
-                print "Can not convert type (", valueType, ") to Python Object!"
+                print("Can not convert type (", valueType, ") to Python Object!")
                 return None
             
             if isinstance(valueOut, list):
@@ -341,11 +343,11 @@ cdef void * castValue2VoidP(object data,
         
     length = numRow*numCol
 
-    #print "castValue2VoidP Nrow = ", numRow, "Ncol = ", numCol
+    #print("castValue2VoidP Nrow = ", numRow, "Ncol = ", numCol)
 
     # Boolean
     if valueType == cCAPS.Boolean:
-        #print "I'm a bool"
+        #print("I'm a bool")
         
         valInt = <int *> malloc(length*sizeof(int))
         if not valInt:
@@ -366,7 +368,7 @@ cdef void * castValue2VoidP(object data,
     
     # Integer
     elif valueType == cCAPS.Integer:
-        #print "I'm a integer"
+        #print("I'm a integer")
         
         valInt = <int *> malloc(length*sizeof(int))
         if not valInt:
@@ -387,7 +389,7 @@ cdef void * castValue2VoidP(object data,
        
     # Double
     elif valueType == cCAPS.Double:
-        #print "I'm a double"
+        #print("I'm a double")
         
         valDouble = <double *> malloc(length*sizeof(double))
         
@@ -409,7 +411,7 @@ cdef void * castValue2VoidP(object data,
         
     # String
     elif valueType == cCAPS.String:
-        #print "I'm a string"
+        #print("I'm a string")
         byteData.append(_byteify(';'.join( [ i if (isinstance(i,str)) else jsonDumps(i) for i in data] )))
         valChar = <char *> byteData[-1]
         
@@ -417,7 +419,7 @@ cdef void * castValue2VoidP(object data,
    
     # Tuple
     elif valueType == cCAPS.Tuple:
-        #print "I'm a tuple"
+        #print("I'm a tuple")
 
         valTuple = <cCAPS.capsTuple *> malloc(length*sizeof(cCAPS.capsTuple))
         
@@ -452,7 +454,7 @@ cdef void * castValue2VoidP(object data,
         
     # Unknown type - Value type most likely 
     else:
-        print "Can not convert Python object to type", valueType
+        print("Can not convert Python object to type", valueType)
         raise TypeError
 
 # Determine the equivalent CAPS value object type for a Python object     
@@ -497,7 +499,7 @@ cdef object getPythonObjShape(object obj):
     if numCol != 1:
         for i in range(numRow):
             if len(dataValue[i]) != numCol:
-                print "Inconsistent list sizes!", i, dataValue[i], numCol, dataValue[0] 
+                print("Inconsistent list sizes!", i, dataValue[i], numCol, dataValue[0])
                 raise ValueError("Inconsistent list sizes!")
     
     return numRow, numCol        
@@ -514,7 +516,7 @@ cdef int saveBodies(int numBody, cEGADS.ego *bodies, object filename):
         cEGADS.ego context
         
     if numBody < 1:
-        print "The number of bodies in is less than 1!!!\n"
+        print("The number of bodies in is less than 1!!!\n")
         return cCAPS.CAPS_BADVALUE
 
     cEGADS.EG_getContext(bodies[0], &context)
@@ -609,7 +611,7 @@ cdef int saveGeometry(cCAPS.capsObj pObj, object filename):
 
     if numBody < 1:
                 
-        print "The number of bodies in the problem is less than 1!!!\n"
+        print("The number of bodies in the problem is less than 1!!!\n")
         return cCAPS.CAPS_BADVALUE
     
     # Allocate body array
@@ -668,7 +670,7 @@ def _storeIteration(initial, analysisDir, noFileDir=True):
         os.mkdir(instance)
         
         for i in keepFiles:
-            # print "Change file - ", os.path.join(instance,i)
+            # print("Change file - ", os.path.join(instance,i))
             os.rename(i, os.path.join(instance,i))
                 
         # Change back to current directory
@@ -736,7 +738,7 @@ cdef object createOpenMDAOComponent(analysisObj,
     try: 
         from  openmdao.api import ExternalCode, Component     
     except: 
-        print "Error: Unable to import ExternalCode or Component from openmdao.api"
+        print("Error: Unable to import ExternalCode or Component from openmdao.api")
         return cCAPS.CAPS_NOTFOUND 
     
     # Change to lists if not lists already 
@@ -754,8 +756,8 @@ cdef object createOpenMDAOComponent(analysisObj,
         
             analysisTuple = varName.split(":")[0] 
             if analysisTuple not in validInput.keys():
-                print "It appears the input parameter", varName, "is trying to modify a Tuple input, but", analysisTuple,\
-                      "this is not a valid ANALYSISIN variable! It will not be added to the OpenMDAO component"
+                print("It appears the input parameter", varName, "is trying to modify a Tuple input, but", analysisTuple,\
+                      "this is not a valid ANALYSISIN variable! It will not be added to the OpenMDAO component")
                 return None
             else:  
                 value = 0.0
@@ -763,8 +765,8 @@ cdef object createOpenMDAOComponent(analysisObj,
             # Check to make sure variable is in analysis
             if varName not in validInput.keys():
                 if varName not in validGeometry.keys():
-                    print "Input parameter", varName, "is neither a valid ANALYSISIN nor GEOMETRYIN variable!", \
-                          "It will not be added to the OpenMDAO component."
+                    print("Input parameter", varName, "is neither a valid ANALYSISIN nor GEOMETRYIN variable!", \
+                          "It will not be added to the OpenMDAO component.")
                     return None
                 else:
                     value = validGeometry[varName]
@@ -784,8 +786,8 @@ cdef object createOpenMDAOComponent(analysisObj,
         # Check to make sure variable is in analysis
         #if varName not in validOutput.keys():
         if varName not in validOutput:
-            print "Output parameter", varName, "is not a valid ANALYSISOUT variable!", \
-                  "It will not be added to the OpenMDAO component."
+            print("Output parameter", varName, "is not a valid ANALYSISOUT variable!", \
+                  "It will not be added to the OpenMDAO component.")
             return None
         #else:
         #    value = validOutput[varName]
@@ -827,8 +829,8 @@ cdef object createOpenMDAOComponent(analysisObj,
                 analysisObj.capsProblem.geometry.setGeometryVal(varName, varValue)
             else:
             
-                print "Input parameter", varName, "is neither a valid ANALYSISIN nor GEOMETRYIN variable!", \
-                      "It will not be modified to the OpenMDAO component. This should have already been reported"
+                print("Input parameter", varName, "is neither a valid ANALYSISIN nor GEOMETRYIN variable!", \
+                      "It will not be modified to the OpenMDAO component. This should have already been reported")
     
     
 #     def gatherParents(analysis, analysisParents):
@@ -850,7 +852,7 @@ cdef object createOpenMDAOComponent(analysisObj,
             if infoDict["executionFlag"] == True:
                 return True
             else:
-                print analysis.aimName, "can't self execute!"
+                print(analysis.aimName, "can't self execute!")
                 return False
         
         if analysis.parents: # If we have parents 
@@ -1149,7 +1151,7 @@ cdef object createOpenMDAOComponent(analysisObj,
     infoDict = analysisObj.getAnalysisInfo(printInfo = False, infoDict = True)
     
     if executeCommand is not None and infoDict["executionFlag"] == True:
-        print "An execution command was provided, but the AIM says it can run itself! Switching ExternalComponent to Component" 
+        print("An execution command was provided, but the AIM says it can run itself! Switching ExternalComponent to Component")
     
     if executeCommand is not None and infoDict["executionFlag"] == False:
         
@@ -1306,7 +1308,7 @@ cdef class capsProblem:
             projectName = capsFile 
         
         if self.geometry is not None:
-            print "\nWarning: Can NOT load multiple files into a problem. A CAPS file has already been loaded!\n"
+            print("\nWarning: Can NOT load multiple files into a problem. A CAPS file has already been loaded!\n")
             self.status = cCAPS.CAPS_BADVALUE
             self.checkStatus(msg = "while loading file - " + str(capsFile) + ". Can NOT load multiple files into a problem.")
         
@@ -1368,14 +1370,14 @@ cdef class capsProblem:
     def saveCAPS(self, filename="saveCAPS.caps"):
         
         if filename is "saveCAPS.caps":
-            print "Using default file name - " + str(filename)
+            print("Using default file name - " + str(filename))
 
         file_path, file_extension = os.path.splitext(filename)
         if ".caps" not in file_extension:
             filename += ".caps"
         
         if os.path.isfile(filename):
-            print "Warning: "+ str(filename) + " will be overwritten!"
+            print("Warning: "+ str(filename) + " will be overwritten!")
             os.remove(filename)
             
         filename = _byteify(filename)
@@ -1406,9 +1408,9 @@ cdef class capsProblem:
                 numDirty = numDirty + 1
                 dirtyAnalysis.append(self.analysis[i].aimName)
         
-        print "Number of dirty analyses = ", numDirty
+        print("Number of dirty analyses = ", numDirty)
         if len(dirtyAnalysis) > 0:
-            print "Dirty analyses = ", dirtyAnalysis
+            print("Dirty analyses = ", dirtyAnalysis)
         
         return dirtyAnalysis
 
@@ -1463,7 +1465,7 @@ cdef class capsProblem:
     
             if name in self.analysis.keys():
                 if printInfo:
-                    print "\nAnalysis object with the name, " + str(name) +  ", has already been initilized"
+                    print("\nAnalysis object with the name, " + str(name) +  ", has already been initilized")
                 return True
             
             else:
@@ -1477,8 +1479,8 @@ cdef class capsProblem:
             for aim in self.analysis.values():
                 
                 if name == aim.officialName and analysidDir == aim.analysisDir:
-                    print "\nAnalysis object with the name, " + str(name) +  ", and directory, " + str(analysidDir) + \
-                          ", has already been initilized - Please use a different directory!!\n"
+                    print("\nAnalysis object with the name, " + str(name) +  ", and directory, " + str(analysidDir) + \
+                          ", has already been initilized - Please use a different directory!!\n")
                     return True
             
             return False
@@ -1489,15 +1491,15 @@ cdef class capsProblem:
             """
             if copyAIM is not None:
                 if analysisDir is None:
-                    print "\nError: Unable to copy AIM, analysisDir " + \
-                      "(analysis directory) have not been set!\n"
+                    print("\nError: Unable to copy AIM, analysisDir " + \
+                      "(analysis directory) have not been set!\n")
                     return False
                 else: 
                     return True
                 
             if analysisDir is None or currentAIM is None:
-                print "\nError: Unable to load AIM, either the analysisDir " + \
-                      "(analysis directory) and/or aim variables have not been set!\n"
+                print("\nError: Unable to load AIM, either the analysisDir " + \
+                      "(analysis directory) and/or aim variables have not been set!\n")
                 return False
             else:
                 return True  
@@ -1531,12 +1533,12 @@ cdef class capsProblem:
 
 
         if "capsFidelity" in kwargs.keys():
-            print "Warning: IMPORTANT - The term capsFidelity is no longer supported please change to capsIntent in both your *.csm and *.py files"
+            print("Warning: IMPORTANT - The term capsFidelity is no longer supported please change to capsIntent in both your *.csm and *.py files")
             self.status = cCAPS.CAPS_BADVALUE
             self.checkStatus(msg = "while loading aim")
                 
         if self.geometry == None:
-            print "\nError: A *.csm, *.caps, or *.egads file has not been loaded!"
+            print("\nError: A *.csm, *.caps, or *.egads file has not been loaded!")
             self.status = cCAPS.CAPS_NULLOBJ
             self.checkStatus(msg = "while loading aim")
 
@@ -1553,14 +1555,14 @@ cdef class capsProblem:
             if self.__getAIMParents(kwargs["parents"]):
                 parentList = kwargs["parents"]
             else:
-                print "Unable to find parents"
+                print("Unable to find parents")
                 self.status = cCAPS.CAPS_NULLOBJ
                 self.checkStatus(msg = "while loading aim")
             
         if copyAIM is not None:
             
             if copyAIM not in self.analysis.keys():
-                print "\n Error: AIM " + str(copyAIM) + " to duplicate has not been loaded into the problem!"
+                print("\n Error: AIM " + str(copyAIM) + " to duplicate has not been loaded into the problem!")
                 
                 self.status = cCAPS.CAPS_BADNAME
                 self.checkStatus(msg = "while loading aim")
@@ -1578,7 +1580,7 @@ cdef class capsProblem:
             self.analysisDir = kwargs["analysisDir"]
         
         if not self.analysisDir:
-            print "No analysis directory provided - defaulting to current working directory"
+            print("No analysis directory provided - defaulting to current working directory")
             self.analysisDir = os.getcwd()
                  
 
@@ -1606,14 +1608,14 @@ cdef class capsProblem:
                     if not checkAnalysisDict(altName, printInfo=False):
                         break
                 else:
-                    print "Unable to auto-specify altName, are more than 1000 AIM instances loaded?"
+                    print("Unable to auto-specify altName, are more than 1000 AIM instances loaded?")
                     self.status = cCAPS.CAPS_BADNAME
                     self.checkStatus(msg = "while loading aim - " + currentAIM)
                 
-                print "An altName of", altName, "will be used!"
+                print("An altName of", altName, "will be used!")
                 
             else:
-                print "The altName,", altName, ", has already been used!"
+                print("The altName,", altName, ", has already been used!")
                 self.status = cCAPS.CAPS_BADNAME
                 self.checkStatus(msg = "while loading aim - " + currentAIM)
         
@@ -1638,7 +1640,7 @@ cdef class capsProblem:
     def createDataTransfer(self, **kwargs):
         
         if self.aimGlobalCount < 2:
-            print "At least two AIMs need to be loaded before a data transfer can be setup"           
+            print("At least two AIMs need to be loaded before a data transfer can be setup")
             self.status = cCAPS.CAPS_BADVALUE
             self.capsProblem.checkStatus(msg = "while creating a data transfer")
         
@@ -1678,14 +1680,14 @@ cdef class capsProblem:
             return False
         
         if "capsTransfer" in kwargs.keys():
-            print "ERROR: Transfer name (input), capsTransfer, name should be changed to capsBound" 
+            print("ERROR: Transfer name (input), capsTransfer, name should be changed to capsBound")
             self.status = cCAPS.CAPS_BADVALUE
             self.checkStatus()
             
         if "capsBound" in kwargs.keys():
             capsBound = kwargs["capsBound"]
         else:
-            print "ERROR: No transfer name (capsBound) name provided" 
+            print("ERROR: No transfer name (capsBound) name provided")
             self.status = cCAPS.CAPS_BADVALUE
             self.checkStatus()
         
@@ -1698,12 +1700,12 @@ cdef class capsProblem:
             numDataSet = len(varName)
             
         else:
-            print "ERROR: No variable name (variableName) provided"
+            print("ERROR: No variable name (variableName) provided")
             self.status = cCAPS.CAPS_BADVALUE
             self.checkStatus()
         
         if "variableRank" in kwargs.keys():
-            print "WARNING: Keyword variableRank is not necessary. Please remove it from your script. May raise an error in future releases."
+            print("WARNING: Keyword variableRank is not necessary. Please remove it from your script. May raise an error in future releases.")
       
         if "aimSrc" in kwargs.keys():
             aimSrc = kwargs["aimSrc"]
@@ -1712,16 +1714,16 @@ cdef class capsProblem:
                 
             for i in aimSrc:
                 if i not in self.analysis.keys():
-                    print "ERROR: aimSrc = " + i + " not found in analysis dictionary!!!"
+                    print("ERROR: aimSrc = " + i + " not found in analysis dictionary!!!")
                     self.status = cCAPS.CAPS_BADVALUE
                     self.checkStatus()
         else:
-            print "ERROR: No source AIM  (aimSrc) provided!"
+            print("ERROR: No source AIM  (aimSrc) provided!")
             self.status = cCAPS.CAPS_BADVALUE
             self.checkStatus()
              
         if len(aimSrc) != numDataSet:
-            print "ERROR: aimSrc dimensional mismatch between inputs!!!!"
+            print("ERROR: aimSrc dimensional mismatch between inputs!!!!")
             self.status = cCAPS.CAPS_MISMATCH
             self.checkStatus()
     
@@ -1733,7 +1735,7 @@ cdef class capsProblem:
             if var not in fieldName:
                 
                 if not __checkFieldWildCard(var,fieldName):
-                    print "ERROR: Variable (field name)", var, "not found in aimSrc", src 
+                    print("ERROR: Variable (field name)", var, "not found in aimSrc", src )
                     self.status = cCAPS.CAPS_BADVALUE
                     self.checkStatus()
             
@@ -1744,7 +1746,7 @@ cdef class capsProblem:
             
             for i in aimDest:
                 if i not in self.analysis.keys():
-                    print "ERROR: aimDest = " + i + " not found in analysis dictionary!!!"
+                    print("ERROR: aimDest = " + i + " not found in analysis dictionary!!!")
                     self.status = cCAPS.CAPS_BADVALUE
                     self.checkStatus()
         else:
@@ -1753,7 +1755,7 @@ cdef class capsProblem:
         
         if aimDest:
             if len(aimDest) != numDataSet:
-                print "ERROR: aimDest dimensional mismatch between inputs!!!!"
+                print("ERROR: aimDest dimensional mismatch between inputs!!!!")
                 self.status = cCAPS.CAPS_MISMATCH
                 self.checkStatus()
             
@@ -1768,14 +1770,14 @@ cdef class capsProblem:
                     elif "interpolate" == i.lower():
                         dataTransferMethod.append(cCAPS.Interpolate)
                     else:
-                        print "Unreconized data transfer method - defaulting to \"Interpolate\""
+                        print("Unreconized data transfer method - defaulting to \"Interpolate\"")
                         dataTransferMethod.append(cCAPS.Interpolate)
             else:
-                print "No data transfer method (transferMethod) provided - defaulting to \"Interpolate\""
+                print("No data transfer method (transferMethod) provided - defaulting to \"Interpolate\"")
                 dataTransferMethod =  [cCAPS.Interpolate]*numDataSet
             
             if len(dataTransferMethod) != numDataSet:
-                print "ERROR: dataTransferMethod dimensional mismatch between inputs for transferMethod!!!!"
+                print("ERROR: dataTransferMethod dimensional mismatch between inputs for transferMethod!!!!")
                 self.status = cCAPS.CAPS_MISMATCH
                 self.checkStatus()
         
@@ -1786,7 +1788,7 @@ cdef class capsProblem:
                 initValueDest = [initValueDest]
 
             if len(initValueDest) != numDataSet:
-                print "ERROR: initValueDest dimensional mismatch between inputs!!!!"
+                print("ERROR: initValueDest dimensional mismatch between inputs!!!!")
                 self.status = cCAPS.CAPS_MISMATCH
                 self.checkStatus()
         else:
@@ -1833,7 +1835,7 @@ cdef class capsProblem:
         # Example use cases for pyCAPS.capsProblem.createValue() function.
         
         if name in self.value.keys():
-            print "A value with the name,", name, "already exists!" 
+            print("A value with the name,", name, "already exists!" )
             self.status = cCAPS.CAPS_BADNAME
             self.checkStatus()
             
@@ -1878,7 +1880,7 @@ cdef class capsProblem:
            
             # Check to make sure name is in value dictionary 
             if i not in self.value.keys():
-                print "Unable to find", i, "value dictionary!"
+                print("Unable to find", i, "value dictionary!")
                 self.status = cCAPS.CAPS_NOTFOUND
                 self.checkStatus(msg = "while autolinking values in problem!")
             
@@ -1909,11 +1911,11 @@ cdef class capsProblem:
                 self.checkStatus(msg = "while autolink value - " + str(varname) + " in " + str(analysisName)
                                  + " (during a call to caps_makeLinkage)")
                 
-                print "Linked", str(self.value[i].name), "to analysis", str(analysisName), "input", _strify(varname)
+                print("Linked", str(self.value[i].name), "to analysis", str(analysisName), "input", _strify(varname))
                 found = True
                 
             if not found:
-                print "No linkable data found for", str(self.value[i].name)
+                print("No linkable data found for", str(self.value[i].name))
                 
     ## Add an attribute (that is meta-data) to the problem object. See example 
     # \ref problem7.py for a representative use case.
@@ -1963,7 +1965,7 @@ cdef class capsProblem:
             if i in self.analysis.keys():
                 pass
             else:
-                print "Requested parent", i, "has not been initialized/loaded"
+                print("Requested parent", i, "has not been initialized/loaded")
                 return False
 
         return True
@@ -2021,7 +2023,7 @@ cdef class capsProblem:
         self.checkStatus(msg = "while repopulating dataBound in capsProblem")
         
         for i in range(numObj):
-            print "Unable to currently repopulate dataBound from a *.caps file"
+            print("Unable to currently repopulate dataBound from a *.caps file")
             self.status = cCAPS.CAPS_BADVALUE
             self.checkStatus(msg = "while repopulating dataBound in capsProblem")
    
@@ -2117,7 +2119,7 @@ cdef class capsProblem:
         
         if self.raiseException is False: # If we have an error and have raiseException set to False
             
-            print "Warning: Error detected, but raiseException is disabled - this may have unexepected consequences!"
+            print("Warning: Error detected, but raiseException is disabled - this may have unexepected consequences!")
             return 
         
         raise CAPSError(self.status, msg=msg)
@@ -2191,7 +2193,7 @@ cdef class capsProblem:
         # Check to see if file exists
         try:
             os.remove(filename)
-            print "Geometry file already exists - file " + filename + " will be deleted"
+            print("Geometry file already exists - file " + filename + " will be deleted")
         except OSError:
            pass
        
@@ -2257,7 +2259,7 @@ cdef class _capsAnalysis:
         
         # Check to see if directory exists
         if not os.path.isdir(self.analysisDir):
-            print "Analysis directory does not currently exist - it will be made automatically"
+            print("Analysis directory does not currently exist - it will be made automatically")
             os.makedirs(self.analysisDir)
         
         # Allocate a temporary list of analysis object for the parents
@@ -2378,7 +2380,7 @@ cdef class _capsAnalysis:
             void *data
              
         if varname is None:
-            print "No variable name provided"
+            print("No variable name provided")
             return
         
         varname = _byteify(varname)
@@ -2543,7 +2545,7 @@ cdef class _capsAnalysis:
                 if units:
                     
                     if isinstance(units, str):
-                        print "Analysis variable, ", _strify(varname) , ", is None; unable to convert units to", units 
+                        print("Analysis variable, ", _strify(varname) , ", is None; unable to convert units to", units )
                         return None, units 
                     
                     if valunits:
@@ -2561,7 +2563,7 @@ cdef class _capsAnalysis:
                     if isinstance(units, str):
                         
                         if not valunits:
-                            print "No units assigned to analysis variable, ", _strify(varname) , ", unable to convert units to", units 
+                            print("No units assigned to analysis variable, ", _strify(varname) , ", unable to convert units to", units )
                             return value, None
                         
                         value = capsConvert(value, <object> _strify(<char *> valunits), units)
@@ -2679,7 +2681,7 @@ cdef class _capsAnalysis:
         stateOfAnalysis = self.getAnalysisInfo(printInfo=False)
         
         if stateOfAnalysis != 0 and namesOnly == False:
-            print "Analysis state isn't clean (state = ", stateOfAnalysis, ") can only return names of ouput variables; set namesOnly keyword to True"
+            print("Analysis state isn't clean (state = ", stateOfAnalysis, ") can only return names of ouput variables; set namesOnly keyword to True")
             self.capsProblem.status = cCAPS.CAPS_DIRTY
             self.capsProblem.checkStatus(msg = "while getting analysis out variables")
              
@@ -2727,7 +2729,7 @@ cdef class _capsAnalysis:
                 if units:
                     
                     if isinstance(units, str):
-                        print "Analysis variable, ", _strify(varname) , ", is None; unable to convert units to", units 
+                        print("Analysis variable, ", _strify(varname) , ", is None; unable to convert units to", units )
                         return None, units 
                     
                     if valunits:
@@ -2745,7 +2747,7 @@ cdef class _capsAnalysis:
                     if isinstance(units, str):
                         
                         if not valunits:
-                            print "No units assigned to analysis variable, ", _strify(varname), ", unable to convert units to", units 
+                            print("No units assigned to analysis variable, ", _strify(varname), ", unable to convert units to", units )
                             return value, None
                         
                         value = capsConvert(value, <object> _strify(<char *> valunits), units)
@@ -2880,24 +2882,24 @@ cdef class _capsAnalysis:
             capsIntent = None
             
         if printInfo:
-            print "Analysis Info:"
-            print "\tName           = ", self.aimName
-            print "\tIntent         = ", capsIntent
-            print "\tAnalysisDir    = ", _strify(analysisPath)
-            print "\tNumber of Parents = ", numParent
-            print "\tExecution Flag = ", execution
-            print "\tNumber of Fields = ", numField
+            print("Analysis Info:")
+            print("\tName           = ", self.aimName)
+            print("\tIntent         = ", capsIntent)
+            print("\tAnalysisDir    = ", _strify(analysisPath))
+            print("\tNumber of Parents = ", numParent)
+            print("\tExecution Flag = ", execution)
+            print("\tNumber of Fields = ", numField)
             
             if numField > 0:
-                print "\tField name (Rank):"
+                print("\tField name (Rank):")
 
             for i in range(numField):
-                print "\t ", _strify(fnames[i]), "(", ranks[i], ")"
+                print("\t ", _strify(fnames[i]), "(", ranks[i], ")")
     
             if cleanliness in dirtyInfo:
-                print "\tDirty state    = ", cleanliness, " - ", dirtyInfo[cleanliness] 
+                print("\tDirty state    = ", cleanliness, " - ", dirtyInfo[cleanliness] )
             else: 
-                print "\tDirty state    = ", cleanliness, " ",
+                print("\tDirty state    = ", cleanliness, " ",)
         
         if execution == 1:
             executionFlag = True
@@ -2969,7 +2971,7 @@ cdef class _capsAnalysis:
                 attrLevel = attribute[attrLevel.lower()]
             
         if int(attrLevel) not in attribute.values():
-            print "Error: Invalid attribute level! Defaulting to 'Face'"
+            print("Error: Invalid attribute level! Defaulting to 'Face'")
             attrLevel = attribute["face"]
         
         # Force regeneration of the geometry
@@ -2982,7 +2984,7 @@ cdef class _capsAnalysis:
         
     
         if numBody < 1:
-            print "The number of bodies in the problem is less than 1!!!\n"
+            print("The number of bodies in the problem is less than 1!!!\n")
             self.capsProblem.status = cCAPS.CAPS_BADVALUE
             self.capsProblem.checkStatus(msg = "while getting attribute " + str(attributeName) + " values for aim " 
                                          + str(self.aimName))
@@ -3093,7 +3095,7 @@ cdef class _capsAnalysis:
         
     
         if numBody < 1:
-            print "The number of bodies in the problem is less than 1!!!\n"
+            print("The number of bodies in the problem is less than 1!!!\n")
             self.capsProblem.status = cCAPS.CAPS_BADVALUE
             self.capsProblem.checkStatus(msg =  "while creating attribute map"
                                           + " for aim " + str(self.aimName))
@@ -3134,7 +3136,7 @@ cdef class _capsAnalysis:
         
         # Check to see if directory exists
         if not os.path.isdir(self.analysisDir):
-            print "Analysis directory does not currently exist - it will be made automatically"
+            print("Analysis directory does not currently exist - it will be made automatically")
             os.makedirs(self.analysisDir)
             
         self.capsProblem.status = cCAPS.caps_preAnalysis(self.analysisObj,
@@ -3254,7 +3256,7 @@ cdef class _capsAnalysis:
     # a failure occurred during object creation.
     def createOpenMDAOComponent(self, inputVariable, outputVariable, **kwargs):
 
-        print "Creating an OpenMDAO component for analysis, " + str(self.aimName)
+        print("Creating an OpenMDAO component for analysis, " + str(self.aimName))
         
         self.openMDAOComponent = createOpenMDAOComponent(self, 
                                                          inputVariable, 
@@ -3531,9 +3533,9 @@ cdef class _capsAnalysis:
                                      + " (during a call to caps_getBodies)")
 
         if numBody == 0 or bodies == <cEGADS.ego*> NULL:
-            print("No bodies available for to save!")
+            print("No bodies available to save!")
             self.capsProblem.status = cCAPS.CAPS_SOURCEERR
-            self.capsProblem.checkStatus(msg = "No bodies available for to save!")
+            self.capsProblem.checkStatus(msg = "No bodies available to save!")
 
         self.capsProblem.status = saveBodies(numBody, bodies, filename)
         self.capsProblem.checkStatus(msg = "while saving geometry.")
@@ -3611,7 +3613,7 @@ cdef class _capsGeometry:
             void *data
              
         if varname is None or value is None:
-            print "No variable name and/or value provided"
+            print("No variable name and/or value provided")
             return
 
         #const char *valunits
@@ -4015,7 +4017,7 @@ cdef class _capsGeometry:
             import matplotlib.pyplot as plt
             from mpl_toolkits.mplot3d import Axes3D
         except:
-            print "Error: Unable to import matplotlib - viewing the geometry with matplotlib is not possible"
+            print("Error: Unable to import matplotlib - viewing the geometry with matplotlib is not possible")
             raise ImportError 
         
         def createFigure(figure, view, xArray, yArray, zArray, triArray, linewidth, edgecolor, transparent, facecolor):
@@ -4115,7 +4117,7 @@ cdef class _capsGeometry:
         view = str(kwargs.pop("viewType", "isometric")).lower()
         if view not in viewType:
             view = viewType[0]
-            print "Unrecongized viewType, defaulting to " + str(view)
+            print("Unrecongized viewType, defaulting to " + str(view))
                 
         # Force regeneration of the geometry   
         self.buildGeometry()  
@@ -4126,7 +4128,7 @@ cdef class _capsGeometry:
                                          + " (during a call to caps_size)")
     
         if numBody < 1:
-            print "The number of bodies in the problem is less than 1!!!\n"
+            print("The number of bodies in the problem is less than 1!!!\n")
             self.capsProblem.status = cCAPS.CAPS_BADVALUE
             self.capsProblem.checkStatus(msg = "while saving screen shot of geometry")
         
@@ -4334,12 +4336,12 @@ cdef class _capsGeometry:
                     
                 if directory is not None:
                     if not os.path.isdir(directory):
-                        print "Directory ( " + directory + " ) does not currently exist - it will be made automatically"
+                        print("Directory ( " + directory + " ) does not currently exist - it will be made automatically")
                         os.makedirs(directory)
                         
                     fname = os.path.join(directory, fname)
                 
-                print "Saving figure - ", fname
+                print("Saving figure - ", fname)
                 fig.savefig(fname, dpi=dpi)
     
     ## Retrieve a list of attribute values of a given name ("attributeName") for the bodies in the current geometry. 
@@ -4388,7 +4390,7 @@ cdef class _capsGeometry:
                 attrLevel = attribute[attrLevel.lower()]
             
         if int(attrLevel) not in attribute.values():
-            print "Error: Invalid attribute level! Defaulting to 'Face'"
+            print("Error: Invalid attribute level! Defaulting to 'Face'")
             attrLevel = attribute["face"]
                 
         # Force regeneration of the geometry
@@ -4400,7 +4402,7 @@ cdef class _capsGeometry:
                                          + " values on geometry  (during a call to caps_size)")
         
         if numBody < 1:
-            print "The number of bodies in the problem is less than 1!!!\n"
+            print("The number of bodies in the problem is less than 1!!!\n")
             self.capsProblem.status = cCAPS.CAPS_BADVALUE
             self.capsProblem.checkStatus(msg = "while getting attribute " + str(attributeName) + " values on geometry")
             
@@ -4509,7 +4511,7 @@ cdef class _capsGeometry:
         self.capsProblem.checkStatus(msg = "while creating attribute map (during a call to caps_size)")
         
         if numBody < 1:
-            print "The number of bodies in the problem is less than 1!!!\n"
+            print("The number of bodies in the problem is less than 1!!!\n")
             self.capsProblem.status = cCAPS.CAPS_BADVALUE
             self.capsProblem.checkStatus(msg = "while creating attribute map")
             
@@ -4732,7 +4734,7 @@ cdef class _capsBound:
         except:
             index  = __checkFieldWildCard(var, fieldName)
             if  index < 0:
-                print "ERROR: Variable (field name)", var, "not found in aimSrc", src 
+                print("ERROR: Variable (field name)", var, "not found in aimSrc", src )
                 self.capsProblem.status = cCAPS.CAPS_BADVALUE
                 self.capsProblem.checkStatus()
                 
@@ -4769,15 +4771,15 @@ cdef class _capsBound:
         self.capsProblem.checkStatus(msg = "while getting data transfer information - " + str(self.boundName)
                                          + " (during a call to caps_boundInfo)")
         if printInfo:
-            print "Bound Info:"
-            print "\tName           = ", self.boundName
-            print "\tDimension      = ", dimension
+            print("Bound Info:")
+            print("\tName           = ", self.boundName)
+            print("\tDimension      = ", dimension)
             # Add something for limits 
             
             if state in boundInfo:
-                print "\tState          = ", state, " -> ", boundInfo[state] 
+                print("\tState          = ", state, " -> ", boundInfo[state] )
             else: 
-                print "\tState          = ", state, " ",
+                print("\tState          = ", state, " ",)
         
         if kwargs.pop("infoDict", False):
             return {"name"     : self.boundName, 
@@ -4807,7 +4809,7 @@ cdef class _capsBound:
     def executeTransfer(self, variableName = None):
         
         if not self.dataSetDest:
-            print "No destination data exists in bound!"
+            print("No destination data exists in bound!")
             return
         
         self.getDestData(variableName)
@@ -4816,15 +4818,15 @@ cdef class _capsBound:
     def getDestData(self, variableName = None):
         
         if not self.dataSetDest:
-            print "No destination data exists in bound!"
+            print("No destination data exists in bound!")
             return
         
         if variableName is None:
-            print "No variable name provided - defaulting to variable - " + self.variables[0]
+            print("No variable name provided - defaulting to variable - " + self.variables[0])
             variableName = self.variables[0]
        
         elif variableName not in self.variables:
-            print "Unreconized varible name " + str(variableName)
+            print("Unreconized varible name " + str(variableName))
             return
 
         self.dataSetDest[variableName].getData()
@@ -4852,7 +4854,7 @@ cdef class _capsBound:
         viewer = kwargs.pop("viewerType", "capsViewer").lower()
         
         if variableName is None:
-            print "No variable name provided - defaulting to variable - " + self.variables[0]
+            print("No variable name provided - defaulting to variable - " + self.variables[0])
             variableName = self.variables[0]
            
         elif variableName not in self.variables:
@@ -4883,7 +4885,7 @@ cdef class _capsBound:
             try:
                 import matplotlib.pyplot as plt
             except:
-                print "Error: Unable to import matplotlib - viewing the data is not possible"
+                print("Error: Unable to import matplotlib - viewing the data is not possible")
                 raise ImportError  
              
 
@@ -4905,7 +4907,7 @@ cdef class _capsBound:
                 self.dataSetSrc[variableName].viewData(fig,  1, 0, **kwargs)
             
             if filename is not None:
-                print "Saving figure - ", filename
+                print("Saving figure - ", filename)
                 fig.savefig(filename)
                 
             if showImage:
@@ -4922,7 +4924,7 @@ cdef class _capsBound:
     def writeTecplot(self, filename, variableName=None):
 
         if filename is None:
-            print "No filename provided"
+            print("No filename provided")
             return
         
         if ("." not in filename):
@@ -4936,7 +4938,7 @@ cdef class _capsBound:
                                          + str(self.dataSetName))
 
         if variableName is None:
-            print "No variable name provided - all variables will be writen to file"
+            print("No variable name provided - all variables will be writen to file")
             variableName = self.variables
        
         if not isinstance(variableName,list):
@@ -4944,7 +4946,7 @@ cdef class _capsBound:
              
         for var in variableName:
             if var not in self.variables:
-                print "Unreconized varible name " + str(var)
+                print("Unreconized varible name " + str(var))
                 continue
            
             self.dataSetSrc[var].writeTecplot(file)
@@ -5279,7 +5281,7 @@ cdef class _capsDataSet:
             from matplotlib import colors
             from matplotlib import cm as colorMap
         except:
-            print "Error: Unable to import matplotlib - viewing the data is not possible"
+            print("Error: Unable to import matplotlib - viewing the data is not possible")
             raise ImportError 
         
         filename = kwargs.pop("filename", None)       
@@ -5290,7 +5292,7 @@ cdef class _capsDataSet:
         title = kwargs.pop("title", None)
         
         if (filename is None and fig is None and showImage is False):
-            print "No 'filename' or figure instance provided and 'showImage' is false. Nothing to do here!"
+            print("No 'filename' or figure instance provided and 'showImage' is false. Nothing to do here!")
             return 
        
         cMap = kwargs.pop("colorMap", "Blues")
@@ -5298,7 +5300,7 @@ cdef class _capsDataSet:
         try:
             colorMap.get_cmap(cMap)
         except ValueError:
-            print "Colormap ",  cMap, "is not recognized. Defaulting to 'Blues'"
+            print("Colormap ",  cMap, "is not recognized. Defaulting to 'Blues'")
             cMap = "Blues"
             
         # Initialize values
@@ -5444,7 +5446,7 @@ cdef class _capsDataSet:
             plt.show()
             
         if filename is not None:
-            print "Saving figure - ", filename
+            print("Saving figure - ", filename)
             fig.savefig(filename)
     
            
@@ -5462,7 +5464,7 @@ cdef class _capsDataSet:
         if file == None:
             
             if filename == None:
-                print "No file name or open file object provided"
+                print("No file name or open file object provided")
                 self.capsProblem.status = cCAPS.CAPS_BADVALUE
                 self.capsProblem.checkStatus(msg = "while writing Tecplot file for data set - " + str(self.dataSetName) 
                                      + " (during a call to caps_triangulate)")
@@ -5612,7 +5614,7 @@ cdef class _capsValue:
             elif subType.lower() == "user":
                 self.subType = cCAPS.USER
             else:
-                print "Unreconized subType for value object!"
+                print("Unreconized subType for value object!")
                 self.capsProblem.status = cCAPS.CAPS_BADTYPE
                 self.capsProblem.checkStatus(msg = "while creating value object - " + str(self.name))
         
@@ -5873,16 +5875,16 @@ cdef class _capsValue:
             
             # Make sure limitValue is the right shape and dimension
             if not isinstance(limitsValue, list):
-                print "Limits value should be 2 element list - [min value, max value]!"
+                print("Limits value should be 2 element list - [min value, max value]!")
                 self.capsProblem.status = cCAPS.CAPS_BADVALUE
             else:
                 if len(limitsValue) != 2:
-                    print "Limits value should be 2 element list - [min value, max value]!"
+                    print("Limits value should be 2 element list - [min value, max value]!")
                     self.capsProblem.status = cCAPS.CAPS_BADVALUE
                 
                 for i in limitsValue:
                     if not isinstance(i, (int, float)):
-                        print "Invalid element type for limits value, only integer or float values are valid!"
+                        print("Invalid element type for limits value, only integer or float values are valid!")
                         self.capsProblem.status = cCAPS.CAPS_BADVALUE
                     
             self.capsProblem.checkStatus(msg = "while checking the limit of value object - " + str(self.name))
@@ -5941,7 +5943,7 @@ cdef class _capsValue:
         # Example use cases for interacting the with pyCAPS._capsValue.convertUnits() function.
         
         if self.units == None:
-            print "Value doesn't have defined units"
+            print("Value doesn't have defined units")
             self.capsProblem.status = cCAPS.CAPS_UNITERR
             self.capsProblem.checkStatus(msg = "while converting units for value object - " + str(self.name))
             

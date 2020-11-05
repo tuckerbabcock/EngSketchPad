@@ -31,7 +31,7 @@ written by John Dannenhoffer
         -->
 
     <title>
-      ESP (Engineering Sketch Pad, V1.18)
+      ESP (Engineering Sketch Pad, V1.19)
     </title>
 
     <script type="text/javascript" src="WebViewer/webgl-utils.js"> </script>
@@ -89,11 +89,11 @@ written by John Dannenhoffer
       var OCSM_INACTIVE   = 302;
       var OCSM_DEFERRED   = 303;
 
-      var OCSM_EXTERNAL   = 500;
-      var OCSM_CONFIG     = 501;
-      var OCSM_CONSTANT   = 502;
-      var OCSM_INTERNAL   = 503;
-      var OCSN_OUTPUT     = 504;
+      var OCSM_DESPMTR    = 500;
+      var OCSM_CFGPMTR    = 501;
+      var OCSM_CONPMTR    = 502;
+      var OCSM_LOCALVAR   = 503;
+      var OCSM_OUTPMTR    = 504;
       var OCSM_UNKNOWN    = 505;
     </script>
 
@@ -303,7 +303,7 @@ written by John Dannenhoffer
           </tr>
           <tr>
             <td><input type="radio" name="brchType" value="udparg">    udparg    </input></td>
-            <td>                                                                         </td>
+            <td><input type="radio" name="brchType" value="message">   message   </input></td>
             <td>                                                                         </td>
             <td><input type="radio" name="brchType" value="endif">     endif     </input></td>
             <td>                                                                         </td>
@@ -475,7 +475,7 @@ written by John Dannenhoffer
             <input type="button" value="OK"                      onclick="editPmtrOk()">
           </center>
           <hr>
-          <h3>... or edit the current Parameter</h3>
+          <h3>... or edit a value for the current Parameter</h3>
         </div>
         <table>
           <tr>
@@ -483,11 +483,28 @@ written by John Dannenhoffer
             <td  id="pmtrName">-----</td>
           </tr>
         </table>
-        <table id="editPmtrTable">
+        <table id="editPmtrValTable">
           <tr>
             <td> the table goes here</td>
           </tr>
         </table>
+        <div id="editPmtrDot">
+          <h3>... or edit a velocity for the current Parameter</h3>
+          <table id="editPmtrDotTable">
+            <tr>
+              <td> the table goes here</td>
+            </tr>
+          </table>
+        </div>
+      </form>
+
+      <form id="showOutpmtrsForm" onsubmit="return false" hidden>
+        <center>
+          <input type="button" value="OK"     onclick="showOutpmtrsOk()">
+        </center>
+        <hr>
+        <div id="outpmtrsList">
+        </div>
       </form>
 
       <div id="editCsmForm" onsubmit="return false" hidden>

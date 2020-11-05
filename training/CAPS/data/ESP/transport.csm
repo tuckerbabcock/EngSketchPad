@@ -647,7 +647,7 @@ IFTHEN    makeFuseOml EQ 1
     SET       z2              fuse:noseHeight/2
     SET       r2              (fuse:midHeight+fuse:midWidth)/8+r1
 
-    # build fuselage
+    # build fuselage in two parts to make a C0 connection
     MARK
         # starting point of the nose
         SKBEG  0 0 z1
@@ -674,16 +674,17 @@ IFTHEN    makeFuseOml EQ 1
         ROTATEY   90 0 0
         TRANSLATE fuse:fwdLength+fuse:midLength 0 0
        
-        STORE fuseMid2 0 1 # triple the section to make it C0
-        RESTORE fuseMid2
+        STORE fuseMid2 0 1 
+    BLEND  fuse:noselist
+    MARK
         RESTORE fuseMid2
  
         # tail section
         UDPRIM    supell  rx  fuse:aftHeight/2   ry  fuse:aftWidth/2   n  fuse:power
         ROTATEY   90 0 0
         TRANSLATE fuse:Length 0 fuse:aftCenter
-       
-    BLEND  fuse:noselist fuse:taillist
+    BLEND  0 fuse:taillist
+    JOIN
         ATTRIBUTE tagComp  $fuselage
 
     STORE     FuseOml

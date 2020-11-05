@@ -1793,7 +1793,7 @@ int retrieve_intAttrOptional(ego geomEntity, const char *attributeKey, int *val)
     status = EG_attributeRet(geomEntity, attributeKey, &atype, &alen, &ints, &reals, &string);
     if (status != EGADS_SUCCESS) return status;
 
-    if (atype != ATTRINT || atype != ATTRREAL || alen != 1) {
+    if (!((atype == ATTRINT || atype == ATTRREAL) && alen == 1)) {
         printf ("Error: Attribute %s should be a single integer or real\n", attributeKey);
         return EGADS_ATTRERR;
     }
@@ -1827,9 +1827,12 @@ int retrieve_doubleAttrOptional(ego geomEntity, const char *attributeKey, double
         return EGADS_ATTRERR;
     }
 
-    if (atype == ATTRREAL) *val = reals[0];
+    if (atype == ATTRREAL) {
+      *val = reals[0];
+      return CAPS_SUCCESS;
+    }
 
-    return CAPS_SUCCESS;
+    return CAPS_NOTFOUND;
 }
 
 // Retrieve the string following a capsGroup tag

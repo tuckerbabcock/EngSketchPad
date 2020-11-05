@@ -24,18 +24,21 @@ AFLR4_LIB = AFLR.lib
 
 # Compile egads_aflr4 to make sure it uses the latest EGADS
 EGADS_AFLR4_OBJS = $(ODIR)\egads_aflr4_version.obj \
-				$(ODIR)\egads_aflr4_get_tess.obj \
 				$(ODIR)\egads_aflr4_check_tess.obj \
+				$(ODIR)\egads_aflr4_get_tess.obj \
 				$(ODIR)\egads_aflr4_set_tess_ordering.obj \
 				$(ODIR)\egads_auto_cad_geom_setup.obj \
 				$(ODIR)\egads_cad_geom_add_attr.obj \
 				$(ODIR)\egads_cad_geom_add_ff.obj \
+				$(ODIR)\egads_cad_geom_add_ret_attr.obj \
 				$(ODIR)\egads_cad_geom_data_cleanup.obj \
 				$(ODIR)\egads_cad_geom_edge2face.obj \
 				$(ODIR)\egads_cad_geom_face2face.obj \
 				$(ODIR)\egads_cad_geom_file_read.obj \
 				$(ODIR)\egads_cad_geom_file_write.obj \
+				$(ODIR)\egads_cad_geom_reset_attr.obj \
 				$(ODIR)\egads_cad_geom_setup.obj \
+				$(ODIR)\egads_cad_idef2idef.obj \
 				$(ODIR)\egads_eval_arclen.obj \
 				$(ODIR)\egads_eval_curv_at_uv.obj \
 				$(ODIR)\egads_eval_edge_uv.obj \

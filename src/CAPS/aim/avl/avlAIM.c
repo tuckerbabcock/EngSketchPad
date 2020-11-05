@@ -191,22 +191,22 @@
  *
  * results in
  * \code
- * CXtot   -0.00033
- * CYtot   1e-05
- * CZtot   -0.30016
+ * CXtot   0.00061
+ * CYtot   -0.0
+ * CZtot   -0.30129
  * Cltot   -0.0
- * Cmtot   -0.19468
- * Cntot   -1e-05
+ * Cmtot   -0.19449
+ * Cntot   -0.0
  * Cl'tot  -0.0
- * Cn'tot  -1e-05
- * CLtot   0.30011
- * CDtot   0.00557
+ * Cn'tot  -0.0
+ * CLtot   0.30126
+ * CDtot   0.00465
  * CDvis   0.0
- * CLff    0.29968
- * CYff    0.0
- * CDind   0.00557
- * CDff    0.00492
- * e       0.9691
+ * CLff    0.30096
+ * CYff    -0.0
+ * CDind   0.0046467
+ * CDff    0.0049692
+ * e       0.967
  * \endcode
  *
  * Additionally, besides making a call to the AIM outputs, sensitivity values may be obtained in the following manner,

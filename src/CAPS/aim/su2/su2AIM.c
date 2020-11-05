@@ -72,7 +72,7 @@
 #include <limits.h>
 #endif
 
-#define NUMINPUT   31
+#define NUMINPUT   32
 #define NUMOUTPUT  3*9
 
 #define MXCHAR  255
@@ -225,7 +225,7 @@ int aimInputs(int iIndex, void *aimInfo, int index, char **ainame, capsValue *de
      * distributed with SU2.
      * Note: The configuration file is dependent on the version of SU2 used.
      * This configuration file that will be auto generated is compatible with
-     * SU2 4.1.1. (Cardinal), 5.0.0 (Raven), 6.2.0 (Falcon - Default)
+     * SU2 4.1.1. (Cardinal), 5.0.0 (Raven), 6.2.0 (Falcon) or 7.0.7(Blackbird - Default)
      */
 
     if (index == 1) {
@@ -620,12 +620,12 @@ int aimInputs(int iIndex, void *aimInfo, int index, char **ainame, capsValue *de
         *ainame              = EG_strdup("SU2_Version");
         defval->type         = String;
         defval->nullVal      = NotNull;
-        defval->vals.string  = EG_strdup("Falcon");
+        defval->vals.string  = EG_strdup("Blackbird");
         defval->lfixed       = Change;
 
         /*! \page aimInputsSU2
-         * - <B>SU2_Version = "Falcon"</B> <br>
-         * SU2 version to generate specific configuration file. Options: "Cardinal(4.0)", "Raven(5.0)" or "Falcon(6.2)".
+         * - <B>SU2_Version = "Blackbird"</B> <br>
+         * SU2 version to generate specific configuration file. Options: "Cardinal(4.0)", "Raven(5.0)", "Falcon(6.2)" or "Blackbird(7.0.7)".
          */
 
         su2Instance[iIndex].su2Version = defval;
@@ -648,12 +648,23 @@ int aimInputs(int iIndex, void *aimInfo, int index, char **ainame, capsValue *de
 
       /*! \page aimInputsSU2
        * - <B>Surface_Deform = NULL</B> <br>
-       * Array of surface names that should be deformed. Defaults to all invisid and viscous surfaces.
+       * Array of surface names that should be deformed. Defaults to all inviscid and viscous surfaces.
+       */
+
+    } else if (index == 32) {
+      *ainame             = EG_strdup("Input_String");
+      defval->type        = String;
+      defval->vals.string = NULL;
+      defval->nullVal     = IsNull;
+
+      /*! \page aimInputsSU2
+       * - <B>Input_String = NULL</B> <br>
+       * An input string that will be written as is to the end of the SU2 cfg file.
        */
     }
 
 
-#if NUMINPUT != 31
+#if NUMINPUT != 32
 #error "NUMINPUTS is inconsistent with the list of inputs"
 #endif
 
@@ -1041,19 +1052,19 @@ int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath,
             // {UnknownBoundary, Inviscid, Viscous, Farfield, Freestream,
             //  BackPressure, Symmetry, SubsonicInflow, SubsonicOutflow}
 
-            if      (bcProps.surfaceProps[i].surfaceType == Inviscid) bndConds.bcVal[i] = 3000;
-            else if (bcProps.surfaceProps[i].surfaceType == Viscous)  bndConds.bcVal[i] = 4000;
-            else if (bcProps.surfaceProps[i].surfaceType == Farfield) bndConds.bcVal[i] = 5000;
-            else if (bcProps.surfaceProps[i].surfaceType == Extrapolate) bndConds.bcVal[i] = 5026;
-            else if (bcProps.surfaceProps[i].surfaceType == Freestream)  bndConds.bcVal[i] = 5050;
-            else if (bcProps.surfaceProps[i].surfaceType == BackPressure)    bndConds.bcVal[i] = 5051;
-            else if (bcProps.surfaceProps[i].surfaceType == SubsonicInflow)  bndConds.bcVal[i] = 7011;
+            if      (bcProps.surfaceProps[i].surfaceType == Inviscid       ) bndConds.bcVal[i] = 3000;
+            else if (bcProps.surfaceProps[i].surfaceType == Viscous        ) bndConds.bcVal[i] = 4000;
+            else if (bcProps.surfaceProps[i].surfaceType == Farfield       ) bndConds.bcVal[i] = 5000;
+            else if (bcProps.surfaceProps[i].surfaceType == Extrapolate    ) bndConds.bcVal[i] = 5026;
+            else if (bcProps.surfaceProps[i].surfaceType == Freestream     ) bndConds.bcVal[i] = 5050;
+            else if (bcProps.surfaceProps[i].surfaceType == BackPressure   ) bndConds.bcVal[i] = 5051;
+            else if (bcProps.surfaceProps[i].surfaceType == SubsonicInflow ) bndConds.bcVal[i] = 7011;
             else if (bcProps.surfaceProps[i].surfaceType == SubsonicOutflow) bndConds.bcVal[i] = 7012;
-            else if (bcProps.surfaceProps[i].surfaceType == MassflowIn)      bndConds.bcVal[i] = 7036;
-            else if (bcProps.surfaceProps[i].surfaceType == MassflowOut)     bndConds.bcVal[i] = 7031;
-            else if (bcProps.surfaceProps[i].surfaceType == FixedInflow)     bndConds.bcVal[i] = 7100;
-            else if (bcProps.surfaceProps[i].surfaceType == FixedOutflow)    bndConds.bcVal[i] = 7105;
-            else if (bcProps.surfaceProps[i].surfaceType == Symmetry) {
+            else if (bcProps.surfaceProps[i].surfaceType == MassflowIn     ) bndConds.bcVal[i] = 7036;
+            else if (bcProps.surfaceProps[i].surfaceType == MassflowOut    ) bndConds.bcVal[i] = 7031;
+            else if (bcProps.surfaceProps[i].surfaceType == FixedInflow    ) bndConds.bcVal[i] = 7100;
+            else if (bcProps.surfaceProps[i].surfaceType == FixedOutflow   ) bndConds.bcVal[i] = 7105;
+            else if (bcProps.surfaceProps[i].surfaceType == Symmetry       ) {
 
                 if      (bcProps.surfaceProps[i].symmetryPlane == 1) bndConds.bcVal[i] = 6021;
                 else if (bcProps.surfaceProps[i].symmetryPlane == 2) bndConds.bcVal[i] = 6022;
@@ -1181,9 +1192,14 @@ int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath,
 
                 status = su2_writeCongfig_Falcon(aimInfo, analysisPath, aimInputs, bcProps, withMotion);
 
+            } else if (strcasecmp(aimInputs[aim_getIndex(aimInfo, "SU2_Version",ANALYSISIN)-1].vals.string, "Blackbird") == 0) {
+
+                status = su2_writeCongfig_Blackbird(aimInfo, analysisPath, aimInputs, bcProps, withMotion);
+
+
             } else {
 
-                printf("Unrecognized 'SU2_Version' = %s! Valid choices are Cardinal, Raven, and Falcon.\n", aimInputs[aim_getIndex(aimInfo, "SU2_Version",ANALYSISIN)-1].vals.string);
+                printf("Unrecognized 'SU2_Version' = %s! Valid choices are Cardinal, Raven, Falcon, or Blackbird.\n", aimInputs[aim_getIndex(aimInfo, "SU2_Version",ANALYSISIN)-1].vals.string);
                 status = CAPS_BADVALUE;
             }
 

@@ -18,7 +18,7 @@ c
 	integer*8    context8, model8, geom8, ref, prev, next
 	integer*8    bodies(*), faces(*), edges(*), nodes(*)
 	integer*8    dummy(*)
-	real*8       t, size, large, sum, eres(18), xyz(4)
+	real*8       t(2), size, large, sum, eres(18), xyz(4)
         real*8       limits(4), bbox(6), uv(2), result(18)
 	character*80 name
 c

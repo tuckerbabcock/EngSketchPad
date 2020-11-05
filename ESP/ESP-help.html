@@ -17,7 +17,7 @@
   </head>
 
   <body>
-    <p><h1 align=center>Engineering Sketch Pad (ESP) Version 1.18</h1>
+    <p><h1 align=center>Engineering Sketch Pad (ESP) Version 1.19</h1>
     <p><h3>Authors: John F. Dannenhoffer, III (Syracuse University) and Bob Haimes (MIT)</h3>
     <p><h3>Date: June 2020.</h3>
 
@@ -2701,56 +2701,63 @@ BEZIER    x y z
       <p><h3 id="blend">blend</h3>
         <!-- extract from OpenCSM.h -->
         <pre>
-BLEND     begList=0 endList=0 reorder=0 oneFace=0
-          use:    create a Body by blending through Sketches since Mark
-          pops:   Sketch1 ... Mark
+BLEND     begList=0 endList=0 reorder=0 oneFace=0 periodic=0
+          use:    create a Body by blending through Xsects since Mark
+          pops:   Xsect1 ... Mark
           pushes: Body
           notes:  Sketch may not be open
                   Solver may not be open
-                  all Sketches must have the same number of Edges
-                  if all Sketches are WireBodys, then a SheetBody is created
+                  all Xsects must have the same number of Edges
+                  if all Xsects are WireBodys, then a SheetBody is created
                      otherwise a SolidBody is created
-                  if the first Sketch is a point
+                  if the first Xsect is a point
                       if begList is 0
                           pointed end is created
                       elseif begList contains 8 values
                           begList contains rad1;dx1;dy1;dz1;rad2;dx2;dy2;dz2
                           rounded end is created
-                  elseif first Sketch is a WireBody
+                  elseif first Xsect is a WireBody
                       created SheetBody is open at the beginning
-                  elseif first Sketch is a SheetBody
+                  elseif first Xsect is a SheetBody
                       if begList is 0
                           created Body included SheetBody at its beginning
                       elseif begList contains 2 values and first is -1
                           begList contains -1;aspect
                           rounded end with approximately given aspect ratio
-                  if the last Sketch is a point
+                  if first Xsect is a WireBody or SheetBody
+                      if begList contains 3 values
+                          begList describes inward tangency at beginning
+                  if the last Xsect is a point
                       if endList is 0
                           pointed end is created
                       elseif endList contains 8 values
                           endList contains rad1;dx1;dy1;dz1;rad2;dx2;dy2;dz2
                           rounded end is created
-                  elseif last Sketch is a WireBody
+                  elseif last Xsect is a WireBody
                       created SheetBody is open at the end
-                  elseif last Sketch is a SheetBody
+                  elseif last Xsect is a SheetBody
                       if endList is 0
                           created Body included SheetBody at its end
                       elseif endList contains 2 values and first is -1
                           endList contains -1;aspect
                           rounded end with approximately given aspect ratio
+                  if last Xsect is a WireBody or SheetBody
+                      if endList contains 3 values
+                          endList describes inward tangency at end
                   if begList!=0 and endList!=0, there must be at least
                      three interior sketches
                   interior sketches can be repeated once for C1 continuity
                   interior sketches can be repeated twice for C0 continuity
-                  if reorder!=0 then Sketches are reordered to minimize Edge
-                     lengths in the direction between Sketches
-                  first Sketch is unaltered if reorder>0
-                  last  Sketch is unaltered if reorder<0
+                  if reorder!=0 then Xsects are reordered to minimize Edge
+                     lengths in the direction between Xsects
+                  first Xsect is unaltered if reorder>0
+                  last  Xsect is unaltered if reorder<0
                   if oneFace==1 then do not split at C0 (multiplicity=3)
+                  if periodic=1 then connect the first and last Xsects
                   sensitivity computed w.r.t. begList, endList
                   sets up @-parameters
                   the Faces all receive the Branch's Attributes
-                  Attributes on Sketches are maintained
+                  Attributes on Xsects are maintained
                   face-order is: (base), (end), feat1:part1,
                      feat1:part2, ... feat2:part1, ...
                   signals that may be thrown/caught:
@@ -2809,6 +2816,7 @@ CATBEG    sigCode
                      $not_converged
                      $self_intersecting
                      $wrong_types_on_stack
+                     $assert_failed
                   if sigCode does not match current signal, skip to matching
                      CATEND
                   Block contains all Branches up to matching CATEND
@@ -3488,6 +3496,7 @@ IMPORT    $filename bodynumber=1
                   Solver may not be open
                   filename is used directly (without evaluation)
                   if filename starts with '$$/', use path relative to .csm file
+                  if bodynumber=-1, then all Bodys are returned in one Group
                   sets up @-parameters
                   the Faces all receive the Branch's Attributes
                   face-order is based upon order in file
@@ -3949,25 +3958,26 @@ ROTATEZ   angDeg xaxis yaxis
       <p><h3 id="rule">rule</h3>
         <!-- extract from OpenCSM.h -->
         <pre>
-RULE      reorder=0
-          use:    create a Body by creating ruled surfaces thru Sketches
+RULE      reorder=0 periodic=0
+          use:    create a Body by creating ruled surfaces thru Xsects
                      since Mark
-          pops:   Sketch1 ... Mark
+          pops:   Xsect1 ... Mark
           pushes: Body
           notes:  Sketch may not be open
                   Solver may not be open
-                  if reorder!=0 then Sketches are reordered to minimize Edge
+                  if reorder!=0 then Xsects are reordered to minimize Edge
                      lengths
-                  first Sketch is unaltered if reorder>0
-                  last  Sketch is unaltered if reorder<0
-                  all Sketches must have the same number of Edges
-                  if all Sketches are WireBodys, then a SheetBody is created
+                  first Xsect is unaltered if reorder>0
+                  last  Xsect is unaltered if reorder<0
+                  all Xsects must have the same number of Edges
+                  if all Xsects are WireBodys, then a SheetBody is created
                      otherwise a SolidBody is created
-                  the first and/or last Sketch can be a point
+                  the first and/or last Xsect can be a point
+                  if periodic=1 then connect the first and last Xsects
                   computes Face sensitivities analytically
                   sets up @-parameters
                   the Faces all receive the Branch's Attributes
-                  Attributes on Sketch are maintained
+                  Attributes on Xsects are maintained
                   face-order is: (base), (end), feat1:part1,
                      feat1:part2, ... feat2:part1, ...
                   signals that may be thrown/caught:
@@ -4888,6 +4898,8 @@ UDPRIM fitcurve
            ncp        number of control points    [default 0]
            ordered    =0 means points not ordered [default 1]
            periodic   =1 means periodicity at ends[default 0]
+           split      point indices (bias-1) to
+                      split into multiple Edges   [default 0]
            xform      3*4 transformation matrix   [default 0]
        output arguments:
            npnt       number of point in file
@@ -4991,6 +5003,7 @@ UDPRIM import
        input arguments (specified as name/value pairs):
            filename   name of file (prepended with '$' or '$$/')
            bodynumber number of body within filename (bias-1)   [default 1]
+                  if bodynumber=-1, then all Bodys are returned in one Group
        output arguments:
            numbodies  number of bodys in file
        usage:
@@ -5620,6 +5633,7 @@ Types:
 
         @edata                       only set up by EVALUATE statement
         @stack                       Bodys on stack; 0=Mark; -1=none
+        @version                     version number
 
         in above table:
            x -> value is set
@@ -5780,7 +5794,7 @@ Attributes assigned to Bodys:
 
 Special User-defined Attributes for Bodys:
 
-    _makeQuds   to make quads on all Faces in Body
+    _makeQuads  to make quads on all Faces in Body
 
     _name       string used in ESP interface for a Body
 
@@ -5945,6 +5959,21 @@ Special User-defined Attributes for Nodes:
       and <code>jmax</code> must be <code>-1</code>.  There are two
       3-D coordinates for each line; that is, there are
       <code>2*imax</code> 3-D coordinates specified.
+
+    <h4>Series of shaded triangles</h4>
+    <p>Here <code>imax</code> is the number of triangles
+      and <code>jmax must be <code>-3</code>.  There are 12 numbers
+      for each triangle: x1, y1, z1, f1, x2, y2, z2, f2, z3, y3, z3,
+      and f3.  The functions (f) are in the range <code>-1</code> (for
+      blue) through <code>+1</code> for red.
+
+    <h4>Series of shaded quadrilaterals</h4>
+    <p>Here <code>imax</code> is the number of quadrilaterals
+      and <code>jmax must be <code>-4</code>.  There are 16 numbers
+      for each quad: x1, y1, z1, f1, x2, y2, z2, f2, z3, y3, z3, f3,
+      x4, y4, z4, and f4.  The points are around the quad.  The
+      functions (f) are in the range <code>-1</code> (for blue)
+      through <code>+1</code> for red.
 
     <h4>Series of triangles</h4>
     <p>Here <code>imax</code> is the number triangles

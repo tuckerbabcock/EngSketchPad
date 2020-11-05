@@ -95,6 +95,7 @@ udpExecute(ego  context,                /* (in)  EGADS context */
     double  data[18], tdata[2], tle, result[3], range[4], eval[18], norm[3];
     double  dx, dy, ds, x1, y1, x2, y2, x3, y3, x4, y4, dd, ss, tt, xx, yy, frac, dold;
     double  dxytol = 1.0e-6;
+    char    *message;
     ego     enodes[4], eedges[3], ecurve, eline, eloop, eface, enew;
 
 #ifdef GRAFIC
@@ -122,59 +123,62 @@ udpExecute(ego  context,                /* (in)  EGADS context */
     *nMesh  = 0;
     *string = NULL;
 
+    message = (char *) EG_alloc(100*sizeof(char));
+    message[0] = '\0';
+
     /* check arguments */
     if (udps[0].arg[0].size > 1) {
-        printf(" udpExecute: series should be a scalar\n");
+        snprintf(message, 100, "series should be a scalar");
         status  = EGADS_RANGERR;
         goto cleanup;
 
     } else if (SERIES(0) <= 0) {
-        printf(" udpExecute: series = %d <= 0\n", SERIES(0));
+        snprintf(message, 100, "series = %d <= 0", SERIES(0));
         status  =  EGADS_RANGERR;
         goto cleanup;
 
     } else if (udps[0].arg[1].size > 1) {
-        printf(" udpExecute: thickness should be a scalar\n");
+        snprintf(message, 100, "thickness should be a scalar");
         status  = EGADS_RANGERR;
         goto cleanup;
 
     } else if ((double)THICKNESS(0) < 0) {
-        printf(" udpExecute: thickness = %f < 0\n", THICKNESS(0));
+        snprintf(message, 100, "thickness = %f < 0", THICKNESS(0));
         status  = EGADS_RANGERR;
         goto cleanup;
 
     } else if (udps[0].arg[2].size > 1) {
-        printf(" udpExecute: camber should be a scalar\n");
+        snprintf(message, 100, "camber should be a scalar");
         status  = EGADS_RANGERR;
         goto cleanup;
 
     } else if (udps[0].arg[3].size > 1) {
-        printf(" udpExecute: maxloc should be a scalar\n");
+        snprintf(message, 100, "maxloc should be a scalar");
         status  = EGADS_RANGERR;
         goto cleanup;
 
     } else if ((double)MAXLOC(0) <=0) {
-        printf(" udpExecute: maxloc = %f <= 0\n", MAXLOC(0));
+        snprintf(message, 100, "maxloc = %f <= 0", MAXLOC(0));
         status  = EGADS_RANGERR;
         goto cleanup;
 
     } else if ((double)MAXLOC(0) >= 1) {
-        printf(" udpExecute: maxloc = %f >= 1\n", MAXLOC(0));
+        snprintf(message, 100, "maxloc = %f >= 1", MAXLOC(0));
         status  = EGADS_RANGERR;
         goto cleanup;
 
     } else if (udps[0].arg[4].size > 1) {
-        printf(" udpExecute: offset should be a scalar\n");
+        snprintf(message, 100, "offset should be a scalar");
         status  = EGADS_RANGERR;
         goto cleanup;
 
     } else if (udps[0].arg[5].size > 1) {
-        printf(" udpExecute: sharpte should be a scalar\n");
+        snprintf(message, 100, "sharpte should be a scalar");
         status  = EGADS_RANGERR;
         goto cleanup;
 
     } else if (SHARPTE(0) != 0 && SHARPTE(0) != 1   ) {
-        printf(" udpExecute: sharpte should be 0 or 1\n");
+        snprintf(message, 100, "sharpte should be 0 or 1");
         status  = EGADS_RANGERR;
         goto cleanup;
     }
@@ -696,8 +700,14 @@ cleanup:
     if (pnt      != NULL) EG_free(pnt     );
     if (pnt_save != NULL) EG_free(pnt_save);
 
-    if (status != EGADS_SUCCESS) {
+    if (strlen(message) > 0) {
+        *string = message;
+        printf("%s\n", message);
+    } else if (status != EGADS_SUCCESS) {
+        EG_free(message);
         *string = udpErrorStr(status);
+    } else {
+        EG_free(message);
     }
 
     return status;

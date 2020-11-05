@@ -24,7 +24,7 @@ DESPMTR   wing:spar2     0.70      # location of rwrd spar
 CFGPMTR   wing:nrib      3.00      # number of ribs per wing
 
 # wing local variables
-SET       wing:span sqrt(wing:aspect*wing:area)
+SET       wing:span      sqrt(wing:aspect*wing:area)
 SET       wing:chordr    2*wing:area/wing:span/(1+wing:taper)
 SET       wing:chordt    wing:chordr*wing:taper
 SET       wing:ytip     -wing:span/2

@@ -20,8 +20,8 @@ else
 ODIR  = .
 endif
 
-AFLR3_LIB  = -laflr3 -laflr4 -lsurf_auto -lrec3 -lotb -lug3 -lug
-AFLR3_LIB += -lanbl3 -laflr2c -lrec2 -lbl1
+AFLR3_LIB  = -laflr3 -lsurf_auto_cpp -lsurf_auto -laflr4 -lrec3 -lotb
+AFLR3_LIB += -lug3 -lug -lanbl3 -laflr2c -lrec2 -lbl1
 AFLR3_LIB += -ldgeom -legen -lug2 -lice2 -lice3  -ldftr2 -ldftr3
 AFLR3_LIB += -lug_io -lug_gq -lug_cpp -lcgns -lqtb
 
@@ -48,7 +48,7 @@ $(LDIR)/aflr3AIM.so:	$(ODIR)/aflr3AIM.o $(ODIR)/aflr3_Interface.o \
 	$(CC) $(SOFLGS) -o $(LDIR)/aflr3AIM.so $(ODIR)/aflr3AIM.o \
 		$(ODIR)/aflr3_Interface.o $(OBJS) -L$(AFLR)/$(AFLR_ARCH)/lib \
 		$(AFLR3_LIB) $(AFLR3_LIB) $(AFLR3_LIB) -L$(LDIR) -lutils \
-		-laimUtil -locsm -legads -ludunits2 $(RPATH) -lm
+		-laimUtil -locsm -legads -ludunits2 $(RPATH) $(CPPSLB) -lm
 
 $(ODIR)/aflr3AIM.o:	$(ODIR)/aflr3_version aflr3AIM.c $(IDIR)/capsTypes.h \
 			../utils/meshUtils.h
@@ -56,7 +56,7 @@ $(ODIR)/aflr3AIM.o:	$(ODIR)/aflr3_version aflr3AIM.c $(IDIR)/capsTypes.h \
 		-o $(ODIR)/aflr3AIM.o
 
 $(ODIR)/aflr3_Interface.o:	$(ODIR)/aflr3_version aflr3_Interface.c ../utils/meshUtils.h
-	$(CC) -c $(COPTS) $(DEFINE) -D_ENABLE_BL_ -I$(IDIR) \
+	$(CC) -c $(COPTS) $(DEFINE) -I$(IDIR) \
 		-I$(AFLR)/src/aflr3 -I$(AFLR)/src -I../utils \
 		aflr3_Interface.c -o $(ODIR)/aflr3_Interface.o
 

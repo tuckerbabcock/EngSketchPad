@@ -1166,7 +1166,7 @@ gvevent(int       *win,                 /* (in)  window of event */
                 nrow = getInt("Enter number of rows: ");
                 ncol = getInt("Enter number of cols: ");
 
-                status = ocsmNewPmtr(modl, pmtrName, OCSM_EXTERNAL, nrow, ncol);
+                status = ocsmNewPmtr(modl, pmtrName, OCSM_DESPMTR, nrow, ncol);
                 SPRINT5(0, "--> ocsmNewPmtr(name=%s, nrow=%d, ncol=%d) -> status=%d (%s)",
                         pmtrName, nrow, ncol, status, ocsmGetText(status));
 
@@ -1922,7 +1922,7 @@ gvevent(int       *win,                 /* (in)  window of event */
                 }
 
                 if (ipmtr >= 1 && ipmtr <= MODL->npmtr) {
-                    if (MODL->pmtr[ipmtr].type == OCSM_EXTERNAL) {
+                    if (MODL->pmtr[ipmtr].type == OCSM_DESPMTR) {
                         status = ocsmSetVelD(modl, 0, 0, 0, 0.0);
                         if (status != SUCCESS) {
                             SPRINT1(0, "ocsmSetVelD -> status=%d", status);
@@ -2315,7 +2315,7 @@ gvevent(int       *win,                 /* (in)  window of event */
                 ntotal = 0;
                 errmax = 0;
                 for (ipmtr = 1; ipmtr <= MODL->npmtr; ipmtr++) {
-                    if (MODL->pmtr[ipmtr].type != OCSM_EXTERNAL) continue;
+                    if (MODL->pmtr[ipmtr].type != OCSM_DESPMTR) continue;
                     if (numarg > 0 && ipmtr != numarg) continue;
 
                     for (irow = 1; irow <= MODL->pmtr[ipmtr].nrow; irow++) {

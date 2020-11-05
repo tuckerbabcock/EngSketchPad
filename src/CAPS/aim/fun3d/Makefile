@@ -37,7 +37,7 @@ endif
 
 ifdef PYTHONINC
 
-$(ODIR)/fun3dAIM.o: fun3dAIM.c fun3dUtils.h $(IDIR)/capsTypes.h
+$(ODIR)/fun3dAIM.o: fun3dAIM.c fun3dUtils.h fun3dNamelist.h $(IDIR)/capsTypes.h
 	$(CC) -c $(COPTS) $(DEFINE) -DHAVE_PYTHON -I$(IDIR) -I../utils \
 		-I$(PYTHONINC) fun3dAIM.c -o $(ODIR)/fun3dAIM.o
 
@@ -66,7 +66,7 @@ cleanall:	clean
 
 # Run Cython - development only	
 cython:
-	(cython fun3dNamelist.pyx -I../../pyCAPS/src/ --capi-reexport-cincludes) 
+	(cython fun3dNamelist.pyx -I../../pyCAPS/src/ --capi-reexport-cincludes)
 
 dox:
 	(cd doc; doxygen fun3dAIM_dox.cfg; cd latex; make; mv refman.pdf FUN3DAIM.pdf)

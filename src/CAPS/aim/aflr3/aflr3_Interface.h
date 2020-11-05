@@ -3,9 +3,12 @@
 
 int aflr3_Volume_Mesh (void *aimInfo, capsValue *aimInputs,
                        meshInputStruct meshInput,
-                       meshStruct *surfaceMesh,
                        int createBL,
                        int blFlag[],
                        double blSpacing[],
                        double blThickness[],
-                       meshStruct     *volumeMesh);
+                       double capsMeshLength,
+                       int numMeshProp,
+                       meshSizingStruct *meshProp,
+                       meshStruct *surfaceMesh,
+                       meshStruct *volumeMesh);

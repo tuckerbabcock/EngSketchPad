@@ -7,7 +7,7 @@
 #ifdef WIN32
 #define strcasecmp stricmp
 #define strtok_r   strtok_s
-typedef int         pid_t;   
+typedef int         pid_t;
 #endif
 
 #include <aflr4/AFLR4_LIB.h> // Bring in AFLR4 API library
@@ -18,7 +18,8 @@ typedef int         pid_t;
 #include "aimUtil.h"
 
 
-int aflr4_Surface_Mesh(int quiet,
+int aflr4_Surface_Mesh(const char* outputDirectory,
+                       int quiet,
                        int numBody, ego *bodies,
                        void *aimInfo, capsValue *aimInputs,
                        meshInputStruct meshInput,
@@ -48,10 +49,16 @@ int aflr4_Surface_Mesh(int quiet,
     double ff_cdfr, abs_min_scale, BL_thickness, Re_l, curv_factor,
            max_scale, min_scale, ref_len, erw_all;
 
+    const char *aflr4_debug = "aflr4_debug.egads";
+    char *filename = NULL;
+
      // Commandline inputs
+    INT_ mmsg = 0;
     int  prog_argc   = 1;    // Number of arguments
     char **prog_argv = NULL; // String arrays
     char *meshInputString = NULL;
+
+    UG_Param_Struct *AFLR4_Param_Struct_Ptr = NULL;
 
     // return values from egads_aflr4_tess
     ego *tessBodies = NULL;
@@ -137,6 +144,22 @@ int aflr4_Surface_Mesh(int quiet,
                 //make sure it is only a single real
                 printf("**********************************************************\n");
                 printf("AFLR4_Cmp_ID on face %d of body %d has %d entries ", faceIndex+1, bodyIndex+1, n);
+                if (atype == ATTRREAL)        printf("of reals\n");
+                else if (atype == ATTRINT)    printf("of integers\n");
+                else if (atype == ATTRSTRING) printf("of a string\n");
+                printf("Should only contain a single integer or real!\n");
+                printf("**********************************************************\n");
+                status = CAPS_BADVALUE;
+                goto cleanup;
+            }
+
+            // check to see if AFLR4_Isolated_Edge_Refinement_Flag is set correctly
+            status = EG_attributeRet(faces[faceIndex], "AFLR4_Isolated_Edge_Refinement_Flag", &atype, &n, &pints, &preals, &pstring);
+
+            if (status == EGADS_SUCCESS && (!(atype == ATTRREAL || atype == ATTRINT) || n != 1)) {
+                //make sure it is only a single real
+                printf("**********************************************************\n");
+                printf("AFLR4_Isolated_Edge_Refinement_Flag on face %d of body %d has %d entries ", faceIndex+1, bodyIndex+1, n);
                 if (atype == ATTRREAL)        printf("of reals\n");
                 else if (atype == ATTRINT)    printf("of integers\n");
                 else if (atype == ATTRSTRING) printf("of a string\n");
@@ -296,8 +319,6 @@ int aflr4_Surface_Mesh(int quiet,
 
     // set AFLR4 input parameters
 
-    status = ug_add_flag_arg (  "ff_cdfr"  , &prog_argc, &prog_argv);
-    status = ug_add_double_arg ( ff_cdfr   , &prog_argc, &prog_argv);
     status = ug_add_flag_arg (  "min_ncell", &prog_argc, &prog_argv);
     status = ug_add_int_arg (    min_ncell , &prog_argc, &prog_argv);
     status = ug_add_flag_arg (  "mer_all" , &prog_argc, &prog_argv);
@@ -305,6 +326,8 @@ int aflr4_Surface_Mesh(int quiet,
     if (no_prox == True)
       status = ug_add_flag_arg ("-no_prox"    , &prog_argc, &prog_argv);
 
+    status = ug_add_flag_arg ( "ff_cdfr"      , &prog_argc, &prog_argv);
+    status = ug_add_double_arg (ff_cdfr       , &prog_argc, &prog_argv);
     status = ug_add_flag_arg ( "BL_thickness" , &prog_argc, &prog_argv);
     status = ug_add_double_arg (BL_thickness  , &prog_argc, &prog_argv);
     status = ug_add_flag_arg ( "Re_l"         , &prog_argc, &prog_argv);
@@ -357,45 +380,93 @@ int aflr4_Surface_Mesh(int quiet,
     // cad evaluation, cad bounds and generating boundary edge grids.
 
     aflr4_register_cad_geom_setup (egads_cad_geom_setup);
+    aflr4_register_cad_geom_add_ff (egads_cad_geom_add_ff);
     aflr4_register_cad_geom_data_cleanup (egads_cad_geom_data_cleanup);
     aflr4_register_auto_cad_geom_setup (egads_auto_cad_geom_setup);
+    aflr4_register_cad_geom_reset_attr (egads_cad_geom_reset_attr);
+    aflr4_register_set_ext_cad_data (egads_set_ext_cad_data);
 
     dgeom_register_cad_eval_curv_at_uv (egads_eval_curv_at_uv);
     dgeom_register_cad_eval_xyz_at_uv (egads_eval_xyz_at_uv);
     dgeom_register_cad_eval_uv_bounds (egads_eval_uv_bounds);
-    dgeom_register_cad_eval_bedge (surfgen_cad_eval_bedge);
 
     egen_auto_register_cad_eval_xyz_at_u (egads_eval_xyz_at_u);
     egen_auto_register_cad_eval_edge_uv (egads_eval_edge_uv);
     egen_auto_register_cad_eval_arclen (egads_eval_arclen);
 
+    // Register fork routines for parallel processing.
+    // This is only required to use parallel processing in fork/shared memory
+    // mode.
+
+#ifndef WIN32
+    ug_mp_register_fork_function (fork);
+    ug_mp_register_mmap_function (mmap);
+    ug_mp_register_pipe_function (pipe);
+#endif
+
+    // Malloc, initialize, and setup AFLR4 input parameter structure.
+
+    status = aflr4_setup_param (&mmsg, 0, prog_argc, prog_argv, &AFLR4_Param_Struct_Ptr);
+    if (status != 0) {
+        printf("aflr4_setup_param failed!\n");
+        status = CAPS_EXECERR;
+        goto cleanup;
+    }
+
     // Allocate AFLR4-EGADS data structure, initialize, and link body data.
 
     copy_bodies = (ego*)EG_alloc(numBody*sizeof(ego));
     for (bodyIndex = 0; bodyIndex < numBody; bodyIndex++) {
-      status = EG_copyObject(bodies[bodyIndex], NULL, &copy_bodies[bodyIndex]);
-      if (status != CAPS_SUCCESS) goto cleanup;
+        status = EG_copyObject(bodies[bodyIndex], NULL, &copy_bodies[bodyIndex]);
+        if (status != CAPS_SUCCESS) goto cleanup;
     }
     status = EG_getContext(bodies[0], &context);
     if (status != CAPS_SUCCESS) goto cleanup;
     status = EG_makeTopology(context, NULL, MODEL, 0, NULL, numBody, copy_bodies, NULL, &model);
     if (status != CAPS_SUCCESS) goto cleanup;
 
-    status = egads_set_ext_cad_data (model);
+    // Set CAD geometry data structure.
+    // Note that memory management of the CAD geometry data structure is
+    // controlled by DGEOM after this call.
+
+    status = egads_set_ext_cad_data (&model);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     // Complete all tasks required for AFLR4 surface grid generation.
 
-    status = aflr4_setup_and_grid_gen (prog_argc, prog_argv);
+    status = aflr4_setup_and_grid_gen (mmsg, AFLR4_Param_Struct_Ptr);
     if (status != 0) {
-      printf("**********************************************************\n");
-      printf("AFLR4 mesh generation failed...\n");
-      printf("An EGADS file with all AFLR4 parameters\n");
-      printf("has been written to 'aflr4_debug.egads'\n");
-      printf("**********************************************************\n");
-      remove("aflr4_debug.egads");
-      EG_saveModel(model, "aflr4_debug.egads");
-      goto cleanup;
+        filename = (char *) EG_alloc((strlen(outputDirectory) + 2 +
+                                      strlen(aflr4_debug) + 1)*sizeof(char));
+        if (filename == NULL) { status = EGADS_MALLOC; goto cleanup; }
+
+        strcpy(filename, outputDirectory);
+        #ifdef WIN32
+            strcat(filename, "\\");
+        #else
+            strcat(filename, "/");
+        #endif
+        strcat(filename, aflr4_debug);
+
+        printf("**********************************************************\n");
+        printf("AFLR4 mesh generation failed...\n");
+        printf("An EGADS file with all AFLR4 parameters\n");
+        printf("has been written to '%s'\n", filename);
+        printf("**********************************************************\n");
+
+        remove(filename);
+        EG_saveModel(model, filename);
+        status = CAPS_EXECERR;
+        goto cleanup;
+    }
+
+    // Reset CAD attribute data.
+
+    status = aflr4_cad_geom_reset_attr (AFLR4_Param_Struct_Ptr);
+    if (status != 0) {
+        printf("aflr4_cad_geom_reset_attr failed!\n");
+        status = CAPS_EXECERR;
+        goto cleanup;
     }
 
 //#define DUMP_TECPLOT_DEBUG_FILE
@@ -525,17 +596,17 @@ cleanup:
     // Free all aflr4 data
     aflr4_free_all (0);
 
-    // Free DGEOM data from AFLR4 - note this deletes the data used by aflr4_get_def
-    dgeom_def_free_all ();
-
     // Free program arguements
     ug_free_argv(prog_argv); prog_argv = NULL;
+    ug_free_param (AFLR4_Param_Struct_Ptr);
 
     EG_free(faces); faces = NULL;
 
     EG_free(meshInputString); meshInputString = NULL;
+    EG_free(filename); filename = NULL;
 
     EG_free(copy_bodies);
+    EG_deleteObject(model);
 
     // free memory from egads_aflr4_tess
     EG_free(tessBodies); tessBodies = NULL;

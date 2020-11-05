@@ -481,7 +481,7 @@ int aimData(int iIndex, const char *name, enum capsvType *vtype, int *rank,
 int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValue *aimInputs,
                    capsErrs **errs)
 {
-    int i, propIndex, bodyIndex, pointIndex[4] = {-1,-1,-1,-1}; // Indexing
+    int i, propIndex, bodyIndex; // Indexing
 
     int status; // Return status
 
@@ -548,6 +548,10 @@ int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValu
 
     // Get capsGroup name and index mapping to make sure all faces have a capsGroup value
     status = aim_getData(aimInfo, "Attribute_Map", &vtype, &rank, &nrow, &ncol, &dataTransfer, &units);
+    if (status == CAPS_DIRTY) {
+      printf("Parent AIMS are dirty\n");
+      goto cleanup;
+    }
     if (status == CAPS_SUCCESS) {
 
         printf("Found link for attrMap (Attribute_Map) from parent\n");
@@ -557,9 +561,7 @@ int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValu
 
     } else {
 
-        if (status == CAPS_DIRTY) printf("Parent AIMS are dirty\n");
-        else printf("Linking status during attrMap (Attribute_Map) = %d\n",status);
-
+        printf("Linking status during attrMap (Attribute_Map) = %d\n",status);
         printf("Didn't find a link to attrMap from parent - getting it ourselves\n");
 
         // Get capsGroup name and index mapping to make sure all faces have a capsGroup value
@@ -844,55 +846,6 @@ int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValu
             }
         }
 
-        // Loop through meshing properties and see if boundaryLayerThickness and boundaryLayerSpacing have been specified
-        for (propIndex = 0; propIndex < numMeshProp; propIndex++) {
-
-            // If no boundary layer specified in meshProp continue
-            if (meshProp[propIndex].boundaryLayerThickness == 0 || meshProp[propIndex].boundaryLayerSpacing == 0) continue;
-
-            // Loop through Elements and see if marker match
-            for (i = 0; i < aflr3Instance[iIndex].surfaceMesh[bodyIndex].numElement; i++) {
-
-                //If they don't match continue
-                if (aflr3Instance[iIndex].surfaceMesh[bodyIndex].element[i].markerID != meshProp[propIndex].attrIndex) continue;
-
-                // Set face "bl" flag
-                blFlag[i + elementOffSet] = -1;
-
-                if (aflr3Instance[iIndex].surfaceMesh[bodyIndex].element[i].elementType != Triangle &&
-                    aflr3Instance[iIndex].surfaceMesh[bodyIndex].element[i].elementType != Quadrilateral) continue;
-
-                // Get face indexing for Triangles - 1 bias
-                if (aflr3Instance[iIndex].surfaceMesh[bodyIndex].element[i].elementType == Triangle) {
-                    pointIndex[0] = aflr3Instance[iIndex].surfaceMesh[bodyIndex].element[i].connectivity[0] -1;
-                    pointIndex[1] = aflr3Instance[iIndex].surfaceMesh[bodyIndex].element[i].connectivity[1] -1;
-                    pointIndex[2] = aflr3Instance[iIndex].surfaceMesh[bodyIndex].element[i].connectivity[2] -1;
-                    pointIndex[3] = aflr3Instance[iIndex].surfaceMesh[bodyIndex].element[i].connectivity[2] -1; //Repeat last point for simplicity
-
-                }
-
-                if (aflr3Instance[iIndex].surfaceMesh[bodyIndex].element[i].elementType == Quadrilateral) {
-                    pointIndex[0] = aflr3Instance[iIndex].surfaceMesh[bodyIndex].element[i].connectivity[0] -1;
-                    pointIndex[1] = aflr3Instance[iIndex].surfaceMesh[bodyIndex].element[i].connectivity[1] -1;
-                    pointIndex[2] = aflr3Instance[iIndex].surfaceMesh[bodyIndex].element[i].connectivity[2] -1;
-                    pointIndex[3] = aflr3Instance[iIndex].surfaceMesh[bodyIndex].element[i].connectivity[3] -1;
-                }
-
-                // Set boundary layer spacing
-                blSpacing[pointIndex[0] + nodeOffSet] = meshProp[propIndex].boundaryLayerSpacing*capsMeshLength;
-                blSpacing[pointIndex[1] + nodeOffSet] = meshProp[propIndex].boundaryLayerSpacing*capsMeshLength;
-                blSpacing[pointIndex[2] + nodeOffSet] = meshProp[propIndex].boundaryLayerSpacing*capsMeshLength;
-                blSpacing[pointIndex[3] + nodeOffSet] = meshProp[propIndex].boundaryLayerSpacing*capsMeshLength;
-
-                // Set boundary layer thickness
-                blThickness[pointIndex[0] + nodeOffSet] = meshProp[propIndex].boundaryLayerThickness*capsMeshLength;
-                blThickness[pointIndex[1] + nodeOffSet] = meshProp[propIndex].boundaryLayerThickness*capsMeshLength;
-                blThickness[pointIndex[2] + nodeOffSet] = meshProp[propIndex].boundaryLayerThickness*capsMeshLength;
-                blThickness[pointIndex[3] + nodeOffSet] = meshProp[propIndex].boundaryLayerThickness*capsMeshLength;
-
-            }
-        }
-
         elementOffSet += aflr3Instance[iIndex].surfaceMesh[bodyIndex].numElement;
         nodeOffSet += aflr3Instance[iIndex].surfaceMesh[bodyIndex].numNode;
     }
@@ -957,7 +910,6 @@ int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValu
         // Report surface mesh
         printf("Number of surface nodes - %d\n",aflr3Instance[iIndex].volumeMesh[0].numNode);
         printf("Number of surface elements - %d\n",aflr3Instance[iIndex].volumeMesh[0].numElement);
-
     }
 
     // Run AFLR3
@@ -970,11 +922,14 @@ int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValu
 
             status = aflr3_Volume_Mesh ( aimInfo, aimInputs,
                                          aflr3Instance[iIndex].meshInput,
-                                         &aflr3Instance[iIndex].volumeMesh[i].referenceMesh[0],
                                          createBL,
                                          &blFlag[elementOffSet],
                                          &blSpacing[nodeOffSet],
                                          &blThickness[nodeOffSet],
+                                         capsMeshLength,
+                                         numMeshProp,
+                                         meshProp,
+                                         &aflr3Instance[iIndex].volumeMesh[i].referenceMesh[0],
                                          &aflr3Instance[iIndex].volumeMesh[i]);
 
             elementOffSet += aflr3Instance[iIndex].volumeMesh[i].referenceMesh[0].numElement;
@@ -984,11 +939,14 @@ int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValu
 
             status = aflr3_Volume_Mesh ( aimInfo, aimInputs,
                                          aflr3Instance[iIndex].meshInput,
-                                         &aflr3Instance[iIndex].volumeMesh[i],
                                          createBL,
                                          blFlag,
                                          blSpacing,
                                          blThickness,
+                                         capsMeshLength,
+                                         numMeshProp,
+                                         meshProp,
+                                         &aflr3Instance[iIndex].volumeMesh[i],
                                          &aflr3Instance[iIndex].volumeMesh[i]);
         }
 

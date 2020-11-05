@@ -32,6 +32,7 @@
 #include <string.h>
 #include <assert.h>
 
+#include "egads.h"        // needed for EG_alloc, ...
 #include "common.h"
 #include "Tessellate.h"
 #include "RedBlackTree.h"

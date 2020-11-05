@@ -21,7 +21,7 @@ transport = myProblem.loadCAPS(os.path.join("..","EGADS","CFDInviscid_Wing.egads
 
 # Load pointwise aim
 pointwise = myProblem.loadAIM(aim = "pointwiseAIM",
-                              analysisDir = "workDir_1_InviscidTransportWing")
+                              analysisDir = "workDir_01_InviscidTransportWing")
 
 # Dump VTK files for visualization
 pointwise.setAnalysisVal("Proj_Name", "TransportWing")

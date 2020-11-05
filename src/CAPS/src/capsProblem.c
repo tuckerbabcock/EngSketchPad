@@ -45,6 +45,71 @@ extern int  caps_analysisInfo(const capsObj aobject, char **apath, char **unSys,
                               int *execution, int *status);
 
 
+static void
+caps_sizeCB(void *modl, int ipmtr, int nrow, int ncol)
+{
+  int         index, j, k, n;
+  double      *reals, dot;
+  modl_T      *MODL;
+  capsObject  *object;
+  capsValue   *value;
+  capsProblem *problem;
+  
+  MODL    = (modl_T *) modl;
+  problem = (capsProblem *) MODL->userdata;
+  if ((problem->funID != CAPS_SETVALUE) &&
+      (problem->funID != CAPS_READPARAMETERS)) {
+    printf(" CAPS Internal: caps_sizeCB called from funID = %d!\n",
+           problem->funID);
+    return;
+  }
+  if (problem->funID == CAPS_READPARAMETERS) return;
+  
+  /* find our GeometryIn index */
+  for (index = 0; index < problem->nGeomIn; index++) {
+    object = problem->geomIn[index];
+    if (object        == NULL) continue;
+    if (object->blind == NULL) continue;
+    value  = (capsValue *) object->blind;
+    if (value->pIndex == ipmtr) break;
+  }
+  if (index == problem->nGeomIn) {
+    printf(" CAPS Warning: cant find ocsm ipmtr = %d (caps_sizeCB)!\n", ipmtr);
+    return;
+  }
+  object = problem->geomIn[index];
+  value  = (capsValue *) object->blind;
+/*
+  printf(" ###### caps_sizeCB = %s  %d -> %d   %d -> %d ######\n",
+         object->name, value->nrow, nrow, value->ncol, ncol);
+ */
+ 
+  reals = NULL;
+  if (nrow*ncol != 1) {
+    reals = (double *) EG_alloc(nrow*ncol*sizeof(double));
+    if (reals == NULL) {
+      printf(" CAPS Warning: %s resize %d %d Malloc(caps_sizeCB)\n",
+             object->name, nrow, ncol);
+      return;
+    }
+  }
+  if (value->length != 1) EG_free(value->vals.reals);
+  value->length = nrow*ncol;
+  value->nrow   = nrow;
+  value->ncol   = ncol;
+  if (value->length != 1) value->vals.reals = reals;
+  
+  reals = value->vals.reals;
+  if (value->length == 1) reals = &value->vals.real;
+  for (n = k = 0; k < nrow; k++)
+    for (j = 0; j < ncol; j++, n++)
+      ocsmGetValu(problem->modl, ipmtr, k+1, j+1, &reals[n], &dot);
+  
+  caps_freeOwner(&object->last);
+  object->last.sNum = problem->sNum;
+  caps_fillDateTime(object->last.datetime);
+}
+
 
 static int
 caps_writeString(FILE *fp, /*@null@*/ const char *string)
@@ -974,11 +1039,15 @@ caps_writeValue(FILE *fp, capsValue *value)
   if (n != 1) return CAPS_IOERR;
   n = fwrite(&value->pIndex,  sizeof(int), 1, fp);
   if (n != 1) return CAPS_IOERR;
+  n = fwrite(&value->gInType, sizeof(int), 1, fp);
+  if (n != 1) return CAPS_IOERR;
+  n = fwrite(&value->ndot,    sizeof(int), 1, fp);
+  if (n != 1) return CAPS_IOERR;
 
   if (value->type == Integer) {
     n = fwrite(value->limits.ilims, sizeof(int),    2, fp);
     if (n != 2) return CAPS_IOERR;
-  } else if (value->type == Double) {
+  } else if ((value->type == Double) || (value->type == DoubleDot)) {
     n = fwrite(value->limits.dlims, sizeof(double), 2, fp);
     if (n != 2) return CAPS_IOERR;
   }
@@ -1000,7 +1069,7 @@ caps_writeValue(FILE *fp, capsValue *value)
       child = (capsValue *) value->vals.object->blind;
       stat  = caps_writeValue(fp, child);
       if (stat != CAPS_SUCCESS) return stat;
-    } else if (value->type == Double) {
+    } else if ((value->type == Double) || (value->type == DoubleDot)) {
       n = fwrite(&value->vals.real, sizeof(double), 1, fp);
       if (n != 1) return CAPS_IOERR;
     } else {
@@ -1018,7 +1087,7 @@ caps_writeValue(FILE *fp, capsValue *value)
         stat  = caps_writeValue(fp, child);
         if (stat != CAPS_SUCCESS) return stat;
       }
-    } else if (value->type == Double) {
+    } else if ((value->type == Double) || (value->type == DoubleDot)) {
       n = fwrite(value->vals.reals, sizeof(double), value->length, fp);
       if (n != value->length) return CAPS_IOERR;
     } else if (value->type == String) {
@@ -1031,6 +1100,23 @@ caps_writeValue(FILE *fp, capsValue *value)
     } else {
       n = fwrite(value->vals.integers, sizeof(int), value->length, fp);
       if (n != value->length) return CAPS_IOERR;
+    }
+  }
+  
+  if (value->nullVal == IsPartial) {
+    n = fwrite(value->partial, sizeof(int), value->length, fp);
+    if (n != value->length) return CAPS_IOERR;
+  }
+  
+  if (value->ndot != 0) {
+    for (i = 0; i < value->ndot; i++) {
+      stat = caps_writeString(fp, value->dots[i].name);
+      if (stat != CAPS_SUCCESS) return stat;
+      n = fwrite(&value->dots[i].rank, sizeof(int), 1, fp);
+      if (n != 1) return CAPS_IOERR;
+      n = fwrite(value->dots[i].dot, sizeof(double),
+                 value->length*value->dots[i].rank, fp);
+      if (n != value->length*value->dots[i].rank) return CAPS_IOERR;
     }
   }
 
@@ -1049,7 +1135,7 @@ caps_freeValue(capsValue *value)
   if (value->units != NULL) EG_free(value->units);
   if ((value->type == Boolean) || (value->type == Integer)) {
     if (value->length > 1) EG_free(value->vals.integers);
-  } else if (value->type == Double) {
+  } else if ((value->type == Double) || (value->type == DoubleDot)) {
     if (value->length > 1) EG_free(value->vals.reals);
   } else if (value->type == String) {
     if (value->length > 1) EG_free(value->vals.string);
@@ -1076,6 +1162,13 @@ caps_freeValue(capsValue *value)
       }
     }
   }
+  if (value->partial != NULL) EG_free(value->partial);
+  if (value->dots == NULL) return;
+  for (i = 0; i < value->ndot; i++) {
+    if (value->dots[i].name != NULL) EG_free(value->dots[i].name);
+    if (value->dots[i].dot  != NULL) EG_free(value->dots[i].dot);
+  }
+  EG_free(value->dots);
 }
 
 
@@ -1097,7 +1190,11 @@ caps_readValue(FILE *fp, capsObject **lookup, capsValue *value)
   value->link            = NULL;
   value->limits.dlims[0] = value->limits.dlims[1] = 0.0;
   value->linkMethod      = Copy;
-  value->vals.object     = NULL;
+  value->gInType         = 0;
+  value->partial         = NULL;
+  value->ndot            = 0;
+  value->dots            = NULL;
+  value->vals.string     = NULL;
 
   n = fread(&value->type,    sizeof(int), 1, fp);
   if (n != 1) return CAPS_IOERR;
@@ -1117,11 +1214,15 @@ caps_readValue(FILE *fp, capsObject **lookup, capsValue *value)
   if (n != 1) return CAPS_IOERR;
   n = fread(&value->pIndex,  sizeof(int), 1, fp);
   if (n != 1) return CAPS_IOERR;
+  n = fread(&value->gInType, sizeof(int), 1, fp);
+  if (n != 1) return CAPS_IOERR;
+  n = fread(&value->ndot,    sizeof(int), 1, fp);
+  if (n != 1) return CAPS_IOERR;
 
   if (value->type == Integer) {
     n = fread(value->limits.ilims, sizeof(int),    2, fp);
     if (n != 2) return CAPS_IOERR;
-  } else if (value->type == Double) {
+  } else if ((value->type == Double) || (value->type == DoubleDot)) {
     n = fread(value->limits.dlims, sizeof(double), 2, fp);
     if (n != 2) return CAPS_IOERR;
   }
@@ -1129,92 +1230,53 @@ caps_readValue(FILE *fp, capsObject **lookup, capsValue *value)
   stat = caps_readString(fp, &value->units);
   if (stat != CAPS_SUCCESS) return stat;
   n = fread(&oIndex, sizeof(int), 1, fp);
-  if (n != 1) {
-    caps_freeValue(value);
-    return CAPS_IOERR;
-  }
+  if (n != 1) return CAPS_IOERR;
   if (oIndex >= 0) value->link = lookup[oIndex];
   n = fread(&value->linkMethod, sizeof(int), 1, fp);
-  if (n != 1) {
-    caps_freeValue(value);
-    return CAPS_IOERR;
-  }
+  if (n != 1) return CAPS_IOERR;
 
   if ((value->length == 1) && (value->type != String)
                            && (value->type != Tuple)) {
     if (value->type == Value) {
       n = fread(&oIndex, sizeof(int), 1, fp);
-      if (n != 1) {
-        caps_freeValue(value);
-        return CAPS_IOERR;
-      }
+      if (n != 1) return CAPS_IOERR;
       if (oIndex >= 0) {
         value->vals.object = lookup[oIndex];
         child = (capsValue *) EG_alloc(sizeof(capsValue));
-        if (child == NULL) {
-          caps_freeValue(value);
-          return EGADS_MALLOC;
-        }
+        if (child == NULL) return EGADS_MALLOC;
         value->vals.object->blind = child;
         stat = caps_readValue(fp, lookup, child);
-        if (stat != CAPS_SUCCESS) {
-          caps_freeValue(value);
-          return stat;
-        }
+        if (stat != CAPS_SUCCESS) return stat;
       }
-    } else if (value->type == Double) {
+    } else if ((value->type == Double) || (value->type == DoubleDot)) {
       n = fread(&value->vals.real, sizeof(double), 1, fp);
-      if (n != 1) {
-        caps_freeValue(value);
-        return CAPS_IOERR;
-      }
+      if (n != 1) return CAPS_IOERR;
     } else {
       n = fread(&value->vals.integer, sizeof(int), 1, fp);
-      if (n != 1) {
-        caps_freeValue(value);
-        return CAPS_IOERR;
-      }
+      if (n != 1) return CAPS_IOERR;
     }
   } else {
     if (value->type == Value) {
       value->vals.objects = (capsObject **)
                             EG_alloc(value->length*sizeof(capsObject *));
-      if (value->vals.objects == NULL) {
-        caps_freeValue(value);
-        return EGADS_MALLOC;
-      }
+      if (value->vals.objects == NULL) return EGADS_MALLOC;
       for (i = 0; i < value->length; i++) value->vals.objects[i] = NULL;
       for (i = 0; i < value->length; i++) {
         n = fread(&oIndex, sizeof(int), 1, fp);
-        if (n != 1) {
-          caps_freeValue(value);
-          return CAPS_IOERR;
-        }
-        if (oIndex < 0) {
-          caps_freeValue(value);
-          return CAPS_NULLBLIND;
-        }
+        if (n != 1) return CAPS_IOERR;
+        if (oIndex < 0) return CAPS_NULLBLIND;
         value->vals.objects[i] = lookup[oIndex];
       }
       for (i = 0; i < value->length; i++) {
         child = (capsValue *) EG_alloc(sizeof(capsValue));
-        if (child == NULL) {
-          caps_freeValue(value);
-          return EGADS_MALLOC;
-        }
+        if (child == NULL) return EGADS_MALLOC;
         value->vals.objects[i]->blind = child;
         stat = caps_readValue(fp, lookup, child);
-        if (stat != CAPS_SUCCESS) {
-          caps_freeValue(value);
-          return stat;
-        }
+        if (stat != CAPS_SUCCESS) return stat;
       }
-    } else if (value->type == Double) {
+    } else if ((value->type == Double) || (value->type == DoubleDot)) {
       value->vals.reals = (double *) EG_alloc(value->length*sizeof(double));
-      if (value->vals.reals == NULL) {
-        caps_freeValue(value);
-        return EGADS_MALLOC;
-      }
+      if (value->vals.reals == NULL) return EGADS_MALLOC;
       n = fread(value->vals.reals, sizeof(double), value->length, fp);
       if (n != value->length) return CAPS_IOERR;
     } else if (value->type == String) {
@@ -1229,12 +1291,38 @@ caps_readValue(FILE *fp, capsObject **lookup, capsValue *value)
       }
     } else {
       value->vals.integers = (int *) EG_alloc(value->length*sizeof(int));
-      if (value->vals.integers == NULL) {
-        caps_freeValue(value);
-        return EGADS_MALLOC;
-      }
+      if (value->vals.integers == NULL) return EGADS_MALLOC;
       n = fread(value->vals.integers, sizeof(int), value->length, fp);
       if (n != value->length) return CAPS_IOERR;
+    }
+  }
+  
+  if (value->nullVal == IsPartial) {
+    value->partial = (int *) EG_alloc(value->length*sizeof(int));
+    if (value->partial == NULL) return EGADS_MALLOC;
+    n = fread(value->partial, sizeof(int), value->length, fp);
+    if (n != value->length) return CAPS_IOERR;
+  }
+  
+  if (value->ndot != 0) {
+    value->dots = (capsDot *) EG_alloc(value->ndot*sizeof(capsDot));
+    if (value->dots == NULL) return EGADS_MALLOC;
+    for (i = 0; i < value->ndot; i++) {
+      value->dots[i].name = NULL;
+      value->dots[i].rank = 0;
+      value->dots[i].dot  = NULL;
+    }
+    for (i = 0; i < value->ndot; i++) {
+      stat = caps_readString(fp, &value->dots[i].name);
+      if (stat != CAPS_SUCCESS) return stat;
+      n = fread(&value->dots[i].rank, sizeof(int), 1, fp);
+      if (n != 1) return CAPS_IOERR;
+      value->dots[i].dot = (double *) EG_alloc(
+                           value->length*value->dots[i].rank*sizeof(double));
+      if (value->dots[i].dot == NULL) return EGADS_MALLOC;
+      n = fread(value->dots[i].dot, sizeof(double),
+                value->length*value->dots[i].rank, fp);
+      if (n != value->length*value->dots[i].rank) return CAPS_IOERR;
     }
   }
 
@@ -1329,6 +1417,8 @@ caps_readAnalysis(FILE *fp, capsObject **lookup, capsProblem *problem,
   analysis->info.pIndex      = 0;
   analysis->info.irow        = 0;
   analysis->info.icol        = 0;
+  analysis->info.errs.nError = 0;
+  analysis->info.errs.errors = NULL;
   analysis->nField           = 0;
   analysis->fields           = NULL;
   analysis->ranks            = 0;
@@ -1627,6 +1717,8 @@ caps_writeProblem(FILE *fp, capsProblem *problem)
   if (n != 1) return CAPS_IOERR;
   n = fwrite(&problem->nBound,    sizeof(int),      1,                fp);
   if (n != 1) return CAPS_IOERR;
+  n = fwrite(&problem->nRegGIN,   sizeof(int),      1,                fp);
+  if (n != 1) return CAPS_IOERR;
 
   for (i = 0; i < problem->nParam; i++) {
     n = fwrite(&problem->params[i]->sn, sizeof(int), 1, fp);
@@ -1664,6 +1756,16 @@ caps_writeProblem(FILE *fp, capsProblem *problem)
     stat  = caps_writeValue(fp, value);
     if (stat != CAPS_SUCCESS) return stat;
   }
+  for (i = 0; i < problem->nRegGIN; i++) {
+    stat = caps_writeString(fp, problem->regGIN[i].name);
+    if (stat != CAPS_SUCCESS) return stat;
+    n = fwrite(&problem->regGIN[i].index, sizeof(int), 1, fp);
+    if (n != 1) return CAPS_IOERR;
+    n = fwrite(&problem->regGIN[i].irow,  sizeof(int), 1, fp);
+    if (n != 1) return CAPS_IOERR;
+    n = fwrite(&problem->regGIN[i].icol,  sizeof(int), 1, fp);
+    if (n != 1) return CAPS_IOERR;
+  }
 
   /* analysis objects */
   for (i = 0; i < problem->nAnalysis; i++) {
@@ -1699,6 +1801,7 @@ caps_outLevel(capsObject *pobject, int outLevel)
   if (pobject->blind == NULL)            return CAPS_NULLBLIND;
   if ((outLevel < 0) || (outLevel > 2))  return CAPS_RANGEERR;
   problem = (capsProblem *) pobject->blind;
+  problem->funID = CAPS_OUTLEVEL;
 
   if (pobject->subtype == PARAMETRIC) {
     ocsmSetOutLevel(outLevel);
@@ -1725,6 +1828,7 @@ caps_close(capsObject *pobject)
   if (pobject->type != PROBLEM)          return CAPS_BADTYPE;
   if (pobject->blind == NULL)            return CAPS_NULLBLIND;
   problem = (capsProblem *) pobject->blind;
+  problem->funID = CAPS_CLOSE;
 
   if (problem->filename != NULL) {
     EG_free(problem->filename);
@@ -1776,6 +1880,11 @@ caps_close(capsObject *pobject)
   if (problem->bounds != NULL) {
     for (i = 0; i < problem->nBound; i++) caps_delete(problem->bounds[i]);
     EG_free(problem->bounds);
+  }
+  
+  if (problem->regGIN != NULL) {
+    for (i = 0; i < problem->nRegGIN; i++) EG_free(problem->regGIN[i].name);
+    EG_free(problem->regGIN);
   }
 
   /* close up the AIM */
@@ -1858,6 +1967,8 @@ caps_readProblem(FILE *fp, capsObject **lookup, capsObject *pobject)
   if (n != 1) return CAPS_IOERR;
   n = fread(&problem->nBound,    sizeof(int),      1,                fp);
   if (n != 1) return CAPS_IOERR;
+  n = fread(&problem->nRegGIN,   sizeof(int),      1,                fp);
+  if (n != 1) return CAPS_IOERR;
 
   if (problem->nParam > 0) {
     for (i = 0; i < problem->nParam; i++) {
@@ -1874,6 +1985,7 @@ caps_readProblem(FILE *fp, capsObject **lookup, capsObject *pobject)
       }
       stat = caps_readValue(fp, lookup, value);
       if (stat != CAPS_SUCCESS) {
+        caps_freeValue(value);
         EG_free(value);
         caps_close(pobject);
         return stat;
@@ -1962,6 +2074,36 @@ caps_readProblem(FILE *fp, capsObject **lookup, capsObject *pobject)
 /*@-immediatetrans@*/
         problem->geomOut[i]->blind = &value[i];
 /*@+immediatetrans@*/
+      }
+    }
+    if (problem->nRegGIN != 0) {
+      problem->regGIN = (capsRegGIN *) EG_alloc(problem->nRegGIN*
+                                                sizeof(capsRegGIN));
+      if (problem->regGIN == NULL) {
+        caps_close(pobject);
+        return EGADS_MALLOC;
+      }
+      for (i = 0; i < problem->nRegGIN; i++) {
+        stat = caps_readString(fp, &problem->regGIN[i].name);
+        if (stat != CAPS_SUCCESS) {
+          caps_close(pobject);
+          return stat;
+        }
+        n = fread(&problem->regGIN[i].index, sizeof(int), 1, fp);
+        if (n != 1) {
+          caps_close(pobject);
+          return CAPS_IOERR;
+        }
+        n = fread(&problem->regGIN[i].irow,  sizeof(int), 1, fp);
+        if (n != 1) {
+          caps_close(pobject);
+          return CAPS_IOERR;
+        }
+        n = fread(&problem->regGIN[i].icol,  sizeof(int), 1, fp);
+        if (n != 1) {
+          caps_close(pobject);
+          return CAPS_IOERR;
+        }
       }
     }
 
@@ -2101,6 +2243,7 @@ caps_save(capsObject *pobject, /*@null@*/ const char *filename)
   if (pobject->blind == NULL)            return CAPS_NULLBLIND;
   problem = (capsProblem *) pobject->blind;
   if (problem->filename == NULL)         return CAPS_BADNAME;
+  problem->funID = CAPS_SAVE;
 
   /* make sure we are not dirty */
   gstatus = 0;
@@ -2636,6 +2779,36 @@ caps_readFile(capsObject *pobject)
 }
 
 
+static void
+caps_initUnits(capsProblem *problem)
+{
+#ifdef WIN32
+  int  oldrive, drive;
+  char *env;
+  
+  oldrive = _getdrive();
+  env     =  getenv("UDUNITS2_XML_PATH");
+  if (env != NULL)
+    if (env[1] == ':') {
+      if (env[0] >= 97) {
+        drive = env[0] - 96;
+      } else {
+        drive = env[0] - 64;
+      }
+      _chdrive(drive);
+    }
+#endif
+
+/*@-nullpass@*/
+  problem->utsystem = ut_read_xml(NULL);
+/*@+nullpass@*/
+
+#ifdef WIN32
+  _chdrive(oldrive);
+#endif
+}
+
+
 int
 caps_open(const char *filename, const char *pname, capsObject **pobject)
 {
@@ -2658,11 +2831,6 @@ caps_open(const char *filename, const char *pname, capsObject **pobject)
   const char    *aname, *astring;
   const int     *aints;
   const double  *areals;
-#ifdef BUILDONLOAD
-  int           jj, m;
-  char          vstr[MAX_STRVAL_LEN];
-  double        *values;
-#endif
 
   *pobject = NULL;
 
@@ -2701,6 +2869,7 @@ caps_open(const char *filename, const char *pname, capsObject **pobject)
   problem->file           = NULL;
   problem->fileLen        = 0;
   problem->outLevel       = 1;
+  problem->funID          = CAPS_OPEN;
   problem->modl           = NULL;
   problem->nParam         = 0;
   problem->params         = NULL;
@@ -2722,6 +2891,8 @@ caps_open(const char *filename, const char *pname, capsObject **pobject)
   problem->nBodies        = 0;
   problem->bodies         = NULL;
   problem->lunits         = NULL;
+  problem->nRegGIN        = 0;
+  problem->regGIN         = NULL;
   problem->sNum           = problem->writer.sNum = 1;
   problem->writer.pname   = EG_strdup(pname);
   caps_getStaticStrings(&problem->signature, &problem->writer.pID,
@@ -2759,9 +2930,7 @@ caps_open(const char *filename, const char *pname, capsObject **pobject)
   object->type  = PROBLEM;
   object->blind = problem;
 
-/*@-nullpass@*/
-  problem->utsystem = ut_read_xml(NULL);
-/*@+nullpass@*/
+  caps_initUnits(problem);
   if (problem->utsystem == NULL) {
     caps_close(object);
     return CAPS_UNITERR;
@@ -2823,7 +2992,13 @@ caps_open(const char *filename, const char *pname, capsObject **pobject)
         return CAPS_NOTFOUND;
       }
       MODL->context   = problem->context;
+/*@-kepttrans@*/
+      MODL->userdata  = problem;
+/*@+kepttrans@*/
       MODL->tessAtEnd = 0;
+      status = ocsmRegSizeCB(problem->modl, caps_sizeCB);
+      if (status != SUCCESS)
+        printf(" CAPS Warning: ocsmRegSizeCB = %d (caps_open)!\n", status);
       /* check that Branches are properly ordered */
       status = ocsmCheck(problem->modl);
       if (status < SUCCESS) {
@@ -2933,9 +3108,9 @@ caps_open(const char *filename, const char *pname, capsObject **pobject)
           caps_close(object);
           return status;
         }
-        if (type == OCSM_OUTPUT)   ngOut++;
-        if (type == OCSM_EXTERNAL) ngIn++;
-        if (type == OCSM_CONFIG)   ngIn++;
+        if (type == OCSM_OUTPMTR) ngOut++;
+        if (type == OCSM_DESPMTR) ngIn++;
+        if (type == OCSM_CFGPMTR) ngIn++;
       }
       if (nbrch != problem->nBranch) {
         printf(" CAPS Error: # Branch = %d -- from %s = %d (caps_open)!\n",
@@ -2959,7 +3134,7 @@ caps_open(const char *filename, const char *pname, capsObject **pobject)
       if (problem->geomOut != NULL)
         for (i = j = 0; j < npmtr; j++) {
           ocsmGetPmtr(problem->modl, j+1, &type, &nrow, &ncol, name);
-          if (type != OCSM_OUTPUT) continue;
+          if (type != OCSM_OUTPMTR) continue;
           if (strcmp(name, problem->geomOut[i]->name) != 0) {
             printf(" CAPS Error: %d Geometry Outs %s != %s (caps_open)!\n",
                    i+1, name, problem->geomOut[i]->name);
@@ -3054,7 +3229,13 @@ caps_open(const char *filename, const char *pname, capsObject **pobject)
       return CAPS_NOTFOUND;
     }
     MODL->context   = problem->context;
+/*@-kepttrans@*/
+    MODL->userdata  = problem;
+/*@+kepttrans@*/
     MODL->tessAtEnd = 0;
+    status = ocsmRegSizeCB(problem->modl, caps_sizeCB);
+    if (status != SUCCESS)
+      printf(" CAPS Warning: ocsmRegSizeCB = %d (caps_open)!\n", status);
 
     /* Restore ocsm outLevel */
     ocsmSetOutLevel(1);
@@ -3072,49 +3253,6 @@ caps_open(const char *filename, const char *pname, capsObject **pobject)
       caps_close(object);
       return status;
     }
-#ifdef BUILDONLOAD
-    buildTo = 0;                          /* all */
-    nbody   = 0;
-    status  = ocsmBuild(problem->modl, buildTo, &builtTo, &nbody, NULL);
-    if (status != SUCCESS) {
-      caps_close(object);
-      printf(" caps_open Error: ocsmBuild to %d fails with %d!",
-             builtTo, status);
-      return status;
-    }
-    nbody = 0;
-    for (ibody = 1; ibody <= MODL->nbody; ibody++) {
-      if (MODL->body[ibody].onstack != 1) continue;
-      if (MODL->body[ibody].botype  == OCSM_NULL_BODY) continue;
-      nbody++;
-    }
-
-    printf(" CAPS Info: # bodies = %d\n", nbody);
-    if (nbody > 0) {
-      problem->bodies = (ego *)   EG_alloc(nbody*sizeof(ego));
-      problem->lunits = (char **) EG_alloc(nbody*sizeof(char *));
-      if ((problem->bodies != NULL) && (problem->lunits != NULL)) {
-        problem->nBodies = nbody;
-        i = 0;
-        for (ibody = 1; ibody <= MODL->nbody; ibody++) {
-          if (MODL->body[ibody].onstack != 1) continue;
-          if (MODL->body[ibody].botype  == OCSM_NULL_BODY) continue;
-          problem->bodies[i] = MODL->body[ibody].ebody;
-          caps_fillLengthUnits(problem, problem->bodies[i],
-                               &problem->lunits[i]);
-          i++;
-        }
-      } else {
-        if (problem->lunits != NULL) EG_free(problem->lunits);
-        problem->lunits = NULL;
-        caps_close(object);
-        printf(" caps_open: Error on %d Body memory allocation!", nbody);
-        return EGADS_MALLOC;
-      }
-    }
-    problem->geometry.sNum = problem->sNum;
-    caps_fillDateTime(problem->geometry.datetime);
-#endif
 
     status = ocsmInfo(problem->modl, &nbrch, &npmtr, &nbody);
     if (status != SUCCESS) {
@@ -3147,6 +3285,10 @@ caps_open(const char *filename, const char *pname, capsObject **pobject)
         value[i].limits.ilims[0] = OCSM_ACTIVE;
         value[i].limits.ilims[1] = OCSM_DEFERRED;
         value[i].linkMethod      = Copy;
+        value[i].gInType         = 0;
+        value[i].partial         = NULL;
+        value[i].ndot            = 0;
+        value[i].dots            = NULL;
 
         status = caps_makeObject(&objs);
         if (status != CAPS_SUCCESS) {
@@ -3190,9 +3332,9 @@ caps_open(const char *filename, const char *pname, capsObject **pobject)
         caps_close(object);
         return status;
       }
-      if (type == OCSM_OUTPUT)   ngOut++;
-      if (type == OCSM_EXTERNAL) ngIn++;
-      if (type == OCSM_CONFIG)   ngIn++;
+      if (type == OCSM_OUTPMTR) ngOut++;
+      if (type == OCSM_DESPMTR) ngIn++;
+      if (type == OCSM_CFGPMTR) ngIn++;
     }
 
     /* allocate the objects for the geometry inputs */
@@ -3210,7 +3352,7 @@ caps_open(const char *filename, const char *pname, capsObject **pobject)
       }
       for (i = j = 0; j < npmtr; j++) {
         ocsmGetPmtr(problem->modl, j+1, &type, &nrow, &ncol, name);
-        if ((type != OCSM_EXTERNAL) && (type != OCSM_CONFIG)) continue;
+        if ((type != OCSM_DESPMTR) && (type != OCSM_CFGPMTR)) continue;
         if ((nrow == 0) || (ncol == 0)) continue;    /* ignore string pmtrs */
         value[i].nrow            = nrow;
         value[i].ncol            = ncol;
@@ -3230,6 +3372,11 @@ caps_open(const char *filename, const char *pname, capsObject **pobject)
         } else if ((ncol > 1) || (nrow > 1)) {
           value[i].dim           = Vector;
         }
+        value[i].gInType         = 0;
+        if (type == OCSM_CFGPMTR) value[i].gInType = 1;
+        value[i].partial         = NULL;
+        value[i].ndot            = 0;
+        value[i].dots            = NULL;
 
         status = caps_makeObject(&objs);
         if (status != CAPS_SUCCESS) {
@@ -3277,7 +3424,7 @@ caps_open(const char *filename, const char *pname, capsObject **pobject)
               return status;
             }
           }
-        if (type == OCSM_CONFIG) continue;
+        if (type == OCSM_CFGPMTR) continue;
         status = ocsmGetBnds(problem->modl, value[i].pIndex, 1, 1,
                              &lower, &upper);
         if (status != SUCCESS) continue;
@@ -3305,7 +3452,7 @@ caps_open(const char *filename, const char *pname, capsObject **pobject)
       }
       for (i = j = 0; j < npmtr; j++) {
         ocsmGetPmtr(problem->modl, j+1, &type, &nrow, &ncol, name);
-        if (type != OCSM_OUTPUT) continue;
+        if (type != OCSM_OUTPMTR) continue;
         value[i].length          = 1;
         value[i].type            = Double;
         value[i].nrow            = 1;
@@ -3319,52 +3466,11 @@ caps_open(const char *filename, const char *pname, capsObject **pobject)
         value[i].vals.real       = 0.0;
         value[i].limits.dlims[0] = value[i].limits.dlims[1] = 0.0;
         value[i].linkMethod      = Copy;
+        value[i].gInType         = 0;
+        value[i].partial         = NULL;
+        value[i].ndot            = 0;
+        value[i].dots            = NULL;
         caps_geomOutUnits(name, units, &value[i].units);
-#ifdef BUILDONLOAD
-        if ((nrow == 0) || (ncol == 0)) {
-          status = ocsmGetValuS(problem->modl, j+1, vstr);
-          if (status != SUCCESS) {
-            printf(" caps_open: %d ocsmGetValuS returns %d!", j+1, status);
-            continue;
-          }
-          value[i].nullVal   = NotNull;
-          value[i].type      = String;
-          value->vals.string = EG_strdup(vstr);
-        } else {
-          value[i].nullVal = NotNull;
-          value[i].nrow    = nrow;
-          value[i].ncol    = ncol;
-          value[i].length  = nrow*ncol;
-          if ((nrow > 1) || (ncol > 1)) value[i].dim = Vector;
-          if ((nrow > 1) && (ncol > 1)) value[i].dim = Array2D;
-          if (value->length == 1) {
-            values = &value[i].vals.real;
-          } else {
-            values = (double *) EG_alloc(value[i].length*sizeof(double));
-            if (values == NULL) {
-              printf(" caps_open: %d MALLOC on %d Doubles!",
-                     j+1, value[i].length);
-              continue;
-            }
-            value[i].vals.reals = values;
-          }
-          /* flip storage
-          for (n = m = jj = 0; jj < ncol; jj++)
-          for (k = 0; k < nrow; k++, n++) {  */
-          for (n = m = k = 0; k < nrow; k++)
-            for (jj = 0; jj < ncol; jj++, n++) {
-              status = ocsmGetValu(problem->modl, j+1, k+1, jj+1,
-                                   &values[n], &dot);
-              if (status != SUCCESS) {
-                printf(" caps_open: %d ocsmGetValu returns %d!",
-                       j+1, status);
-                continue;
-              }
-              if (values[n] == -HUGEQ) m++;
-            }
-          if (m != 0) value->nullVal = IsNull;
-        }
-#endif
 
         status = caps_makeObject(&objs);
         if (status != CAPS_SUCCESS) {
@@ -3517,6 +3623,10 @@ caps_open(const char *filename, const char *pname, capsObject **pobject)
           value[i].vals.real        = 0.0;
           value[i].limits.dlims[0]  = value[i].limits.dlims[1] = 0.0;
           value[i].linkMethod       = Copy;
+          value[i].gInType          = 0;
+          value[i].partial          = NULL;
+          value[i].ndot             = 0;
+          value[i].dots             = NULL;
           value[i].length           = len;
           if (len > 1) value[i].dim = Vector;
           
@@ -3590,6 +3700,10 @@ caps_open(const char *filename, const char *pname, capsObject **pobject)
           value[i].vals.real        = 0.0;
           value[i].limits.dlims[0]  = value[i].limits.dlims[1] = 0.0;
           value[i].linkMethod       = Copy;
+          value[i].gInType          = 0;
+          value[i].partial          = NULL;
+          value[i].ndot             = 0;
+          value[i].dots             = NULL;
           value[i].length           = len;
           if (len > 1) value[i].dim = Vector;
           
@@ -3631,7 +3745,8 @@ caps_open(const char *filename, const char *pname, capsObject **pobject)
           for (j = 0; j < len; j++) reals[j] = areals[j];
         }
       }
-
+      /* set geometry serial number */
+      problem->geometry.sNum = problem->sNum;
     }
     
     problem->filename = EG_strdup(filename);
@@ -3700,6 +3815,7 @@ caps_start(ego model, const char *pname, capsObject **pobject)
   problem->file           = NULL;
   problem->fileLen        = 0;
   problem->outLevel       = 1;
+  problem->funID          = CAPS_START;
   problem->modl           = NULL;
   problem->nParam         = 0;
   problem->params         = NULL;
@@ -3721,6 +3837,8 @@ caps_start(ego model, const char *pname, capsObject **pobject)
   problem->nBodies        = 0;
   problem->bodies         = NULL;
   problem->lunits         = NULL;
+  problem->nRegGIN        = 0;
+  problem->regGIN         = NULL;
   problem->sNum           = problem->writer.sNum = 1;
   problem->writer.pname   = EG_strdup(pname);
   caps_getStaticStrings(&problem->signature, &problem->writer.pID,
@@ -3758,10 +3876,8 @@ caps_start(ego model, const char *pname, capsObject **pobject)
   }
   object->type  = PROBLEM;
   object->blind = problem;
- 
-/*@-nullpass@*/
-  problem->utsystem = ut_read_xml(NULL);
-/*@+nullpass@*/
+
+  caps_initUnits(problem);
   if (problem->utsystem == NULL) {
     caps_close(object);
     return CAPS_UNITERR;
@@ -3840,6 +3956,10 @@ caps_start(ego model, const char *pname, capsObject **pobject)
         value[i].vals.real        = 0.0;
         value[i].limits.dlims[0]  = value[i].limits.dlims[1] = 0.0;
         value[i].linkMethod       = Copy;
+        value[i].gInType          = 0;
+        value[i].partial          = NULL;
+        value[i].ndot             = 0;
+        value[i].dots             = NULL;
         value[i].length           = len;
         if (len > 1) value[i].dim = Vector;
         
@@ -3913,6 +4033,10 @@ caps_start(ego model, const char *pname, capsObject **pobject)
         value[i].vals.real        = 0.0;
         value[i].limits.dlims[0]  = value[i].limits.dlims[1] = 0.0;
         value[i].linkMethod       = Copy;
+        value[i].gInType          = 0;
+        value[i].partial          = NULL;
+        value[i].ndot             = 0;
+        value[i].dots             = NULL;
         value[i].length           = len;
         if (len > 1) value[i].dim = Vector;
         

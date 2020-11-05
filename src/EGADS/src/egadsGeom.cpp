@@ -42,6 +42,18 @@
   extern "C" int  EG_spline2d( egObject *context, int endc,
                                /*@null@*/ const double **dr, int imax, int jmax,
                                const double *xyz, double tol, egObject **esrf );
+  extern "C" int  EG_getERange( const egObject *obj, double *range,
+                                int *periodic );
+  extern "C" int  EG_arcELength( const egObject *object, double t1, double t2,
+                                 double *alen );
+  extern "C" int  EG_eEvaluate( const egObject *object, const double *param,
+                                double *result );
+  extern "C" int  EG_invEEvaluate( const egObject *object, double *xyz,
+                                   double *param, double *result);
+  template<class T>
+  int EG_spline1dFit(int endx, int imaxx, const T *xyz,
+                     const T *kn, double tol, int *ivec,
+                     T **rdata);
   extern "C" int  EG_spline2dFit( egObject *context, const double *crosT,
                                   int imax, const double *uknot,
                                   const double *souT, const double *norT,
@@ -49,11 +61,6 @@
                                   const double *wesT, const double *easT,
                                   const double *xyz, double tol,
                                   egObject **esurf );
-  extern "C" int EG_spline1dFit_dot( int endx, int imaxx,
-                                     const double *xyz, const double *xyz_dot,
-                                     const double *kn, const double *kn_dot,
-                                     double tol, int *ivec,
-                                     double **rdata, double **rdata_dot );
   template<class T>
   int EG_spline2dAppr( int endc, int imax, int jmax, const T *xyz,
                        /*@null@*/ const T   *uknot, /*@null@*/ const T *vknot,
@@ -76,7 +83,7 @@
                                            /*@null@*/ const double *limits,
                                            double *xyz, double *param,
                                            double *result );
-  extern     int  EG_inFaceX( const egObject *face, const double *uva,
+  extern "C" int  EG_inFaceX( const egObject *face, const double *uva,
                               /*@null@*/ double *pt, /*@null@*/ double *uvx );
 
   extern "C" int  EG_getGeometry( const egObject *geom, int *oclass, int *type,
@@ -98,20 +105,29 @@
                                       /*@null@*/ const double *xform_dot,
                                       egObject *copy);
   extern "C" int  EG_hasGeometry_dot(const egObject *obj);
+  extern "C" int  EG_getRangX( const egObject *geom, double *range, int *pflg );
   extern "C" int  EG_getRange( const egObject *geom, double *range, int *pflg );
   extern "C" int  EG_getRange_dot( const egObject *geom, double *range,
                                    double *range_dot, int *pflg );
+  extern "C" int  EG_setRange_dot( egObject *geom, int oclass, const double *range,
+                                   const double *range_dot );
   extern "C" int  EG_curvature( const egObject *geom, const double *param,
                                 double *result );
+  extern "C" int  EG_evaluatX( const egObject *geom, const double *param,
+                               double *result );
   extern "C" int  EG_evaluate( const egObject *geom, const double *param,
                                double *result );
   extern "C" int  EG_evaluate_dot( const egObject *geom,
                                    const double *param, const double *param_dot,
                                    double *result, double *result_dot );
+  extern "C" int  EG_invEvaluatX( const egObject *geom, double *xyz,
+                                  double *param, double *result );
   extern "C" int  EG_invEvaluate( const egObject *geom, double *xyz,
                                   double *param, double *result );
   extern "C" int  EG_invEvaluateGuess( const egObject *geom, double *xyz,
                                        double *param, double *result );
+  extern "C" int  EG_arcLenX( const egObject *geom, double t1, double t2,
+                              double *alen );
   extern "C" int  EG_arcLength( const egObject *geom, double t1, double t2,
                                 double *alen );
   extern "C" int  EG_approximate( egObject *context, int maxdeg, double tol,
@@ -1434,9 +1450,9 @@ EG_setGeometry_dot(egObject *obj, int oclass, int mtype,
                                "BODY", "MODEL"};
   static
   const char *nodeType[1] = {""};
-  static
-  const char *edgeType[6] = {"", "ONENODE", "TWONODE",
-                             "", "", "DEGENERATE"};
+//  static
+//  const char *edgeType[6] = {"", "ONENODE", "TWONODE",
+//                             "", "", "DEGENERATE"};
   static
   const char *curvType[9] = {"LINE", "CIRCLE", "ELLIPSE", "PARABOLA",
                              "HYPERBOLA", "TRIMMED", "BEZIER", "BSPLINE",
@@ -1517,65 +1533,40 @@ EG_setGeometry_dot(egObject *obj, int oclass, int mtype,
     return EGADS_SUCCESS;
   }
 
-  /* Edge section */
+  /* Edge section -- clear all dots */
 
   if (obj->oclass == EDGE) {
-    egadsEdge *pedge = (egadsEdge *) obj->blind;
-    if (rvec_dot == NULL) {
-      if ((oclass != EDGE) && (oclass != 0)) {
-        if (outLevel > 0) {
-          printf(" EGADS Error: Object Edge is not expected %s (EG_setGeometry_dot)!\n",
-                 classType[oclass]);
-        }
-        return EGADS_GEOMERR;
+    if ((oclass != EDGE) && (oclass != 0)) {
+      if (outLevel > 0) {
+        printf(" EGADS Error: Object Edge is not expected %s (EG_setGeometry_dot)!\n",
+               classType[oclass]);
       }
-      pedge->filled = 0;
-      for (i = 0; i < 2; i++) {
-        pedge->trange_dot[i] = 0;
-      }
-    } else {
-      if (oclass != EDGE) {
-        if (outLevel > 0) {
-          printf(" EGADS Error: Object Edge is not expected %s (EG_setGeometry_dot)!\n",
-                 classType[oclass]);
-        }
-        return EGADS_GEOMERR;
-      }
-      if (mtype != obj->mtype) {
-        if (outLevel > 0) {
-          printf(" EGADS Error: Object Edge %s is not expected Edge %s (EG_setGeometry_dot)!\n",
-               edgeType[obj->mtype], edgeType[mtype]);
-        }
-        return EGADS_GEOMERR;
-      }
-
-      pedge->filled = 1;
-      for (i = 0; i < 2; i++) {
-        pedge->trange_dot[i].value() = pedge->trange[i];
-        pedge->trange_dot[i].deriv() = rvec_dot[i];
-      }
-
-      /* check consistency in the data */
-      stat = EGADS_SUCCESS;
-      scale = 0.0;
-      for (i = 0; i < 2; i++) {
-        if (fabs(pedge->trange[i]) > scale) scale = fabs(pedge->trange[i]);
-      }
-      if (scale == 0.0) scale = 1.0;
-      for (i = 0; i < 2; i++)
-        if (fabs(pedge->trange[i] - rvec[i]) > 1.e-14*scale) {
-          stat++;
-          break;
-        }
-      if (stat != EGADS_SUCCESS) {
-        if (outLevel > 0) {
-          printf(" EGADS Error: Inconsistent Edge t-range data! (EG_setGeometry_dot)\n");
-          for (i = 0; i < 2; i++)
-            printf("     data[%d] %lf : %lf\n", i, pedge->trange[i], rvec[i]);
-        }
-        return EGADS_GEOMERR;
-      }
+      return EGADS_GEOMERR;
     }
+    if (rvec_dot != NULL) {
+      if (outLevel > 0) {
+        printf(" EGADS Error: Cannot set non-NULL sensitivity on Edge (EG_setGeometry_dot)!\n");
+      }
+      return EGADS_NODATA;
+    }
+    egadsEdge *pedge = (egadsEdge *) obj->blind;
+
+    /* clear t-range dot */
+    pedge->filled = 0;
+    for (i = 0; i < 2; i++) {
+      pedge->trange_dot[i] = 0;
+    }
+
+    /* clear curve dot */
+    stat = EG_setGeometry_dot(pedge->curve, CURVE, pedge->curve->mtype, NULL, NULL, NULL);
+    if (stat != EGADS_SUCCESS) return stat;
+
+    /* clear node dot */
+    stat = EG_setGeometry_dot(pedge->nodes[0], NODE, 0, NULL, NULL, NULL);
+    if (stat != EGADS_SUCCESS) return stat;
+    stat = EG_setGeometry_dot(pedge->nodes[1], NODE, 0, NULL, NULL, NULL);
+    if (stat != EGADS_SUCCESS) return stat;
+
     return EGADS_SUCCESS;
   }
 
@@ -1599,16 +1590,6 @@ EG_setGeometry_dot(egObject *obj, int oclass, int mtype,
 
     for (i = 0; i < ploop->nedges; i++) {
       stat = EG_setGeometry_dot(ploop->edges[i], EDGE, 0, NULL, NULL, NULL);
-      if (stat != EGADS_SUCCESS) return stat;
-
-      egadsEdge *pedge = (egadsEdge *) ploop->edges[i]->blind;
-
-      stat = EG_setGeometry_dot(pedge->curve, CURVE, pedge->curve->mtype, NULL, NULL, NULL);
-      if (stat != EGADS_SUCCESS) return stat;
-
-      stat = EG_setGeometry_dot(pedge->nodes[0], NODE, 0, NULL, NULL, NULL);
-      if (stat != EGADS_SUCCESS) return stat;
-      stat = EG_setGeometry_dot(pedge->nodes[1], NODE, 0, NULL, NULL, NULL);
       if (stat != EGADS_SUCCESS) return stat;
     }
 
@@ -2524,8 +2505,13 @@ EG_getGeometry_dot(const egObject *obj, SurrealS<1> **data_dot)
   }
 
   (*data_dot) = (SurrealS<1> *) EG_alloc(len*sizeof(SurrealS<1>));
+  if ((*data_dot) == NULL) return EGADS_MALLOC;
 
   stat = EG_getGeometry_dot(obj, &rvec, &rvec_dot);
+  if (stat != EGADS_SUCCESS) {
+    EG_free((*data_dot));
+    return stat;
+  }
 
   for (i = 0; i < len; i++) {
     (*data_dot)[i].value() = rvec[i];
@@ -2535,7 +2521,7 @@ EG_getGeometry_dot(const egObject *obj, SurrealS<1> **data_dot)
   EG_free(rvec);
   EG_free(rvec_dot);
 
-  return stat;
+  return EGADS_SUCCESS;
 }
 
 
@@ -5176,18 +5162,18 @@ EG_makeGeometry(egObject *context, int oclass, int mtype,
 
 
 int
-EG_getRange(const egObject *geom, double *range, int *periodic)
+EG_getRangX(const egObject *geom, double *range, int *periodic)
 {
   int per;
 
   *periodic = 0;
   if  (geom == NULL)               return EGADS_NULLOBJ;
   if  (geom->magicnumber != MAGIC) return EGADS_NOTOBJ;
+  if  (geom->blind == NULL)        return EGADS_NODATA;
   if ((geom->oclass != PCURVE) &&
       (geom->oclass != CURVE)  && (geom->oclass != SURFACE) &&
       (geom->oclass != EDGE)   && (geom->oclass != FACE))
                                    return EGADS_NOTGEOM;
-  if (geom->blind == NULL)         return EGADS_NODATA;
 
   if (geom->oclass == PCURVE) {
 
@@ -5248,6 +5234,24 @@ EG_getRange(const egObject *geom, double *range, int *periodic)
   }
 
   return EGADS_SUCCESS;
+}
+
+
+int
+EG_getRange(const egObject *geom, double *range, int *periodic)
+{
+  
+  *periodic = 0;
+  if  (geom == NULL)               return EGADS_NULLOBJ;
+  if  (geom->magicnumber != MAGIC) return EGADS_NOTOBJ;
+  if  (geom->blind == NULL)        return EGADS_NODATA;
+  if ((geom->oclass == EEDGE)  ||
+      (geom->oclass == EFACE))     return EG_getERange(geom, range, periodic);
+  if ((geom->oclass != PCURVE) &&
+      (geom->oclass != CURVE)  && (geom->oclass != SURFACE) &&
+      (geom->oclass != EDGE)   && (geom->oclass != FACE))
+                                   return EGADS_NOTGEOM;
+  return EG_getRangX(geom, range, periodic);
 }
 
 
@@ -5372,6 +5376,108 @@ EG_getRange_dot(const egObject *geom, double *range, double *range_dot,
 
 
 int
+EG_setRange_dot(egObject *geom, int oclass,
+                const double *range, const double *range_dot)
+{
+  int stat, outLevel, i;
+  double scale;
+
+  static
+  const char *classType[27] = {"CONTEXT", "TRANSFORM", "TESSELLATION",
+                               "NIL", "EMPTY", "REFERENCE", "", "",
+                               "", "", "PCURVE", "CURVE", "SURFACE", "",
+                               "", "", "", "", "", "", "NODE",
+                               "EGDE", "LOOP", "FACE", "SHELL",
+                               "BODY", "MODEL"};
+
+  if  (geom == NULL)               return EGADS_NULLOBJ;
+  if  (geom->magicnumber != MAGIC) return EGADS_NOTOBJ;
+  if ((geom->oclass != PCURVE) &&
+      (geom->oclass != CURVE)  && (geom->oclass != SURFACE) &&
+      (geom->oclass != EDGE)   && (geom->oclass != FACE))
+                                   return EGADS_NOTGEOM;
+  if (geom->blind == NULL)         return EGADS_NODATA;
+
+  outLevel = EG_outLevel(geom);
+
+  /* Edge section */
+
+  if (geom->oclass == EDGE) {
+    egadsEdge *pedge = (egadsEdge *) geom->blind;
+    if (range_dot == NULL) {
+      if ((oclass != EDGE) && (oclass != 0)) {
+        if (outLevel > 0) {
+          printf(" EGADS Error: Object Edge is not expected %s (EG_setRange_dot)!\n",
+                 classType[oclass]);
+        }
+        return EGADS_GEOMERR;
+      }
+      pedge->filled = 0;
+      for (i = 0; i < 2; i++) {
+        pedge->trange_dot[i] = 0;
+      }
+    } else {
+      if (oclass != EDGE) {
+        if (outLevel > 0) {
+          printf(" EGADS Error: Object Edge is not expected %s (EG_setRange_dot)!\n",
+                 classType[oclass]);
+        }
+        return EGADS_GEOMERR;
+      }
+
+      pedge->filled = 1;
+      for (i = 0; i < 2; i++) {
+        pedge->trange_dot[i].value() = pedge->trange[i];
+        pedge->trange_dot[i].deriv() = range_dot[i];
+      }
+
+      /* check consistency in the data */
+      stat = EGADS_SUCCESS;
+      scale = 0.0;
+      for (i = 0; i < 2; i++) {
+        if (fabs(pedge->trange[i]) > scale) scale = fabs(pedge->trange[i]);
+      }
+      if (scale == 0.0) scale = 1.0;
+      for (i = 0; i < 2; i++)
+        if (fabs(pedge->trange[i] - range[i]) > 1.e-14*scale) {
+          stat++;
+          break;
+        }
+      if (stat != EGADS_SUCCESS) {
+        if (outLevel > 0) {
+          printf(" EGADS Error: Inconsistent Edge t-range data! (EG_setRange_dot)\n");
+          for (i = 0; i < 2; i++)
+            printf("     data[%d] %lf : %lf\n", i, pedge->trange[i], range[i]);
+        }
+        return EGADS_GEOMERR;
+      }
+    }
+    return EGADS_SUCCESS;
+  }
+
+  printf(" EGADS Error: Range sensitivity not available for %s!", classType[geom->oclass]);
+
+  return EGADS_NOTGEOM;
+}
+
+int
+EG_setRange_dot(egObject *geom, int oclass,
+                const SurrealS<1> *rangeS)
+{
+  double range[4], range_dot[4];
+
+  if (geom->oclass == EDGE) {
+    range[0] = rangeS[0].value();
+    range[1] = rangeS[1].value();
+
+    range_dot[0] = rangeS[0].deriv();
+    range_dot[1] = rangeS[1].deriv();
+  }
+
+  return EG_setRange_dot(geom, oclass, range, range_dot);
+}
+
+int
 EG_curvature(const egObject *geom, const double *param, double *result)
 {
   if  (geom == NULL)               return EGADS_NULLOBJ;
@@ -5490,7 +5596,8 @@ EG_curvature(const egObject *geom, const double *param, double *result)
 
 
 int
-EG_evaluate(const egObject *geom, /*@null@*/ const double *param, double *result)
+EG_evaluatX(const egObject *geom, /*@null@*/ const double *param,
+            double *result)
 {
   int            stat, outLevel, per, our = 1;
   double         range[4];
@@ -5500,11 +5607,11 @@ EG_evaluate(const egObject *geom, /*@null@*/ const double *param, double *result
 
   if  (geom == NULL)               return EGADS_NULLOBJ;
   if  (geom->magicnumber != MAGIC) return EGADS_NOTOBJ;
+  if  (geom->blind == NULL)        return EGADS_NODATA;
   if ((geom->oclass != NODE)  && (geom->oclass != PCURVE)  &&
       (geom->oclass != CURVE) && (geom->oclass != SURFACE) &&
       (geom->oclass != EDGE)  && (geom->oclass != FACE))
                                    return EGADS_NOTGEOM;
-  if (geom->blind == NULL)         return EGADS_NODATA;
   outLevel = EG_outLevel(geom);
 
   // special Node section
@@ -5641,6 +5748,24 @@ EG_evaluate(const egObject *geom, /*@null@*/ const double *param, double *result
   }
 
   return EGADS_SUCCESS;
+}
+
+
+int
+EG_evaluate(const egObject *geom, /*@null@*/ const double *param,
+            double *result)
+{
+  if  (geom == NULL)               return EGADS_NULLOBJ;
+  if  (geom->magicnumber != MAGIC) return EGADS_NOTOBJ;
+  if  (geom->blind == NULL)        return EGADS_NODATA;
+  if ((geom->oclass == EEDGE) ||
+      (geom->oclass == EFACE))     return EG_eEvaluate(geom, param, result);
+  if ((geom->oclass != NODE)  && (geom->oclass != PCURVE)  &&
+      (geom->oclass != CURVE) && (geom->oclass != SURFACE) &&
+      (geom->oclass != EDGE)  && (geom->oclass != FACE))
+                                   return EGADS_NOTGEOM;
+  
+  return EG_evaluatX(geom, param, result);
 }
 
 
@@ -6237,7 +6362,7 @@ EG_invEvalClip(const egObject *geom, double *xyz, double *param, double *result)
 
 
 int
-EG_invEvaluate(const egObject *geom, double *xyz, double *param, double *result)
+EG_invEvaluatX(const egObject *geom, double *xyz, double *param, double *result)
 {
   int            outLevel, stat, per, our = 1;
   const egObject *ref;
@@ -6245,11 +6370,11 @@ EG_invEvaluate(const egObject *geom, double *xyz, double *param, double *result)
 
   if  (geom == NULL)               return EGADS_NULLOBJ;
   if  (geom->magicnumber != MAGIC) return EGADS_NOTOBJ;
+  if  (geom->blind == NULL)        return EGADS_NODATA;
   if ((geom->oclass != PCURVE) &&
       (geom->oclass != CURVE)  && (geom->oclass != SURFACE) &&
       (geom->oclass != EDGE)   && (geom->oclass != FACE))
                                    return EGADS_NOTGEOM;
-  if (geom->blind == NULL)         return EGADS_NODATA;
   outLevel = EG_outLevel(geom);
 
   // use our evaluators if the data exists and we are not a periodic BSpline
@@ -6531,6 +6656,22 @@ EG_invEvaluate(const egObject *geom, double *xyz, double *param, double *result)
 
 
 int
+EG_invEvaluate(const egObject *geom, double *xyz, double *param, double *result)
+{
+  if  (geom == NULL)               return EGADS_NULLOBJ;
+  if  (geom->magicnumber != MAGIC) return EGADS_NOTOBJ;
+  if  (geom->blind == NULL)        return EGADS_NODATA;
+  if ((geom->oclass == EEDGE)  || (geom->oclass == EFACE))
+    return EG_invEEvaluate(geom, xyz, param, result);
+  if ((geom->oclass != PCURVE) &&
+      (geom->oclass != CURVE)  && (geom->oclass != SURFACE) &&
+      (geom->oclass != EDGE)   && (geom->oclass != FACE))
+                                   return EGADS_NOTGEOM;
+  return EG_invEvaluatX(geom, xyz, param, result);
+}
+
+
+int
 EG_invEvaluateGuess(const egObject *geom, double *xyz,
                     double *param, double *result)
 {
@@ -6598,15 +6739,15 @@ EG_invEvaluateGuess(const egObject *geom, double *xyz,
 
 
 int
-EG_arcLength(const egObject *geom, double t1, double t2, double *alen)
+EG_arcLenX(const egObject *geom, double t1, double t2, double *alen)
 {
 
   *alen = 0.0;
   if  (geom == NULL)               return EGADS_NULLOBJ;
   if  (geom->magicnumber != MAGIC) return EGADS_NOTOBJ;
+  if  (geom->blind == NULL)        return EGADS_NODATA;
   if ((geom->oclass != PCURVE) && (geom->oclass != CURVE) &&
       (geom->oclass != EDGE))      return EGADS_NOTGEOM;
-  if (geom->blind == NULL)         return EGADS_NODATA;
 
   if (geom->oclass == PCURVE) {
 
@@ -6640,6 +6781,19 @@ EG_arcLength(const egObject *geom, double t1, double t2, double *alen)
   }
 
   return EGADS_SUCCESS;
+}
+
+int
+EG_arcLength(const egObject *geom, double t1, double t2, double *alen)
+{
+  *alen = 0.0;
+  if  (geom == NULL)               return EGADS_NULLOBJ;
+  if  (geom->magicnumber != MAGIC) return EGADS_NOTOBJ;
+  if  (geom->blind == NULL)        return EGADS_NODATA;
+  if  (geom->oclass == EEDGE)      return EG_arcELength(geom, t1, t2, alen);
+  if ((geom->oclass != PCURVE) && (geom->oclass != CURVE) &&
+      (geom->oclass != EDGE))      return EGADS_NOTGEOM;
+  return EG_arcLenX(geom, t1, t2, alen);
 }
 
 
@@ -6813,15 +6967,16 @@ EG_approximate(egObject *context, int maxdeg, double tol, const int *sizes,
 
 int
 EG_approximate_dot(egObject *bspline, int maxdeg, double tol, const int *sizes,
-                   const double *data, const double *data_dot)
+                   const SurrealS<1> *data)
 {
   int      outLevel, stat, imax, fixed, header[7];
-  double   *rdata=NULL, *rdata_dot=NULL;
+  SurrealS<1> *rdata=NULL;
   egObject *context;
 
   if (bspline == NULL)               return EGADS_NULLOBJ;
   if (bspline->magicnumber != MAGIC) return EGADS_NOTOBJ;
   if (bspline->mtype != BSPLINE)     return EGADS_NOTGEOM;
+  if (data == NULL)                  return EGADS_NODATA;
   context  = EG_context(bspline);
   if (context == NULL)               return EGADS_NOTCNTX;
   if (EG_sameThread(context))        return EGADS_CNTXTHRD;
@@ -6830,19 +6985,19 @@ EG_approximate_dot(egObject *bspline, int maxdeg, double tol, const int *sizes,
 
   if ((maxdeg < 0) || (maxdeg > 8)) {
     if (outLevel > 0)
-      printf(" EGADS Warning: maxDeg = %d (EG_approximate)!\n", maxdeg);
+      printf(" EGADS Warning: maxDeg = %d (EG_approximate_dot)!\n", maxdeg);
     return EGADS_RANGERR;
   }
 
   if (sizes[1] == -1)
     if ((maxdeg < 3) && (sizes[0] > 2)) {
 
-      stat = EG_spline1dFit_dot(maxdeg, -sizes[0], data, data_dot,
-                                NULL, NULL, tol, header,
-                                &rdata, &rdata_dot);
+      stat = EG_spline1dFit< SurrealS<1> >(maxdeg, -sizes[0], data,
+                                           NULL, tol, header,
+                                           &rdata);
       if (stat != EGADS_SUCCESS) goto cleanup;
 
-      stat = EG_setGeometry_dot(bspline, CURVE, BSPLINE, header, rdata, rdata_dot);
+      stat = EG_setGeometry_dot(bspline, CURVE, BSPLINE, header, rdata);
       if (stat != EGADS_SUCCESS) goto cleanup;
 
       goto cleanup;
@@ -6854,17 +7009,17 @@ EG_approximate_dot(egObject *bspline, int maxdeg, double tol, const int *sizes,
 
       imax = sizes[0];
       if (fixed != 0) imax = -imax;
-      stat = EG_spline1dFit_dot(maxdeg, imax, data, data_dot,
-                                NULL, NULL, tol, header,
-                                &rdata, &rdata_dot);
+      stat = EG_spline1dFit< SurrealS<1> >(maxdeg, imax, data,
+                                           NULL, tol, header,
+                                           &rdata);
       if (stat != EGADS_SUCCESS) goto cleanup;
 
-      stat = EG_setGeometry_dot(bspline, CURVE, BSPLINE, header, rdata, rdata_dot);
+      stat = EG_setGeometry_dot(bspline, CURVE, BSPLINE, header, rdata);
       if (stat != EGADS_SUCCESS) goto cleanup;
 
     } else {
       if (outLevel > 0)
-        printf(" EGADS Error: maxDeg = %d > 3 does not have sensitivities (EG_approximate)!\n",
+        printf(" EGADS Error: maxDeg = %d > 3 does not have sensitivities (EG_approximate_dot)!\n",
                maxdeg);
       stat = EGADS_RANGERR;
       goto cleanup;
@@ -6873,7 +7028,7 @@ EG_approximate_dot(egObject *bspline, int maxdeg, double tol, const int *sizes,
   } else if ((sizes[0] <= 2) || (sizes[1] < 1)) {
 
     if (outLevel > 0)
-      printf(" EGADS Error: Sizes = %d %d (EG_approximate)!\n",
+      printf(" EGADS Error: Sizes = %d %d (EG_approximate_dot)!\n",
              sizes[0], sizes[1]);
     stat = EGADS_RANGERR;
     goto cleanup;
@@ -6882,28 +7037,18 @@ EG_approximate_dot(egObject *bspline, int maxdeg, double tol, const int *sizes,
 
     if (maxdeg < 3) {
 
-      SurrealS<1> *xyz = new SurrealS<1>[3*sizes[0]*sizes[1]];
-      SurrealS<1> *sdata = NULL;
-
-      for (int i = 0; i < 3*sizes[0]*sizes[1]; i++) {
-        xyz[i].value() = data[i];
-        xyz[i].deriv() = data_dot[i];
-      }
-
-      stat = EG_spline2dAppr< SurrealS<1> >(maxdeg, sizes[0], sizes[1], xyz,
+      stat = EG_spline2dAppr< SurrealS<1> >(maxdeg, sizes[0], sizes[1], data,
                                             NULL, NULL, NULL, NULL, NULL,
                                             NULL, NULL, NULL, NULL,
-                                            tol, header, &sdata);
-      delete [] xyz;
+                                            tol, header, &rdata);
       if (stat != EGADS_SUCCESS) goto cleanup;
 
-      stat = EG_setGeometry_dot(bspline, SURFACE, BSPLINE, header, sdata);
-      EG_free(sdata);
+      stat = EG_setGeometry_dot(bspline, SURFACE, BSPLINE, header, rdata);
       if (stat != EGADS_SUCCESS) goto cleanup;
 
     } else {
       if (outLevel > 0)
-        printf(" EGADS Error: maxDeg = %d > 3 does not have sensitivities (EG_approximate)!\n",
+        printf(" EGADS Error: maxDeg = %d > 3 does not have sensitivities (EG_approximate_dot)!\n",
                maxdeg);
       stat = EGADS_RANGERR;
       goto cleanup;
@@ -6915,7 +7060,46 @@ EG_approximate_dot(egObject *bspline, int maxdeg, double tol, const int *sizes,
 
 cleanup:
   EG_free(rdata);
-  EG_free(rdata_dot);
+
+  return stat;
+}
+
+
+int
+EG_approximate_dot(egObject *bspline, int maxdeg, double tol, const int *sizes,
+                   const double *data, const double *data_dot)
+{
+  int  outLevel, stat, imax;
+  egObject *context;
+
+  if (bspline == NULL)               return EGADS_NULLOBJ;
+  if (bspline->magicnumber != MAGIC) return EGADS_NOTOBJ;
+  if (bspline->mtype != BSPLINE)     return EGADS_NOTGEOM;
+  if (data == NULL)                  return EGADS_NODATA;
+  if (data_dot == NULL)              return EGADS_NODATA;
+
+  context  = EG_context(bspline);
+  if (context == NULL)               return EGADS_NOTCNTX;
+  if (EG_sameThread(context))        return EGADS_CNTXTHRD;
+  outLevel = EG_outLevel(context);
+
+  if ((sizes[0] <= 2)) {
+    if (outLevel > 0)
+      printf(" EGADS Error: Sizes = %d %d (EG_approximate_dot)!\n",
+             sizes[0], sizes[1]);
+    return EGADS_RANGERR;
+  }
+
+  imax = sizes[0] * (sizes[1] <= 0 ? 1 : sizes[1]);
+  SurrealS<1> *sdata = new SurrealS<1>[3*imax];
+
+  for (int i = 0; i < 3*imax; i++) {
+    sdata[i].value() = data[i];
+    sdata[i].deriv() = data_dot[i];
+  }
+
+  stat = EG_approximate_dot(bspline, maxdeg, tol, sizes, sdata);
+  delete [] sdata;
 
   return stat;
 }
@@ -7917,6 +8101,23 @@ EG_convertToBSpline(egObject *object, egObject **bspline)
           printf(" EGADS Warning: Failure to Convert (EG_convertToBSpline)!\n");
         return EGADS_GEOMERR;
       }
+      /* relimit EXTRUSION Surfaces
+      if ((object->oclass == FACE) && (geom->mtype == EXTRUSION)) {
+        Standard_Real srange[4];
+        hBSpline->Bounds(srange[0],srange[1], srange[2],srange[3]);
+        if ((srange[0] != range[0]) || (srange[1] != range[1]) ||
+            (srange[2] != range[2]) || (srange[3] != range[3])) {
+            hBSpline = ShapeConstruct::ConvertSurfaceToBSpline(hBSpline,
+                                       range[0], range[1], range[2], range[3],
+                                       Precision::Confusion(), GeomAbs_C2, 100,
+                                       20);
+          if (hBSpline.IsNull()) {
+            if (outLevel > 0)
+              printf(" EGADS Warning: Fail 2 Convert (EG_convertToBSpline)!\n");
+            return EGADS_GEOMERR;
+          }
+        }
+      } */
 
       stat = EG_makeObject(context, &obj);
       if (stat != EGADS_SUCCESS) {

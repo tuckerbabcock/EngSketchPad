@@ -15,11 +15,12 @@ DESPMTR   htail:xroot       145    # xloc of root LE
 DESPMTR   htail:zroot         5    # zloc of root LE
 
 # vertical tail design parameters
-DESPMTR   vtail:area        610    # vtail area
-DESPMTR   vtail:aspect     1.80    # vtail aspect ratio
-DESPMTR   vtail:thick      0.08    # vtail thickness
-DESPMTR   vtail:xroot       150    # xloc of root LE
-DESPMTR   vtail:zroot         9    # zloc of root LE
+DIMENSION vtail 5 1
+DESPMTR   vtail            "610; \ # 1 vtail area
+                           1.80; \ # 2 vtail aspect ratio
+                           0.08; \ # 3 vtail thickness
+                            150; \ # 4 xloc of root LE
+                              9"   # 5 zloc of root LE
 
 # fuselage design parameters
 DESPMTR   fuse:length       180    # fuselage length
@@ -31,11 +32,11 @@ DESPMTR   fuse:height        20    # height of mid fuselage
 OUTPMTR  wing:wet
 OUTPMTR  wing:volume
 
-OUTPMTR  htail:wet
-OUTPMTR  htail:volume
+DIMENSION htail:prop 2 1
+OUTPMTR   htail:prop
 
-OUTPMTR  vtail:wet
-OUTPMTR  vtail:volume
+DIMENSION vtail:prop 2 1
+OUTPMTR   vtail:prop
 
 OUTPMTR  fuse:wet
 OUTPMTR  fuse:volume
@@ -61,24 +62,23 @@ BOX  htail:xroot  -htail:span/2  htail:zroot   htail:chord  htail:span  htail:ch
 SELECT body 
     ATTRIBUTE _name   $Htail
 
-SET  htail:wet    @area
-SET  htail:volume @volume
+SET  htail:prop[1] @area
+SET  htail:prop[2] @volume
 
 #================================================
 # Vtail
-SET       vtail:span      sqrt(vtail:aspect*vtail:area)
-SET       vtail:chord     vtail:area/vtail:span
+SET       vtail:span      sqrt(vtail[1]*vtail[2])
+SET       vtail:chord     vtail[1]/vtail:span
 
-BOX  vtail:xroot  0  vtail:zroot   vtail:chord  vtail:chord*vtail:thick  vtail:span
+BOX  vtail[4]  0  vtail[5]   vtail:chord  vtail:chord*vtail[3]  vtail:span
 SELECT body 
     ATTRIBUTE _name   $Vtail
 
-SET  vtail:wet    @area
-SET  vtail:volume @volume
+SET  vtail:prop[1] @area
+# vtail:prop[2] is not set
 
 #================================================
 # fuselage
-
 BOX  0  -fuse:width/2  -fuse:height/2   fuse:length  fuse:width  fuse:height
 SELECT body 
     ATTRIBUTE _name   $Fuselage

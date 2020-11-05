@@ -3,7 +3,7 @@
 # Allow print statement to be compatible between Python 2 and 3
 from __future__ import print_function
 
-# Import pyCAPS class
+# Import capsProblem class from pyCAPS
 from pyCAPS import capsProblem
 
 #------------------------------------------------------------------------------#

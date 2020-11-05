@@ -1,0 +1,10 @@
+# capsule
+# written by John Dannenhoffer
+
+DESPMTR   width       2.75000
+DESPMTR   baserad     6.47570
+DESPMTR   cornrad     0.27500
+DESPMTR   coneangle   20.00000
+DESPMTR   height      4.40000
+
+END

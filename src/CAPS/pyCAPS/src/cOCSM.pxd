@@ -404,10 +404,13 @@ cdef extern from "OpenCSM.h":
     cdef int ocsmGetCode(char   *text)          # (in)  text to look up 
     
     #Definitions
-    cdef int OCSM_EXTERNAL "OCSM_EXTERNAL"
-    cdef int OCSM_INTERNAL "OCSM_INTERNAL"
-    cdef int OCSM_CONSTANT "OCSM_CONSTANT"
-    
+    cdef int OCSM_DESPMTR  "OCSM_DESPMTR"
+    cdef int OCSM_CFGPMTR  "OCSM_CFGPMTR"
+    cdef int OCSM_CONPMTR  "OCSM_CONPMTR"
+    cdef int OCSM_LOCALVAR "OCSM_LOCALVAR"
+    cdef int OCSM_OUTPMTR  "OCSM_OUTPMTR"
+    cdef int OCSM_UNKNOWN  "OCSM_UNKNOWN"
+
     cdef int OCSM_ACTIVE     "OCSM_ACTIVE"   # Branch activities
     cdef int OCSM_SUPPRESSED "OCSM_SUPPRESSED"
     cdef int OCSM_INACTIVE   "OCSM_INACTIVE"
@@ -425,8 +428,8 @@ cdef extern from "OpenCSM.h":
     cdef int OCSM_NAME_ALREADY_DEFINED 
     cdef int OCSM_NESTED_TOO_DEEPLY
     cdef int OCSM_IMPROPER_NESTING  
-    cdef int OCSM_NESTING_NOT_CLOSED       
-    cdef int OCSM_NOT_MODL_STRUCTURE          
+    cdef int OCSM_NESTING_NOT_CLOSED    
+    cdef int OCSM_NOT_MODL_STRUCTURE
     cdef int OCSM_PROBLEM_CREATING_PERTURB      
     
     cdef int OCSM_MISSING_MARK                  
@@ -469,9 +472,10 @@ cdef extern from "OpenCSM.h":
     
     cdef int OCSM_NAME_NOT_FOUND                  
     cdef int OCSM_NAME_NOT_UNIQUE                 
-    cdef int OCSM_PMTR_IS_EXTERNAL                
-    cdef int OCSM_PMTR_IS_INTERNAL                
-    cdef int OCSM_PMTR_IS_CONSTANT                
+    cdef int OCSM_PMTR_IS_DESPMTR
+    cdef int OCSM_PMTR_IS_CONPMTR
+    cdef int OCSM_PMTR_IS_OUTPMTR
+    cdef int OCSM_PMTR_IS_LOCALVAR
     cdef int OCSM_WRONG_PMTR_TYPE                 
     cdef int OCSM_FUNC_ARG_OUT_OF_BOUNDS          
     cdef int OCSM_VAL_STACK_UNDERFLOW              

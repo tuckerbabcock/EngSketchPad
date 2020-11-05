@@ -41,7 +41,8 @@ clean:
 	rm -f $(ODIR)/circle1_dot.o \
 		$(ODIR)/circle2_dot.o \
 		$(ODIR)/naca_dot.o \
-		$(ODIR)/pingBodies.o
+		$(ODIR)/pingBodies.o \
+		$(ODIR)/ruled_naca_dot.o
 
 cleanall:	clean
-	rm -f circle1_dot circle2_dot naca_dot
+	rm -f circle1_dot circle2_dot naca_dot ruled_naca_dot

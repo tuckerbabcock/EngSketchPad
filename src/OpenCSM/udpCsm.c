@@ -177,7 +177,7 @@ udpExecute(ego  context,                /* (in)  EGADS context */
 
         found = 0;
         for (ipmtr = 1; ipmtr <= MODL->npmtr; ipmtr++) {
-            if (strcmp(MODL->pmtr[ipmtr].name, temp) == 0 && MODL->pmtr[ipmtr].type == OCSM_EXTERNAL) {
+            if (strcmp(MODL->pmtr[ipmtr].name, temp) == 0 && MODL->pmtr[ipmtr].type == OCSM_DESPMTR) {
                 MODL->pmtr[ipmtr].value[0] = PMTRVALUE(myUdp,i);
                 MODL->pmtr[ipmtr].dot[  0] = 0;
                 found = 1;

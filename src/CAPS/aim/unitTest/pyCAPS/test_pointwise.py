@@ -183,7 +183,7 @@ class TestPointwise(unittest.TestCase):
         # Just make sure it runs without errors...
         self.run_pointwise(pointwise)
 
-    def off_test_cylinder(self):
+    def test_cylinder(self):
 
         # Load pointwise aim
         pointwise = self.myProblem.loadAIM(aim = "pointwiseAIM",
@@ -271,7 +271,7 @@ class TestPointwise(unittest.TestCase):
         # Just make sure it runs without errors...
         self.run_pointwise(pointwise)
 
-    def off_test_bullet(self):
+    def test_bullet(self):
 
         # Load pointwise aim
         pointwise = self.myProblem.loadAIM(aim = "pointwiseAIM",
@@ -293,7 +293,7 @@ class TestPointwise(unittest.TestCase):
         # Load pointwise aim
         pointwise = self.myProblem.loadAIM(aim = "pointwiseAIM",
                                            analysisDir = self.workDir + "All",
-                                           capsIntent = ["box", "cone", "sphere", "farfield"]) #, "torus", "cylinder", "boxhole"
+                                           capsIntent = ["box", "cone", "sphere", "cylinder", "bullet", "farfield"]) #, "torus", "boxhole"
 
         #pointwise.saveGeometry("GeomAll")
 

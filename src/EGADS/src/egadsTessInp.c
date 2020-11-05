@@ -92,6 +92,8 @@ __PROTO_H_AND_D__ int  EG_getTopology( const egObject *topo, egObject **geom,
 __PROTO_H_AND_D__ int  EG_getBodyTopos( const egObject *body,
                                         /*@null@*/ egObject *src, int oclass,
                                         int *nto, /*@null@*/ egObject ***topo );
+__PROTO_H_AND_D__ int  EG_objectBodyTopo( const egObject *body, int oclass,
+                                          int index, egObject **topo );
 __PROTO_H_AND_D__ int  EG_indexBodyTopo( const egObject *body,
                                          const egObject *src );
 __PROTO_H_AND_D__ int  EG_evaluate( const egObject *geom,
@@ -163,6 +165,10 @@ EG_openTessBody(egObject *tess)
   /* set open state and clean up any local/global mappings */
   btess->done = 0;
   EG_cleanupTessMaps(btess);
+#ifndef LITE
+  EG_attributeDel(tess, ".mixed");
+  EG_attributeDel(tess, ".tessType");
+#endif
 
   return EGADS_SUCCESS;
 }
@@ -665,7 +671,7 @@ EG_computeTessMap(egTessel *btess, int outLevel)
 __HOST_AND_DEVICE__ int
 EG_statusTessBody(egObject *tess, egObject **body, int *state, int *npts)
 {
-  int          i, j, k, stat, outLevel, atype, alen;
+  int          i, j, k, stat, outLevel, atype, alen, warn = 1;
   egTessel     *btess;
   egObject     *obj;
   const int    *ints;
@@ -696,7 +702,7 @@ EG_statusTessBody(egObject *tess, egObject **body, int *state, int *npts)
       printf(" EGADS Error: Source Not an Object (EG_statusTessBody)!\n");
     return EGADS_NOTOBJ;
   }
-  if (obj->oclass != BODY) {
+  if ((obj->oclass != BODY) && (obj->oclass != EBODY)) {
     if (outLevel > 0)
       printf(" EGADS Error: Source Not Body (EG_statusTessBody)!\n");
     return EGADS_NOTBODY;
@@ -764,6 +770,7 @@ EG_statusTessBody(egObject *tess, egObject **body, int *state, int *npts)
             printf(" EGADS Error: Deleting Attribute %d (EG_statusTessBody)!\n",
                    stat);
 #endif
+          warn = -1;
         } else if (j == btess->nFace) {
 #ifndef LITE
           stat = EG_attributeAdd(tess, ".tessType", ATTRSTRING, 4, NULL, NULL,
@@ -786,7 +793,8 @@ EG_statusTessBody(egObject *tess, egObject **body, int *state, int *npts)
       }
     }
 
-    *state = btess->done = 1;
+    btess->done = 1;
+    *state = warn*btess->done;
   }
 
   if (btess->globals != NULL) return EGADS_SUCCESS;
@@ -1678,17 +1686,18 @@ EG_setTessFace(const egObject *tess, int index, int len, const double *xyz,
 __HOST_AND_DEVICE__ int
 EG_localToGlobal(const egObject *tess, int index, int local, int *global)
 {
-  int      stat;
+  int      stat, n;
   egTessel *btess;
+  egObject *node, **edges;
 
+  *global = 0;
   if  (tess == NULL)                          return EGADS_NULLOBJ;
   if  (tess->magicnumber != MAGIC)            return EGADS_NOTOBJ;
   if  (tess->oclass != TESSELLATION)          return EGADS_NOTTESS;
-  if  (index == 0)                            return EGADS_INDEXERR;
   if  (local <  1)                            return EGADS_RANGERR;
   btess = (egTessel *) tess->blind;
-  if (btess == NULL)                          return EGADS_NOTFOUND;
-  if (btess->done == 0)                       return EGADS_TESSTATE;
+  if  (btess == NULL)                         return EGADS_NOTFOUND;
+  if  (btess->done == 0)                      return EGADS_TESSTATE;
   if ((index < 0) && (-index > btess->nEdge)) return EGADS_INDEXERR;
   if ((index > 0) && ( index > btess->nFace)) return EGADS_INDEXERR;
 
@@ -1701,13 +1710,45 @@ EG_localToGlobal(const egObject *tess, int index, int local, int *global)
   }
 
   if (index < 0) {
+    /* Edge */
     if (btess->tess1d[-index-1].global == NULL) return EGADS_DEGEN;
     if (local > btess->tess1d[-index-1].npts) return EGADS_RANGERR;
     *global = btess->tess1d[-index-1].global[local-1];
-  } else {
+    
+  } else if (index > 0) {
+    /* Face */
     if (btess->tess2d[ index-1].global == NULL) return EGADS_DEGEN;
     if (local > btess->tess2d[ index-1].npts) return EGADS_RANGERR;
     *global = btess->tess2d[ index-1].global[local-1];
+    
+  } else {
+    /* Node */
+    stat = EG_objectBodyTopo(btess->src, NODE, local, &node);
+    if (stat != EGADS_SUCCESS) {
+      printf(" EGADS Error: EG_objectBodyTopo = %d (EG_localToGlobal)!\n", stat);
+      return stat;
+    }
+    stat = EG_getBodyTopos(btess->src, node, EDGE, &n, &edges);
+    if (stat != EGADS_SUCCESS) {
+      printf(" EGADS Error: EG_getBodyTopos = %d (EG_localToGlobal)!\n", stat);
+      return stat;
+    }
+    if (n == 0) {
+      printf(" EGADS Error: No Edges for Node (EG_localToGlobal)!\n");
+      return EGADS_TOPOERR;
+    }
+    stat = EG_indexBodyTopo(btess->src, edges[0]);
+    if (stat <= EGADS_SUCCESS) {
+      printf(" EGADS Error: EG_indexBodyTopo = %d (EG_localToGlobal)!\n", stat);
+      return stat;
+    }
+    EG_free(edges);
+    if (btess->tess1d[stat-1].global == NULL) return EGADS_DEGEN;
+    if (btess->tess1d[stat-1].nodes[0] == local) {
+      *global = btess->tess1d[stat-1].global[0];
+    } else {
+      *global = btess->tess1d[stat-1].global[btess->tess1d[stat-1].npts-1];
+    }
   }
 
   return EGADS_SUCCESS;
@@ -2269,7 +2310,7 @@ EG_minArc4(const ego face, double fact1, double fact2, const double *uv0,
   double delta[4], det, k02, k13, d0, d1, d2, d3, aux0[3], aux1[3], aux2[3];
   double aux3[3], r0[3], r1[3], r2[3], r3[3], uvIT[4], range[4], pOUT[18];
  #ifdef DEBUG
-  double e1 = 0.0, e2 = 0.0, lt02, lt13, x1, x0;
+  double e1 = 0.0, e2 = 0.0, lt02, lt13, x1 = 0.0, x0 = 0.0;
 #endif
 
   stat = EG_getRange(face, range, &it);
@@ -2730,7 +2771,7 @@ EG_getSidepoint(const ego face, double fact, const double *uvm,
   int    mtype;
 #endif
 #ifdef DEBUG
-  double e1 = 0.0, e2 = 0.0, x0, x1;
+  double e1 = 0.0, e2 = 0.0, x0 = 0.0, x1 = 0.0;
 #endif
 
   stat = EG_getRange(face, range, &it);

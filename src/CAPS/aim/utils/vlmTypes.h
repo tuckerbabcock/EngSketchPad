@@ -45,6 +45,7 @@ typedef struct {
 
     int    Nspan;   // number of spanwise vortices (elements)
     double Sspace;  // spanwise point distribution
+    int    Sset;    // spanwise point distribution set by user
 
     int numControl;
     vlmControlStruct *vlmControl;

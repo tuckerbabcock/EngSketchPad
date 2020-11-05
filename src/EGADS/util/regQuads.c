@@ -1100,7 +1100,7 @@ __HOST_AND_DEVICE__ static int EG_vertexArea(meshMap *qm, int vID)
      // project coordinates
      selfint =  1;
      iv      = -1;
-     mba     = ma = maiv = 0.0;
+     mba     = ma = 0.0;
      bvp     = 0;
      for (doublet = count = k = 0; k < 4; ++k) {
        ori[k]   =  1;
@@ -1251,7 +1251,7 @@ __HOST_AND_DEVICE__ static int EG_vertexArea(meshMap *qm, int vID)
  #endif
                if (ang[(iv + 2) %4] > ANGCUT &&
                             ang[iv] < ANGCUT) qm->star[vID-1]->ratio[s] = vr[0];
-               else                               qm->star[vID-1]->ratio[s] = MIN(vr[0], vr[1]);
+               else qm->star[vID-1]->ratio[s] = MIN(vr[0], vr[1]);
            } else {
                vA = 0;
                if (qa[0] > qa[1] ) vA = 1;
@@ -1265,15 +1265,16 @@ __HOST_AND_DEVICE__ static int EG_vertexArea(meshMap *qm, int vID)
            }
        }
        if (selfint == 1 && bvp >= 4) qm->star[vID-1]->area[s] = QACB;
-       if (qm->star[vID-1]->area[s] >= QA3) qm->star[vID-1]->ratio[s] = -qm->star[vID-1]->angle[s];
+       if (qm->star[vID-1]->area[s] >= QA3)
+         qm->star[vID-1]->ratio[s] = -qm->star[vID-1]->angle[s];
        if (doublet == 1) {
            if (qm->star[vID-1]->area [s] < QA3) {
                qm->star[vID-1]->area [s] = QA0;
                qm->star[vID-1]->ratio[s] = 1.0;
            }
        } else if (qm->star[vID-1]->area[s] < QA3 &&
-       ((bvp  > 1 && mba  >= PIEPS) ||
-       (bvp == 1 && maiv >= PIEPS))) {
+                 ((bvp  > 1 && mba  >= PIEPS) ||
+                  (bvp == 1 && maiv >= PIEPS))) {
  #ifdef DEBUG2
            printf(" bvp %d mba %lf maiv %lf\n", bvp, mba, maiv);
  #endif
@@ -4670,7 +4671,7 @@ __HOST_AND_DEVICE__ int EG_meshRegularization(meshMap *qm)
   minArea  = 10000000.00;
   maxArea  = avArea = 0.0;
 #endif
-  for (n0  = ni = sq = loopact = it = 0 ; it < ITMAX; it++) {
+  for (n0 = sq = loopact = it = 0 ; it < ITMAX; it++) {
       minArea = 10000000.00;
       maxArea = 0.0;
       avArea  = 0.0;
