@@ -65,6 +65,15 @@
 #include "meshUtils.h"  // Collection of helper functions for meshing
 #include "miscUtils.h"  // Collection of helper functions for miscellaneous use
 
+
+/** \brief initialize a gmi_model with an EGADS body and number of regions */
+extern "C"
+struct gmi_model* gmi_egads_init(struct egObject *body, int numRegions);
+
+/** \brief initialize the model adjacency table for 3D regions */
+extern "C" 
+void gmi_egads_init_adjacency(int ***adjacency);
+
 extern "C" int
 EG_saveTess(ego tess, const char *name); // super secret experimental EGADS tessellation format
 
