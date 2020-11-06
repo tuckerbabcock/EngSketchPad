@@ -12,7 +12,7 @@ if [[ -n "$EGADS_DIR" ]]; then
     cd build
 
     cmake .. \
-      -DCMAKE_INSTALL_PREFIX="$PWD/install" \
+      -DCMAKE_INSTALL_PREFIX="$EGADS_DIR" \
       -DCMAKE_C_COMPILER="mpicc" \
       -DCMAKE_CXX_COMPILER="mpicxx" \
       -DENABLE_EGADS=ON \
@@ -25,7 +25,7 @@ if [[ -n "$EGADS_DIR" ]]; then
     # For some reason I need to build shared and static libaries to link
     # correctly on linux
     cmake .. \
-      -DCMAKE_INSTALL_PREFIX="$PWD/install" \
+      -DCMAKE_INSTALL_PREFIX="$EGADS_DIR" \
       -DCMAKE_C_COMPILER="mpicc" \
       -DCMAKE_CXX_COMPILER="mpicxx" \
       -DENABLE_EGADS=ON \
