@@ -31,8 +31,11 @@ $(LDIR)/pumiAIM.so: $(ODIR)/pumiAIM.o \
 			$(PUMI_LDIR)/libsam.a $(PUMI_LDIR)/libspr.a
 	$(CXX) $(SOFLGS) -o $(LDIR)/pumiAIM.so $(ODIR)/pumiAIM.o \
 		$(OBJS) $(OBJSP) -L$(PUMI_LDIR) -L$(LDIR) -lutils \
-		-laimUtil -locsm -legads -ludunits2 $(RPATH) $(CPPSLB) -lm -lapf -lapf_zoltan -lcrv \
-		-lgmi -lgmi_egads -llion -lma -lmds -lmth -lparma -lpcu -lph -lpumi -lsam -lspr
+		-laimUtil -locsm -legads -ludunits2 $(RPATH) $(CPPSLB) -lm \
+		-lapf -lapf_zoltan -lcrv -lgmi -lgmi_egads -llion -lma -lmds -lmth \
+		-lparma -lpcu -lph -lpumi -lsam -lspr \
+		-lapf -lapf_zoltan -lcrv -lgmi -lgmi_egads -llion -lma -lmds -lmth \
+		-lparma -lpcu -lph -lpumi -lsam -lspr
 
 $(ODIR)/pumiAIM.o: pumi pumiAIM.cpp $(IDIR)/capsTypes.h ../utils/meshUtils.h \
 			 $(PUMI_IDIR)/apf.h $(PUMI_IDIR)/apfMesh.h $(PUMI_IDIR)/apfMesh2.h \
