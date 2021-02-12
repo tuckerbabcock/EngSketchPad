@@ -71,6 +71,14 @@ EG_saveTess(ego tess, const char *name); // super secret experimental EGADS tess
 extern "C" int
 EG_loadTess(ego body, const char *name, ego *tess);
 
+/** \brief initialize a gmi_model with an EGADS body and number of regions */
+extern "C" struct gmi_model* 
+gmi_egads_init(struct egObject *body, int numRegions);
+
+/** \brief initialize the model adjacency table for 3D regions */
+extern "C" void
+gmi_egads_init_adjacency(int ***adjacency);
+
 #define NUMINPUT   3  // number of mesh inputs
 #define NUMOUT     1  // number of outputs // placeholder for now
 
