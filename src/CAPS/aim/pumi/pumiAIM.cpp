@@ -72,7 +72,7 @@ struct gmi_model* gmi_egads_init(struct egObject *body, int numRegions);
 
 /** \brief initialize the model adjacency table for 3D regions */
 extern "C" 
-void gmi_egads_init_adjacency(int ***adjacency);
+void gmi_egads_init_adjacency(struct gmi_model* m, int ***adjacency);
 
 extern "C" int
 EG_saveTess(ego tess, const char *name); // super secret experimental EGADS tessellation format
@@ -878,12 +878,8 @@ aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValue *a
         }
     }
 
+    gmi_egads_init_adjacency(pumiModel, c_graph);
 
-    gmi_egads_init_adjacency(c_graph);
-
-
-
-    // apf::reorderMdsMesh(pumiMesh);
     pumiMesh->verify();
 
     int elementOrder = pumiInstance[iIndex].meshInput.pumiInput.elementOrder;
