@@ -1086,6 +1086,22 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
     return status;
 }
 
+/* the execution code from above should be moved here */
+extern "C" int
+aimExecute(/*@unused@*/ void *instStore, /*@unused@*/ void *aimStruc, int *state)
+{
+  *state = 0;
+  return CAPS_SUCCESS;
+}
+
+/* no longer optional and needed for restart */
+extern "C" int
+aimPostAnalysis(/*@unused@*/ void *instStore, /*@unused@*/ void *aimStruc,
+                /*@unused@*/ int restart, /*@unused@*/ capsValue *inputs)
+{
+  return CAPS_SUCCESS;
+}
+
 extern "C" int
 aimOutputs(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo, int index,
            char **aoname, capsValue *form)
