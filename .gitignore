@@ -37,6 +37,8 @@ ESPenv.*
 
 # ESP files
 include/
+bin/
+lib/
 CAPSexamples/cCAPS/aeroelasticSimple_Iterative_SU2_and_MystranTest
 CAPSexamples/cCAPS/aeroelasticTest
 CAPSexamples/cCAPS/avlTest

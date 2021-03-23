@@ -65,7 +65,6 @@
 #include "meshUtils.h"  // Collection of helper functions for meshing
 #include "miscUtils.h"  // Collection of helper functions for miscellaneous use
 
-
 /** \brief initialize a gmi_model with an EGADS body and number of regions */
 extern "C"
 struct gmi_model* gmi_egads_init(struct egObject *body, int numRegions);
@@ -369,70 +368,6 @@ cleanup:
     return status;
 }
 
-// extern "C" int
-// aimData(int iIndex, const char *name, enum capsvType *vtype, int *rank, int *nrow,
-//         int *ncol, void **data, char **units)
-// {
-
-//     /*! \page sharableDataPUMI AIM Shareable Data
-//      * The PUMI AIM has the following shareable data types/values with its children AIMs if they are so inclined.
-//      * - <B> Mesh</B> <br>
-//      * The mesh in meshStruct (see meshTypes.h) format.
-//      * - <B> PUMI_Mesh</B> <br>
-//      * The returned mesh after curving is complete in apf::Mesh2 (see <a href="https://www.scorec.rpi.edu/pumi/doxygen/apfMDS_8h.html">apfMDS.h</a>) format.
-//      * - <B> Attribute_Map</B> <br>
-//      * An index mapping between capsGroups found on the geometry in mapAttrToIndexStruct (see miscTypes.h) format.
-//      */
-
-// #ifdef DEBUG
-//     printf(" pumiAIM/aimData instance = %d  name = %s!\n", iIndex, name);
-// #endif
-
-//     // The mesh input
-//     if (strcasecmp(name, "Mesh") == 0){
-//         *vtype = Value;
-//         *rank  = *ncol = 1;
-//         *nrow = pumiInstance->numMesh;
-//         if (pumiInstance->numMesh == 1) {
-//             *data  = &pumiInstance->mesh[0];
-//         } else {
-//             *data  = pumiInstance->mesh;
-//         }
-
-//         *units = NULL;
-
-//         return CAPS_SUCCESS;
-//     }
-
-//     // The returned mesh from PUMI
-//     if (strcasecmp(name, "PUMI_Mesh") == 0){
-//         *vtype = Value;
-//         *rank  = *ncol = 1;
-//         *nrow = pumiInstance->numPUMIMesh;
-//         if (pumiInstance->numPUMIMesh == 1) {
-//             *data  = &(pumiInstance->pumiMesh[0]);
-//         } else {
-//             *data  = pumiInstance->pumiMesh;
-//         }
-
-//         *units = NULL;
-
-//         return CAPS_SUCCESS;
-//     }
-
-//     // Share the attribute map
-//     if (strcasecmp(name, "Attribute_Map") == 0){
-//         *vtype = Value;
-//         *rank  = *nrow = *ncol = 1;
-//         *data  = &pumiInstance->attrMap;
-//         *units = NULL;
-
-//         return CAPS_SUCCESS;
-//     }
-
-//     return CAPS_NOTFOUND;
-// }
-
 extern "C" int
 aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
 {
@@ -485,65 +420,6 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
         return status;
     }
 
-    // status = aim_getData(aimInfo, "Surface_Mesh", &vtype, &rank, &nrow, &ncol, &dataTransfer, &units);
-    // if (status == CAPS_SUCCESS) {
-
-    //     printf("Found link for a surface mesh (Surface_Mesh) from parent\n");
-
-    //     int numMesh = 0;
-    //     if      (nrow == 1 && ncol != 1) numMesh = ncol;
-    //     else if (nrow != 1 && ncol == 1) numMesh = nrow;
-    //     else if (nrow == 1 && ncol == 1) numMesh = nrow;
-    //     else {
-
-    //         printf("Can not except 2D matrix of surface meshes\n");
-    //         return  CAPS_BADVALUE;
-    //     }
-
-    //     if (numMesh != numBody) {
-    //         printf("Number of inherited surface meshes does not match the number of bodies\n");
-    //         return CAPS_SOURCEERR;
-    //     }
-    //     pumiInstance->numMesh =  numMesh;
-    //     pumiInstance->mesh = (meshStruct * ) dataTransfer;
-    //     pumiInstance->meshInherited = (int) true;
-
-    // } else {
-    //     status = aim_getData(aimInfo, "Volume_Mesh", &vtype, &rank, &nrow, &ncol, &dataTransfer, &units);
-    //     if (status == CAPS_SUCCESS) {
-
-    //         printf("Found link for a volume mesh (Volume_Mesh) from parent\n");
-
-    //         int numMesh = 0;
-    //         if      (nrow == 1 && ncol != 1) numMesh = ncol;
-    //         else if (nrow != 1 && ncol == 1) numMesh = nrow;
-    //         else if (nrow == 1 && ncol == 1) numMesh = nrow;
-    //         else {
-
-    //             printf("Can not except 2D matrix of surface meshes\n");
-    //             return  CAPS_BADVALUE;
-    //         }
-
-    //         if (numMesh != numBody) {
-    //             printf("Number of inherited surface meshes does not match the number of bodies\n");
-    //             return CAPS_SOURCEERR;
-    //         }
-    //         pumiInstance->numMesh =  numMesh;
-    //         pumiInstance->mesh = (meshStruct * ) dataTransfer;
-    //         pumiInstance->meshInherited = (int) true;
-    //     } else {
-    //         return status;
-    //     }
-    // }
-
-
-
-    // if (0 != pumiInstance->numMesh) {
-    //     printf(" PUMI AIM currently only supports one mesh!!\n");
-    //     /// TODO: better return?
-    //     return EGADS_INDEXERR;
-    // }
-
     // Mesh Format
     pumiInstance->meshInput.outputFormat = EG_strdup(aimInputs[Mesh_Format-1].vals.string);
     if (pumiInstance->meshInput.outputFormat == NULL) return EGADS_MALLOC;
@@ -555,21 +431,14 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
         if (pumiInstance->meshInput.outputFileName == NULL) return EGADS_MALLOC;
     }
 
-    // // Output directory
-    // pumiInstance->meshInput.outputDirectory = EG_strdup(analysisPath);
-    // if (pumiInstance->meshInput.outputDirectory == NULL) return EGADS_MALLOC;
-
     // Set PUMI specific mesh inputs -1 because aim_getIndex is 1 bias
     if (aimInputs[Mesh_Order-1].nullVal != IsNull) {
         pumiInstance->meshInput.pumiInput.elementOrder = aimInputs[Mesh_Order-1].vals.integer;
     }
-    printf("got inputs\n");
 
     // useful shorthands
     meshStruct *mesh = pumiInstance->mesh;
-    printf("got mesh ptr\n");
     apf::Mesh2 *pumiMesh = pumiInstance->pumiMesh;
-    printf("got pumi mesh ptr\n");
     
     ego tess;
     if (mesh->meshType == SurfaceMesh)
@@ -581,13 +450,10 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
         return EGADS_WRITERR;
     }
 
-    printf("got tess ptr\n");
     ego body;
     int state, npts;
     // get the body from tessellation
-    printf("getting status tess body... ");
     status = EG_statusTessBody(tess, &body, &state, &npts);
-    printf("got status tess body\n");
     if (status != EGADS_SUCCESS) {
 #ifdef DEBUG
         printf(" EGADS Warning: Tessellation is Open (EG_saveTess)!\n");
@@ -611,10 +477,8 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
     }
 
     /// initialize PUMI EGADS model
-    printf("loading gmi model... ");
     gmi_register_egads();
     struct gmi_model *pumiModel = gmi_egads_init(body, nregions);
-    printf("loaded gmi_model\n");
 
     int nnode = pumiModel->n[0];
     int nedge = pumiModel->n[1];
@@ -622,7 +486,6 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
 
     /// create empty PUMI mesh
     pumiMesh = apf::makeEmptyMdsMesh(pumiModel, 0, false);
-    printf("empty mds mesh\n");
 
     // set PUMI mesh dimension based on mesh type
     if (mesh->meshType == Surface2DMesh ||
@@ -638,7 +501,6 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
     int nMeshVert = mesh->numNode;
     apf::MeshEntity *verts[nMeshVert];
 
-    printf("create all verts\n");
     /// create all mesh vertices without model entities or parameters
     for (int i = 0; i < mesh->numNode; i++) {
 
@@ -649,17 +511,13 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
         PCU_ALWAYS_ASSERT(verts[i]);
     }
 
-    // apf::reorderMdsMesh(pumiMesh);
-
     int len, globalID, ntri;
     const int *ptype=NULL, *pindex=NULL, *ptris=NULL, *ptric=NULL;
     const double *pxyz = NULL, *puv = NULL, *pt = NULL;
 
-    // apf::MeshEntity *ment;//, *oldMent;
     apf::ModelEntity *gent;
     apf::Vector3 param;
 
-    printf("classify edge verts\n");
     /// classify vertices onto model edges and build mesh edges
     for (int i = 0; i < nedge; ++i) {
         apf::MeshEntity *ment;
@@ -681,7 +539,6 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
         }
     }
 
-    printf("classify face verts\n");
     /// classify vertices onto model faces and build surface triangles
     for (int i = 0; i < nface; ++i) {
         int faceID = i + 1;
@@ -738,8 +595,6 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
         }
 
     }
-
-    /// TODO: figure out how to build adjacency based on mesh and update the gmi_model
     
     /// if volume mesh, build tets
     if (mesh->meshType == VolumeMesh) {
@@ -790,7 +645,6 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
     }
 
     pumiMesh->acceptChanges();
-    // apf::writeVtkFiles("filename", pumiMesh);
 
     /// calculate adjacency information and update PUMI gmi_edads model
     std::vector<std::set<int>> adj_graph[6];
@@ -980,49 +834,6 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
             }
             }
             EG_free(bodyCopy);
-
-            // /// try to load the tess here
-            // {
-            //     ego load_tess;
-            //     status = EG_loadTess(body, tess_filename.c_str(), &load_tess);
-            //     if (status != EGADS_SUCCESS)
-            //         printf(" PUMI AIM Warning: EG_saveTess failed with status: %d!\n", status);
-            //     else
-            //         printf("Loaded tess!\n");
-            // }
-
-            // /// try to load the tess and model
-            // {
-            //     ego load_model;
-            //     status = EG_loadModel(context, 0, model_filename.c_str(), &load_model);
-            //     if (status != EGADS_SUCCESS)
-            //     {
-            //         printf("EGADS failed to load model with error code: %d", status);
-            //     }
-
-            //     int oclass, mtype, nbody, *senses;
-            //     ego geom, *eg_bodies;
-            //     status = EG_getTopology(load_model, &geom, &oclass, &mtype, NULL, &nbody,
-            //                             &eg_bodies, &senses);
-            //     if (status != EGADS_SUCCESS)
-            //     {
-            //         printf("EGADS failed to get bodies with error code: %d", status);
-            //     }
-            //     else if (nbody > 1)
-            //     {
-            //         printf("EGADS model should only have one body");
-            //         return -1;
-            //     }                
-
-            //     ego load_body = eg_bodies[0];
-
-            //     ego load_tess;
-            //     status = EG_loadTess(load_body, tess_filename.c_str(), &load_tess);
-            //     if (status != EGADS_SUCCESS)
-            //         printf(" PUMI AIM Warning: EG_saveTess failed with status: %d!\n", status);
-            //     else
-            //         printf("Loaded tess and model!\n");
-            // }
 
             /// write adjacency table
             std::string adj_filename(filename);
