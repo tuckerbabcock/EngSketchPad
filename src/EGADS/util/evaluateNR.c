@@ -3,7 +3,7 @@
  *
  *             EGADSlite Geometry Evaluation (non-recursive) Functions
  *
- *      Copyright 2011-2020, Massachusetts Institute of Technology
+ *      Copyright 2011-2021, Massachusetts Institute of Technology
  *      Licensed under The GNU Lesser General Public License, version 2.1
  *      See http://www.opensource.org/licenses/lgpl-2.1.php
  *
@@ -4296,7 +4296,7 @@ EG_getWindingAngle(egObject *edge, double t, double *angle)
   if (x0[0]*p1[0]+x0[1]*p1[1] > 0.0) cx = 1;
   if (x1[0]*p0[0]+x1[1]*p0[1] > 0.0) cx = 1;
   dist = DOT(dir[0], dir[1]);
-  if ((dist < -1.0) || (dist > 1.0))
+  if ((dist < -1.0000001) || (dist > 1.0000001))
     printf(" EG_getWindingAngle: dot = %20.12lf\n", dist);
   if (dist < -1.0) dist = -1.0;
   if (dist >  1.0) dist =  1.0;

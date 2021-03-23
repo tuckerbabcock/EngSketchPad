@@ -9,7 +9,7 @@
  */
 
 /*
- * Copyright (C) 2012/2020  John F. Dannenhoffer, III (Syracuse University)
+ * Copyright (C) 2012/2021  John F. Dannenhoffer, III (Syracuse University)
  *
  * This library is free software; you can redistribute it and/or
  *    modify it under the terms of the GNU Lesser General Public
@@ -29,6 +29,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdarg.h>
 #include <string.h>
 #include <math.h>
 #include <time.h>
@@ -38,6 +39,7 @@
 #define PLUGS_PRUNE             0      // if >0, prune points and write new.cloud
 #define PLUGS_CREATE_CSM_FILES  0      // create plugs_pass_xx.csm files
 #define PLUGS_CREATE_FINAL_PLOT 0      // create final.plot        file
+#define PLUGS_SHOW_SENSITIVITY  0      // show sensitivity in final results via inverse evaluations */
 //#define MIXED_TESS              1      // display mixed tri/quads tessellations
 
 #ifdef WIN32
@@ -238,6 +240,7 @@ static float color_map[256*3] =
 /* global variable holding a MODL */
 static void       *modl;               /* pointer to MODL */
 static int        addVerify  = 0;      /* =1 to create .csm_verify file */
+static int        allVels    = 0;      /* =1 to compute Node/Edge/Faces vels */
 static int        batch      = 0;      /* =0 to enable visualization */
 static int        checkMass  = 0;      /* =1 to check mass properties */
 static int        checkPara  = 0;      /* =1 to check for parallelism */
@@ -247,11 +250,14 @@ static int        loadEgads  = 0;      /* =1 to read Bodys instead of creating *
 static int        onormal    = 0;      /* =1 to use orthonormal (not perspective) */
 static int        outLevel   = 1;      /* default output level */
 static int        plotCP     = 0;      /* =1 to plot Bspline control polygons */
-static int        plugs      =-1;      /* >= 0 to run plugs for specified number of passes */
+static int        plugsOn    = 0;      /* =1 to enable PLUGS */
+static int        plugs      = 0;      /* =0  run phase1 only */
+                                       /* <0  run abs(plugs)        passes of phase2 */
+                                       /* >0  run phase 1 and plugs passes of phase2 */
 static int        printStack = 0;      /* =1 to print stack after every command */
-static int        sensTess   = 0;      /* =1 for tessellation sensitivities */
 static int        skipBuild  = 0;      /* =1 to skip initial build */
 static int        skipTess   = 0;      /* -1 to skip tessellation at end of build */
+static int        tessel     = 0;      /* =1 for tessellation sensitivities */
 static int        verify     = 0;      /* =1 to enable verification */
 static char       *filename  = NULL;   /* name of .csm file */
 static char       *vrfyname  = NULL;   /* name of .vfy file */
@@ -276,10 +282,10 @@ static char        **undo_text = NULL;
 
 /* global variables associated with scene graph meta-data */
 #define MAX_METADATA_CHUNK 32000
-static int         sgMetaDataLen= 0;
-static char        *sgMetaData  = NULL;
-static char        *sgTempData  = NULL;
-static char        *sgFocusData = NULL;
+static int         sgMetaDataSize = 0;
+static int         sgMetaDataUsed = 0;
+static char        *sgMetaData    = NULL;
+static char        *sgFocusData   = NULL;
 
 /* global variables associated with updated filelist */
 static int        updatedFilelist = 1;
@@ -323,20 +329,21 @@ static FILE       *jrnl_out = NULL;    /* output journal file */
 /* declarations for high-level routines defined below */
 
 /* declarations for routines defined below */
-static void       addToResponse(char *text);
+static void       addToResponse(char text[]);
+static void       addToSgMetaData(char format[], ...);
 static int        applyDisplacement(modl_T *MODL, int ipmtr);
-       void       browserMessage(void *wsi, char *text, /*@unused@*/ int lena);
+       void       browserMessage(void *wsi, char text[], /*@unused@*/ int lena);
 static int        buildBodys(int buildTo, int *builtTo, int *buildStatus, int *nwarn);
 static int        buildSceneGraph();
 static int        buildSceneGraphBody(int ibody);
 static void       cleanupMemory(int quiet);
-static int        getToken(char *text, int nskip, char sep, char *token);
+static int        getToken(char text[], int nskip, char sep, char token[]);
 static int        maxDistance(modl_T *MODL1, modl_T *MODL2, int ibody, double *dist);
        void       mesgCallbackFromOpenCSM(char mesg[]);
-static int        processBrowserToServer(char *text);
+static int        processBrowserToServer(char text[]);
        void       sizeCallbackFromOpenCSM(void *modl, int ipmtr, int nrow, int ncel);
 static void       spec_col(float scalar, float out[]);
-static int        storeUndo(char *cmd, char *arg);
+static int        storeUndo(char cmd[], char arg[]);
 
 static int        addToHistogram(double entry, int nhist, double dhist[], int hist[]);
 static int        printHistogram(int nhist, double dhist[], int hist[]);
@@ -346,8 +353,8 @@ static int        checkForGanged(modl_T *MODL);
 static int        checkParallel(modl_T *MODL);
 
 static int        plugsMain(modl_T *MODL, int npass, int ncloud, double cloud[]);
-static int        plugsPhase1(modl_T *modl,            int ibody, int npmtr, int pmtrindx[], int ncloud, double cloud[], double *rmsbest, FILE *fp_plugs);
-static int        plugsPhase2(modl_T *modl, int npass, int ibody, int npmtr, int pmtrindx[], int ncloud, double cloud[], double *rmsbest, FILE *fp_plugs);
+static int        plugsPhase1(modl_T *modl,            int ibody, int npmtr, int pmtrindx[], int ncloud, double cloud[], double *rmsbest, /*@null@*/FILE *fp_plugs);
+static int        plugsPhase2(modl_T *modl, int npass, int ibody, int npmtr, int pmtrindx[], int ncloud, double cloud[], double *rmsbest, /*@null@*/FILE *fp_plugs);
 static int        matsol(double A[], double b[], int n, double x[]);
 static int        solsvd(double A[], double b[], int mrow, int ncol, double W[], double x[]);
 static int        tridiag(int n, double a[], double b[], double c[], double d[], double x[]);
@@ -393,11 +400,10 @@ main(int       argc,                    /* (in)  number of arguments */
     old_totaltime = clock();
 
     /* dynamically allocated array so that everything is on heap (not stack) */
-    sgMetaDataLen = MAX_METADATA_CHUNK;
+    sgMetaDataSize = MAX_METADATA_CHUNK;
 
     MALLOC(dotName,     char, MAX_STRVAL_LEN  );
-    MALLOC(sgMetaData,  char, sgMetaDataLen   );
-    MALLOC(sgTempData,  char, sgMetaDataLen   );
+    MALLOC(sgMetaData,  char, sgMetaDataSize  );
     MALLOC(sgFocusData, char, MAX_STRVAL_LEN  );
     MALLOC(casename,    char, MAX_FILENAME_LEN);
     MALLOC(jrnlname,    char, MAX_FILENAME_LEN);
@@ -445,7 +451,9 @@ main(int       argc,                    /* (in)  number of arguments */
         if        (strcmp(argv[i], "--") == 0) {
             /* ignore (needed for gdb) */
         } else if (strcmp(argv[i], "-addVerify") == 0) {
-            addVerify  = 1;
+            addVerify = 1;
+        } else if (strcmp(argv[i], "-allVels") == 0) {
+            allVels = 1;
         } else if (strcmp(argv[i], "-batch") == 0) {
             batch = 1;
         } else if (strcmp(argv[i], "-checkMass") == 0) {
@@ -531,6 +539,7 @@ main(int       argc,                    /* (in)  number of arguments */
             plotCP = 1;
         } else if (strcmp(argv[i], "-plugs") == 0) {
             if (i < argc-1) {
+                plugsOn = 1;
                 sscanf(argv[++i], "%d", &plugs);
             } else {
                 showUsage = 1;
@@ -552,8 +561,8 @@ main(int       argc,                    /* (in)  number of arguments */
                 showUsage = 1;
                 break;
             }
-        } else if (strcmp(argv[i], "-sensTess") == 0) {
-            sensTess = 1;
+        } else if (strcmp(argv[i], "-tessel") == 0 || strcmp(argv[i], "-sensTess") == 0) {
+            tessel = 1;
         } else if (strcmp(argv[i], "-skipBuild") == 0) {
             skipBuild = 1;
         } else if (strcmp(argv[i], "-skipTess") == 0) {
@@ -590,6 +599,7 @@ main(int       argc,                    /* (in)  number of arguments */
         SPRINT2(0, "serveCSM version %2d.%02d\n", imajor, iminor);
         SPRINT0(0, "proper usage: 'serveCSM [casename[.csm]] [options...]'");
         SPRINT0(0, "   where [options...] = -addVerify");
+        SPRINT0(0, "                        -allVels");
         SPRINT0(0, "                        -batch");
         SPRINT0(0, "                        -checkMass");
         SPRINT0(0, "                        -checkPara");
@@ -611,7 +621,6 @@ main(int       argc,                    /* (in)  number of arguments */
         SPRINT0(0, "                        -port X");
         SPRINT0(0, "                        -printStack");
         SPRINT0(0, "                        -ptrb ptrbname");
-        SPRINT0(0, "                        -sensTess");
         SPRINT0(0, "                        -skipBuild");
         SPRINT0(0, "                        -skipTess");
         SPRINT0(0, "                        -tess tessfile");
@@ -633,12 +642,13 @@ main(int       argc,                    /* (in)  number of arguments */
     SPRINT0(1, "*                    Program serveCSM                    *");
     SPRINT2(1, "*                     version %2d.%02d                      *", imajor, iminor);
     SPRINT0(1, "*                                                        *");
-    SPRINT0(1, "*        written by John Dannenhoffer, 2010/2020         *");
+    SPRINT0(1, "*        written by John Dannenhoffer, 2010/2021         *");
     SPRINT0(1, "*                                                        *");
     SPRINT0(1, "**********************************************************\n");
 
     SPRINT1(1, "    casename    = %s", casename   );
     SPRINT1(1, "    addVerify   = %d", addVerify  );
+    SPRINT1(1, "    allVels     = %d", allVels    );
     SPRINT1(1, "    batch       = %d", batch      );
     SPRINT1(1, "    checkMass   = %d", checkMass  );
     SPRINT1(1, "    checkPara   = %d", checkPara  );
@@ -653,16 +663,16 @@ main(int       argc,                    /* (in)  number of arguments */
     SPRINT1(1, "    outLevel    = %d", outLevel   );
     SPRINT1(1, "    plotfile    = %s", plotfile   );
     SPRINT1(1, "    plotBDF     = %s", BDFname    );
+    SPRINT1(1, "    plugsOn     = %d", plugsOn    );
     SPRINT1(1, "    plugs       = %d", plugs      );
     SPRINT1(1, "    port        = %d", port       );
     SPRINT1(1, "    printStack  = %d", printStack );
     SPRINT1(1, "    ptrbname    = %s", ptrbname   );
-    SPRINT1(1, "    sensTess    = %d", sensTess   );
     SPRINT1(1, "    skipBuild   = %d", skipBuild  );
     SPRINT1(1, "    skipTess    = %d", skipTess   );
     SPRINT1(1, "    tessfile    = %s", tessfile   );
     SPRINT1(1, "    verify      = %d", verify     );
-    SPRINT1(1, "    ESP_ROOT    = %s", getenv("ESP_ROOT"));
+    SPRINT1(1, "    ESP_ROOT    = %s", /*@ignore@*/getenv("ESP_ROOT")/*@end@*/);
     SPRINT0(1, " ");
 
     plugs_save = plugs;
@@ -764,7 +774,7 @@ main(int       argc,                    /* (in)  number of arguments */
         basename[i-4] = '\0';
 
         /* create the full vrfyname */
-        sprintf(vrfyname, "%s%cverify_%s%c%s.vfy", dirname, SLASH, &(OCC_ver[strlen(OCC_ver)-5]), SLASH, basename);
+        snprintf(vrfyname, MAX_FILENAME_LEN-1, "%s%cverify_%s%c%s.vfy", dirname, SLASH, &(OCC_ver[strlen(OCC_ver)-5]), SLASH, basename);
     } else {
         vrfyname[0] = '\0';
     }
@@ -788,6 +798,8 @@ main(int       argc,                    /* (in)  number of arguments */
         MODL = (modl_T*)modl;
     }
 
+    SPLINT_CHECK_FOR_NULL(modl);
+
     if (pendingError == 0) {
         status = ocsmLoadDict(modl, dictname);
         if (status < EGADS_SUCCESS) goto cleanup;
@@ -802,13 +814,13 @@ main(int       argc,                    /* (in)  number of arguments */
     }
 
     if (strlen(despname) > 0) {
-        status = ocsmUpdateDespmtrs(MODL, despname);
+        status = ocsmUpdateDespmtrs(modl, despname);
         if (status < EGADS_SUCCESS) goto cleanup;
     }
 
     if (pendingError == 0) {
         MODL = (modl_T *)modl;
-        if (filelist != NULL) free(filelist);
+        if (filelist != NULL) EG_free(filelist);
         status = ocsmGetFilelist(MODL, &filelist);
         if (status != SUCCESS) {
             SPRINT1(0, "ERROR:: ocsmGetFilelist -> status=%d", status);
@@ -883,6 +895,7 @@ main(int       argc,                    /* (in)  number of arguments */
     /* initialize the scene graph meta data */
     if (batch == 0) {
         sgMetaData[ 0] = '\0';
+        sgMetaDataUsed = 0;
         sgFocusData[0] = '\0';
     }
 
@@ -961,7 +974,7 @@ main(int       argc,                    /* (in)  number of arguments */
             }
         }
 
-//$$$        /* there is an uncaught signal */
+        /* there is an uncaught signal */
 //$$$        if (builtTo < 0) {
 //$$$            if (batch == 0) {
 //$$$                SPRINT2(0, "build() detected \"%s\" at %s",
@@ -973,14 +986,14 @@ main(int       argc,                    /* (in)  number of arguments */
 //$$$                goto cleanup;
 //$$$            }
 //$$$
-//$$$        /* error in ocsmBuild that does not cause a signal to be raised */
+        /* error in ocsmBuild that does not cause a signal to be raised */
 //$$$        } else if (buildStatus != SUCCESS) {
 //$$$            SPRINT2(0, "ERROR:: build() detected %d (%s)",
 //$$$                    buildStatus, ocsmGetText(buildStatus));
 //$$$            status = -999;
 //$$$            goto cleanup;
 //$$$
-//$$$        /* error in ocsmCheck */
+        /* error in ocsmCheck */
 //$$$        } else if (status != SUCCESS) {
 //$$$            if (batch == 0) {
 //$$$                SPRINT2(0, "ERROR:: build() detected %d (%s)",
@@ -1152,7 +1165,7 @@ main(int       argc,                    /* (in)  number of arguments */
     }
 
     /* if plugs is on, run it now */
-    if (plugs >= 0) {
+    if (plugsOn > 0 && pendingError == 0) {
         int     npass, ncloud, icloud, jmax;
         char    templine[128];
 
@@ -1201,6 +1214,8 @@ main(int       argc,                    /* (in)  number of arguments */
             }
 
             plot_fp = fopen("new.cloud", "w");
+            SPLINT_CHECK_FOR_NULL(plot_fp);
+
             fprintf(plot_fp, "%5d    0 new_cloud\n", ncloud);
             for (icloud = 0; icloud < ncloud; icloud++) {
                 fprintf(plot_fp, "%22.15e %22.15e %22.15e\n",
@@ -1224,6 +1239,9 @@ main(int       argc,                    /* (in)  number of arguments */
         }
 
         FREE(cloud);
+
+        /* enable verification */
+        MODL->verify = verify;
     }
 
     /* process the input journal file if jrnlname exists */
@@ -1265,7 +1283,7 @@ main(int       argc,                    /* (in)  number of arguments */
         }
     }
 
-    if (plugs_save >= 0 && MODL->sigCode < SUCCESS) {
+    if (pendingError == 0 && plugs_save >= 0 && MODL->sigCode < SUCCESS) {
         SPRINT2(0, "ERROR:: build not completed because error %d (%s) was detected",
                 MODL->sigCode, ocsmGetText(MODL->sigCode));
         status = MODL->sigCode;
@@ -1527,7 +1545,7 @@ main(int       argc,                    /* (in)  number of arguments */
         int     ibest, jbest;
         CINT    *tempIlist;
         double  dtest, dbest=0, xbest=0, ybest=0, zbest=0, ubest=0, vbest=0;
-        double  dworst, dultim, xyz_in[3], uv_out[2], xyz_out[3];
+        double  dworst, drms, dultim, xyz_in[3], uv_out[2], xyz_out[3];
         CDOUBLE *tempRlist;
         char    templine[128];
         CCHAR   *tempClist;
@@ -1597,6 +1615,7 @@ main(int       argc,                    /* (in)  number of arguments */
 
             dworst = 0;
             dbest = HUGEQ;
+            drms  = 0;
             xbest = 0;
             ybest = 0;
             zbest = 0;
@@ -1662,6 +1681,7 @@ main(int       argc,                    /* (in)  number of arguments */
                     if (dbest > dworst) {
                         dworst = dbest;
                     }
+                    drms += dbest;
 
                     fprintf(fp_all, "%20.12f %20.12f %20.12f %5d %5d %20.12f %20.12f %20.12f %12.3e\n",
                             xyz_in[0], xyz_in[1], xyz_in[2], ibest, jbest, xbest, ybest, zbest, dbest);
@@ -1680,7 +1700,7 @@ main(int       argc,                    /* (in)  number of arguments */
                     CHECK_STATUS(addToHistogram);
                 }
             }
-            SPRINT1(1, " dworst=%12.3e", dworst);
+            SPRINT2(1, " dworst=%12.3e, drms=%12.3e", dworst, sqrt(drms/imax/jmax));
             if (dworst > dultim) {
                 dultim = dworst;
             }
@@ -1706,6 +1726,23 @@ main(int       argc,                    /* (in)  number of arguments */
     /* free up stoage associated with GUI */
     wv_cleanupServers();
 
+    /* free up undo storage */
+    for (iundo = nundo-1; iundo >= 0; iundo--) {
+        (void) ocsmFree(undo_modl[iundo]);
+    }
+
+    if (undo_text != NULL) {
+        for (i = 0; i <= MAX_UNDOS; i++) {
+            FREE(undo_text[i]);
+        }
+        FREE(undo_text);
+    }
+
+    FREE(undo_modl  );
+
+    nundo = 0;
+
+    /* summary data */
     new_totaltime = clock();
 
     SPRINT1(1, "    Total CPU time = %.3f sec",
@@ -1715,7 +1752,7 @@ main(int       argc,                    /* (in)  number of arguments */
         vrfy_fp = fopen(vrfyname, "r");
         if (vrfy_fp != NULL) {
             fclose(vrfy_fp);
-        
+
             if (nwarn == 0) {
                 SPRINT0(0, "==> serveCSM completed successfully");
             } else {
@@ -1739,13 +1776,16 @@ main(int       argc,                    /* (in)  number of arguments */
     status = SUCCESS;
 
 cleanup:
-    if (filelist != NULL) free(filelist);
+    FREE(filelist);
 
     if (jrnl_out != NULL) fclose(jrnl_out);
     jrnl_out = NULL;
 
-    for (iundo = nundo-1; iundo >= 0; iundo--) {
-        (void) ocsmFree(undo_modl[iundo]);
+    if (undo_modl != NULL) {
+        for (iundo = nundo-1; iundo >= 0; iundo--) {
+            (void) ocsmFree(undo_modl[iundo]);
+        }
+        FREE(undo_modl);
     }
 
     if (undo_text != NULL) {
@@ -1773,7 +1813,6 @@ cleanup:
     FREE(jrnlname   );
     FREE(casename   );
     FREE(sgFocusData);
-    FREE(sgTempData );
     FREE(sgMetaData );
     FREE(dotName    );
 
@@ -1806,28 +1845,75 @@ cleanup:
 /***********************************************************************/
 
 static void
-addToResponse(char   *text)             /* (in)  text to add */
+addToResponse(char   text[])            /* (in)  text to add */
 {
-    int    text_len;
+    int    status=SUCCESS, text_len;
+
+    ROUTINE(addToResponse);
 
     /* --------------------------------------------------------------- */
 
     text_len = STRLEN(text);
 
     while (response_len+text_len > max_resp_len-2) {
-        max_resp_len +=4096;
+        max_resp_len += 4096;
         SPRINT1(2, "increasing max_resp_len=%d", max_resp_len);
 
-        response = (char*) realloc(response, (max_resp_len+1)*sizeof(char));
-        if (response == NULL) {
-            SPRINT0(0, "ERROR:: error mallocing response");
-            exit(EXIT_FAILURE);
-        }
+        RALLOC(response, char, max_resp_len+1);
     }
 
     strcpy(&(response[response_len]), text);
 
     response_len += text_len;
+
+cleanup:
+    if (status != SUCCESS) {
+        SPRINT0(0, "ERROR:: max_resp_len could not be increased");
+    }
+
+    return;
+}
+
+
+/***********************************************************************/
+/*                                                                     */
+/*   addToSgMetaData - add text to sgMetaData (with buffer length protection) */
+/*                                                                     */
+/***********************************************************************/
+
+static void
+addToSgMetaData(char   format[],        /* (in)  format specifier */
+                 ...)                   /* (in)  variable arguments */
+{
+    int      status=SUCCESS, newchars;
+
+    va_list  args;
+
+    ROUTINE(addToSgMetaData);
+
+    /* --------------------------------------------------------------- */
+
+    /* make sure sgMetaData is big enough */
+    if (sgMetaDataUsed+1024 >= sgMetaDataSize) {
+        sgMetaDataSize += 1024 + MAX_METADATA_CHUNK;
+        RALLOC(sgMetaData, char, sgMetaDataSize);
+    }
+
+    /* set up the va structure */
+    va_start(args, format);
+
+    newchars = vsnprintf(sgMetaData+sgMetaDataUsed, 1024, format, args);
+    sgMetaDataUsed += newchars;
+
+    /* clean up the va structure */
+    va_end(args);
+
+cleanup:
+    if (status != SUCCESS) {
+        SPRINT0(0, "ERROR:: sgMetaData could not be increased");
+    }
+
+    return;
 }
 
 
@@ -2005,7 +2091,7 @@ cleanup:
 
 void
 browserMessage(void    *wsi,
-               char    *text,
+               char    text[],
   /*@unused@*/ int     lena)
 {
     int       status;
@@ -2032,13 +2118,15 @@ browserMessage(void    *wsi,
 
     /* send the response */
     SPRINT1(2, "\n<<< server2browser: %s", response);
-    wv_sendText(wsi, response);
+//    wv_sendText(wsi, response);
+    wv_broadcastText(response);
 
     /* if the sensitivities were just computed, send a message to
        inform the user about the lowest and highest sensitivity values */
     if (sensPost > 0) {
         snprintf(message2, MAX_LINE_LEN-1, "Sensitivities are in the range between %f and %f", sensLo, sensHi);
-        wv_sendText(wsi, message2);
+//        wv_sendText(wsi, message2);
+        wv_broadcastText(message2);
 
         sensPost = 0;
     }
@@ -2048,11 +2136,12 @@ browserMessage(void    *wsi,
     /* send filenames if they have been updated */
     if (updatedFilelist == 1) {
         MODL = (modl_T*) modl;
-        if (filelist != NULL) free(filelist);
+        if (filelist != NULL) EG_free(filelist);
         status = ocsmGetFilelist(MODL, &filelist);
         if (status != SUCCESS) {
             SPRINT1(0, "ERROR:: ocsmGetFilelist -> status=%d", status);
         }
+        SPLINT_CHECK_FOR_NULL(filelist);
 
         snprintf(message2, MAX_LINE_LEN-1, "getFilenames|%s", filelist);
         SPRINT1(2, "\n<<< server2browser: getFilenames|%s", filelist);
@@ -2067,8 +2156,9 @@ browserMessage(void    *wsi,
         wv_sendText(wsi, sgMetaData);
 
         /* nullify meta data so that it does not get sent again */
-        sgMetaData[0] = '\0';
-        sendKeyData   = 1;
+        sgMetaData[0]  = '\0';
+        sgMetaDataUsed = 0;
+        sendKeyData    = 1;
     }
 
     if (STRLEN(sgFocusData) > 0) {
@@ -2083,7 +2173,7 @@ browserMessage(void    *wsi,
     /* either open or close the key */
     if (sendKeyData == 1) {
         if (haveDots >  1) {
-            if (sensTess == 0) {
+            if (tessel == 0) {
                 status = wv_setKey(cntxt, 256, color_map, lims[0], lims[1], "Config: d(norm)/d(***)");
             } else {
                 status = wv_setKey(cntxt, 256, color_map, lims[0], lims[1], "Tessel: d(norm)/d(***)");
@@ -2158,6 +2248,9 @@ browserMessage(void    *wsi,
 
     messages[0] = '\0';
     messages_len = 0;
+
+cleanup:
+    return;
 }
 
 
@@ -2211,8 +2304,8 @@ buildBodys(int     buildTo,             /* (in)  last Branch to execute */
             goto cleanup;
         }
 
-        /* set the verification flag */
-        if (plugs < 0) {
+        /* set the verification flag (but not for original build if Plugs is on) */
+        if (plugsOn == 0) {
             MODL->verify = verify;
         }
 
@@ -2225,6 +2318,13 @@ buildBodys(int     buildTo,             /* (in)  last Branch to execute */
 
         /* set the skip tessellation flag */
         MODL->tessAtEnd = 1 - skipTess;
+
+        /* set the build erep flag */
+        if (plotType == 6) {
+            MODL->erepAtEnd = 1;
+        } else {
+            MODL->erepAtEnd = 0;
+        }
 
         /* build the Bodys */
         if (skipBuild == 1) {
@@ -2367,20 +2467,21 @@ buildSceneGraph()
     int       ibody, jbody, iface, iedge, inode, iattr, nattr, ipmtr, irc, newStyleQuads, atype, alen;
     int       npnt, ipnt, ntri, itri, igprim, nseg, i, j, k, ij, ij1, ij2, ngrid, ncrod, nctri3, ncquad4;
     int       imax, jmax, ibeg, iend, isw, ise, ine, inw;
-    int       attrs, head[3], nitems;
+    int       attrs, head[3], nitems, nnode, nedge, nface;
     int       oclass, mtype, nchild, *senses, *header;
     int       *segs=NULL, *ivrts=NULL;
-    int        npatch2, ipatch, n1, n2, i1, i2, *Tris;
+    int        npatch2, ipatch, n1, n2, i1, i2, *Tris=NULL;
     CINT      *ptype, *pindx, *tris, *tric, *pvindex, *pbounds;
-    float     color[18], *pcolors=NULL, *plotdata=NULL, *segments=NULL, *tuft=NULL, *ptufts=NULL;
-    double    bigbox[6], box[6], size, size2=0, xyz_dum[6], *vel, velmag;
+    float     color[18], *pcolors=NULL, *plotdata=NULL, *segments=NULL, *tuft=NULL;
+    double    bigbox[6], box[6], size, size2=0, xyz_dum[6], *vel=NULL, velmag;
     double    uvlimits[4], ubar, vbar, rcurv, xplot, yplot, zplot, fplot;
     double    data[18], normx, normy, normz, axis[18], *cp;
     CDOUBLE   *xyz, *uv, *t;
     char      gpname[MAX_STRVAL_LEN], bname[MAX_NAME_LEN], temp[MAX_FILENAME_LEN];
-    char      text[81], dum[81];
+    char      text[1025], dum[81];
     FILE      *fp;
     ego       ebody, etess, eface, eedge, enode, eref, prev, next, *echilds, esurf;
+    ego       *enodes=NULL, *eedges=NULL, *efaces=NULL;
 
     int       nlist, itype;
     CINT      *tempIlist;
@@ -2494,13 +2595,29 @@ buildSceneGraph()
     sensHi = -HUGEQ;
 
     /* initialize the scene graph meta data */
-    STRNCPY(sgMetaData, "sgData|{", sgMetaDataLen);
+    addToSgMetaData("sgData|{");
 
     /* loop through the Bodys */
     for (ibody = 1; ibody <= MODL->nbody; ibody++) {
         if (MODL->body[ibody].onstack != 1) continue;
 
-        ebody = MODL->body[ibody].ebody;
+        if (MODL->body[ibody].eebody == NULL) {
+            ebody = MODL->body[ibody].ebody;
+
+            EG_getBodyTopos(ebody, NULL, NODE, &nnode, &enodes);
+            EG_getBodyTopos(ebody, NULL, EDGE, &nedge, &eedges);
+            EG_getBodyTopos(ebody, NULL, FACE, &nface, &efaces);
+
+            printf("Body %d has %d Nodes, %d Edges, and %d Faces\n", ibody, nnode, nedge, nface);
+        } else {
+            ebody = MODL->body[ibody].eebody;
+
+            EG_getBodyTopos(ebody, NULL, NODE,  &nnode, &enodes);
+            EG_getBodyTopos(ebody, NULL, EEDGE, &nedge, &eedges);
+            EG_getBodyTopos(ebody, NULL, EFACE, &nface, &efaces);
+
+            printf("EBody %d has %d Nodes, %d EEdges, and %d EFaces\n", ibody, nnode, nedge, nface);
+        }
 
         /* set up Body name */
         snprintf(bname, MAX_NAME_LEN-1, "Body %d", ibody);
@@ -2533,18 +2650,10 @@ buildSceneGraph()
         }
 
         /* add Node to meta data (if there is room) */
-        if (STRLEN(sgMetaData) >= sgMetaDataLen-1000) {
-            sgMetaDataLen += MAX_METADATA_CHUNK;
-            RALLOC(sgMetaData, char, sgMetaDataLen);
-            RALLOC(sgTempData, char, sgMetaDataLen);
-        }
-
         if (nattr > 0) {
-            STRNCPY( sgTempData, sgMetaData, sgMetaDataLen);
-            snprintf(sgMetaData, sgMetaDataLen, "%s\"%s\":[",  sgTempData, gpname);
+            addToSgMetaData("\"%s\":[", gpname);
         } else {
-            STRNCPY( sgTempData, sgMetaData, sgMetaDataLen);
-            snprintf(sgMetaData, sgMetaDataLen, "%s\"%s\":[\"body\",\"%d\"", sgTempData, gpname, ibody);
+            addToSgMetaData("\"%s\":[\"body\",\"%d\"", gpname, ibody);
         }
 
         for (iattr = 1; iattr <= nattr; iattr++) {
@@ -2556,32 +2665,30 @@ buildSceneGraph()
 
             if (itype == ATTRCSYS) continue;
 
-            STRNCPY( sgTempData, sgMetaData, sgMetaDataLen);
-            snprintf(sgMetaData, sgMetaDataLen, "%s\"%s\",\"", sgTempData, attrName);
+            addToSgMetaData("\"%s\",\"", attrName);
 
             if        (itype == ATTRINT) {
                 for (i = 0; i < nlist ; i++) {
-                    STRNCPY( sgTempData, sgMetaData, sgMetaDataLen);
-                    snprintf(sgMetaData, sgMetaDataLen, "%s %d", sgTempData, tempIlist[i]);
+                    addToSgMetaData(" %d", tempIlist[i]);
                 }
             } else if (itype == ATTRREAL) {
                 for (i = 0; i < nlist ; i++) {
-                    STRNCPY( sgTempData, sgMetaData, sgMetaDataLen);
-                    snprintf(sgMetaData, sgMetaDataLen, "%s %f", sgTempData, tempRlist[i]);
+                    addToSgMetaData(" %f", tempRlist[i]);
                 }
             } else if (itype == ATTRSTRING) {
-                STRNCPY( sgTempData, sgMetaData, sgMetaDataLen);
-                snprintf(sgMetaData, sgMetaDataLen, "%s %s ", sgTempData, tempClist);
+                addToSgMetaData(" %s ", tempClist);
             }
 
-            STRNCPY( sgTempData, sgMetaData, sgMetaDataLen);
-            snprintf(sgMetaData, sgMetaDataLen, "%s\",", sgTempData);
+            addToSgMetaData("\",");
         }
-        sgMetaData[sgMetaDataLen-1] = '\0';
-        STRNCPY( sgTempData, sgMetaData, sgMetaDataLen);
-        snprintf(sgMetaData, sgMetaDataLen, "%s],", sgTempData);
+        sgMetaDataUsed--;
+        addToSgMetaData("],");
 
-        etess = MODL->body[ibody].etess;
+        if (MODL->body[ibody].eetess == NULL) {
+            etess = MODL->body[ibody].etess;
+        } else {
+            etess = MODL->body[ibody].eetess;
+        }
 
         /* determine if any of the external Parameters have a velocity */
         haveDots   = 0;
@@ -2593,13 +2700,13 @@ buildSceneGraph()
                     if (MODL->pmtr[ipmtr].dot[irc] != 0) {
                         if (fabs(MODL->pmtr[ipmtr].dot[irc]-1) < EPS06) {
                             if (haveDots == 0) {
-                                if (sensTess == 0) {
+                                if (tessel == 0) {
                                     snprintf(dotName, MAX_STRVAL_LEN-1, "Config: d(norm)/d(%s)", MODL->pmtr[ipmtr].name);
                                 } else {
                                     snprintf(dotName, MAX_STRVAL_LEN-1, "Tessel: d(norm)/d(%s)", MODL->pmtr[ipmtr].name);
                                 }
                             } else {
-                                if (sensTess == 0) {
+                                if (tessel == 0) {
                                     snprintf(dotName, MAX_STRVAL_LEN-1, "Config: d(norm)/d(***)");
                                 } else {
                                     snprintf(dotName, MAX_STRVAL_LEN-1, "Tessel: d(norm)/d(***)");
@@ -2607,7 +2714,7 @@ buildSceneGraph()
                             }
                             haveDots++;
                         } else if (MODL->pmtr[ipmtr].dot[irc] != 0) {
-                            if (sensTess == 0) {
+                            if (tessel == 0) {
                                 snprintf(dotName, MAX_STRVAL_LEN-1, "Config: d(norm)/d(***)");
                             } else {
                                 snprintf(dotName, MAX_STRVAL_LEN-1, "Tessel: d(norm)/d(***)");
@@ -2635,12 +2742,12 @@ buildSceneGraph()
 
         /* determine if new-style quadding */
         newStyleQuads = 0;
-        status = EG_attributeRet(MODL->body[ibody].etess, ".tessType",
+        status = EG_attributeRet(etess, ".tessType",
                                  &atype, &alen, &tempIlist, &tempRlist, &tempClist);
         if (status == SUCCESS) {
 #if MIXED_TESS
             newStyleQuads = 1;
-            status = EG_attributeRet(MODL->body[ibody].etess, ".mixed",
+            status = EG_attributeRet(etess, ".mixed",
                                      &atype, &alen, &nquad, &tempRlist, &tempClist);
             if (status != SUCCESS) newStyleQuads = 0;
 #else
@@ -2651,7 +2758,7 @@ buildSceneGraph()
         }
 
         /* loop through the Faces within the current Body */
-        for (iface = 1; iface <= MODL->body[ibody].nface; iface++) {
+        for (iface = 1; iface <= nface; iface++) {
             nitems = 0;
 
             status = EG_getQuads(etess, iface,
@@ -2695,11 +2802,8 @@ buildSceneGraph()
                     nseg += n1 * (n2-1) + n2 * (n1-1);
                 }
 
-                Tris = (int*) malloc(3*ntri*sizeof(int));
-                if (Tris == NULL) goto cleanup;
-
-                segs = (int*) malloc(2*nseg*sizeof(int));
-                if (segs == NULL) goto cleanup;
+                MALLOC(Tris, int, 3*ntri);
+                MALLOC(segs, int, 2*nseg);
 
                 ntri = 0;
                 nseg = 0;
@@ -2748,7 +2852,7 @@ buildSceneGraph()
                 }
                 nitems++;
 
-                free(Tris);
+                FREE(Tris);
 
             /* render the Quadrilaterals if new-style quadding */
             } else if (newStyleQuads == 1) {
@@ -2781,8 +2885,7 @@ buildSceneGraph()
                     }
                 }
 
-                segs = (int*) malloc(2*nseg*sizeof(int));
-                if (segs == NULL) goto cleanup;
+                MALLOC(segs, int, 2*nseg);
 
 #if MIXED_TESS
                 /* create segments between Triangles (bias-1) */
@@ -2909,8 +3012,7 @@ buildSceneGraph()
                     }
                 }
 
-                segs = (int*) malloc(2*nseg*sizeof(int));
-                if (segs == NULL) goto cleanup;
+                MALLOC(segs, int, 2*nseg);
 
                 nseg = 0;
                 for (itri = 0; itri < ntri; itri++) {
@@ -2943,32 +3045,30 @@ buildSceneGraph()
                     goto cleanup;
                 }
 
-                status = EG_getInfo(MODL->body[ibody].face[iface].eface,
+                SPLINT_CHECK_FOR_NULL(efaces);
+                status = EG_getInfo(efaces[iface-1],
                                     &oclass, &mtype, &eref, &prev, &next);
                 if (status != SUCCESS) {
                     SPRINT3(0, "ERROR:: EG_getInfo(%d,%d) -> status=%d", ibody, iface, status);
                     goto cleanup;
                 }
 
-                pcolors = (float *) malloc(3*npnt*sizeof(float));
-                if (pcolors == NULL) {
-                    SPRINT0(0, "MALLOC error");
-                    goto cleanup;
-                }
+                MALLOC(pcolors, float, 3*npnt);
 
-                if (sensTess == 0) {
-                    vel = (double *) malloc(3*npnt*sizeof(double));
-                    if (vel == NULL) {
-                        SPRINT0(0, "MALLOC error");
-                        goto cleanup;
+                if (tessel == 0) {
+                    MALLOC(vel, double, 3*npnt);
+
+                    if (MODL->body[ibody].eebody == NULL) {
+                        status = ocsmGetVel(MODL, ibody, OCSM_FACE, iface, npnt, NULL, vel);
+                    } else {
+                        status = ocsmGetVel(MODL, ibody, OCSM_EFACE, iface, npnt, NULL, vel);
                     }
-
-                    status = ocsmGetVel(MODL, ibody, OCSM_FACE, iface, npnt, NULL, vel);
                     if (status != SUCCESS) {
                         SPRINT3(0, "ERROR:: ocsmGetVel(%d,%d) -> status=%d", ibody, iface, status);
                         goto cleanup;
                     }
                 } else {
+//$$$
                     status = ocsmGetTessVel(MODL, ibody, OCSM_FACE, iface, (const double**)(&vel));
                     if (status != SUCCESS) {
                         SPRINT3(0, "ERROR:: ocsmGetTessVel(%d,%d) -> status=%d", ibody, iface, status);
@@ -2976,53 +3076,7 @@ buildSceneGraph()
                     }
                 }
 
-                /* special plotting of tufts for sensitivities (adjust DESPMTR velocity
-                   to adjust tuft length) */
-                if (sensTess == 1) {
-                    ptufts = (float *) malloc(6*npnt*sizeof(float));
-                    if (ptufts == NULL) {
-                        SPRINT0(0, "MALLOC error");
-                        goto cleanup;
-                    }
-
-                    for (ipnt = 0; ipnt < npnt; ipnt++) {
-                        ptufts[6*ipnt  ] = xyz[3*ipnt  ];
-                        ptufts[6*ipnt+1] = xyz[3*ipnt+1];
-                        ptufts[6*ipnt+2] = xyz[3*ipnt+2];
-
-                        ptufts[6*ipnt+3] = xyz[3*ipnt  ] + vel[3*ipnt  ];
-                        ptufts[6*ipnt+4] = xyz[3*ipnt+1] + vel[3*ipnt+1];
-                        ptufts[6*ipnt+5] = xyz[3*ipnt+2] + vel[3*ipnt+2];
-                    }
-
-                    color[0] = 0;
-                    color[1] = 0;
-                    color[2] = 0;
-                    status = wv_setData(WV_REAL32, 1, (void*)color, WV_COLORS, &(items[nitems]));
-                    if (status != SUCCESS) {
-                        SPRINT3(0, "ERROR:: wv_setData(%d,%d) -> status=%d", ibody, iface, status);
-                    }
-                    nitems++;
-
-                    status = wv_setData(WV_REAL32, 2*npnt, (void*)ptufts, WV_VERTICES, &(items[nitems]));
-                    if (status != SUCCESS) {
-                        SPRINT3(0, "ERROR:: wv_setData(%d,%d) -> status=%d", ibody, iface, status);
-                    }
-                    wv_adjustVerts(&(items[nitems]), sgFocus);
-                    nitems++;
-
-                    snprintf(gpname, MAX_STRVAL_LEN-1, "Tufts_%d:%d", ibody, iface);
-                    attrs = WV_ON;
-
-                    igprim = wv_addGPrim(cntxt, gpname, WV_LINE, attrs, nitems, items);
-                    if (igprim < 0) {
-                        SPRINT2(0, "ERROR:: wv_addGPrim(%s) -> igprim=%d", gpname, igprim);
-                    } else {
-                        cntxt->gPrims[igprim].lWidth = 1.0;
-                    }
-
-                    free(ptufts);
-                }
+                SPLINT_CHECK_FOR_NULL(vel);
 
                 for (ipnt = 0; ipnt < npnt; ipnt++) {
                     /* correct for NaN */
@@ -3033,8 +3087,9 @@ buildSceneGraph()
                         velmag = 0;
 
                     /* find signed velocity magnitude */
-                    } else if (sensTess == 0) {
-                        status = EG_evaluate(MODL->body[ibody].face[iface].eface, &(uv[2*ipnt]), data);
+                    } else if (tessel == 0) {
+                        SPLINT_CHECK_FOR_NULL(efaces);
+                        status = EG_evaluate(efaces[iface-1], &(uv[2*ipnt]), data);
                         if (status != SUCCESS) {
                             SPRINT3(0, "ERROR:: EG_evaluate(%d,%d) -> srtatus=%d", ibody, iface, status);
                             goto cleanup;
@@ -3073,10 +3128,10 @@ buildSceneGraph()
                 }
                 nitems++;
 
-                free(pcolors);   pcolors = NULL;
+                FREE(pcolors);
 
-                if (sensTess == 0) {
-                    free(vel);
+                if (tessel == 0) {
+                    FREE(vel);
                 }
 
             /* smooth colors (normalized U) */
@@ -3089,19 +3144,15 @@ buildSceneGraph()
                     goto cleanup;
                 }
 
-                status = EG_getTopology(MODL->body[ibody].face[iface].eface,
-                                        &eref, &oclass, &mtype, uvlimits,
+                SPLINT_CHECK_FOR_NULL(efaces);
+                status = EG_getTopology(efaces[iface-1], &eref, &oclass, &mtype, uvlimits,
                                         &nchild, &echilds, &senses);
                 if (status != SUCCESS) {
                     SPRINT3(0, "ERROR::EG_getTopology(%d,%d) -> status=%d", ibody, iface, status);
                     goto cleanup;
                 }
 
-                pcolors = (float *) malloc(3*npnt*sizeof(float));
-                if (pcolors == NULL) {
-                    SPRINT0(0, "MALLOC error");
-                    goto cleanup;
-                }
+                MALLOC(pcolors, float, 3*npnt);
 
                 for (ipnt = 0; ipnt < npnt; ipnt++) {
                     ubar = (uv[2*ipnt  ] - uvlimits[0]) / (uvlimits[1] - uvlimits[0]);
@@ -3114,7 +3165,7 @@ buildSceneGraph()
                 }
                 nitems++;
 
-                free(pcolors);   pcolors = NULL;
+                FREE(pcolors);
 
             /* smooth colors (normalized V) */
             } else if (plotType == 2) {
@@ -3126,19 +3177,15 @@ buildSceneGraph()
                     goto cleanup;
                 }
 
-                status = EG_getTopology(MODL->body[ibody].face[iface].eface,
-                                        &eref, &oclass, &mtype, uvlimits,
+                SPLINT_CHECK_FOR_NULL(efaces);
+                status = EG_getTopology(efaces[iface-1], &eref, &oclass, &mtype, uvlimits,
                                         &nchild, &echilds, &senses);
                 if (status != SUCCESS) {
                     SPRINT3(0, "ERROR:: EG_getTopology(%d,%d) -> status=%d", ibody, iface, status);
                     goto cleanup;
                 }
 
-                pcolors = (float *) malloc(3*npnt*sizeof(float));
-                if (pcolors == NULL) {
-                    SPRINT0(0, "MALLOC error");
-                    goto cleanup;
-                }
+                MALLOC(pcolors, float, 3*npnt);
 
                 for (ipnt = 0; ipnt < npnt; ipnt++) {
                     vbar = (uv[2*ipnt+1] - uvlimits[2]) / (uvlimits[3] - uvlimits[2]);
@@ -3151,7 +3198,7 @@ buildSceneGraph()
                 }
                 nitems++;
 
-                free(pcolors);   pcolors = NULL;
+                FREE(pcolors);
 
             /* smooth colors (minimum Curv) */
             } else if (plotType == 3) {
@@ -3163,15 +3210,11 @@ buildSceneGraph()
                     goto cleanup;
                 }
 
-                pcolors = (float *) malloc(3*npnt*sizeof(float));
-                if (pcolors == NULL) {
-                    SPRINT0(0, "MALLOC error");
-                    goto cleanup;
-                }
+                MALLOC(pcolors, float, 3*npnt);
 
+                SPLINT_CHECK_FOR_NULL(efaces);
                 for (ipnt = 0; ipnt < npnt; ipnt++) {
-                    status = EG_curvature(MODL->body[ibody].face[iface].eface,
-                                          &(uv[2*ipnt]), data);
+                    status = EG_curvature(efaces[iface-1], &(uv[2*ipnt]), data);
                     if (status != SUCCESS) {
                         rcurv = 0;
                     } else {
@@ -3186,7 +3229,7 @@ buildSceneGraph()
                 }
                 nitems++;
 
-                free(pcolors);   pcolors = NULL;
+                FREE(pcolors);
 
             /* smooth colors (maximum Curv) */
             } else if (plotType == 4) {
@@ -3198,15 +3241,11 @@ buildSceneGraph()
                     goto cleanup;
                 }
 
-                pcolors = (float *) malloc(3*npnt*sizeof(float));
-                if (pcolors == NULL) {
-                    SPRINT0(0, "MALLOC error");
-                    goto cleanup;
-                }
+                MALLOC(pcolors, float, 3*npnt);
 
+                SPLINT_CHECK_FOR_NULL(efaces);
                 for (ipnt = 0; ipnt < npnt; ipnt++) {
-                    status = EG_curvature(MODL->body[ibody].face[iface].eface,
-                                          &(uv[2*ipnt]), data);
+                    status = EG_curvature(efaces[iface-1], &(uv[2*ipnt]), data);
                     if (status != SUCCESS) {
                         rcurv = 0;
                     } else {
@@ -3221,7 +3260,7 @@ buildSceneGraph()
                 }
                 nitems++;
 
-                free(pcolors);   pcolors = NULL;
+                FREE(pcolors);
 
             /* smooth colors (Gaussian Curv) */
             } else if (plotType == 5) {
@@ -3233,15 +3272,11 @@ buildSceneGraph()
                     goto cleanup;
                 }
 
-                pcolors = (float *) malloc(3*npnt*sizeof(float));
-                if (pcolors == NULL) {
-                    SPRINT0(0, "MALLOC error");
-                    goto cleanup;
-                }
+                MALLOC(pcolors, float, 3*npnt);
 
+                SPLINT_CHECK_FOR_NULL(efaces);
                 for (ipnt = 0; ipnt < npnt; ipnt++) {
-                    status = EG_curvature(MODL->body[ibody].face[iface].eface,
-                                          &(uv[2*ipnt]), data);
+                    status = EG_curvature(efaces[iface-1], &(uv[2*ipnt]), data);
                     if (status != SUCCESS) {
                         rcurv = 0;
                     } else if (MIN(fabs(data[0]), fabs(data[4])) < 0.00001 * MAX(fabs(data[0]), fabs(data[4]))) {
@@ -3262,13 +3297,19 @@ buildSceneGraph()
                 }
                 nitems++;
 
-                free(pcolors);   pcolors = NULL;
+                FREE(pcolors);
 
             /* constant triangle colors */
             } else {
-                color[0] = RED(  MODL->body[ibody].face[iface].gratt.color);
-                color[1] = GREEN(MODL->body[ibody].face[iface].gratt.color);
-                color[2] = BLUE( MODL->body[ibody].face[iface].gratt.color);
+                if (MODL->body[ibody].eebody == NULL) {
+                    color[0] = RED(  MODL->body[ibody].face[iface].gratt.color);
+                    color[1] = GREEN(MODL->body[ibody].face[iface].gratt.color);
+                    color[2] = BLUE( MODL->body[ibody].face[iface].gratt.color);
+                } else {
+                    color[0] = 0.75;
+                    color[1] = 0.75;
+                    color[2] = 1.00;
+                }
                 status = wv_setData(WV_REAL32, 1, (void*)color, WV_COLORS, &(items[nitems]));
                 if (status != SUCCESS) {
                     SPRINT3(0, "ERROR:: wv_setData(%d,%d) -> status=%d", ibody, iface, status);
@@ -3277,9 +3318,15 @@ buildSceneGraph()
             }
 
             /* triangle backface color */
-            color[0] = RED(  MODL->body[ibody].face[iface].gratt.bcolor);
-            color[1] = GREEN(MODL->body[ibody].face[iface].gratt.bcolor);
-            color[2] = BLUE( MODL->body[ibody].face[iface].gratt.bcolor);
+            if (MODL->body[ibody].eebody == NULL) {
+                color[0] = RED(  MODL->body[ibody].face[iface].gratt.bcolor);
+                color[1] = GREEN(MODL->body[ibody].face[iface].gratt.bcolor);
+                color[2] = BLUE( MODL->body[ibody].face[iface].gratt.bcolor);
+            } else {
+                color[0] = 0.50;
+                color[1] = 0.50;
+                color[2] = 0.50;
+            }
             status = wv_setData(WV_REAL32, 1, (void*)color, WV_BCOLOR, &(items[nitems]));
             if (status != SUCCESS) {
                 SPRINT3(0, "ERROR:: wv_setData(%d,%d) -> status=%d", ibody, iface, status);
@@ -3293,12 +3340,18 @@ buildSceneGraph()
             }
             nitems++;
 
-            free(segs);
+            FREE(segs);
 
             /* segment colors */
-            color[0] = RED(  MODL->body[ibody].face[iface].gratt.mcolor);
-            color[1] = GREEN(MODL->body[ibody].face[iface].gratt.mcolor);
-            color[2] = BLUE( MODL->body[ibody].face[iface].gratt.mcolor);
+            if (MODL->body[ibody].eebody == NULL) {
+                color[0] = RED(  MODL->body[ibody].face[iface].gratt.mcolor);
+                color[1] = GREEN(MODL->body[ibody].face[iface].gratt.mcolor);
+                color[2] = BLUE( MODL->body[ibody].face[iface].gratt.mcolor);
+            } else {
+                color[0] = 0;
+                color[1] = 0;
+                color[2] = 0;
+            }
             status = wv_setData(WV_REAL32, 1, (void*)color, WV_LCOLOR, &(items[nitems]));
             if (status != SUCCESS) {
                 SPRINT3(0, "ERROR:: wv_setData(%d,%d) -> status=%d", ibody, iface, status);
@@ -3310,6 +3363,8 @@ buildSceneGraph()
             if (igprim < 0) {
                 SPRINT2(0, "ERROR:: wv_addGPrim(%s) -> igprim=%d", gpname, igprim);
             } else {
+                SPLINT_CHECK_FOR_NULL(cntxt->gPrims);
+
                 cntxt->gPrims[igprim].lWidth = 1.0;
             }
 
@@ -3317,8 +3372,8 @@ buildSceneGraph()
                the control polygon (note that the control polygon is not listed in
                ESP as part of the Body, but separately at the bottom) */
             if (plotCP == 1) {
-                status = EG_getTopology(MODL->body[ibody].face[iface].eface,
-                                        &esurf, &oclass, &mtype,
+                SPLINT_CHECK_FOR_NULL(efaces);
+                status = EG_getTopology(efaces[iface-1], &esurf, &oclass, &mtype,
                                         data, &nchild, &echilds, &senses);
 
                 if (status == SUCCESS) {
@@ -3341,8 +3396,7 @@ buildSceneGraph()
                         wv_adjustVerts(&(items[nitems]), sgFocus);
                         nitems++;
 
-                        segs = (int*) malloc(4*header[2]*header[5]*sizeof(int));
-                        if (segs == NULL) goto cleanup;
+                        MALLOC(segs, int, 4*header[2]*header[5]);
                         nseg = 0;
 
                         /* i=constant lines (bias-1) */
@@ -3369,7 +3423,7 @@ buildSceneGraph()
                         }
                         nitems++;
 
-                        free(segs);
+                        FREE(segs);
 
                         /* color */
                         color[0] = 0;   color[1] = 0;   color[2] = 0;
@@ -3388,11 +3442,11 @@ buildSceneGraph()
                 }
             }
 
-            /* if sensTess is set and we are asking for smooth colors
+            /* if tessel is set and we are asking for smooth colors
                (sensitivities) is set, draw tufts, whose length can be changed
                by recomputing sensitivity with a different value for the velocity
                of the Design Parameter.  (note that the tufts cannot be toggled in ESP) */
-            if (sensTess == 1 && haveDots >= 1) {
+            if (tessel == 1 && haveDots >= 1) {
                 status = EG_getTessFace(etess, iface,
                                         &npnt, &xyz, &uv, &ptype, &pindx,
                                         &ntri, &tris, &tric);
@@ -3401,43 +3455,13 @@ buildSceneGraph()
                     goto cleanup;
                 }
 
-//$$$                nitems = 0;
-//$$$
-//$$$                /* name and attributes */
-//$$$                snprintf(gpname, MAX_STRVAL_LEN-1, "PlotPoints: Face_%s:%d_pts", bname, iface);
-//$$$                attrs = WV_ON;
-//$$$
-//$$$                status = wv_setData(WV_REAL64, npnt, (void*)xyz, WV_VERTICES, &(items[nitems]));
-//$$$                if (status != SUCCESS) {
-//$$$                    SPRINT3(0, "ERROR:: wv_setData(%d,%d) -> status=%d", ibody, iface, status);
-//$$$                }
-//$$$
-//$$$                wv_adjustVerts(&(items[nitems]), sgFocus);
-//$$$                nitems++;
-//$$$
-//$$$                /* point color */
-//$$$                color[0] = 0;   color[1] = 0;   color[2] = 0;
-//$$$
-//$$$                status = wv_setData(WV_REAL32, 1, (void*)color, WV_COLORS, &(items[nitems]));
-//$$$                if (status != SUCCESS) {
-//$$$                    SPRINT3(0, "ERROR:: wv_setData(%d,%d) -> status=%d", ibody, iface, status);
-//$$$                }
-//$$$                nitems++;
-//$$$
-//$$$                /* make graphic primitive for points */
-//$$$                igprim = wv_addGPrim(cntxt, gpname, WV_POINT, attrs, nitems, items);
-//$$$                if (igprim < 0) {
-//$$$                    SPRINT2(0, "ERROR:: wv_addGPrim(%s) -> igprim=%d", gpname, igprim);
-//$$$                } else {
-//$$$                    cntxt->gPrims[igprim].pSize = 3.0;
-//$$$                }
-
                 nitems = 0;
 
                 /* name and attributes */
                 snprintf(gpname, MAX_STRVAL_LEN-1, "PlotLine: Face_%d:%d_tufts", ibody, iface);
                 attrs = WV_ON;
 
+//$$$
                 status = ocsmGetTessVel(MODL, ibody, OCSM_FACE, iface, (const double**)(&vel));
                 if (status != SUCCESS) {
                     SPRINT3(0, "ERROR:: ocsmGetTessVel(%d,%d) -> status=%d", ibody, iface, status);
@@ -3445,11 +3469,9 @@ buildSceneGraph()
                 }
 
                 /* create tufts */
-                tuft = (float *) malloc(6*npnt*sizeof(float));
-                if (tuft == NULL) {
-                    SPRINT0(0, "MALLOC error");
-                    goto cleanup;
-                }
+                MALLOC(tuft, float, 6*npnt);
+
+                SPLINT_CHECK_FOR_NULL(vel);
 
                 for (ipnt = 0; ipnt < npnt; ipnt++) {
                     tuft[6*ipnt  ] = xyz[3*ipnt  ];
@@ -3462,7 +3484,7 @@ buildSceneGraph()
 
                 status = wv_setData(WV_REAL32, 2*npnt, (void*)tuft, WV_VERTICES, &(items[nitems]));
 
-                free(tuft);
+                FREE(tuft);
 
                 if (status != SUCCESS) {
                     SPRINT3(0, "ERROR:: wv_setData(%d,%d) -> status=%d", ibody, iface, status);
@@ -3487,25 +3509,18 @@ buildSceneGraph()
             }
 
             /* get Attributes for the Face */
-            eface  = MODL->body[ibody].face[iface].eface;
+            SPLINT_CHECK_FOR_NULL(efaces);
+            eface  = efaces[iface-1];
             status = EG_attributeNum(eface, &nattr);
             if (status != SUCCESS) {
                 SPRINT3(0, "ERROR:: EG_attributeNum(%d,%d) -> status=%d", ibody, iface, status);
             }
 
             /* add Face to meta data (if there is room) */
-            if (STRLEN(sgMetaData) >= sgMetaDataLen-1000) {
-                sgMetaDataLen += MAX_METADATA_CHUNK;
-                RALLOC(sgMetaData, char, sgMetaDataLen);
-                RALLOC(sgTempData, char, sgMetaDataLen);
-            }
-
             if (nattr > 0) {
-                STRNCPY( sgTempData, sgMetaData, sgMetaDataLen);
-                snprintf(sgMetaData, sgMetaDataLen, "%s\"%s\":[",  sgTempData, gpname);
+                addToSgMetaData("\"%s\":[",  gpname);
             } else {
-                STRNCPY( sgTempData, sgMetaData, sgMetaDataLen);
-                snprintf(sgMetaData, sgMetaDataLen, "%s\"%s\":[]", sgTempData, gpname);
+                addToSgMetaData("\"%s\":[]", gpname);
             }
 
             for (iattr = 1; iattr <= nattr; iattr++) {
@@ -3517,34 +3532,28 @@ buildSceneGraph()
 
                 if (itype == ATTRCSYS) continue;
 
-                STRNCPY( sgTempData, sgMetaData, sgMetaDataLen);
-                snprintf(sgMetaData, sgMetaDataLen, "%s\"%s\",\"", sgTempData, attrName);
+                addToSgMetaData("\"%s\",\"", attrName);
 
                 if        (itype == ATTRINT) {
                     for (i = 0; i < nlist ; i++) {
-                        STRNCPY( sgTempData, sgMetaData, sgMetaDataLen);
-                        snprintf(sgMetaData, sgMetaDataLen, "%s %d", sgTempData, tempIlist[i]);
+                        addToSgMetaData(" %d", tempIlist[i]);
                     }
                 } else if (itype == ATTRREAL) {
                     for (i = 0; i < nlist ; i++) {
-                        STRNCPY( sgTempData, sgMetaData, sgMetaDataLen);
-                        snprintf(sgMetaData, sgMetaDataLen, "%s %f", sgTempData, tempRlist[i]);
+                        addToSgMetaData(" %f", tempRlist[i]);
                     }
                 } else if (itype == ATTRSTRING) {
-                    STRNCPY( sgTempData, sgMetaData, sgMetaDataLen);
-                    snprintf(sgMetaData, sgMetaDataLen, "%s %s ", sgTempData, tempClist);
+                    addToSgMetaData(" %s ", tempClist);
                 }
 
-                STRNCPY( sgTempData, sgMetaData, sgMetaDataLen);
-                snprintf(sgMetaData, sgMetaDataLen, "%s\",", sgTempData);
+                addToSgMetaData("\",");
             }
-            sgMetaData[sgMetaDataLen-1] = '\0';
-            STRNCPY( sgTempData, sgMetaData, sgMetaDataLen);
-            snprintf(sgMetaData, sgMetaDataLen, "%s],", sgTempData);
+            sgMetaDataUsed--;
+            addToSgMetaData("],");
         }
 
         /* loop through the Edges within the current Body */
-        for (iedge = 1; iedge <= MODL->body[ibody].nedge; iedge++) {
+        for (iedge = 1; iedge <= nedge; iedge++) {
             nitems = 0;
 
             /* skip edge if this is a NodeBody */
@@ -3553,6 +3562,22 @@ buildSceneGraph()
             status = EG_getTessEdge(etess, iedge, &npnt, &xyz, &t);
             if (status != SUCCESS) {
                 SPRINT3(0, "ERROR:: EG_getTessEdge(%d,%d) -> status=%d", ibody, iedge, status);
+            }
+
+            /* get Edge velocities (for testing) */
+            if (allVels == 1 && haveDots > 0) {
+                MALLOC(vel, double, 3*npnt);
+
+                if (MODL->body[ibody].eebody == NULL) {
+                    status = ocsmGetVel(MODL, ibody, OCSM_EDGE, iedge, npnt, NULL, vel);
+                } else {
+                    status = ocsmGetVel(MODL, ibody, OCSM_EEDGE, iedge, npnt, NULL, vel);
+                }
+                if (status != SUCCESS) {
+                    SPRINT3(0, "ERROR:: ocsmGetVel(ibody=%d, iedge=%d) -> status=%d", ibody, iedge, status);
+                }
+
+                FREE(vel);
             }
 
             /* name and attributes */
@@ -3569,8 +3594,7 @@ buildSceneGraph()
             nitems++;
 
             /* segments (bias-1) */
-            ivrts = (int*) malloc(2*(npnt-1)*sizeof(int));
-            if (ivrts == NULL) goto cleanup;
+            MALLOC(ivrts, int, 2*(npnt-1));
 
             for (ipnt = 0; ipnt < npnt-1; ipnt++) {
                 ivrts[2*ipnt  ] = ipnt + 1;
@@ -3583,12 +3607,18 @@ buildSceneGraph()
             }
             nitems++;
 
-            free(ivrts);
+            FREE(ivrts);
 
             /* line colors */
-            color[0] = RED(  MODL->body[ibody].edge[iedge].gratt.color);
-            color[1] = GREEN(MODL->body[ibody].edge[iedge].gratt.color);
-            color[2] = BLUE( MODL->body[ibody].edge[iedge].gratt.color);
+            if (MODL->body[ibody].eebody == NULL) {
+                color[0] = RED(  MODL->body[ibody].edge[iedge].gratt.color);
+                color[1] = GREEN(MODL->body[ibody].edge[iedge].gratt.color);
+                color[2] = BLUE( MODL->body[ibody].edge[iedge].gratt.color);
+            } else {
+                color[0] = 0;
+                color[1] = 0;
+                color[2] = 0;
+            }
             status = wv_setData(WV_REAL32, 1, (void*)color, WV_COLORS, &(items[nitems]));
             if (status != SUCCESS) {
                 SPRINT3(0, "ERROR:: wv_setData(%d,%d) -> status=%d", ibody, iedge, status);
@@ -3596,8 +3626,7 @@ buildSceneGraph()
             nitems++;
 
             /* points */
-            ivrts = (int*) malloc(npnt*sizeof(int));
-            if (ivrts == NULL) goto cleanup;
+            MALLOC(ivrts, int, npnt);
 
             for (ipnt = 0; ipnt < npnt; ipnt++) {
                 ivrts[ipnt] = ipnt + 1;
@@ -3609,12 +3638,18 @@ buildSceneGraph()
             }
             nitems++;
 
-            free(ivrts);
+            FREE(ivrts);
 
             /* point colors */
-            color[0] = RED(  MODL->body[ibody].edge[iedge].gratt.mcolor);
-            color[1] = GREEN(MODL->body[ibody].edge[iedge].gratt.mcolor);
-            color[2] = BLUE( MODL->body[ibody].edge[iedge].gratt.mcolor);
+            if (MODL->body[ibody].eebody == NULL) {
+                color[0] = RED(  MODL->body[ibody].edge[iedge].gratt.mcolor);
+                color[1] = GREEN(MODL->body[ibody].edge[iedge].gratt.mcolor);
+                color[2] = BLUE( MODL->body[ibody].edge[iedge].gratt.mcolor);
+            } else {
+                color[0] = 0;
+                color[1] = 0;
+                color[2 ]= 0;
+            }
             status = wv_setData(WV_REAL32, 1, (void*)color, WV_PCOLOR, &(items[nitems]));
             if (status != SUCCESS) {
                 SPRINT3(0, "ERROR:: wv_setData(%d,%d) -> status=%d", ibody, iedge, status);
@@ -3626,6 +3661,8 @@ buildSceneGraph()
             if (igprim < 0) {
                 SPRINT2(0, "ERROR:: wv_addGPrim(%s) -> igprim=%d", gpname, igprim);
             } else {
+                SPLINT_CHECK_FOR_NULL(cntxt->gPrims);
+
                 /* make line width 2 (does not work for ANGLE) */
                 cntxt->gPrims[igprim].lWidth = 2.0;
 
@@ -3640,17 +3677,18 @@ buildSceneGraph()
                 }
             }
 
-            eedge  = MODL->body[ibody].edge[iedge].eedge;
+            SPLINT_CHECK_FOR_NULL(eedges);
+            eedge  = eedges[iedge-1];
             status = EG_attributeNum(eedge, &nattr);
             if (status != SUCCESS) {
                 SPRINT3(0, "ERROR:: EG_attributeNum(%d,%d) -> status=%d", ibody, iedge, status);
             }
 
-            /* if sensTess is set and we are asking for smooth colors
+            /* if tessel is set and we are asking for smooth colors
                (sensitivities) is set, draw tufts, whose length can be changed
                by recomputing sensitivity with a different value for the velocity
                of the Design Parameter.  (note that the tufts cannot be toggled in ESP) */
-            if (sensTess == 1 && haveDots >= 1) {
+            if (tessel == 1 && haveDots >= 1) {
                 status = EG_getTessEdge(etess, iedge,
                                         &npnt, &xyz, &uv);
                 if (status != SUCCESS) {
@@ -3658,55 +3696,20 @@ buildSceneGraph()
                     goto cleanup;
                 }
 
-//$$$                nitems = 0;
-//$$$
-//$$$                /* name and attributes */
-//$$$                snprintf(gpname, MAX_STRVAL_LEN-1, "PlotPoints: Edge_%s:%d_pts", bname, iedge);
-//$$$                attrs = WV_ON;
-//$$$
-//$$$                status = wv_setData(WV_REAL64, npnt, (void*)xyz, WV_VERTICES, &(items[nitems]));
-//$$$                if (status != SUCCESS) {
-//$$$                    SPRINT3(0, "ERROR:: wv_setData(%d,%d) -> status=%d", ibody, iedge, status);
-//$$$                }
-//$$$
-//$$$                wv_adjustVerts(&(items[nitems]), sgFocus);
-//$$$                nitems++;
-//$$$
-//$$$                /* point color */
-//$$$                color[0] = 0;   color[1] = 0;   color[2] = 0;
-//$$$
-//$$$                status = wv_setData(WV_REAL32, 1, (void*)color, WV_COLORS, &(items[nitems]));
-//$$$                if (status != SUCCESS) {
-//$$$                    SPRINT3(0, "ERROR:: wv_setData(%d,%d) -> status=%d", ibody, iedge, status);
-//$$$                }
-//$$$                nitems++;
-//$$$
-//$$$                /* make graphic primitive for points */
-//$$$                igprim = wv_addGPrim(cntxt, gpname, WV_POINT, attrs, nitems, items);
-//$$$                if (igprim < 0) {
-//$$$                    SPRINT2(0, "ERROR:: wv_addGPrim(%s) -> igprim=%d", gpname, igprim);
-//$$$                } else {
-//$$$                    cntxt->gPrims[igprim].pSize = 3.0;
-//$$$                }
-
                 nitems = 0;
 
                 /* name and attributes */
                 snprintf(gpname, MAX_STRVAL_LEN-1, "PlotLine: Edge_%d:%d_tufts", ibody, iedge);
                 attrs = WV_ON;
 
+//$$$
                 status = ocsmGetTessVel(MODL, ibody, OCSM_EDGE, iedge, (const double**)(&vel));
-                if (status != SUCCESS) {
-                    SPRINT3(0, "ERROR:: ocsmGetTessVel(%d,%d) -> status=%d", ibody, iedge, status);
-                    goto cleanup;
-                }
+                CHECK_STATUS(ocsmGetTessVel);
+
+                SPLINT_CHECK_FOR_NULL(vel);
 
                 /* create tufts */
-                tuft = (float *) malloc(6*npnt*sizeof(float));
-                if (tuft == NULL) {
-                    SPRINT0(0, "MALLOC error");
-                    goto cleanup;
-                }
+                MALLOC(tuft, float, 6*npnt);
 
                 for (ipnt = 0; ipnt < npnt; ipnt++) {
                     tuft[6*ipnt  ] = xyz[3*ipnt  ];
@@ -3719,7 +3722,7 @@ buildSceneGraph()
 
                 status = wv_setData(WV_REAL32, 2*npnt, (void*)tuft, WV_VERTICES, &(items[nitems]));
 
-                free(tuft);
+                FREE(tuft);
 
                 if (status != SUCCESS) {
                     SPRINT3(0, "ERROR:: wv_setData(%d,%d) -> status=%d", ibody, iedge, status);
@@ -3745,18 +3748,10 @@ buildSceneGraph()
             }
 
             /* add Edge to meta data (if there is room) */
-            if (STRLEN(sgMetaData) >= sgMetaDataLen-1000) {
-                sgMetaDataLen += MAX_METADATA_CHUNK;
-                RALLOC(sgMetaData, char, sgMetaDataLen);
-                RALLOC(sgTempData, char, sgMetaDataLen);
-            }
-
             if (nattr > 0) {
-                STRNCPY( sgTempData, sgMetaData, sgMetaDataLen);
-                snprintf(sgMetaData, sgMetaDataLen, "%s\"%s\":[",  sgTempData, gpname);
+                addToSgMetaData("\"%s\":[",  gpname);
             } else {
-                STRNCPY( sgTempData, sgMetaData, sgMetaDataLen);
-                snprintf(sgMetaData, sgMetaDataLen, "%s\"%s\":[]", sgTempData, gpname);
+                addToSgMetaData("\"%s\":[]", gpname);
             }
 
             for (iattr = 1; iattr <= nattr; iattr++) {
@@ -3768,35 +3763,42 @@ buildSceneGraph()
 
                 if (itype == ATTRCSYS) continue;
 
-                STRNCPY( sgTempData, sgMetaData, sgMetaDataLen);
-                snprintf(sgMetaData, sgMetaDataLen, "%s\"%s\",\"", sgTempData, attrName);
+                addToSgMetaData("\"%s\",\"", attrName);
 
                 if        (itype == ATTRINT) {
                     for (i = 0; i < nlist ; i++) {
-                        STRNCPY( sgTempData, sgMetaData, sgMetaDataLen);
-                        snprintf(sgMetaData, sgMetaDataLen, "%s %d", sgTempData, tempIlist[i]);
+                        addToSgMetaData(" %d", tempIlist[i]);
                     }
                 } else if (itype == ATTRREAL) {
                     for (i = 0; i < nlist ; i++) {
-                        STRNCPY( sgTempData, sgMetaData, sgMetaDataLen);
-                        snprintf(sgMetaData, sgMetaDataLen, "%s %f", sgTempData, tempRlist[i]);
+                        addToSgMetaData(" %f", tempRlist[i]);
                     }
                 } else if (itype == ATTRSTRING) {
-                    STRNCPY( sgTempData, sgMetaData, sgMetaDataLen);
-                    snprintf(sgMetaData, sgMetaDataLen, "%s %s ", sgTempData, tempClist);
+                    addToSgMetaData(" %s ", tempClist);
                 }
 
-                STRNCPY( sgTempData, sgMetaData, sgMetaDataLen);
-                snprintf(sgMetaData, sgMetaDataLen, "%s\",", sgTempData);
+                addToSgMetaData("\",");
             }
-            sgMetaData[sgMetaDataLen-1] = '\0';
-            STRNCPY( sgTempData, sgMetaData, sgMetaDataLen);
-            snprintf(sgMetaData, sgMetaDataLen, "%s],", sgTempData);
+            sgMetaDataUsed--;
+            addToSgMetaData("],");
         }
 
         /* loop through the Nodes within the current Body */
-        for (inode = 1; inode <= MODL->body[ibody].nnode; inode++) {
+        for (inode = 1; inode <= nnode; inode++) {
             nitems = 0;
+
+            /* get Node velocities (for testing) */
+            if (allVels == 1 && haveDots > 0) {
+                npnt = 1;
+                MALLOC(vel, double, 3*npnt);
+
+                status = ocsmGetVel(MODL, ibody, OCSM_NODE, inode, npnt, NULL, vel);
+                if (status != SUCCESS) {
+                    SPRINT3(0, "ERROR:: ocsmGetVel(ibody=%d, inode=%d) -> status=%d", ibody, inode, status);
+                }
+
+                FREE(vel);
+            }
 
             /* name and attributes */
             snprintf(gpname, MAX_STRVAL_LEN-1, "%s Node %d", bname, inode);
@@ -3808,13 +3810,14 @@ buildSceneGraph()
                 attrs = 0;
             }
 
-            enode  = MODL->body[ibody].node[inode].enode;
+            SPLINT_CHECK_FOR_NULL(enodes);
+            enode  = enodes[inode-1];
 
             /* two copies of vertex (to get around possible wv limitation) */
             status = EG_getTopology(enode, &eref, &oclass, &mtype,
                                     xyz_dum, &nchild, &echilds, &senses);
             if (status != SUCCESS) {
-                SPRINT3(0, "ERROR:: EG_getTopology(%d,%d) -> status=%d", ibody, iedge, status);
+                SPRINT3(0, "ERROR:: EG_getTopology(%d,%d) -> status=%d", ibody, inode, status);
             }
 
             xyz_dum[3] = xyz_dum[0];
@@ -3832,9 +3835,15 @@ buildSceneGraph()
             /* node color (black) */
             color[0] = 0;   color[1] = 0;   color[2] = 0;
 
-            color[0] = RED(  MODL->body[ibody].node[inode].gratt.color);
-            color[1] = GREEN(MODL->body[ibody].node[inode].gratt.color);
-            color[2] = BLUE( MODL->body[ibody].node[inode].gratt.color);
+            if (MODL->body[ibody].eebody == NULL) {
+                color[0] = RED(  MODL->body[ibody].node[inode].gratt.color);
+                color[1] = GREEN(MODL->body[ibody].node[inode].gratt.color);
+                color[2] = BLUE( MODL->body[ibody].node[inode].gratt.color);
+            } else {
+                color[0] = 0;
+                color[1] = 0;
+                color[2] = 0;
+            }
             status = wv_setData(WV_REAL32, 1, (void*)color, WV_COLORS, &(items[nitems]));
             if (status != SUCCESS) {
                 SPRINT3(0, "ERROR:: wv_setData(%d,%d) -> status=%d", ibody, iedge, status);
@@ -3846,6 +3855,8 @@ buildSceneGraph()
             if (igprim < 0) {
                 SPRINT2(0, "ERROR:: wv_addGPrim(%s) -> igprim=%d", gpname, igprim);
             } else {
+                SPLINT_CHECK_FOR_NULL(cntxt->gPrims);
+
                 cntxt->gPrims[igprim].pSize = 6.0;
             }
 
@@ -3855,18 +3866,10 @@ buildSceneGraph()
             }
 
             /* add Node to meta data (if there is room) */
-            if (STRLEN(sgMetaData) >= sgMetaDataLen-1000) {
-                sgMetaDataLen += MAX_METADATA_CHUNK;
-                RALLOC(sgMetaData, char, sgMetaDataLen);
-                RALLOC(sgTempData, char, sgMetaDataLen);
-            }
-
             if (nattr > 0) {
-                STRNCPY( sgTempData, sgMetaData, sgMetaDataLen);
-                snprintf(sgMetaData, sgMetaDataLen, "%s\"%s\":[",  sgTempData, gpname);
+                addToSgMetaData("\"%s\":[",  gpname);
             } else {
-                STRNCPY( sgTempData, sgMetaData, sgMetaDataLen);
-                snprintf(sgMetaData, sgMetaDataLen, "%s\"%s\":[]", sgTempData, gpname);
+                addToSgMetaData("\"%s\":[]", gpname);
             }
 
             for (iattr = 1; iattr <= nattr; iattr++) {
@@ -3878,30 +3881,24 @@ buildSceneGraph()
 
                 if (itype == ATTRCSYS) continue;
 
-                STRNCPY( sgTempData, sgMetaData, sgMetaDataLen);
-                snprintf(sgMetaData, sgMetaDataLen, "%s\"%s\",\"", sgTempData, attrName);
+                addToSgMetaData("\"%s\",\"", attrName);
 
                 if        (itype == ATTRINT) {
                     for (i = 0; i < nlist ; i++) {
-                        STRNCPY( sgTempData, sgMetaData, sgMetaDataLen);
-                        snprintf(sgMetaData, sgMetaDataLen, "%s %d", sgTempData, tempIlist[i]);
+                        addToSgMetaData(" %d", tempIlist[i]);
                     }
                 } else if (itype == ATTRREAL) {
                     for (i = 0; i < nlist ; i++) {
-                        STRNCPY( sgTempData, sgMetaData, sgMetaDataLen);
-                        snprintf(sgMetaData, sgMetaDataLen, "%s %f", sgTempData, tempRlist[i]);
+                        addToSgMetaData(" %f", tempRlist[i]);
                     }
                 } else if (itype == ATTRSTRING) {
-                    STRNCPY( sgTempData, sgMetaData, sgMetaDataLen);
-                    snprintf(sgMetaData, sgMetaDataLen, "%s %s ", sgTempData, tempClist);
+                    addToSgMetaData(" %s ", tempClist);
                 }
 
-                STRNCPY( sgTempData, sgMetaData, sgMetaDataLen);
-                snprintf(sgMetaData, sgMetaDataLen, "%s\",", sgTempData);
+                addToSgMetaData("\",");
             }
-            sgMetaData[sgMetaDataLen-1] = '\0';
-            STRNCPY( sgTempData, sgMetaData, sgMetaDataLen);
-            snprintf(sgMetaData, sgMetaDataLen, "%s],", sgTempData);
+            sgMetaDataUsed--;
+            addToSgMetaData("],");
         }
 
         /* loop through the Csystems associated with the current Body */
@@ -3971,6 +3968,8 @@ buildSceneGraph()
             if (igprim < 0) {
                 SPRINT2(0, "ERROR:: wv_addGPrim(%s) -> igprim=%d", gpname, igprim);
             } else {
+                SPLINT_CHECK_FOR_NULL(cntxt->gPrims);
+
                 /* make line width 1 */
                 cntxt->gPrims[igprim].lWidth = 1.0;
 
@@ -3983,14 +3982,7 @@ buildSceneGraph()
             }
 
             /* add Csystem to meta data (if there is room) */
-            if (STRLEN(sgMetaData) >= sgMetaDataLen-1000) {
-                sgMetaDataLen += MAX_METADATA_CHUNK;
-                RALLOC(sgMetaData, char, sgMetaDataLen);
-                RALLOC(sgMetaData, char, sgMetaDataLen);
-            }
-
-            STRNCPY( sgTempData, sgMetaData, sgMetaDataLen);
-            snprintf(sgMetaData, sgMetaDataLen, "%s\"%s\":[],", sgTempData, gpname);
+            addToSgMetaData("\"%s\":[],", gpname);
         }
     }
 
@@ -4031,10 +4023,14 @@ buildSceneGraph()
     if (igprim < 0) {
         SPRINT2(0, "ERROR:: wv_addGPrim(%s) -> igprim=%d", gpname, igprim);
     } else {
+        SPLINT_CHECK_FOR_NULL(cntxt->gPrims);
+
         cntxt->gPrims[igprim].lWidth = 1.0;
     }
 
     /* extra plotting data */
+    SPLINT_CHECK_FOR_NULL(plotfile);
+
     if (STRLEN(plotfile) > 0) {
         fp = fopen(plotfile, "r");
         if (fp == NULL) {
@@ -4057,8 +4053,7 @@ buildSceneGraph()
                 snprintf(gpname, MAX_STRVAL_LEN-1, "PlotPoints: %.114s", temp);
 
                 /* read the plotdata */
-                plotdata = (float*) malloc(3*imax*sizeof(float));
-                if (plotdata == NULL) goto cleanup;
+                MALLOC(plotdata, float, 3*imax);
 
                 for (i = 0; i < imax; i++) {
                     fscanf(fp, "%f %f %f", &plotdata[3*i  ],
@@ -4072,7 +4067,7 @@ buildSceneGraph()
                     SPRINT1(0, "ERROR:: wv_setData(plotdata) -> status=%d", status);
                 }
 
-                free(plotdata);   plotdata = NULL;
+                FREE(plotdata);
 
                 wv_adjustVerts(&(items[nitems]), sgFocus);
                 nitems++;
@@ -4091,18 +4086,13 @@ buildSceneGraph()
                 if (igprim < 0) {
                     SPRINT2(0, "ERROR:: wv_addGPrim(%s) -> igprim=%d", gpname, igprim);
                 } else {
+                    SPLINT_CHECK_FOR_NULL(cntxt->gPrims);
+
                     cntxt->gPrims[igprim].pSize = 3.0;
                 }
 
                 /* add plotdata to meta data (if there is room) */
-                if (STRLEN(sgMetaData) >= sgMetaDataLen-1000) {
-                    sgMetaDataLen += MAX_METADATA_CHUNK;
-                    RALLOC(sgMetaData, char, sgMetaDataLen);
-                    RALLOC(sgTempData, char, sgMetaDataLen);
-                }
-
-                STRNCPY( sgTempData, sgMetaData, sgMetaDataLen);
-                snprintf(sgMetaData, sgMetaDataLen, "%s\"%s\":[],", sgTempData, gpname);
+                addToSgMetaData("\"%s\":[],", gpname);
 
             /* polyline (imax=npnt, jmax=1) */
             } else if (imax > 1 && jmax == 1) {
@@ -4113,8 +4103,7 @@ buildSceneGraph()
                 snprintf(gpname, MAX_STRVAL_LEN-1, "PlotLine: %.116s", temp);
 
                 /* read the plotdata */
-                plotdata = (float*) malloc(3*imax*sizeof(float));
-                if (plotdata == NULL) goto cleanup;
+                MALLOC(plotdata, float, 3*imax);
 
                 for (i = 0; i < imax; i++) {
                     fscanf(fp, "%f %f %f", &plotdata[3*i  ],
@@ -4123,10 +4112,7 @@ buildSceneGraph()
                 }
 
                 /* create the segments */
-                nseg     = imax - 1;
-                segments = (float*) malloc(6*nseg*sizeof(float));
-                if (segments == NULL) goto cleanup;
-
+                MALLOC(segments, float, 6*(imax-1));
                 nseg = 0;
 
                 for (i = 0; i < imax-1; i++) {
@@ -4141,15 +4127,14 @@ buildSceneGraph()
                     nseg++;
                 }
 
-                free(plotdata);   plotdata = NULL;
+                FREE(plotdata);
 
                 status = wv_setData(WV_REAL32, 2*nseg, (void*)segments, WV_VERTICES, &(items[nitems]));
                 if (status != SUCCESS) {
                     SPRINT1(0, "ERROR:: wv_setData(segments) -> status=%d", status);
                 }
 
-                free(segments);
-                segments = NULL;
+                FREE(segments);
 
                 wv_adjustVerts(&(items[nitems]), sgFocus);
                 nitems++;
@@ -4168,18 +4153,13 @@ buildSceneGraph()
                 if (igprim < 0) {
                     SPRINT2(0, "ERROR:: wv_addGPrim(%s) -> igprim=%d", gpname, igprim);
                 } else {
+                    SPLINT_CHECK_FOR_NULL(cntxt->gPrims);
+
                     cntxt->gPrims[igprim].lWidth = 1.0;
                 }
 
                 /* add plotdata to meta data (if there is room) */
-                if (STRLEN(sgMetaData) >= sgMetaDataLen-1000) {
-                    sgMetaDataLen += MAX_METADATA_CHUNK;
-                    RALLOC(sgMetaData, char, sgMetaDataLen);
-                    RALLOC(sgTempData, char, sgMetaDataLen);
-                }
-
-                STRNCPY( sgTempData, sgMetaData, sgMetaDataLen);
-                snprintf(sgMetaData, sgMetaDataLen, "%s\"%s\":[],", sgTempData, gpname);
+                addToSgMetaData("\"%s\":[],", gpname);
 
             /* many line segments (imax=nseg, jmax=-1) */
             } else if (imax > 0 && jmax == -1) {
@@ -4190,8 +4170,7 @@ buildSceneGraph()
                 snprintf(gpname, MAX_STRVAL_LEN-1, "PlotLine: %.116s", temp);
 
                 /* read the plotdata */
-                plotdata = (float*) malloc(6*imax*sizeof(float));
-                if (plotdata == NULL) goto cleanup;
+                MALLOC(plotdata, float, 6*imax);
 
                 for (i = 0; i < imax; i++) {
                     fscanf(fp, "%f %f %f", &plotdata[6*i  ],
@@ -4207,7 +4186,7 @@ buildSceneGraph()
                     SPRINT1(0, "ERROR:: wv_setData(plotdata) -> status=%d", status);
                 }
 
-                free(plotdata);   plotdata = NULL;
+                FREE(plotdata);
 
                 wv_adjustVerts(&(items[nitems]), sgFocus);
                 nitems++;
@@ -4226,18 +4205,13 @@ buildSceneGraph()
                 if (igprim < 0) {
                     SPRINT2(0, "ERROR:: wv_addGPrim(%s) -> igprim=%d", gpname, igprim);
                 } else {
+                    SPLINT_CHECK_FOR_NULL(cntxt->gPrims);
+
                     cntxt->gPrims[igprim].lWidth = 1.0;
                 }
 
                 /* add plotdata to meta data (if there is room) */
-                if (STRLEN(sgMetaData) >= sgMetaDataLen-1000) {
-                    sgMetaDataLen += MAX_METADATA_CHUNK;
-                    RALLOC(sgMetaData, char, sgMetaDataLen);
-                    RALLOC(sgTempData, char, sgMetaDataLen);
-                }
-
-                STRNCPY( sgTempData, sgMetaData, sgMetaDataLen);
-                snprintf(sgMetaData, sgMetaDataLen, "%s\"%s\":[],", sgTempData, gpname);
+                addToSgMetaData("\"%s\":[],", gpname);
 
             /* many triangles (imax=ntri, jmax=-2) */
             } else if (imax > 0 && jmax == -2) {
@@ -4247,11 +4221,7 @@ buildSceneGraph()
                 /* name */
                 snprintf(gpname, MAX_STRVAL_LEN-1, "PlotTris: %.114s", temp);
 
-                plotdata = (float*) malloc(9*imax*sizeof(float));
-                if (plotdata == NULL) {
-                    SPRINT0(0, "MALLOC error");
-                    goto cleanup;
-                }
+                MALLOC(plotdata, float, 9*imax);
 
                 for (ij = 0; ij < imax; ij++) {
                     fscanf(fp, "%f %f %f %f %f %f %f %f %f", &plotdata[9*ij  ],
@@ -4271,7 +4241,7 @@ buildSceneGraph()
                     SPRINT1(0, "ERROR:: wv_setData(plotdata) -> status=%d", status);
                 }
 
-                free(plotdata);   plotdata = NULL;
+                FREE(plotdata);
 
                 wv_adjustVerts(&(items[nitems-1]), sgFocus);
 
@@ -4290,11 +4260,7 @@ buildSceneGraph()
                 }
 
                 /* triangle sides */
-                segs = (int*) malloc(6*imax*sizeof(int));
-                if (segs == NULL) {
-                    SPRINT0(0, "MALLOC error");
-                    goto cleanup;
-                }
+                MALLOC(segs, int, 6*imax);
 
                 /* build up the sides (bias-1) */
                 for (ij = 0; ij < imax; ij++) {
@@ -4311,7 +4277,7 @@ buildSceneGraph()
                     SPRINT1(0, "ERROR:: wv_setData(segs) -> status=%d", status);
                 }
 
-                free(segs);
+                FREE(segs);
 
                 /* triangle side color */
                 color[0] = 1;   color[1] = 0;   color[2] = 0;
@@ -4328,14 +4294,7 @@ buildSceneGraph()
                }
 
                 /* add plotdata to meta data (if there is room) */
-                if (STRLEN(sgMetaData) >= sgMetaDataLen-1000) {
-                    sgMetaDataLen += MAX_METADATA_CHUNK;
-                    RALLOC(sgMetaData, char, sgMetaDataLen);
-                    RALLOC(sgTempData, char, sgMetaDataLen);
-                }
-
-                STRNCPY( sgTempData, sgMetaData, sgMetaDataLen);
-                snprintf(sgMetaData, sgMetaDataLen, "%s\"%s\":[],", sgTempData, gpname);
+                addToSgMetaData("\"%s\":[],", gpname);
 
             /* filled Triangles (imax=ntri, jmax=-3) */
             } else if (imax > 1 && jmax == -3) {
@@ -4346,8 +4305,7 @@ buildSceneGraph()
                 snprintf(gpname, MAX_STRVAL_LEN-1, "PlotTris: %.11s", temp);
 
                 /* read the plotdata */
-                plotdata = (float*) malloc(12*imax*sizeof(float));
-                if (plotdata == NULL) goto cleanup;
+                MALLOC(plotdata, float, 12*imax);
 
                 for (i = 0; i < imax; i++) {
                     fscanf(fp, "%f %f %f %f %f %f %f %f %f %f %f %f",
@@ -4365,11 +4323,7 @@ buildSceneGraph()
                 nitems++;
 
                 /* function values */
-                pcolors = (float *) malloc(9*imax*sizeof(float));
-                if (pcolors == NULL) {
-                    SPRINT0(0, "MALLOC error");
-                    goto cleanup;
-                }
+                MALLOC(pcolors, float, 9*imax);
 
                 lims[0] = -1;  lims[1] = +1;
                 for (i = 0; i < imax; i++) {
@@ -4384,8 +4338,8 @@ buildSceneGraph()
                 }
                 nitems++;
 
-                free(pcolors);    pcolors  = NULL;
-                free(plotdata);   plotdata = NULL;
+                FREE(pcolors);
+                FREE(plotdata);
 
                 /* make graphic primitive */
                 attrs = WV_ON | WV_SHADING;
@@ -4395,14 +4349,7 @@ buildSceneGraph()
                 }
 
                 /* add plotdata to meta data (if there is room) */
-                if (STRLEN(sgMetaData) >= sgMetaDataLen-1000) {
-                    sgMetaDataLen += MAX_METADATA_CHUNK;
-                    RALLOC(sgMetaData, char, sgMetaDataLen);
-                    RALLOC(sgTempData, char, sgMetaDataLen);
-                }
-
-                STRNCPY( sgTempData, sgMetaData, sgMetaDataLen);
-                snprintf(sgMetaData, sgMetaDataLen, "%s\"%s\":[],", sgTempData, gpname);
+                addToSgMetaData("\"%s\":[],", gpname);
 
             /* filled Quads (imax=nquad, jmax=-4) */
             } else if (imax > 1 && jmax == -4) {
@@ -4413,8 +4360,7 @@ buildSceneGraph()
                 snprintf(gpname, MAX_STRVAL_LEN-1, "PlotTris: %.11s", temp);
 
                 /* read the plotdata */
-                plotdata = (float*) malloc(24*imax*sizeof(float));
-                if (plotdata == NULL) goto cleanup;
+                MALLOC(plotdata, float, 24*imax);
 
                 for (i = 0; i < imax; i++) {
                     fscanf(fp, "%f %f %f %f %f %f %f %f %f %f %f %f %f %f %f %f",
@@ -4443,11 +4389,7 @@ buildSceneGraph()
                 nitems++;
 
                 /* function values */
-                pcolors = (float *) malloc(18*imax*sizeof(float));
-                if (pcolors == NULL) {
-                    SPRINT0(0, "MALLOC error");
-                    goto cleanup;
-                }
+                MALLOC(pcolors, float, 18*imax);
 
                 lims[0] = -1;  lims[1] = +1;
                 for (i = 0; i < imax; i++) {
@@ -4465,8 +4407,8 @@ buildSceneGraph()
                 }
                 nitems++;
 
-                free(pcolors);    pcolors  = NULL;
-                free(plotdata);   plotdata = NULL;
+                FREE(pcolors);
+                FREE(plotdata);
 
                 /* make graphic primitive */
                 attrs = WV_ON | WV_SHADING;
@@ -4476,14 +4418,7 @@ buildSceneGraph()
                 }
 
                 /* add plotdata to meta data (if there is room) */
-                if (STRLEN(sgMetaData) >= sgMetaDataLen-1000) {
-                    sgMetaDataLen += MAX_METADATA_CHUNK;
-                    RALLOC(sgMetaData, char, sgMetaDataLen);
-                    RALLOC(sgTempData, char, sgMetaDataLen);
-                }
-
-                STRNCPY( sgTempData, sgMetaData, sgMetaDataLen);
-                snprintf(sgMetaData, sgMetaDataLen, "%s\"%s\":[],", sgTempData, gpname);
+                addToSgMetaData("\"%s\":[],", gpname);
 
             /* grid (imax, jmax) */
             } else if (imax > 1 && jmax > 1) {
@@ -4494,8 +4429,7 @@ buildSceneGraph()
                 snprintf(gpname, MAX_STRVAL_LEN-1, "PlotGrid: %.116s", temp);
 
                 /* read the plotdata */
-                plotdata = (float*) malloc(3*imax*jmax*sizeof(float));
-                if (plotdata == NULL) goto cleanup;
+                MALLOC(plotdata, float, 3*imax*jmax);
 
                 for (ij = 0; ij < imax*jmax; ij++) {
                     fscanf(fp, "%f %f %f", &plotdata[3*ij  ],
@@ -4504,9 +4438,8 @@ buildSceneGraph()
                 }
 
                 /* create the segments */
-                nseg     = imax * (jmax-1) + (imax-1) * jmax;
-                segments = (float*) malloc(6*nseg*sizeof(float));
-                if (segments == NULL) goto cleanup;
+                nseg = imax * (jmax-1) + (imax-1) * jmax;
+                MALLOC(segments, float, 6*nseg);
 
                 nseg = 0;
 
@@ -4546,15 +4479,14 @@ buildSceneGraph()
                 }
 #endif
 
-                free(plotdata);   plotdata = NULL;
+                FREE(plotdata);
 
                 status = wv_setData(WV_REAL32, 2*nseg, (void*)segments, WV_VERTICES, &(items[nitems]));
                 if (status != SUCCESS) {
                     SPRINT1(0, "ERROR:: wv_setData(segments) -> status=%d", status);
                 }
 
-                free(segments);
-                segments = NULL;
+                FREE(segments);
 
                 wv_adjustVerts(&(items[nitems]), sgFocus);
                 nitems++;
@@ -4573,18 +4505,13 @@ buildSceneGraph()
                 if (igprim < 0) {
                     SPRINT2(0, "ERROR:: wv_addGPrim(%s) -> igprim=%d", gpname, igprim);
                 } else {
+                    SPLINT_CHECK_FOR_NULL(cntxt->gPrims);
+
                     cntxt->gPrims[igprim].lWidth = 1.0;
                 }
 
                 /* add plotdata to meta data (if there is room) */
-                if (STRLEN(sgMetaData) >= sgMetaDataLen-1000) {
-                    sgMetaDataLen += MAX_METADATA_CHUNK;
-                    RALLOC(sgMetaData, char, sgMetaDataLen);
-                    RALLOC(sgTempData, char, sgMetaDataLen);
-                }
-
-                STRNCPY( sgTempData, sgMetaData, sgMetaDataLen);
-                snprintf(sgMetaData, sgMetaDataLen, "%s\"%s\":[],", sgTempData, gpname);
+                addToSgMetaData("\"%s\":[],", gpname);
 
             /* unknown type */
             } else {
@@ -4626,8 +4553,7 @@ buildSceneGraph()
             goto cleanup;
         }
 
-        plotdata = (float*) malloc(3*ngrid*sizeof(float));
-        if (plotdata == NULL) goto cleanup;
+        MALLOC(plotdata, float, 3*ngrid);
 
         nitems = 0;
 
@@ -4671,18 +4597,13 @@ buildSceneGraph()
         if (igprim < 0) {
             SPRINT2(0, "ERROR:: wv_addGPrim(%s) -> igprim=%d", gpname, igprim);
         } else {
+            SPLINT_CHECK_FOR_NULL(cntxt->gPrims);
+
             cntxt->gPrims[igprim].pSize = 3.0;
         }
 
         /* add plotdata to meta data (if there is room) */
-        if (STRLEN(sgMetaData) >= sgMetaDataLen-1000) {
-            sgMetaDataLen += MAX_METADATA_CHUNK;
-            RALLOC(sgMetaData, char, sgMetaDataLen);
-            RALLOC(sgTempData, char, sgMetaDataLen);
-        }
-
-        STRNCPY( sgTempData, sgMetaData, sgMetaDataLen);
-        snprintf(sgMetaData, sgMetaDataLen, "%s\"%s\":[],", sgTempData, gpname);
+        addToSgMetaData("\"%s\":[],", gpname);
 
         /* count the number of CRODs in the file */
         rewind(fp);
@@ -4698,8 +4619,7 @@ buildSceneGraph()
         SPRINT1(1, "   there are %d CRODs", ncrod);
 
         if (ncrod > 0) {
-            segments = (float *) malloc(6*ncrod*sizeof(float));
-            if (segments == NULL) goto cleanup;
+            MALLOC(segments, float, 6*ncrod);
 
             rewind(fp);
             i = 0;
@@ -4733,8 +4653,7 @@ buildSceneGraph()
                 SPRINT1(0, "ERROR:: wv_setData(segments) -> status=%d", status);
             }
 
-            free(segments);
-            segments = NULL;
+            FREE(segments);
 
             wv_adjustVerts(&(items[nitems]), sgFocus);
             nitems++;
@@ -4753,18 +4672,13 @@ buildSceneGraph()
             if (igprim < 0) {
                 SPRINT2(0, "ERROR:: wv_addGPrim(%s) -> igprim=%d", gpname, igprim);
             } else {
+                SPLINT_CHECK_FOR_NULL(cntxt->gPrims);
+
                 cntxt->gPrims[igprim].lWidth = 1.0;
             }
 
             /* add plotdata to meta data (if there is room) */
-            if (STRLEN(sgMetaData) >= sgMetaDataLen-1000) {
-                sgMetaDataLen += MAX_METADATA_CHUNK;
-                RALLOC(sgMetaData, char, sgMetaDataLen);
-                RALLOC(sgTempData, char, sgMetaDataLen);
-            }
-
-            STRNCPY( sgTempData, sgMetaData, sgMetaDataLen);
-            snprintf(sgMetaData, sgMetaDataLen, "%s\"%s\":[],", sgTempData, gpname);
+            addToSgMetaData("\"%s\":[],", gpname);
         }
 
         /* count the number of CTRI3s in the file */
@@ -4781,8 +4695,7 @@ buildSceneGraph()
         SPRINT1(1, "   there are %d CTRI3s", nctri3);
 
         if (nctri3 > 0) {
-            segments = (float *) malloc(18*nctri3*sizeof(float));
-            if (segments == NULL) goto cleanup;
+            MALLOC(segments, float, 18*nctri3);
 
             rewind(fp);
             i = 0;
@@ -4832,8 +4745,7 @@ buildSceneGraph()
                 SPRINT1(0, "ERROR:: wv_setData(segments) -> status=%d", status);
             }
 
-            free(segments);
-            segments = NULL;
+            FREE(segments);
 
             wv_adjustVerts(&(items[nitems]), sgFocus);
             nitems++;
@@ -4852,18 +4764,13 @@ buildSceneGraph()
             if (igprim < 0) {
                 SPRINT2(0, "ERROR:: wv_addGPrim(%s) -> igprim=%d", gpname, igprim);
             } else {
+                SPLINT_CHECK_FOR_NULL(cntxt->gPrims);
+
                 cntxt->gPrims[igprim].lWidth = 1.0;
             }
 
             /* add plotdata to meta data (if there is room) */
-            if (STRLEN(sgMetaData) >= sgMetaDataLen-1000) {
-                sgMetaDataLen += MAX_METADATA_CHUNK;
-                RALLOC(sgMetaData, char, sgMetaDataLen);
-                RALLOC(sgTempData, char, sgMetaDataLen);
-            }
-
-            STRNCPY( sgTempData, sgMetaData, sgMetaDataLen);
-            snprintf(sgMetaData, sgMetaDataLen, "%s\"%s\":[],", sgTempData, gpname);
+            addToSgMetaData("\"%s\":[],", gpname);
         }
 
         /* count the number of CQUAD4s in the file */
@@ -4880,8 +4787,7 @@ buildSceneGraph()
         SPRINT1(1, "   there are %d CQUAD4s", ncquad4);
 
         if (ncquad4 > 0) {
-            segments = (float *) malloc(24*ncquad4*sizeof(float));
-            if (segments == NULL) goto cleanup;
+            MALLOC(segments, float, 24*ncquad4);
 
             rewind(fp);
             i = 0;
@@ -4939,8 +4845,7 @@ buildSceneGraph()
                 SPRINT1(0, "ERROR:: wv_setData(segments) -> status=%d", status);
             }
 
-            free(segments);
-            segments = NULL;
+            FREE(segments);
 
             wv_adjustVerts(&(items[nitems]), sgFocus);
             nitems++;
@@ -4959,34 +4864,36 @@ buildSceneGraph()
             if (igprim < 0) {
                 SPRINT2(0, "ERROR:: wv_addGPrim(%s) -> igprim=%d", gpname, igprim);
             } else {
+                SPLINT_CHECK_FOR_NULL(cntxt->gPrims);
+
                 cntxt->gPrims[igprim].lWidth = 1.0;
             }
 
             /* add plotdata to meta data (if there is room) */
-            if (STRLEN(sgMetaData) >= sgMetaDataLen-1000) {
-                sgMetaDataLen += MAX_METADATA_CHUNK;
-                RALLOC(sgMetaData, char, sgMetaDataLen);
-                RALLOC(sgTempData, char, sgMetaDataLen);
-            }
-
-            STRNCPY( sgTempData, sgMetaData, sgMetaDataLen);
-            snprintf(sgMetaData, sgMetaDataLen, "%s\"%s\":[],", sgTempData, gpname);
+            addToSgMetaData("\"%s\":[],", gpname);
         }
 
-        free(plotdata);   plotdata = NULL;
+        FREE(plotdata);
 
         fclose(fp);
     }
 
     /* finish the scene graph meta data */
-    sgMetaData[sgMetaDataLen-1] = '\0';
-    STRNCPY( sgTempData, sgMetaData, sgMetaDataLen);
-    snprintf(sgMetaData, sgMetaDataLen, "%s}", sgTempData);
+    sgMetaDataUsed--;
+    addToSgMetaData("}");
 
 cleanup:
-    if (plotdata != NULL) free(plotdata);
-    if (pcolors  != NULL) free(pcolors );
-    if (segments != NULL) free(segments);
+    if (enodes != NULL) EG_free(enodes);
+    if (eedges != NULL) EG_free(eedges);
+    if (efaces != NULL) EG_free(efaces);
+
+    FREE(plotdata);
+    FREE(pcolors );
+    FREE(segments);
+    FREE(segs    );
+    FREE(ivrts   );
+    FREE(tuft    );
+    FREE(Tris    );
 
     return status;
 }
@@ -5011,6 +4918,7 @@ buildSceneGraphBody(int    ibody)       /* Body index (bias-1) */
     CDOUBLE   *xyz, *uv, *t;
     double    xyz_dum[6];
     char      gpname[MAX_STRVAL_LEN];
+    ego       etess;
 
     CINT      *tempIlist;
     CDOUBLE   *tempRlist;
@@ -5027,18 +4935,21 @@ buildSceneGraphBody(int    ibody)       /* Body index (bias-1) */
     /* remove any graphic primitives that already exist */
     wv_removeAll(cntxt);
 
+    etess = MODL->body[ibody].etess;
+
     /* tessellate Body if not already tessellated */
-    if (MODL->body[ibody].etess == NULL) {
+    if (etess == NULL) {
         status = EG_attributeRet(MODL->body[ibody].ebody, "_tParams",
                                  &atype, &alen, &tempIlist, &tempRlist, &tempClist);
 
         if (status == SUCCESS && atype == ATTRREAL && alen == 3) {
             status = EG_makeTessBody(MODL->body[ibody].ebody, (double*)tempRlist,
-                                     &(MODL->body[ibody].etess));
+                                     &(etess));
         } else {
             SPRINT1(0, "ERROR:: cannot tessellate ibody %d", ibody);
         }
     }
+    SPLINT_CHECK_FOR_NULL(etess);
 
     /* loop through the Faces within the current Body */
     for (iface = 1; iface <= MODL->body[ibody].nface; iface++) {
@@ -5048,7 +4959,7 @@ buildSceneGraphBody(int    ibody)       /* Body index (bias-1) */
         attrs = WV_ON | WV_ORIENTATION;
 
         /* render the Triangles */
-        status = EG_getTessFace(MODL->body[ibody].etess, iface,
+        status = EG_getTessFace(etess, iface,
                                 &npnt, &xyz, &uv, &ptype, &pindx,
                                 &ntri, &tris, &tric);
         if (status != SUCCESS) {
@@ -5077,8 +4988,7 @@ buildSceneGraphBody(int    ibody)       /* Body index (bias-1) */
         }
 
         assert (nseg > 0);
-        segs = (int*) malloc(2*nseg*sizeof(int));
-        if (segs == NULL) goto cleanup;
+        MALLOC(segs, int, 2*nseg);
 
         nseg = 0;
         for (itri = 0; itri < ntri; itri++) {
@@ -5109,7 +5019,7 @@ buildSceneGraphBody(int    ibody)       /* Body index (bias-1) */
             SPRINT1(0, "ERROR:: wv_setData(segs) -> status=%d", status);
         }
 
-        free(segs);
+        FREE(segs);
 
         /* segment colors */
         color[0] = 0;   color[1] = 0;   color[2] = 0;
@@ -5123,13 +5033,15 @@ buildSceneGraphBody(int    ibody)       /* Body index (bias-1) */
         if (igprim < 0) {
             SPRINT2(0, "ERROR:: wv_addGPrim(%s) -> igprim=%d", gpname, igprim);
         } else {
+            SPLINT_CHECK_FOR_NULL(cntxt->gPrims);
+
             cntxt->gPrims[igprim].lWidth = 1.0;
         }
     }
 
     /* loop through the Edges within the current Body */
     for (iedge = 1; iedge <= MODL->body[ibody].nedge; iedge++) {
-        status = EG_getTessEdge(MODL->body[ibody].etess, iedge, &npnt, &xyz, &t);
+        status = EG_getTessEdge(etess, iedge, &npnt, &xyz, &t);
         if (status != SUCCESS) {
             SPRINT1(0, "ERROR:: EG_getTessEdge -> status=%d", status);
         }
@@ -5147,8 +5059,7 @@ buildSceneGraphBody(int    ibody)       /* Body index (bias-1) */
         wv_adjustVerts(&(items[0]), sgFocus);
 
         /* segments (bias-1) */
-        ivrts = (int*) malloc(2*(npnt-1)*sizeof(int));
-        if (ivrts == NULL) goto cleanup;
+        MALLOC(ivrts, int, 2*(npnt-1));
 
         for (ipnt = 0; ipnt < npnt-1; ipnt++) {
             ivrts[2*ipnt  ] = ipnt + 1;
@@ -5160,7 +5071,7 @@ buildSceneGraphBody(int    ibody)       /* Body index (bias-1) */
             SPRINT1(0, "ERROR:: wv_setData(ivrts) -> status=%d", status);
         }
 
-        free(ivrts);
+        FREE(ivrts);
 
         /* line colors */
         color[0] = 0;   color[1] = 1;   color[2] = 0;
@@ -5170,8 +5081,7 @@ buildSceneGraphBody(int    ibody)       /* Body index (bias-1) */
         }
 
         /* points */
-        ivrts = (int*) malloc(npnt*sizeof(int));
-        if (ivrts == NULL) goto cleanup;
+        MALLOC(ivrts, int, npnt);
 
         for (ipnt = 0; ipnt < npnt; ipnt++) {
             ivrts[ipnt] = ipnt + 1;
@@ -5182,7 +5092,7 @@ buildSceneGraphBody(int    ibody)       /* Body index (bias-1) */
             SPRINT1(0, "ERROR:: wv_setData(ivrts) -> status=%d", status);
         }
 
-        free(ivrts);
+        FREE(ivrts);
 
         /* point colors */
         color[0] = 0;   color[1] = 0;   color[2] = 0;
@@ -5196,6 +5106,8 @@ buildSceneGraphBody(int    ibody)       /* Body index (bias-1) */
         if (igprim < 0) {
             SPRINT2(0, "ERROR:: wv_addGPrim(%s) -> igprim=%d", gpname, igprim);
         } else {
+            SPLINT_CHECK_FOR_NULL(cntxt->gPrims);
+
             /* make line width 2 (does not work for ANGLE) */
             cntxt->gPrims[igprim].lWidth = 2.0;
 
@@ -5246,6 +5158,8 @@ buildSceneGraphBody(int    ibody)       /* Body index (bias-1) */
         if (igprim < 0) {
             SPRINT2(0, "ERROR:: wv_addGPrim(%s) -> igprim=%d", gpname, igprim);
         } else {
+            SPLINT_CHECK_FOR_NULL(cntxt->gPrims);
+
             /* make point size 5 */
             cntxt->gPrims[igprim].pSize  = 5.0;
         }
@@ -5266,7 +5180,7 @@ buildSceneGraphBody(int    ibody)       /* Body index (bias-1) */
 
         /* loop through the Edges within the current Body */
         for (iedge = 1; iedge <= MODL->body[ibody].nedge; iedge++) {
-            status = EG_getTessEdge(MODL->body[ibody].etess, iedge, &npnt, &xyz, &t);
+            status = EG_getTessEdge(etess, iedge, &npnt, &xyz, &t);
             if (status != SUCCESS) {
                 SPRINT1(0, "ERROR:: EG_getTessEdge -> status=%d", status);
             }
@@ -5284,8 +5198,7 @@ buildSceneGraphBody(int    ibody)       /* Body index (bias-1) */
             wv_adjustVerts(&(items[0]), sgFocus);
 
             /* segments (bias-1) */
-            ivrts = (int*) malloc(2*(npnt-1)*sizeof(int));
-            if (ivrts == NULL) goto cleanup;
+            MALLOC(ivrts, int, 2*(npnt-1));
 
             for (ipnt = 0; ipnt < npnt-1; ipnt++) {
                 ivrts[2*ipnt  ] = ipnt + 1;
@@ -5297,7 +5210,7 @@ buildSceneGraphBody(int    ibody)       /* Body index (bias-1) */
                 SPRINT1(0, "ERROR:: wv_setData(ivrts) -> status=%d", status);
             }
 
-            free(ivrts);
+            FREE(ivrts);
 
             /* line colors */
             color[0] = 0.5;   color[1] = 0.5;   color[2] = 0.5;
@@ -5307,8 +5220,7 @@ buildSceneGraphBody(int    ibody)       /* Body index (bias-1) */
             }
 
             /* points */
-            ivrts = (int*) malloc(npnt*sizeof(int));
-            if (ivrts == NULL) goto cleanup;
+            MALLOC(ivrts, int, npnt);
 
             for (ipnt = 0; ipnt < npnt; ipnt++) {
                 ivrts[ipnt] = ipnt + 1;
@@ -5319,7 +5231,7 @@ buildSceneGraphBody(int    ibody)       /* Body index (bias-1) */
                 SPRINT1(0, "ERROR:: wv_setData(ivrts) -> status=%d", status);
             }
 
-            free(ivrts);
+            FREE(ivrts);
 
             /* point colors */
             color[0] = 0;   color[1] = 0;   color[2] = 0;
@@ -5371,7 +5283,7 @@ cleanupMemory(int    quiet)             /* (in)  =1 for no messages */
     status = ocsmFree(MODL);
     SPRINT2(1, "--> ocsmFree() -> status=%d (%s)", status, ocsmGetText(status));
 
-    /* remove tmp files (if they exist) and cleanup udp storage */
+    /* clean up the udp storage */
     status = ocsmFree(NULL);
     SPRINT2(1, "--> ocsmFree(NULL) -> status=%d (%s)", status, ocsmGetText(status));
 
@@ -5395,10 +5307,10 @@ cleanupMemory(int    quiet)             /* (in)  =1 for no messages */
 /***********************************************************************/
 
 static int
-getToken(char   *text,                  /* (in)  full text */
+getToken(char   text[],                 /* (in)  full text */
          int    nskip,                  /* (in)  tokens to skip */
          char   sep,                    /* (in)  separator character */
-         char   *token)                 /* (out) token */
+         char   token[])                /* (out) token */
 {
     int    lentok, i, count, iskip;
 
@@ -5695,17 +5607,18 @@ cleanup:
 void
 mesgCallbackFromOpenCSM(char mesg[])    /* (in)  message */
 {
+    int  status=SUCCESS;
+
+    ROUTINE(mesgCallbackFromOpenCSM);
+
+    /* --------------------------------------------------------------- */
 
     /* make sure the messages buffer is big enough */
     if (messages_len+strlen(mesg) > max_mesg_len-2) {
         max_mesg_len += 4096;
         SPRINT1(2, "increasing max_mesg_len=%d", max_mesg_len);
 
-        messages = (char*) realloc(response, (max_mesg_len+1)*sizeof(char));
-        if (messages == NULL) {
-            SPRINT0(0, "ERROR:: error mallocing messages");
-            exit(EXIT_FAILURE);
-        }
+        RALLOC(messages, char, max_mesg_len+1);
     }
 
     /* add the current message to the messages buffer */
@@ -5713,6 +5626,13 @@ mesgCallbackFromOpenCSM(char mesg[])    /* (in)  message */
     strcat(messages, "\n");
 
     messages_len += strlen(mesg);
+
+cleanup:
+    if (status != SUCCESS) {
+        SPRINT0(0, "ERROR:: max_mesg_len could not be increased");
+    }
+
+    return;
 }
 
 
@@ -5723,7 +5643,7 @@ mesgCallbackFromOpenCSM(char mesg[])    /* (in)  message */
 /***********************************************************************/
 
 static int
-processBrowserToServer(char    *text)
+processBrowserToServer(char    text[])
 {
     int       status = SUCCESS;
 
@@ -5731,9 +5651,9 @@ processBrowserToServer(char    *text)
     int       ipmtr, jpmtr, nrow, ncol, irow, icol, index, iattr, actv, itemp;
     int       itoken1, itoken2, itoken3, ibody, onstack, direction=1, nwarn;
     CINT      *tempIlist;
-    double    scale;
+    double    scale, dihedral;
     CDOUBLE   *tempRlist;
-    char      *pEnd, bname[33];
+    char      *pEnd, bname[MAX_NAME_LEN+1];
     CCHAR     *tempClist;
 
     char      *name=NULL,  *type=NULL, *valu=NULL;
@@ -5756,38 +5676,27 @@ processBrowserToServer(char    *text)
 
     /* --------------------------------------------------------------- */
 
-    name     = (char *) malloc(MAX_EXPR_LEN*sizeof(char));
-    type     = (char *) malloc(MAX_EXPR_LEN*sizeof(char));
-    valu     = (char *) malloc(MAX_EXPR_LEN*sizeof(char));
-    arg1     = (char *) malloc(MAX_EXPR_LEN*sizeof(char));
-    arg2     = (char *) malloc(MAX_EXPR_LEN*sizeof(char));
-    arg3     = (char *) malloc(MAX_EXPR_LEN*sizeof(char));
-    arg4     = (char *) malloc(MAX_EXPR_LEN*sizeof(char));
-    arg5     = (char *) malloc(MAX_EXPR_LEN*sizeof(char));
-    arg6     = (char *) malloc(MAX_EXPR_LEN*sizeof(char));
-    arg7     = (char *) malloc(MAX_EXPR_LEN*sizeof(char));
-    arg8     = (char *) malloc(MAX_EXPR_LEN*sizeof(char));
-    arg9     = (char *) malloc(MAX_EXPR_LEN*sizeof(char));
-    entry    = (char *) malloc(MAX_STR_LEN*sizeof(char));
-    temp     = (char *) malloc(MAX_EXPR_LEN*sizeof(char));
-    temp2    = (char *) malloc(MAX_EXPR_LEN*sizeof(char));
-    matrix   = (char *) malloc(MAX_EXPR_LEN*sizeof(char));
-    begs     = (char *) malloc(MAX_TOKN_LEN*sizeof(char));
-    vars     = (char *) malloc(MAX_TOKN_LEN*sizeof(char));
-    cons     = (char *) malloc(MAX_TOKN_LEN*sizeof(char));
-    segs     = (char *) malloc(MAX_TOKN_LEN*sizeof(char));
-    vars_out = (char *) malloc(MAX_TOKN_LEN*sizeof(char));
-
-    if (name  == NULL || type == NULL || valu  == NULL ||
-        arg1  == NULL || arg2 == NULL || arg3  == NULL ||
-        arg4  == NULL || arg5 == NULL || arg6  == NULL ||
-        arg7  == NULL || arg8 == NULL || arg9  == NULL ||
-        entry == NULL || temp == NULL || temp2 == NULL || matrix == NULL ||
-        begs  == NULL || vars == NULL || cons  == NULL ||
-        segs  == NULL || vars_out == NULL                ) {
-        SPRINT0(0, "ERROR:: error mallocing arrays in processBrowserToServer");
-        exit(EXIT_FAILURE);
-    }
+    MALLOC(name,     char, MAX_EXPR_LEN);
+    MALLOC(type,     char, MAX_EXPR_LEN);
+    MALLOC(valu,     char, MAX_EXPR_LEN);
+    MALLOC(arg1,     char, MAX_EXPR_LEN);
+    MALLOC(arg2,     char, MAX_EXPR_LEN);
+    MALLOC(arg3,     char, MAX_EXPR_LEN);
+    MALLOC(arg4,     char, MAX_EXPR_LEN);
+    MALLOC(arg5,     char, MAX_EXPR_LEN);
+    MALLOC(arg6,     char, MAX_EXPR_LEN);
+    MALLOC(arg7,     char, MAX_EXPR_LEN);
+    MALLOC(arg8,     char, MAX_EXPR_LEN);
+    MALLOC(arg9,     char, MAX_EXPR_LEN);
+    MALLOC(entry,    char, MAX_STR_LEN);
+    MALLOC(temp,     char, MAX_EXPR_LEN);
+    MALLOC(temp2,    char, MAX_EXPR_LEN);
+    MALLOC(matrix,   char, MAX_EXPR_LEN);
+    MALLOC(begs,     char, MAX_TOKN_LEN);
+    MALLOC(vars,     char, MAX_TOKN_LEN);
+    MALLOC(cons,     char, MAX_TOKN_LEN);
+    MALLOC(segs,     char, MAX_TOKN_LEN);
+    MALLOC(vars_out, char, MAX_TOKN_LEN);
 
     SPRINT1(1, "\n>>> browser2server(text=%s)", text);
 
@@ -6168,13 +6077,24 @@ processBrowserToServer(char    *text)
         status = ocsmSave(MODL, "autosave.csm");
         SPRINT1(2, "ocsmSave(autosave.csm) -> status=%d", status);
 
-    /* "clrVels|" */
+    /* "clrVels|mode|" */
     } else if (strncmp(text, "clrVels|", 8) == 0) {
 
         /* write journal entry */
         if (jrnl_out != NULL) {
             fprintf(jrnl_out, "%s\n", text);
             fflush( jrnl_out);
+        }
+
+        /* extract argument */
+        getToken(text, 1, '|', arg1);
+
+        if (strcmp(arg1, ".") == 0) {
+            // do not change tessel flag
+        } else if (strcmp(arg1, "tessel") == 0) {
+            tessel = 1;
+        } else {                        // default is configuration sensitivities
+            tessel = 0;
         }
 
         status = ocsmSetVelD(MODL, 0, 0, 0, 0.0);
@@ -6730,12 +6650,6 @@ processBrowserToServer(char    *text)
             SPRINT1(0, "ERROR:: ocsmFree -> status=%d", status);
         }
 
-//$$$        /* remove temp files and clean udp cache */
-//$$$        status = ocsmFree(NULL);
-//$$$        if (status != SUCCESS) {
-//$$$            SPRINT1(0, "ERROR:: ocsmFree -> status=%d", status);
-//$$$        }
-
         /* load an empty MODL */
         filename[0] = '\0';
         status = ocsmLoad(filename, &modl);
@@ -6744,7 +6658,7 @@ processBrowserToServer(char    *text)
         }
 
         MODL = (modl_T *)modl;
-        if(filelist != NULL) free(filelist);
+        if(filelist != NULL) EG_free(filelist);
         status = ocsmGetFilelist(MODL, &filelist);
         if (status != SUCCESS) {
             SPRINT1(0, "ERROR:: ocsmGetFilelist -> status=%d", status);
@@ -6805,12 +6719,6 @@ processBrowserToServer(char    *text)
             SPRINT1(0, "ERROR:: ocsmFree -> status=%d", status);
         }
 
-//$$$        /* remove temp files and clean udp cache */
-//$$$        status = ocsmFree(NULL);
-//$$$        if (status != SUCCESS) {
-//$$$            SPRINT1(0, "ERROR:: ocsmFree -> status=%d", status);
-//$$$        }
-
         /* load the new MODL */
         status = ocsmLoad(filename, &modl);
         if (status != SUCCESS) {
@@ -6860,7 +6768,7 @@ processBrowserToServer(char    *text)
         }
 
         MODL = (modl_T*)modl;
-        if (filelist != NULL) free(filelist);
+        if (filelist != NULL) EG_free(filelist);
         status = ocsmGetFilelist(MODL, &filelist);
         if (status != SUCCESS) {
             SPRINT1(0, "ERROR:: ocsmGetFilelist -> status=%d", status);
@@ -6903,11 +6811,12 @@ processBrowserToServer(char    *text)
         }
 
         MODL = (modl_T *)modl;
-        if (filelist != NULL) free(filelist);
+        if (filelist != NULL) EG_free(filelist);
         status = ocsmGetFilelist(MODL, &filelist);
         if (status != SUCCESS) {
             SPRINT1(0, "ERROR:: ocsmGetFilelist -> status=%d", status);
         }
+        SPLINT_CHECK_FOR_NULL(filelist);
         updatedFilelist = 0;
 
         /* build the response */
@@ -6967,6 +6876,7 @@ processBrowserToServer(char    *text)
 
         /* open the casefile and overwrite */
         fp = fopen(subfilename, "w");
+        SPLINT_CHECK_FOR_NULL(fp);
 
         ichar = 14;
         while (text[ichar++] != '|') {
@@ -6982,6 +6892,7 @@ processBrowserToServer(char    *text)
 
     /* "setCsmFileMid|" */
     } else if (strncmp(text, "setCsmFileMid|", 14) == 0) {
+        SPLINT_CHECK_FOR_NULL(fp);
 
         ichar = 14;
         while (text[ichar] != '\0') {
@@ -6990,6 +6901,7 @@ processBrowserToServer(char    *text)
 
     /* "setCsmFileEnd|" */
     } else if (strncmp(text, "setCsmFileEnd|", 14) == 0) {
+        SPLINT_CHECK_FOR_NULL(fp);
 
         fclose(fp);
         fp = NULL;
@@ -7046,14 +6958,108 @@ processBrowserToServer(char    *text)
             MODL->context = saved_MODL->context;
 
             /* starting at the beginning of the Branches, mark the Branch
-               as not dirty of it has same type as the saved_MODL */
+               as  dirty if its type, name, arguements (except tmp_OpenCSM_),
+               or attributes differ from the saved_MODL */
             for (ibrch = 1; ibrch <= MODL->nbrch; ibrch++) {
                 MODL->brch[ibrch].dirty = 0;
+
                 if (ibrch > saved_MODL->nbrch) {
                     MODL->brch[ibrch].dirty = 1;
-                    break;
+                    goto recycle_message;
                 } else if (MODL->brch[ibrch].type != saved_MODL->brch[ibrch].type) {
                     MODL->brch[ibrch].dirty = 1;
+                    goto recycle_message;
+                } else if (strcmp(MODL->brch[ibrch].name, saved_MODL->brch[ibrch].name) != 0) {
+                    MODL->brch[ibrch].dirty = 1;
+                    goto recycle_message;
+                } else if (MODL->brch[ibrch].narg != saved_MODL->brch[ibrch].narg) {
+                    MODL->brch[ibrch].dirty = 1;
+                    goto recycle_message;
+                }
+
+                if (MODL->brch[ibrch].narg >= 1) {
+                    if (strcmp(MODL->brch[ibrch].arg1, saved_MODL->brch[ibrch].arg1) != 0) {
+                        MODL->brch[ibrch].dirty = 1;
+                        goto recycle_message;
+                    }
+                }
+                if (MODL->brch[ibrch].narg >= 2) {
+                    if (strcmp(MODL->brch[ibrch].arg2, saved_MODL->brch[ibrch].arg2) != 0) {
+                        MODL->brch[ibrch].dirty = 1;
+                        goto recycle_message;
+                    }
+                }
+                if (MODL->brch[ibrch].narg >= 3) {
+                    if        (MODL->brch[ibrch].type == OCSM_UDPARG && strncmp(MODL->brch[ibrch].arg3, "tmp_OpenCSM_", 12) != 0) {
+                    } else if (MODL->brch[ibrch].type == OCSM_UDPRIM && strncmp(MODL->brch[ibrch].arg3, "tmp_OpenCSM_", 12) != 0) {
+                    } else if (strcmp(MODL->brch[ibrch].arg3, saved_MODL->brch[ibrch].arg3) != 0) {
+                        MODL->brch[ibrch].dirty = 1;
+                        goto recycle_message;
+                    }
+                }
+                if (MODL->brch[ibrch].narg >= 4) {
+                    if (strcmp(MODL->brch[ibrch].arg4, saved_MODL->brch[ibrch].arg4) != 0) {
+                        MODL->brch[ibrch].dirty = 1;
+                        goto recycle_message;
+                    }
+                }
+                if (MODL->brch[ibrch].narg >= 5) {
+                    if        (MODL->brch[ibrch].type == OCSM_UDPARG && strncmp(MODL->brch[ibrch].arg5, "tmp_OpenCSM_", 12) != 0) {
+                    } else if (MODL->brch[ibrch].type == OCSM_UDPRIM && strncmp(MODL->brch[ibrch].arg5, "tmp_OpenCSM_", 12) != 0) {
+                    } else if (strcmp(MODL->brch[ibrch].arg5, saved_MODL->brch[ibrch].arg5) != 0) {
+                        MODL->brch[ibrch].dirty = 1;
+                        goto recycle_message;
+                    }
+                }
+                if (MODL->brch[ibrch].narg >= 6) {
+                    if (strcmp(MODL->brch[ibrch].arg6, saved_MODL->brch[ibrch].arg6) != 0) {
+                        MODL->brch[ibrch].dirty = 1;
+                        goto recycle_message;
+                    }
+                }
+                if (MODL->brch[ibrch].narg >= 7) {
+                    if        (MODL->brch[ibrch].type == OCSM_UDPARG && strncmp(MODL->brch[ibrch].arg7, "tmp_OpenCSM_", 12) != 0) {
+                    } else if (MODL->brch[ibrch].type == OCSM_UDPRIM && strncmp(MODL->brch[ibrch].arg7, "tmp_OpenCSM_", 12) != 0) {
+                    } else if (strcmp(MODL->brch[ibrch].arg7, saved_MODL->brch[ibrch].arg7) != 0) {
+                        MODL->brch[ibrch].dirty = 1;
+                        goto recycle_message;
+                    }
+                }
+                if (MODL->brch[ibrch].narg >= 8) {
+                    if (strcmp(MODL->brch[ibrch].arg8, saved_MODL->brch[ibrch].arg8) != 0) {
+                        MODL->brch[ibrch].dirty = 1;
+                        goto recycle_message;
+                    }
+                }
+                if (MODL->brch[ibrch].narg >= 9) {
+                    if        (MODL->brch[ibrch].type == OCSM_UDPARG && strncmp(MODL->brch[ibrch].arg9, "tmp_OpenCSM_", 12) != 0) {
+                    } else if (MODL->brch[ibrch].type == OCSM_UDPRIM && strncmp(MODL->brch[ibrch].arg9, "tmp_OpenCSM_", 12) != 0) {
+                    } else if (strcmp(MODL->brch[ibrch].arg9, saved_MODL->brch[ibrch].arg9) != 0) {
+                        MODL->brch[ibrch].dirty = 1;
+                        goto recycle_message;
+                    }
+                }
+
+                if (MODL->brch[ibrch].nattr != saved_MODL->brch[ibrch].nattr) {
+                    MODL->brch[ibrch].dirty = 1;
+                } else {
+                    for (iattr = 0; iattr < MODL->brch[ibrch].nattr; iattr++) {
+                        if        (strcmp(MODL->brch[ibrch].attr[iattr].name, saved_MODL->brch[ibrch].attr[iattr].name) != 0) {
+                            MODL->brch[ibrch].dirty = 1;
+                            goto recycle_message;
+                        } else if (strcmp(MODL->brch[ibrch].attr[iattr].defn, saved_MODL->brch[ibrch].attr[iattr].defn) != 0) {
+                            MODL->brch[ibrch].dirty = 1;
+                            goto recycle_message;
+                        } else if (MODL->brch[ibrch].attr[iattr].type != saved_MODL->brch[ibrch].attr[iattr].type) {
+                            MODL->brch[ibrch].dirty = 1;
+                            goto recycle_message;
+                        }
+                    }
+                }
+
+            recycle_message:
+                if (MODL->brch[ibrch].dirty > 0) {
+                    SPRINT1(1, "    recycling disabled starting at Branch %d because of file differences", ibrch);
                     break;
                 }
             }
@@ -7062,7 +7068,7 @@ processBrowserToServer(char    *text)
         }
 
         MODL = (modl_T*)modl;
-        if (filelist != NULL) free(filelist);
+        if (filelist != NULL) EG_free(filelist);
         status = ocsmGetFilelist(MODL, &filelist);
         if (status != SUCCESS) {
             SPRINT1(0, "ERROR:: ocsmGetFilelist -> status=%d", status);
@@ -7171,11 +7177,7 @@ processBrowserToServer(char    *text)
         if (itemp > max_resp_len) {
             max_resp_len = itemp + 1;
 
-            response = (char*) realloc(response, (max_resp_len+1)*sizeof(char));
-            if (response == NULL) {
-                SPRINT0(0, "ERROR:: error mallocing response");
-                exit(EXIT_FAILURE);
-            }
+            RALLOC(response, char, max_resp_len+1);
         }
 
         if (status != SUCCESS) {
@@ -7335,6 +7337,36 @@ processBrowserToServer(char    *text)
             response_len = STRLEN(response);
         }
 
+    /* "makeEBody|ibody|dihedral|ents|" */
+    } else if (strncmp(text, "makeEBody|", 10) == 0) {
+
+        /* extract arguments */
+        ibody    = 0;
+        dihedral = 0;
+        if (getToken(text, 1, '|', arg1)) ibody    = strtol(arg1, &pEnd, 10);
+        if (getToken(text, 2, '|', arg2)) dihedral = strtod(arg2, &pEnd);
+        getToken(text, 3, '|', arg3);
+
+        /* make or delete the EBody */
+        if (strcmp(arg3, ".") == 0) {
+            status = ocsmMakeEBody(MODL, ibody, dihedral, NULL);
+        } else {
+            status = ocsmMakeEBody(MODL, ibody, dihedral, arg3);
+        }
+
+        /* update the scene graph before the response */
+        if (status == SUCCESS && batch == 0) {
+            buildSceneGraph();
+        }
+
+        /* build the response */
+        if (status == SUCCESS) {
+            snprintf(response, max_resp_len, "makeEBody|");
+        } else {
+            snprintf(response, max_resp_len, "makeEBody|ERROR:: unable to make EBody(s) status=%d", status);
+        }
+        response_len = STRLEN(response);
+
     /* "setLims|type|lo|hi|" */
     } else if (strncmp(text, "setLims|", 8) == 0) {
 
@@ -7342,6 +7374,19 @@ processBrowserToServer(char    *text)
         if (getToken(text, 1, '|', arg1)) plotType = strtod(arg1, &pEnd);
         if (getToken(text, 2, '|', arg2)) lims[0]  = strtod(arg2, &pEnd);
         if (getToken(text, 3, '|', arg3)) lims[1]  = strtod(arg3, &pEnd);
+
+        /* handle special case of Ereps */
+        if (plotType < 6) {
+            if (MODL->erepAtEnd == 1) {
+                status = buildBodys(0, &builtTo, &buildStatus, &nwarn);
+                if (status != SUCCESS) goto cleanup;
+            }
+        } else {
+            if (MODL->erepAtEnd == 0) {
+                status = buildBodys(0, &builtTo, &buildStatus, &nwarn);
+                if (status != SUCCESS) goto cleanup;
+            }
+        }
 
         /* build the response */
         snprintf(response, max_resp_len, "setLims|");
@@ -7399,27 +7444,27 @@ processBrowserToServer(char    *text)
     status = SUCCESS;
 
 cleanup:
-    free(vars_out);
-    free(segs);
-    free(cons);
-    free(vars);
-    free(begs);
-    free(matrix);
-    free(temp2);
-    free(temp);
-    free(entry);
-    free(arg9);
-    free(arg8);
-    free(arg7);
-    free(arg6);
-    free(arg5);
-    free(arg4);
-    free(arg3);
-    free(arg2);
-    free(arg1);
-    free(valu);
-    free(type);
-    free(name);
+    FREE(vars_out);
+    FREE(segs);
+    FREE(cons);
+    FREE(vars);
+    FREE(begs);
+    FREE(matrix);
+    FREE(temp2);
+    FREE(temp);
+    FREE(entry);
+    FREE(arg9);
+    FREE(arg8);
+    FREE(arg7);
+    FREE(arg6);
+    FREE(arg5);
+    FREE(arg4);
+    FREE(arg3);
+    FREE(arg2);
+    FREE(arg1);
+    FREE(valu);
+    FREE(type);
+    FREE(name);
 
     return status;
 }
@@ -7432,7 +7477,7 @@ cleanup:
 /***********************************************************************/
 
 void
-sizeCallbackFromOpenCSM(void   *modl,   /* (in)  pointer to MODL */
+sizeCallbackFromOpenCSM(void   *Modl,   /* (in)  pointer to MODL */
                         int    ipmtr,   /* (in)  Parameter index (bias-1) */
                         int    nrow,    /* (in)  new number of rows */
                         int    ncol)    /* (in)  new number of columns */
@@ -7442,13 +7487,13 @@ sizeCallbackFromOpenCSM(void   *modl,   /* (in)  pointer to MODL */
 
     char   *entry=NULL;
 
-    modl_T *MODL = (modl_T*)modl;
+    modl_T *MODL = (modl_T*)Modl;
 
     ROUTINE(sizeCallbackFromOpenCSM);
 
     /* --------------------------------------------------------------- */
 
-    /* check that modl is not NULL */
+    /* check that Modl is not NULL */
     if (MODL == NULL) {
         goto cleanup;
     }
@@ -7672,8 +7717,8 @@ spec_col(float  scalar,
 /***********************************************************************/
 
 static int
-storeUndo(char   *cmd,                  /* (in)  current command */
-          char   *arg)                  /* (in)  current argument */
+storeUndo(char   cmd[],                 /* (in)  current command */
+          char   arg[])                 /* (in)  current argument */
 {
     int       status = SUCCESS;         /* return status */
 
@@ -8388,33 +8433,22 @@ plugsMain(modl_T *MODL,                 /* (in)  pointer to MODL */
     old_time = clock();
 
     /* change design parameters to get correct bounding box */
-    SPRINT0(0, "\nPLUGS phase1: match bounding boxes\n");
-    status = plugsPhase1(MODL, ibody, npmtr, pmtrindx, ncloud, cloud, &rms, fp_plugs);
-    CHECK_STATUS(plugsPhase1);
+    if (npass >= 0) {
+        SPRINT0(0, "\nPLUGS phase1: match bounding boxes\n");
+        status = plugsPhase1(MODL, ibody, npmtr, pmtrindx, ncloud, cloud, &rms, fp_plugs);
+        CHECK_STATUS(plugsPhase1);
+    } else {
+        SPRINT0(0, "\nPLUGS phase1: skipped\n");
+    }
 
     /* change design parameters to match points in cloud */
-    if (npass > 0) {
+    if (npass != 0) {
         SPRINT0(0, "\nPLUGS phase2: match cloud points");
-        status = plugsPhase2(MODL, npass, ibody, npmtr, pmtrindx, ncloud, cloud, &rms, fp_plugs);
+        status = plugsPhase2(MODL, abs(npass), ibody, npmtr, pmtrindx, ncloud, cloud, &rms, fp_plugs);
         CHECK_STATUS(plugsPhase2);
     }
 
     new_time = clock();
-
-    /* print final DESPMTRs */
-    npmtr = 0;
-    for (ipmtr = 1; ipmtr <= MODL->npmtr; ipmtr++) {
-        if (MODL->pmtr[ipmtr].type == OCSM_DESPMTR) {
-            SPRINT3(1, "final  DESPMTR %3d: %20s = %10.5f",
-                    npmtr, MODL->pmtr[ipmtr].name, MODL->pmtr[ipmtr].value[0]);
-
-            npmtr++;
-        }
-    }
-    SPRINT1(1, "final  rms distance to cloud               %10.5f", rms);
-
-    SPRINT1(1, "\n==> PLUGS total CPUtime=%9.3f sec",
-            (double)(new_time-old_time) / (double)(CLOCKS_PER_SEC));
 
     /* close the history file */
     if (fp_plugs != NULL) {
@@ -8422,8 +8456,32 @@ plugsMain(modl_T *MODL,                 /* (in)  pointer to MODL */
         fp_plugs = NULL;
     }
 
+    /* print final DESPMTRs and write a file that can be read by ocsmUpdateDespmtrs */
+    fp_plugs = fopen("plugs.despmtrs", "w");
+
+    if (fp_plugs != NULL) {
+        npmtr = 0;
+        for (ipmtr = 1; ipmtr <= MODL->npmtr; ipmtr++) {
+            if (MODL->pmtr[ipmtr].type == OCSM_DESPMTR) {
+                SPRINT3(1, "final  DESPMTR %3d: %20s = %10.5f",
+                        npmtr, MODL->pmtr[ipmtr].name, MODL->pmtr[ipmtr].value[0]);
+
+                fprintf(fp_plugs, "%-32s %15.8f\n", MODL->pmtr[ipmtr].name, MODL->pmtr[ipmtr].value[0]);
+
+                npmtr++;
+            }
+        }
+
+        fclose(fp_plugs);
+    }
+
+    SPRINT1(1, "final  rms distance to cloud               %10.5f", rms);
+
+    SPRINT1(1, "\n==> PLUGS total CPUtime=%9.3f sec",
+            (double)(new_time-old_time) / (double)(CLOCKS_PER_SEC));
+
     /* tell user how to get configuration with updated DESPMTRs */
-    SPRINT0(0, "\nHit \"Up to date\" to show results of PLUGS\n");
+    SPRINT0(1, "\nHit \"Up to date\" to show results of PLUGS\n");
 
     /* reset the plugs flag so that verification will be reanabled */
     plugs = -1;
@@ -8449,7 +8507,7 @@ plugsPhase1(modl_T *MODL,               /* (in)  pointer to MODL */
             int    ncloud,              /* (in)  number of points in cloud */
             double cloud[],             /* (in)  array  of points in cloud */
             double *rmsbest,            /* (out) best rms distance to cloud */
-            FILE   *fp_plugs)           /* (in)  file pointer to history file */
+  /*@null@*/FILE   *fp_plugs)           /* (in)  file pointer to history file */
 {
     int    status = SUCCESS;            /* return status */
 
@@ -8822,17 +8880,17 @@ plugsPhase2(modl_T *MODL,               /* (in)  pointer to MODL */
             int    ncloud,              /* (in)  number of points in cloud */
             double cloud[],             /* (in)  array  of points in cloud */
             double *rmsbest,            /* (out) best rms distance to cloud */
-            FILE   *fp_plugs)           /* (in)  FILE pointer to history file */
+  /*@null@*/FILE   *fp_plugs)           /* (in)  FILE pointer to history file */
 {
     int    status = SUCCESS;            /* return status */
 
     int     iface, icloud, ipmtr, jpmtr, npnt, ntri, itri, ip0, ip1, ip2;
-    int     nerr, nvar, ivar, count, unclass, ireclass, ipass, iter, niter=50;
-    int     nbody, builtTo, oldOutLevel, periodic, ibest, scaleDiag, naccept;
+    int     nerr, nvar, ivar, count, unclass, reclass, ireclass, ipass, restart, iter, niter=50;
+    int     nbody, builtTo, oldOutLevel, periodic, ibest, scaleDiag, naccept, iperturb;
     int     *face=NULL, *prevface=NULL;
     CINT    *ptype, *pindx, *tris, *tric;
-    double  bbox_cloud[6], dtest, value, dot, lbound, ubound, rms, data[18];
-    double  dmax, lambda, uvrange[4], dbest, scaleFact;
+    double  bbox_cloud[6], dtest, value, dot, lbound, ubound, rms, data[18], rmsperturb, valperturb;
+    double  dmax, lambda, uvrange[4], dbest, scaleFact, uv_guess[2], xyz_guess[3];
     double  *dist=NULL, *uvface=NULL, *velface=NULL;
     double  *beta=NULL, *delta=NULL, *qerr=NULL, *qerrbest=NULL, *ajac=NULL;
     double  *atri=NULL, *btri=NULL, *ctri=NULL, *dtri=NULL, *xtri=NULL;
@@ -8860,7 +8918,7 @@ plugsPhase2(modl_T *MODL,               /* (in)  pointer to MODL */
     /* get necessary arrays */
     MALLOC(face,     int,      ncloud    );     // Face associated with each cloud point (bias-1)
     MALLOC(prevface, int,      ncloud    );     // Face associated on previous pass
-    MALLOC(dist,     double,   ncloud    );     // min dist from each clous to tessellation
+    MALLOC(dist,     double,   ncloud    );     // min dist from each cloud to tessellation
     MALLOC(uvface,   double, 2*ncloud    );     // temp (u,v) for ocsmGetVel
     MALLOC(velface,  double, 3*ncloud    );     // temp vel   from ocsmGetVel
 
@@ -8891,7 +8949,7 @@ plugsPhase2(modl_T *MODL,               /* (in)  pointer to MODL */
         pmtrlast[ipmtr] = pmtrbest[ipmtr];
     }
 
-    /* find the bounding box of the cloud */
+    /* find the bounding box of the cloud (needed for classification) */
     bbox_cloud[0] = cloud[0];
     bbox_cloud[1] = cloud[1];
     bbox_cloud[2] = cloud[2];
@@ -8912,13 +8970,14 @@ plugsPhase2(modl_T *MODL,               /* (in)  pointer to MODL */
     if (PLUGS_CREATE_CSM_FILES == 1) {
         char tempname[256];
 
-        sprintf(tempname, "plugs_pass_%02d.csm", 0);
+        snprintf(tempname, MAX_FILENAME_LEN-1, "plugs_pass_%02d.csm", 0);
         (void) ocsmSave(MODL, tempname);
     }
 
     /* make multiple passes, since we can only really figure out which
        Face each cloud point is associated with when we get to a converged
        solution */
+    restart = 0;
     for (ipass = 1; ipass <= npass; ipass++) {
 
         /* note: odd printout is to always print pass number
@@ -8928,17 +8987,42 @@ plugsPhase2(modl_T *MODL,               /* (in)  pointer to MODL */
         SPRINT0(1, "  ");
         old_time = clock();
 
+        /* rebuild and evaluate the new objective function */
+        nbody = 0;
+        oldOutLevel = ocsmSetOutLevel(0);
+        status = ocsmBuild(MODL, 0, &builtTo, &nbody, NULL);
+        (void) ocsmSetOutLevel(oldOutLevel);
+
         /* only classify points that are within 0.25 of the bounding box size */
         dmax = 0.25 * MAX(MAX(bbox_cloud[3]-bbox_cloud[0],
                               bbox_cloud[4]-bbox_cloud[1]),
                               bbox_cloud[5]-bbox_cloud[2]);
 
         /* associate each cloud point with the closest tessellation point */
-        for (icloud = 0; icloud < ncloud; icloud++) {
-            face[  icloud  ] = 0;
-            dist[  icloud  ] = dmax * dmax;
-            beta[2*icloud  ] = 0;
-            beta[2*icloud+1] = 0;
+        if (ipass == 1) {
+            for (icloud = 0; icloud < ncloud; icloud++) {
+                face[  icloud  ] = 0;
+                dist[  icloud  ] = dmax * dmax;
+                beta[2*icloud  ] = 0;
+                beta[2*icloud+1] = 0;
+            }
+        } else {
+            for (icloud = 0; icloud < ncloud; icloud++) {
+                iface = face[icloud];
+                if (iface > 0) {
+                    status = EG_evaluate(MODL->body[ibody].face[iface].eface, &(beta[2*icloud]), data);
+                    CHECK_STATUS(EG_evaluate);
+
+                    dist[icloud] = (cloud[3*icloud  ]-data[0]) * (cloud[3*icloud  ]-data[0])
+                                 + (cloud[3*icloud+1]-data[1]) * (cloud[3*icloud+1]-data[1])
+                                 + (cloud[3*icloud+2]-data[2]) * (cloud[3*icloud+2]-data[2]);
+                } else {
+                    face[  icloud  ] = 0;
+                    dist[  icloud  ] = dmax * dmax;
+                    beta[2*icloud  ] = 0;
+                    beta[2*icloud+1] = 0;
+                }
+            }
         }
 
         for (iface = 1; iface <= MODL->body[ibody].nface; iface++) {
@@ -9035,18 +9119,27 @@ plugsPhase2(modl_T *MODL,               /* (in)  pointer to MODL */
 
         /* if the faceID associated with all cloud points are the same as
            the previous pass, we are done */
+        reclass = 0;
         if (ipass > 1) {
-            count = 0;
             for (icloud = 0; icloud < ncloud; icloud++) {
                 if (face[icloud] != prevface[icloud]) {
-                    SPRINT3(2, "   cloud point %5d has been reclassified (%3d to %3d)", icloud, prevface[icloud], face[icloud]);
-                    count++;
+                    if (reclass < 20) {
+                        SPRINT6(1, "    cloud point %5d (%10.5f, %10.5f, %10.5f) was reclassified (%3d to %3d)",
+                                icloud, cloud[3*icloud], cloud[3*icloud+1], cloud[3*icloud+2], prevface[icloud], face[icloud]);
+                    }
+                    reclass++;
                 }
             }
-            if (unclass == 0 && count == 0) {
-                SPRINT0(1, "\nPhase2 passes converged because points are classified same as previous pass\n");
+            if (reclass >= 20) {
+                SPRINT1(1, "    ... too many to list (%d total)", reclass);
+            }
+            if (restart == 0 && unclass == 0 && reclass == 0) {
+                SPRINT0(0, "\n    Phase2 passes converged because points are classified same as previous pass\n");
                 break;
             }
+            restart = 0;
+        } else {
+            reclass = ncloud;
         }
 
         /* remember Face associations for next time */
@@ -9154,11 +9247,6 @@ plugsPhase2(modl_T *MODL,               /* (in)  pointer to MODL */
                 }
 
                 /* initialize matrices */
-                for (icloud = 0; icloud < ncloud; icloud++) {
-                    dtri[2*icloud  ] = 0;
-                    dtri[2*icloud+1] = 0;
-                }
-
                 for (ipmtr = 0; ipmtr < npmtr; ipmtr++) {
                     for (jpmtr = 0; jpmtr < npmtr; jpmtr++) {
                         mat[ipmtr*npmtr+jpmtr] = 0;
@@ -9175,10 +9263,12 @@ plugsPhase2(modl_T *MODL,               /* (in)  pointer to MODL */
                         atri[2*icloud  ] = 0;
                         btri[2*icloud  ] = 1;
                         ctri[2*icloud  ] = 0;
+                        dtri[2*icloud  ] = 0;
 
                         atri[2*icloud+1] = 0;
                         btri[2*icloud+1] = 1;
                         ctri[2*icloud+1] = 0;
+                        dtri[2*icloud+1] = 0;
                     } else {
                         status = EG_evaluate(MODL->body[ibody].face[iface].eface, &(beta[2*icloud]), data);
                         CHECK_STATUS(EG_evaluate);
@@ -9186,16 +9276,16 @@ plugsPhase2(modl_T *MODL,               /* (in)  pointer to MODL */
                         atri[2*icloud  ] =  0;
                         btri[2*icloud  ] = (data[3] * data[3] + data[4] * data[4] + data[5] * data[5]) * (1 + lambda);
                         ctri[2*icloud  ] =  data[3] * data[6] + data[4] * data[7] + data[5] * data[8];
-                        dtri[2*icloud  ] += data[3] * qerr[3*icloud  ]
-                                          + data[4] * qerr[3*icloud+1]
-                                          + data[5] * qerr[3*icloud+2];
+                        dtri[2*icloud  ] =  data[3] * qerr[3*icloud  ]
+                                         +  data[4] * qerr[3*icloud+1]
+                                         +  data[5] * qerr[3*icloud+2];
 
                         atri[2*icloud+1] =  data[3] * data[6] + data[4] * data[7] + data[5] * data[8];
                         btri[2*icloud+1] = (data[6] * data[6] + data[7] * data[7] + data[8] * data[8]) * (1 + lambda);
                         ctri[2*icloud+1] =  0;
-                        dtri[2*icloud+1] += data[6] * qerr[3*icloud  ]
-                                          + data[7] * qerr[3*icloud+1]
-                                          + data[8] * qerr[3*icloud+2];
+                        dtri[2*icloud+1] =  data[6] * qerr[3*icloud  ]
+                                         +  data[7] * qerr[3*icloud+1]
+                                         +  data[8] * qerr[3*icloud+2];
                     }
 
                     /* full matrix for DESPMTRs */
@@ -9216,6 +9306,9 @@ plugsPhase2(modl_T *MODL,               /* (in)  pointer to MODL */
                 for (ipmtr = 0; ipmtr < npmtr; ipmtr++) {
                     mat[ipmtr*npmtr+ipmtr] *= (1 + lambda);
                 }
+
+            /* we have just REJECTed a change, so only the diagonal must be scaled
+               because of a new lambda */
             } else {
                 for (icloud = 0; icloud < ncloud; icloud++) {
                     btri[2*icloud  ] *= scaleFact;
@@ -9252,7 +9345,8 @@ plugsPhase2(modl_T *MODL,               /* (in)  pointer to MODL */
                 }
             }
             if (dmax < EPS06 && lambda <= 1) {
-                SPRINT2(1, "Phase 2 converged for pass %d (delta-max=%10.3e)", ipass, dmax);
+                SPRINT5(0, "    Pass %2d converged, dmax=%10.3e,     rmsbest=%10.3e, reclass=%5d, unclass=%5d",
+                        ipass, dmax, *rmsbest, reclass, unclass);
                 break;
             }
 
@@ -9376,9 +9470,15 @@ plugsPhase2(modl_T *MODL,               /* (in)  pointer to MODL */
 
             /* if lambda gets very big, stop iterations */
             if (lambda > 100) {
-                SPRINT2(1, "Phase 2 (pass %d) has stalled, lambda=%10.3e", ipass, lambda);
+                SPRINT5(0, "    Pass %2d has stalled, lambda=%10.3e, rmsbest=%10.3e, reclass=%5d, unclass=%5d",
+                        ipass, lambda, *rmsbest, reclass, unclass);
                 break;
             }
+        }
+
+        if (iter >= niter-1) {
+            SPRINT4(0, "    Pass %2d ran out of iterations,          rmsbest=%10.3e, reclass=%5d, unclass=%5d",
+                    ipass, *rmsbest, reclass, unclass);
         }
 
         /* if the last build was a rejection, rebuild with the best */
@@ -9405,14 +9505,14 @@ plugsPhase2(modl_T *MODL,               /* (in)  pointer to MODL */
         }
 
         new_time = clock();
-        SPRINT2(1, "Phase 2 (pass %d) CPUtime=%9.3f sec", ipass,
+        SPRINT2(1, "Phase 2 (pass %2d) CPUtime=%9.3f sec", ipass,
                 (double)(new_time-old_time)/(double)(CLOCKS_PER_SEC));
 
         /* create .csm files to show progress at end of each pass */
         if (PLUGS_CREATE_CSM_FILES == 1) {
             char tempname[256];
 
-            sprintf(tempname, "plugs_pass_%02d.csm", ipass);
+            snprintf(tempname, MAX_FILENAME_LEN-1, "plugs_pass_%02d.csm", ipass);
             (void) ocsmSave(MODL, tempname);
         }
 
@@ -9421,89 +9521,210 @@ plugsPhase2(modl_T *MODL,               /* (in)  pointer to MODL */
         if (PLUGS_CREATE_FINAL_PLOT == 1 || naccept == 0) {
             fp2 = fopen("final.plot", "w");
 
-            count = 0;
-            for (icloud = 0; icloud < ncloud; icloud++) {
-                if (face[icloud] == 0) count++;
-            }
-
-            if (count > 0) {
-                fprintf(fp2, "%5d%5d Unclassified_cloud_points\n", count, 0);
-
-                for (icloud = 0; icloud < ncloud; icloud++) {
-                    if (face[icloud] == 0) {
-                        fprintf(fp2, " %9.5f %9.5f %9.5f\n", cloud[3*icloud], cloud[3*icloud+1], cloud[3*icloud+2]);
-                    }
-                }
-            }
-
-            for (iface = 1; iface <= MODL->body[ibody].nface; iface++) {
+            if (fp2 != NULL) {
                 count = 0;
                 for (icloud = 0; icloud < ncloud; icloud++) {
-                    if (face[icloud] == iface) count++;
+                    if (face[icloud] == 0) count++;
                 }
 
                 if (count > 0) {
-                    fprintf(fp2, "%5d%5d Face_%d_cloud_points\n", count, 0, iface);
+                    fprintf(fp2, "%5d%5d Unclassified_cloud_points\n", count, 0);
 
                     for (icloud = 0; icloud < ncloud; icloud++) {
-                        if (face[icloud] == iface) {
+                        if (face[icloud] == 0) {
                             fprintf(fp2, " %9.5f %9.5f %9.5f\n", cloud[3*icloud], cloud[3*icloud+1], cloud[3*icloud+2]);
                         }
                     }
                 }
-            }
 
-            for (iface = 1; iface <= MODL->body[ibody].nface; iface++) {
-                count = 0;
-                for (icloud = 0; icloud < ncloud; icloud++) {
-                    if (face[icloud] == iface) count++;
-                }
-
-                if (count > 0) {
-                    fprintf(fp2, "%5d%5d Face_%d_distances\n", count, -1, iface);
-
+                for (iface = 1; iface <= MODL->body[ibody].nface; iface++) {
+                    count = 0;
                     for (icloud = 0; icloud < ncloud; icloud++) {
-                        if (face[icloud] == iface) {
-                            status = EG_evaluate(MODL->body[ibody].face[iface].eface, &(beta[2*icloud]), data);
-                            CHECK_STATUS(EG_evaluate);
+                        if (face[icloud] == iface) count++;
+                    }
 
-                            fprintf(fp2, " %9.5f %9.5f %9.5f\n", cloud[3*icloud], cloud[3*icloud+1], cloud[3*icloud+2]);
-                            fprintf(fp2, " %9.5f %9.5f %9.5f\n", data[0],         data[1],           data[2]          );
+                    if (count > 0) {
+                        fprintf(fp2, "%5d%5d Face_%d_cloud_points\n", count, 0, iface);
+
+                        for (icloud = 0; icloud < ncloud; icloud++) {
+                            if (face[icloud] == iface) {
+                                fprintf(fp2, " %9.5f %9.5f %9.5f\n", cloud[3*icloud], cloud[3*icloud+1], cloud[3*icloud+2]);
+                            }
                         }
                     }
                 }
-            }
 
-            fprintf(fp2, "%5d%5d end\n", 0, 0);
-            fclose(fp2);
+                for (iface = 1; iface <= MODL->body[ibody].nface; iface++) {
+                    count = 0;
+                    for (icloud = 0; icloud < ncloud; icloud++) {
+                        if (face[icloud] == iface) count++;
+                    }
+
+                    if (count > 0) {
+                        fprintf(fp2, "%5d%5d Face_%d_distances\n", count, -1, iface);
+
+                        for (icloud = 0; icloud < ncloud; icloud++) {
+                            if (face[icloud] == iface) {
+                                status = EG_evaluate(MODL->body[ibody].face[iface].eface, &(beta[2*icloud]), data);
+                                CHECK_STATUS(EG_evaluate);
+
+                                fprintf(fp2, " %9.5f %9.5f %9.5f\n", cloud[3*icloud], cloud[3*icloud+1], cloud[3*icloud+2]);
+                                fprintf(fp2, " %9.5f %9.5f %9.5f\n", data[0],         data[1],           data[2]          );
+                            }
+                        }
+                    }
+                }
+
+                fprintf(fp2, "%5d%5d end\n", 0, 0);
+                fclose(fp2);
+            }
         }
 
-        /* if none of the LM itertions were accepted, perturb to DESPMTRs and restart */
+        /* if none of the LM itertions were accepted, check if perturbing a DESPMTR will allow us to restart */
         if (naccept == 0) {
-            SPRINT0(0, "ERROR:: no LM iterations were accepted, so perturbing DESPMTRs\n");
+            SPRINT0(0, "\n    ERROR:: no LM iterations were accepted, so checking if any perturbations will be better\n");
 
-            SPRINT0x(1, "perturbed                 DESPMTRs=");
+            /* get the baseline */
+            nbody = 0;
+            oldOutLevel = ocsmSetOutLevel(0);
+            status = ocsmBuild(MODL, 0, &builtTo, &nbody, NULL);
+            CHECK_STATUS(ocsmBuild);
+            (void) ocsmSetOutLevel(oldOutLevel);
+
+            rms = 0;
+            for (icloud = 0; icloud < ncloud; icloud++) {
+                iface       = face[  icloud  ];
+                uv_guess[0] = beta[2*icloud  ];
+                uv_guess[1] = beta[2*icloud+1];
+
+                status = EG_invEvaluateGuess(MODL->body[MODL->nbody].face[iface].eface, &(cloud[3*icloud]), uv_guess, xyz_guess);
+                CHECK_STATUS(EG_invEvaluateGuess);
+
+                rms += (cloud[3*icloud  ]-xyz_guess[0]) * (cloud[3*icloud  ]-xyz_guess[0])
+                     + (cloud[3*icloud+1]-xyz_guess[1]) * (cloud[3*icloud+1]-xyz_guess[1])
+                     + (cloud[3*icloud+2]-xyz_guess[2]) * (cloud[3*icloud+2]-xyz_guess[2]);
+            }
+            rms = sqrt(rms / (3*ncloud));
+
+            SPRINT1(0, "    baseline                     rms=%12.5e\n", rms);
+            iperturb   = 0;
+            rmsperturb = rms;
+            valperturb = HUGEQ;
+
+            /* now pertrub each of the DESPMTRs, one at a time, and compute the rms by inverse evaluations */
             for (ipmtr = 0; ipmtr < npmtr; ipmtr++) {
-                jpmtr = pmtrindx[ipmtr];
 
-                if (MODL->pmtr[jpmtr].ubnd[0]-pmtrbest[ipmtr] >= pmtrbest[ipmtr]-MODL->pmtr[jpmtr].lbnd[0]) {
-                    pmtrbest[ipmtr] = MIN(pmtrbest[ipmtr]+0.10*fabs(pmtrbest[ipmtr]), MODL->pmtr[jpmtr].ubnd[0]);
+                status = ocsmGetBnds(MODL, pmtrindx[ipmtr], 1, 1, &lbound, &ubound);
+                CHECK_STATUS(ocsmGetBnds);
+
+                /* decrease by 5% */
+                if (pmtrbest[ipmtr] > 0) {
+                    value = MAX(pmtrbest[ipmtr]/1.05, lbound);
                 } else {
-                    pmtrbest[ipmtr] = MAX(pmtrbest[ipmtr]-0.10*fabs(pmtrbest[ipmtr]), MODL->pmtr[jpmtr].lbnd[0]);
+                    value = MIN(pmtrbest[ipmtr]/1.05, ubound);
+                }
+                status = ocsmSetValuD(MODL, pmtrindx[ipmtr], 1, 1, value);
+                CHECK_STATUS(ocsmSetValuD);
+
+                nbody = 0;
+                oldOutLevel = ocsmSetOutLevel(0);
+                status = ocsmBuild(MODL, 0, &builtTo, &nbody, NULL);
+                CHECK_STATUS(ocsmBuild);
+                (void) ocsmSetOutLevel(oldOutLevel);
+
+                rms = 0;
+                for (icloud = 0; icloud < ncloud; icloud++) {
+                    iface       = face[  icloud  ];
+                    uv_guess[0] = beta[2*icloud  ];
+                    uv_guess[1] = beta[2*icloud+1];
+
+                    status = EG_invEvaluateGuess(MODL->body[MODL->nbody].face[iface].eface, &(cloud[3*icloud]), uv_guess, xyz_guess);
+                    CHECK_STATUS(EG_invEvaluateGuess);
+
+                    rms += (cloud[3*icloud  ]-xyz_guess[0]) * (cloud[3*icloud  ]-xyz_guess[0])
+                         + (cloud[3*icloud+1]-xyz_guess[1]) * (cloud[3*icloud+1]-xyz_guess[1])
+                         + (cloud[3*icloud+2]-xyz_guess[2]) * (cloud[3*icloud+2]-xyz_guess[2]);
+                }
+                rms = sqrt(rms / (3*ncloud));
+
+                SPRINT4(1, "    ipmtr=%2d, valu=%12.7f, rms=%12.5e, rms/best=%10.5f", ipmtr, value, rms, rms/rmsperturb);
+
+                if (rms < rmsperturb) {
+                    iperturb   = -ipmtr;
+                    rmsperturb = rms;
+                    valperturb = value;
                 }
 
-                SPRINT1x(1, " %10.5f", pmtrbest[ipmtr]);
-            }
-            SPRINT0(1, " ");
+                /* increase by 5% */
+                if (pmtrbest[ipmtr] > 0) {
+                    value = MIN(pmtrbest[ipmtr]*1.05, ubound);
+                } else {
+                    value = MAX(pmtrbest[ipmtr]*1.05, lbound);
+                }
+                status = ocsmSetValuD(MODL, pmtrindx[ipmtr], 1, 1, value);
+                CHECK_STATUS(ocsmSetValuD);
 
-            /* make sure that "no classification change" will not get
-               triggered to premturely converge the process */
-            prevface[0]++;
-        }
+                nbody = 0;
+                oldOutLevel = ocsmSetOutLevel(0);
+                status = ocsmBuild(MODL, 0, &builtTo, &nbody, NULL);
+                CHECK_STATUS(ocsmBuild);
+                (void) ocsmSetOutLevel(oldOutLevel);
+
+                rms = 0;
+                for (icloud = 0; icloud < ncloud; icloud++) {
+                    iface       = face[  icloud  ];
+                    uv_guess[0] = beta[2*icloud  ];
+                    uv_guess[1] = beta[2*icloud+1];
+
+                    status = EG_invEvaluateGuess(MODL->body[MODL->nbody].face[iface].eface, &(cloud[3*icloud]), uv_guess, xyz_guess);
+                    CHECK_STATUS(EG_invEvaluateGuess);
+
+                    rms += (cloud[3*icloud  ]-xyz_guess[0]) * (cloud[3*icloud  ]-xyz_guess[0])
+                        + (cloud[3*icloud+1]-xyz_guess[1]) * (cloud[3*icloud+1]-xyz_guess[1])
+                        + (cloud[3*icloud+2]-xyz_guess[2]) * (cloud[3*icloud+2]-xyz_guess[2]);
+                }
+                rms = sqrt(rms / (3*ncloud));
+
+                SPRINT4(1, "    ipmtr=%2d, valu=%12.7f, rms=%12.5e, rms/best=%10.5f\n", ipmtr, value, rms, rms/rmsperturb);
+
+                if (rms < rmsperturb) {
+                    iperturb   = +ipmtr;
+                    rmsperturb = rms;
+                    valperturb = value;
+                }
+
+                /* set back to nominal value */
+                status = ocsmSetValuD(MODL, pmtrindx[ipmtr], 1, 1, pmtrbest[ipmtr]);
+                CHECK_STATUS(ocsmSetValuD);
+            }
+
+            if (iperturb > 0) {
+                pmtrbest[+iperturb] = valperturb;
+
+                status = ocsmSetValuD(MODL, pmtrindx[+iperturb], 1, 1, pmtrbest[+iperturb]);
+                CHECK_STATUS(ocsmSetValuD);
+
+                SPRINT2(1, "    restarting with ipmtr=%2d perturbed to %12.5f", +iperturb, pmtrbest[+iperturb]);
+
+                restart = 1;
+            } else if (iperturb < 0) {
+                pmtrbest[-iperturb] = valperturb;
+
+                SPRINT2(1, "    restarting with ipmtr=%2d perturbed to %12.5f", -iperturb, pmtrbest[-iperturb]);
+
+                status = ocsmSetValuD(MODL, pmtrindx[-iperturb], 1, 1, pmtrbest[-iperturb]);
+                CHECK_STATUS(ocsmSetValuD);
+
+                restart = 1;
+            } else {
+                SPRINT0(1, "    no perturbation succeeded, so stopping");
+
+                break;
+            }
 
         /* if the DESPMTRs are essentially the same on last two passes and all
            cloud points are classified, we are done */
-        if (ipass > 0) {
+        } else if (ipass > 0) {
             dmax = 0;
             for (ipmtr = 0; ipmtr < npmtr; ipmtr++) {
                 if (fabs(pmtrbest[ipmtr]-pmtrlast[ipmtr]) > dmax) {
@@ -9511,8 +9732,9 @@ plugsPhase2(modl_T *MODL,               /* (in)  pointer to MODL */
                 }
             }
 
-            if (unclass == 0 && dmax < 1.0e-4) {
-                SPRINT1(1, "\nPhase2 passes converged because maximum DESPMTR change is %10.3e\n", dmax);
+            if (unclass == 0 && dmax < 1.0e-5) {
+                SPRINT3(0, "\n    Phase2 passes converged because maximum DESPMTR change is %10.3e, reclass=%5d, unclass=%5d\n",
+                        dmax, reclass, unclass);
                 break;
             }
         }
@@ -9527,6 +9749,180 @@ plugsPhase2(modl_T *MODL,               /* (in)  pointer to MODL */
     for (ipmtr = 0; ipmtr < npmtr; ipmtr++) {
         status = ocsmSetValuD(MODL, pmtrindx[ipmtr], 1, 1, pmtrbest[ipmtr]);
         CHECK_STATUS(ocsmSetValuD);
+    }
+
+    /* find the sensitivity of the objective function to perturbations in
+       the various DESPMTRs */
+    if (PLUGS_SHOW_SENSITIVITY == 1) {
+        double rmsuv, baseline;
+
+        rms = 0;
+        for (icloud = 0; icloud < ncloud; icloud++) {
+            rms += qerr[3*icloud]*qerr[3*icloud] + qerr[3*icloud+1]*qerr[3*icloud+1] + qerr[3*icloud+2]*qerr[3*icloud+2];
+        }
+        rms = sqrt(rms / (3*ncloud));
+
+        /* baseline rms by inverse evaluations */
+        nbody = 0;
+        oldOutLevel = ocsmSetOutLevel(0);
+        status = ocsmBuild(MODL, 0, &builtTo, &nbody, NULL);
+        (void) ocsmSetOutLevel(oldOutLevel);
+
+        rms = 0;
+        rmsuv = 0;
+        for (icloud = 0; icloud < ncloud; icloud++) {
+            iface       = face[  icloud  ];
+            uv_guess[0] = beta[2*icloud  ];
+            uv_guess[1] = beta[2*icloud+1];
+
+            status = EG_invEvaluateGuess(MODL->body[MODL->nbody].face[iface].eface, &(cloud[3*icloud]), uv_guess, xyz_guess);
+            CHECK_STATUS(EG_invEvaluateGuess);
+
+            rms += (cloud[3*icloud  ]-xyz_guess[0]) * (cloud[3*icloud  ]-xyz_guess[0])
+                 + (cloud[3*icloud+1]-xyz_guess[1]) * (cloud[3*icloud+1]-xyz_guess[1])
+                 + (cloud[3*icloud+2]-xyz_guess[2]) * (cloud[3*icloud+2]-xyz_guess[2]);
+            rmsuv += (uv_guess[0]-beta[2*icloud  ]) * (uv_guess[0]-beta[2*icloud  ])
+                   + (uv_guess[1]-beta[2*icloud+1]) * (uv_guess[1]-beta[2*icloud+1]);
+        }
+        rms = sqrt(rms / (3*ncloud));
+        rmsuv = sqrt(rmsuv / (2*ncloud));
+
+        SPRINT2(1, "baseline                     rms=%12.5e, rmsuv=%12.5e\n", rms, rmsuv);
+        baseline = rms;
+
+        /* now pertrub each of the DESPMTRs, one at a time, and compute the rms by inverse evaluations */
+        for (ipmtr = 0; ipmtr < npmtr; ipmtr++) {
+
+            /* decrease by 5% */
+            if (pmtrbest[ipmtr] > 0) {
+                value = MAX(pmtrbest[ipmtr]/1.05, lbound);
+            } else {
+                value = MIN(pmtrbest[ipmtr]/1.05, ubound);
+            }
+            status = ocsmSetValuD(MODL, pmtrindx[ipmtr], 1, 1, value);
+            CHECK_STATUS(ocsmSetValuD);
+
+            nbody = 0;
+            oldOutLevel = ocsmSetOutLevel(0);
+            status = ocsmBuild(MODL, 0, &builtTo, &nbody, NULL);
+            (void) ocsmSetOutLevel(oldOutLevel);
+
+            rms = 0;
+            for (icloud = 0; icloud < ncloud; icloud++) {
+                iface       = face[  icloud  ];
+                uv_guess[0] = beta[2*icloud  ];
+                uv_guess[1] = beta[2*icloud+1];
+
+                status = EG_invEvaluateGuess(MODL->body[MODL->nbody].face[iface].eface, &(cloud[3*icloud]), uv_guess, xyz_guess);
+                CHECK_STATUS(EG_invEvaluateGuess);
+
+                rms += (cloud[3*icloud  ]-xyz_guess[0]) * (cloud[3*icloud  ]-xyz_guess[0])
+                     + (cloud[3*icloud+1]-xyz_guess[1]) * (cloud[3*icloud+1]-xyz_guess[1])
+                     + (cloud[3*icloud+2]-xyz_guess[2]) * (cloud[3*icloud+2]-xyz_guess[2]);
+            }
+            rms = sqrt(rms / (3*ncloud));
+
+            SPRINT4(1, "ipmtr=%2d, valu=%12.7f, rms=%12.5e, rms/baseline=%10.5f", ipmtr, value, rms, rms/baseline);
+
+            /* decrease by 1% */
+            if (pmtrbest[ipmtr] > 0) {
+                value = MAX(pmtrbest[ipmtr]/1.01, lbound);
+            } else {
+                value = MIN(pmtrbest[ipmtr]/1.01, ubound);
+            }
+            status = ocsmSetValuD(MODL, pmtrindx[ipmtr], 1, 1, value);
+            CHECK_STATUS(ocsmSetValuD);
+
+            nbody = 0;
+            oldOutLevel = ocsmSetOutLevel(0);
+            status = ocsmBuild(MODL, 0, &builtTo, &nbody, NULL);
+            (void) ocsmSetOutLevel(oldOutLevel);
+
+            rms = 0;
+            for (icloud = 0; icloud < ncloud; icloud++) {
+                iface       = face[  icloud  ];
+                uv_guess[0] = beta[2*icloud  ];
+                uv_guess[1] = beta[2*icloud+1];
+
+                status = EG_invEvaluateGuess(MODL->body[MODL->nbody].face[iface].eface, &(cloud[3*icloud]), uv_guess, xyz_guess);
+                CHECK_STATUS(EG_invEvaluateGuess);
+
+                rms += (cloud[3*icloud  ]-xyz_guess[0]) * (cloud[3*icloud  ]-xyz_guess[0])
+                     + (cloud[3*icloud+1]-xyz_guess[1]) * (cloud[3*icloud+1]-xyz_guess[1])
+                     + (cloud[3*icloud+2]-xyz_guess[2]) * (cloud[3*icloud+2]-xyz_guess[2]);
+            }
+            rms = sqrt(rms / (3*ncloud));
+
+            SPRINT4(1, "ipmtr=%2d, valu=%12.7f, rms=%12.5e, rms/baseline=%10.5f", ipmtr, value, rms, rms/baseline);
+
+            SPRINT4(1, "ipmtr=%2d, valu=%12.7f, rms=%12.5e, rms/baseline=%10.5f", ipmtr, pmtrbest[ipmtr], baseline, 1.0);
+
+            /* increase by 1% */
+            if (pmtrbest[ipmtr] > 0) {
+                value = MIN(pmtrbest[ipmtr]*1.01, ubound);
+            } else {
+                value = MAX(pmtrbest[ipmtr]*1.01, lbound);
+            }
+            status = ocsmSetValuD(MODL, pmtrindx[ipmtr], 1, 1, value);
+            CHECK_STATUS(ocsmSetValuD);
+
+            nbody = 0;
+            oldOutLevel = ocsmSetOutLevel(0);
+            status = ocsmBuild(MODL, 0, &builtTo, &nbody, NULL);
+            (void) ocsmSetOutLevel(oldOutLevel);
+
+            rms = 0;
+            for (icloud = 0; icloud < ncloud; icloud++) {
+                iface       = face[  icloud  ];
+                uv_guess[0] = beta[2*icloud  ];
+                uv_guess[1] = beta[2*icloud+1];
+
+                status = EG_invEvaluateGuess(MODL->body[MODL->nbody].face[iface].eface, &(cloud[3*icloud]), uv_guess, xyz_guess);
+                CHECK_STATUS(EG_invEvaluateGuess);
+
+                rms += (cloud[3*icloud  ]-xyz_guess[0]) * (cloud[3*icloud  ]-xyz_guess[0])
+                     + (cloud[3*icloud+1]-xyz_guess[1]) * (cloud[3*icloud+1]-xyz_guess[1])
+                     + (cloud[3*icloud+2]-xyz_guess[2]) * (cloud[3*icloud+2]-xyz_guess[2]);
+            }
+            rms = sqrt(rms / (3*ncloud));
+
+            SPRINT4(1, "ipmtr=%2d, valu=%12.7f, rms=%12.5e, rms/baseline=%10.5f", ipmtr, value, rms, rms/baseline);
+
+            /* increase by 5% */
+            if (pmtrbest[ipmtr] > 0) {
+                value = MIN(pmtrbest[ipmtr]*1.05, ubound);
+            } else {
+                value = MAX(pmtrbest[ipmtr]*1.05, lbound);
+            }
+            status = ocsmSetValuD(MODL, pmtrindx[ipmtr], 1, 1, value);
+            CHECK_STATUS(ocsmSetValuD);
+
+            nbody = 0;
+            oldOutLevel = ocsmSetOutLevel(0);
+            status = ocsmBuild(MODL, 0, &builtTo, &nbody, NULL);
+            (void) ocsmSetOutLevel(oldOutLevel);
+
+            rms = 0;
+            for (icloud = 0; icloud < ncloud; icloud++) {
+                iface       = face[  icloud  ];
+                uv_guess[0] = beta[2*icloud  ];
+                uv_guess[1] = beta[2*icloud+1];
+
+                status = EG_invEvaluateGuess(MODL->body[MODL->nbody].face[iface].eface, &(cloud[3*icloud]), uv_guess, xyz_guess);
+                CHECK_STATUS(EG_invEvaluateGuess);
+
+                rms += (cloud[3*icloud  ]-xyz_guess[0]) * (cloud[3*icloud  ]-xyz_guess[0])
+                     + (cloud[3*icloud+1]-xyz_guess[1]) * (cloud[3*icloud+1]-xyz_guess[1])
+                     + (cloud[3*icloud+2]-xyz_guess[2]) * (cloud[3*icloud+2]-xyz_guess[2]);
+            }
+            rms = sqrt(rms / (3*ncloud));
+
+            SPRINT4(1, "ipmtr=%2d, valu=%12.7f, rms=%12.5e, rms/baseline=%10.5f\n", ipmtr, value, rms, rms/baseline);
+
+            /* set back to nominal value */
+            status = ocsmSetValuD(MODL, pmtrindx[ipmtr], 1, 1, pmtrbest[ipmtr]);
+            CHECK_STATUS(ocsmSetValuD);
+        }
     }
 
 cleanup:
@@ -10098,7 +10494,7 @@ cleanup:
 static int
 writeTessFile(modl_T *MODL,             /* (in)  pointer to MODL */
               int    ibody,             /* (in)  Body index (1->MODL->nbody) */
-              char   filename[])        /* (in)  filename */
+              char   Filename[])        /* (in)  filename */
 {
     int    status = SUCCESS;            /* (out) return status */
 
@@ -10111,7 +10507,7 @@ writeTessFile(modl_T *MODL,             /* (in)  pointer to MODL */
 
     /* --------------------------------------------------------------- */
 
-    fp = fopen(filename, "w");
+    fp = fopen(Filename, "w");
     if (fp == NULL) {
         status = OCSM_FILE_NOT_FOUND;
         goto cleanup;

@@ -17,9 +17,10 @@ typedef int         pid_t;
 #include "miscUtils.h"
 #include "aimUtil.h"
 
+#include "aflr4_Interface.h" // Bring in AFLR4 'interface' functions
 
-int aflr4_Surface_Mesh(const char* outputDirectory,
-                       int quiet,
+
+int aflr4_Surface_Mesh(int quiet,
                        int numBody, ego *bodies,
                        void *aimInfo, capsValue *aimInputs,
                        meshInputStruct meshInput,
@@ -44,7 +45,7 @@ int aflr4_Surface_Mesh(const char* outputDirectory,
     ego *faces = NULL, *copy_bodies=NULL, context, tess, model=NULL;
 
     int min_ncell, mer_all, no_prox;
-    int EGADS_Quad = (int)false;
+    int EGADSQuad = (int) false;
 
     double ff_cdfr, abs_min_scale, BL_thickness, Re_l, curv_factor,
            max_scale, min_scale, ref_len, erw_all;
@@ -66,8 +67,13 @@ int aflr4_Surface_Mesh(const char* outputDirectory,
     // Do some additional anity checks on the attributes
     for (bodyIndex = 0; bodyIndex < numBody; bodyIndex++) {
 
-        status = EG_getBodyTopos (bodies[bodyIndex], NULL, FACE, &numFace, &faces);
+        status = EG_getBodyTopos (bodies[bodyIndex], NULL, FACE, &numFace,
+                                  &faces);
         if (status != EGADS_SUCCESS) goto cleanup;
+        if (faces == NULL) {
+          status = CAPS_NULLOBJ;
+          goto cleanup;
+        }
 
         for (faceIndex = 0; faceIndex < numFace ; faceIndex++) {
 
@@ -75,10 +81,12 @@ int aflr4_Surface_Mesh(const char* outputDirectory,
             // check to make sure the values are not bad
 
             // check to see if AFLR_GBC is already set
-            status = EG_attributeRet(faces[faceIndex], "AFLR_GBC", &atype, &n, &pints, &preals, &pstring);
+            status = EG_attributeRet(faces[faceIndex], "AFLR_GBC", &atype, &n,
+                                     &pints, &preals, &pstring);
 
             if (status == EGADS_SUCCESS) {
                 if (atype == ATTRSTRING) {
+/*@-nullpass@*/
                     if ( !( (strcasecmp (pstring, "STD_UG3_GBC") == 0)            ||
                             (strcasecmp (pstring, "-STD_UG3_GBC") == 0)           ||
                             (strcasecmp (pstring, "FARFIELD_UG3_GBC") == 0)       ||
@@ -111,12 +119,14 @@ int aflr4_Surface_Mesh(const char* outputDirectory,
                         printf("                           coordinates are retained but connectivity is not\n");
                         printf("                           BL generating surface\n");
                         printf("**********************************************************\n");
+/*@+nullpass@*/
                         status = CAPS_BADVALUE;
                         goto cleanup;
                     }
                 } else {
                     printf("**********************************************************\n");
-                    printf("AFLR_GBC on face %d of body %d has %d entries ", faceIndex+1, bodyIndex+1, n);
+                    printf("AFLR_GBC on face %d of body %d has %d entries ",
+                           faceIndex+1, bodyIndex+1, n);
                     if (atype == ATTRREAL)        printf("of reals\n");
                     else if (atype == ATTRINT)    printf("of integers\n");
                     printf("Should only contain a string!\n");
@@ -127,10 +137,12 @@ int aflr4_Surface_Mesh(const char* outputDirectory,
             }
 
             // check for deprecation
-            status = EG_attributeRet(faces[faceIndex], "AFLR_Cmp_ID", &atype, &n, &pints, &preals, &pstring);
+            status = EG_attributeRet(faces[faceIndex], "AFLR_Cmp_ID", &atype, &n,
+                                     &pints, &preals, &pstring);
             if (status == EGADS_SUCCESS) {
               printf("**********************************************************\n");
-              printf("Error: AFLR_Cmp_ID on face %d of body %d is deprecated\n", faceIndex+1, bodyIndex+1);
+              printf("Error: AFLR_Cmp_ID on face %d of body %d is deprecated\n",
+                     faceIndex+1, bodyIndex+1);
               printf("   use AFLR4_Cmp_ID instead!\n");
               printf("**********************************************************\n");
               status = CAPS_BADVALUE;
@@ -138,12 +150,14 @@ int aflr4_Surface_Mesh(const char* outputDirectory,
             }
 
             // check to see if AFLR4_Cmp_ID is set correctly
-            status = EG_attributeRet(faces[faceIndex], "AFLR4_Cmp_ID", &atype, &n, &pints, &preals, &pstring);
+            status = EG_attributeRet(faces[faceIndex], "AFLR4_Cmp_ID", &atype, &n,
+                                     &pints, &preals, &pstring);
 
             if (status == EGADS_SUCCESS && (!(atype == ATTRREAL || atype == ATTRINT) || n != 1)) {
                 //make sure it is only a single real
                 printf("**********************************************************\n");
-                printf("AFLR4_Cmp_ID on face %d of body %d has %d entries ", faceIndex+1, bodyIndex+1, n);
+                printf("AFLR4_Cmp_ID on face %d of body %d has %d entries ",
+                       faceIndex+1, bodyIndex+1, n);
                 if (atype == ATTRREAL)        printf("of reals\n");
                 else if (atype == ATTRINT)    printf("of integers\n");
                 else if (atype == ATTRSTRING) printf("of a string\n");
@@ -154,12 +168,14 @@ int aflr4_Surface_Mesh(const char* outputDirectory,
             }
 
             // check to see if AFLR4_Isolated_Edge_Refinement_Flag is set correctly
-            status = EG_attributeRet(faces[faceIndex], "AFLR4_Isolated_Edge_Refinement_Flag", &atype, &n, &pints, &preals, &pstring);
+            status = EG_attributeRet(faces[faceIndex], "AFLR4_Isolated_Edge_Refinement_Flag",
+                                     &atype, &n, &pints, &preals, &pstring);
 
             if (status == EGADS_SUCCESS && (!(atype == ATTRREAL || atype == ATTRINT) || n != 1)) {
                 //make sure it is only a single real
                 printf("**********************************************************\n");
-                printf("AFLR4_Isolated_Edge_Refinement_Flag on face %d of body %d has %d entries ", faceIndex+1, bodyIndex+1, n);
+                printf("AFLR4_Isolated_Edge_Refinement_Flag on face %d of body %d has %d entries ",
+                       faceIndex+1, bodyIndex+1, n);
                 if (atype == ATTRREAL)        printf("of reals\n");
                 else if (atype == ATTRINT)    printf("of integers\n");
                 else if (atype == ATTRSTRING) printf("of a string\n");
@@ -170,10 +186,12 @@ int aflr4_Surface_Mesh(const char* outputDirectory,
             }
 
             // check for deprecation
-            status = EG_attributeRet(faces[faceIndex], "AFLR_Scale_Factor", &atype, &n, &pints, &preals, &pstring);
+            status = EG_attributeRet(faces[faceIndex], "AFLR_Scale_Factor", &atype,
+                                     &n, &pints, &preals, &pstring);
             if (status == EGADS_SUCCESS) {
               printf("**********************************************************\n");
-              printf("Error: AFLR_Scale_Factor on face %d of body %d is deprecated\n", faceIndex+1, bodyIndex+1);
+              printf("Error: AFLR_Scale_Factor on face %d of body %d is deprecated\n",
+                     faceIndex+1, bodyIndex+1);
               printf("   use AFLR4_Scale_Factor instead!\n");
               printf("**********************************************************\n");
               status = CAPS_BADVALUE;
@@ -181,12 +199,14 @@ int aflr4_Surface_Mesh(const char* outputDirectory,
             }
 
             // check to see if AFLR4_Scale_Factor is already set
-            status = EG_attributeRet(faces[faceIndex], "AFLR4_Scale_Factor", &atype, &n, &pints, &preals, &pstring);
+            status = EG_attributeRet(faces[faceIndex], "AFLR4_Scale_Factor", &atype,
+                                     &n, &pints, &preals, &pstring);
 
             if (status == EGADS_SUCCESS && !(atype == ATTRREAL && n == 1)) {
                 //make sure it is only a single real
                 printf("**********************************************************\n");
-                printf("AFLR4_Scale_Factor on face %d of body %d has %d entries ", faceIndex+1, bodyIndex+1, n);
+                printf("AFLR4_Scale_Factor on face %d of body %d has %d entries ",
+                       faceIndex+1, bodyIndex+1, n);
                 if (atype == ATTRREAL)
                     printf("of reals\n");
                 else if (atype == ATTRINT)
@@ -203,20 +223,24 @@ int aflr4_Surface_Mesh(const char* outputDirectory,
             // no need to set if scale factor weight is 0.0 (default)
 
             // check for deprecation
-            status = EG_attributeRet(faces[faceIndex], "AFLR_Edge_Scale_Factor_Weight", &atype, &n, &pints, &preals, &pstring);
+            status = EG_attributeRet(faces[faceIndex], "AFLR_Edge_Scale_Factor_Weight",
+                                     &atype, &n, &pints, &preals, &pstring);
             if (status == EGADS_SUCCESS) {
               printf("**********************************************************\n");
-              printf("Error: AFLR_Edge_Scale_Factor_Weight on face %d of body %d is deprecated\n", faceIndex+1, bodyIndex+1);
+              printf("Error: AFLR_Edge_Scale_Factor_Weight on face %d of body %d is deprecated\n",
+                     faceIndex+1, bodyIndex+1);
               printf("   use AFLR4_Edge_Refinement_Weight instead!\n");
               printf("**********************************************************\n");
               status = CAPS_BADVALUE;
               goto cleanup;
             }
 
-            status = EG_attributeRet(faces[faceIndex], "AFLR4_Edge_Scale_Factor_Weight", &atype, &n, &pints, &preals, &pstring);
+            status = EG_attributeRet(faces[faceIndex], "AFLR4_Edge_Scale_Factor_Weight",
+                                     &atype, &n, &pints, &preals, &pstring);
             if (status == EGADS_SUCCESS) {
               printf("**********************************************************\n");
-              printf("Error: AFLR4_Edge_Scale_Factor_Weight on face %d of body %d is deprecated\n", faceIndex+1, bodyIndex+1);
+              printf("Error: AFLR4_Edge_Scale_Factor_Weight on face %d of body %d is deprecated\n",
+                     faceIndex+1, bodyIndex+1);
               printf("   use AFLR4_Edge_Refinement_Weight instead!\n");
               printf("**********************************************************\n");
               status = CAPS_BADVALUE;
@@ -224,12 +248,14 @@ int aflr4_Surface_Mesh(const char* outputDirectory,
             }
 
             // check to see if AFLR4_Edge_Refinement_Weight is already set
-            status = EG_attributeRet(faces[faceIndex], "AFLR4_Edge_Refinement_Weight", &atype, &n, &pints, &preals, &pstring);
+            status = EG_attributeRet(faces[faceIndex], "AFLR4_Edge_Refinement_Weight",
+                                     &atype, &n, &pints, &preals, &pstring);
 
             if (status == EGADS_SUCCESS && !(atype == ATTRREAL && n == 1) ) {
                 //make sure it is only a single real
                 printf("**********************************************************\n");
-                printf("AFLR4_Edge_Refinement_Weight on face %d of body %d has %d entries ", faceIndex+1, bodyIndex+1, n);
+                printf("AFLR4_Edge_Refinement_Weight on face %d of body %d has %d entries ",
+                       faceIndex+1, bodyIndex+1, n);
                 if (atype == ATTRREAL)
                     printf("of reals\n");
                 else if (atype == ATTRINT)
@@ -248,21 +274,21 @@ int aflr4_Surface_Mesh(const char* outputDirectory,
 
     // get AFLR parameters from user inputs
 
-    ff_cdfr       = aimInputs[aim_getIndex(aimInfo, "ff_cdfr"           , ANALYSISIN)-1].vals.real;
-    min_ncell     = aimInputs[aim_getIndex(aimInfo, "min_ncell"         , ANALYSISIN)-1].vals.integer;
-    mer_all       = aimInputs[aim_getIndex(aimInfo, "mer_all"           , ANALYSISIN)-1].vals.integer;
-    no_prox       = aimInputs[aim_getIndex(aimInfo, "no_prox"           , ANALYSISIN)-1].vals.integer;
+    ff_cdfr       = aimInputs[Ff_cdfr-1].vals.real;
+    min_ncell     = aimInputs[Min_ncell-1].vals.integer;
+    mer_all       = aimInputs[Mer_all-1].vals.integer;
+    no_prox       = aimInputs[No_prox-1].vals.integer;
 
-    BL_thickness  = aimInputs[aim_getIndex(aimInfo, "BL_thickness"      , ANALYSISIN)-1].vals.real;
-    Re_l          = aimInputs[aim_getIndex(aimInfo, "Re_l"              , ANALYSISIN)-1].vals.real;
-    curv_factor   = aimInputs[aim_getIndex(aimInfo, "curv_factor"       , ANALYSISIN)-1].vals.real;
-    abs_min_scale = aimInputs[aim_getIndex(aimInfo, "abs_min_scale"     , ANALYSISIN)-1].vals.real;
-    max_scale     = aimInputs[aim_getIndex(aimInfo, "max_scale"         , ANALYSISIN)-1].vals.real;
-    min_scale     = aimInputs[aim_getIndex(aimInfo, "min_scale"         , ANALYSISIN)-1].vals.real;
-    erw_all       = aimInputs[aim_getIndex(aimInfo, "erw_all"           , ANALYSISIN)-1].vals.real;
-    meshLenFac    = aimInputs[aim_getIndex(aimInfo, "Mesh_Length_Factor", ANALYSISIN)-1].vals.real;
+    BL_thickness  = aimInputs[BL_Thickness-1].vals.real;
+    Re_l          = aimInputs[RE_l-1].vals.real;
+    curv_factor   = aimInputs[Curv_factor-1].vals.real;
+    abs_min_scale = aimInputs[Abs_min_scale-1].vals.real;
+    max_scale     = aimInputs[Max_scale-1].vals.real;
+    min_scale     = aimInputs[Min_scale-1].vals.real;
+    erw_all       = aimInputs[Erw_all-1].vals.real;
+    meshLenFac    = aimInputs[Mesh_Length_Factor-1].vals.real;
 
-    EGADS_Quad = aimInputs[aim_getIndex(aimInfo, "EGADS_Quad", ANALYSISIN)-1].vals.integer;
+    EGADSQuad     = aimInputs[EGADS_Quad-1].vals.integer;
 
     status = check_CAPSMeshLength(numBody, bodies, &capsMeshLength);
 
@@ -319,31 +345,31 @@ int aflr4_Surface_Mesh(const char* outputDirectory,
 
     // set AFLR4 input parameters
 
-    status = ug_add_flag_arg (  "min_ncell", &prog_argc, &prog_argv);
-    status = ug_add_int_arg (    min_ncell , &prog_argc, &prog_argv);
-    status = ug_add_flag_arg (  "mer_all" , &prog_argc, &prog_argv);
-    status = ug_add_int_arg (    mer_all  , &prog_argc, &prog_argv);
-    if (no_prox == True)
-      status = ug_add_flag_arg ("-no_prox"    , &prog_argc, &prog_argv);
-
-    status = ug_add_flag_arg ( "ff_cdfr"      , &prog_argc, &prog_argv);
-    status = ug_add_double_arg (ff_cdfr       , &prog_argc, &prog_argv);
-    status = ug_add_flag_arg ( "BL_thickness" , &prog_argc, &prog_argv);
-    status = ug_add_double_arg (BL_thickness  , &prog_argc, &prog_argv);
-    status = ug_add_flag_arg ( "Re_l"         , &prog_argc, &prog_argv);
-    status = ug_add_double_arg (Re_l          , &prog_argc, &prog_argv);
-    status = ug_add_flag_arg ( "curv_factor"  , &prog_argc, &prog_argv);
-    status = ug_add_double_arg (curv_factor   , &prog_argc, &prog_argv);
-    status = ug_add_flag_arg ( "abs_min_scale", &prog_argc, &prog_argv);
-    status = ug_add_double_arg (abs_min_scale , &prog_argc, &prog_argv);
-    status = ug_add_flag_arg ( "max_scale"    , &prog_argc, &prog_argv);
-    status = ug_add_double_arg (max_scale     , &prog_argc, &prog_argv);
-    status = ug_add_flag_arg ( "min_scale"    , &prog_argc, &prog_argv);
-    status = ug_add_double_arg (min_scale     , &prog_argc, &prog_argv);
-    status = ug_add_flag_arg ( "ref_len"      , &prog_argc, &prog_argv);
-    status = ug_add_double_arg (ref_len       , &prog_argc, &prog_argv);
-    status = ug_add_flag_arg ( "erw_all"      , &prog_argc, &prog_argv);
-    status = ug_add_double_arg (erw_all       , &prog_argc, &prog_argv);
+    status = ug_add_flag_arg (  "min_ncell", &prog_argc, &prog_argv); if (status != CAPS_SUCCESS) goto cleanup;
+    status = ug_add_int_arg  (   min_ncell , &prog_argc, &prog_argv); if (status != CAPS_SUCCESS) goto cleanup;
+    status = ug_add_flag_arg (  "mer_all"  , &prog_argc, &prog_argv); if (status != CAPS_SUCCESS) goto cleanup;
+    status = ug_add_int_arg  (   mer_all   , &prog_argc, &prog_argv); if (status != CAPS_SUCCESS) goto cleanup;
+    if (no_prox == True) {
+      status = ug_add_flag_arg ("-no_prox"    , &prog_argc, &prog_argv); if (status != CAPS_SUCCESS) goto cleanup;
+    }
+    status = ug_add_flag_arg ( "ff_cdfr"      , &prog_argc, &prog_argv); if (status != CAPS_SUCCESS) goto cleanup;
+    status = ug_add_double_arg (ff_cdfr       , &prog_argc, &prog_argv); if (status != CAPS_SUCCESS) goto cleanup;
+    status = ug_add_flag_arg ( "BL_thickness" , &prog_argc, &prog_argv); if (status != CAPS_SUCCESS) goto cleanup;
+    status = ug_add_double_arg (BL_thickness  , &prog_argc, &prog_argv); if (status != CAPS_SUCCESS) goto cleanup;
+    status = ug_add_flag_arg ( "Re_l"         , &prog_argc, &prog_argv); if (status != CAPS_SUCCESS) goto cleanup;
+    status = ug_add_double_arg (Re_l          , &prog_argc, &prog_argv); if (status != CAPS_SUCCESS) goto cleanup;
+    status = ug_add_flag_arg ( "curv_factor"  , &prog_argc, &prog_argv); if (status != CAPS_SUCCESS) goto cleanup;
+    status = ug_add_double_arg (curv_factor   , &prog_argc, &prog_argv); if (status != CAPS_SUCCESS) goto cleanup;
+    status = ug_add_flag_arg ( "abs_min_scale", &prog_argc, &prog_argv); if (status != CAPS_SUCCESS) goto cleanup;
+    status = ug_add_double_arg (abs_min_scale , &prog_argc, &prog_argv); if (status != CAPS_SUCCESS) goto cleanup;
+    status = ug_add_flag_arg ( "max_scale"    , &prog_argc, &prog_argv); if (status != CAPS_SUCCESS) goto cleanup;
+    status = ug_add_double_arg (max_scale     , &prog_argc, &prog_argv); if (status != CAPS_SUCCESS) goto cleanup;
+    status = ug_add_flag_arg ( "min_scale"    , &prog_argc, &prog_argv); if (status != CAPS_SUCCESS) goto cleanup;
+    status = ug_add_double_arg (min_scale     , &prog_argc, &prog_argv); if (status != CAPS_SUCCESS) goto cleanup;
+    status = ug_add_flag_arg ( "ref_len"      , &prog_argc, &prog_argv); if (status != CAPS_SUCCESS) goto cleanup;
+    status = ug_add_double_arg (ref_len       , &prog_argc, &prog_argv); if (status != CAPS_SUCCESS) goto cleanup;
+    status = ug_add_flag_arg ( "erw_all"      , &prog_argc, &prog_argv); if (status != CAPS_SUCCESS) goto cleanup;
+    status = ug_add_double_arg (erw_all       , &prog_argc, &prog_argv); if (status != CAPS_SUCCESS) goto cleanup;
 
     // Add meshInputString arguments (if any) to argument vector.
     // Note that since this comes after setting aimInputs the
@@ -353,6 +379,7 @@ int aflr4_Surface_Mesh(const char* outputDirectory,
 
     if (meshInput.aflr4Input.meshInputString != NULL) {
         meshInputString = EG_strdup(meshInput.aflr4Input.meshInputString);
+        AIM_NOTNULL(meshInputString, aimInfo, status);
 
         status = ug_add_list_arg (meshInputString, &prog_argc, &prog_argv);
         if (status != CAPS_SUCCESS) goto cleanup;
@@ -361,15 +388,17 @@ int aflr4_Surface_Mesh(const char* outputDirectory,
     // Set AFLR4 case name.
     // Used for any requested output files.
 
-    if (aimInputs[aim_getIndex(aimInfo, "Proj_Name", ANALYSISIN)-1].nullVal != IsNull)
-        ug_set_case_name (aimInputs[aim_getIndex(aimInfo, "Proj_Name", ANALYSISIN)-1].vals.string);
+    if (aimInputs[Proj_Name-1].nullVal != IsNull)
+        ug_set_case_name (aimInputs[Proj_Name-1].vals.string);
     else
         ug_set_case_name ("AFLR4");
 
     // Set quiet message flag.
 
-    if (quiet == (int)true )
+    if (quiet == (int)true ) {
         status = ug_add_flag_arg ("mmsg=0", &prog_argc, &prog_argv);
+        if (status != CAPS_SUCCESS) goto cleanup;
+    }
 
     // Register AFLR4-EGADS routines for CAD related setup & cleanup,
     // cad evaluation, cad bounds and generating boundary edge grids.
@@ -396,14 +425,18 @@ int aflr4_Surface_Mesh(const char* outputDirectory,
     // mode.
 
 #ifndef WIN32
+/*@-unrecog@*/
     ug_mp_register_fork_function (fork);
     ug_mp_register_mmap_function (mmap);
     ug_mp_register_pipe_function (pipe);
+/*@+unrecog@*/
 #endif
 
     // Malloc, initialize, and setup AFLR4 input parameter structure.
-
-    status = aflr4_setup_param (mmsg, 0, prog_argc, prog_argv, &AFLR4_Param_Struct_Ptr);
+/*@-nullpass@*/
+    status = aflr4_setup_param (mmsg, 0, prog_argc, prog_argv,
+                                &AFLR4_Param_Struct_Ptr);
+/*@+nullpass@*/
     if (status != 0) {
         printf("aflr4_setup_param failed!\n");
         status = CAPS_EXECERR;
@@ -414,12 +447,15 @@ int aflr4_Surface_Mesh(const char* outputDirectory,
 
     copy_bodies = (ego*)EG_alloc(numBody*sizeof(ego));
     for (bodyIndex = 0; bodyIndex < numBody; bodyIndex++) {
+/*@-nullderef@*/
         status = EG_copyObject(bodies[bodyIndex], NULL, &copy_bodies[bodyIndex]);
+/*@+nullderef@*/
         if (status != CAPS_SUCCESS) goto cleanup;
     }
     status = EG_getContext(bodies[0], &context);
     if (status != CAPS_SUCCESS) goto cleanup;
-    status = EG_makeTopology(context, NULL, MODEL, 0, NULL, numBody, copy_bodies, NULL, &model);
+    status = EG_makeTopology(context, NULL, MODEL, 0, NULL, numBody,
+                             copy_bodies, NULL, &model);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     // Set CAD geometry data structure.
@@ -427,26 +463,23 @@ int aflr4_Surface_Mesh(const char* outputDirectory,
     // controlled by DGEOM after this call.
 
     // required for setting input data
-    ug_set_int_param ("geom_type", 1, AFLR4_Param_Struct_Ptr);
+/*@-nullpass@*/
+    (void) ug_set_int_param ("geom_type", 1, AFLR4_Param_Struct_Ptr);
+/*@+nullpass@*/
 
     status = aflr4_set_ext_cad_data (&model);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     // Complete all tasks required for AFLR4 surface grid generation.
 
+/*@-nullpass@*/
     status = aflr4_setup_and_grid_gen (AFLR4_Param_Struct_Ptr);
+/*@+nullpass@*/
     if (status != 0) {
-        filename = (char *) EG_alloc((strlen(outputDirectory) + 2 +
-                                      strlen(aflr4_debug) + 1)*sizeof(char));
+        filename = (char *) EG_alloc((strlen(aflr4_debug) + 2)*sizeof(char));
         if (filename == NULL) { status = EGADS_MALLOC; goto cleanup; }
 
-        strcpy(filename, outputDirectory);
-        #ifdef WIN32
-            strcat(filename, "\\");
-        #else
-            strcat(filename, "/");
-        #endif
-        strcat(filename, aflr4_debug);
+        strcpy(filename, aflr4_debug);
 
         printf("**********************************************************\n");
         printf("AFLR4 mesh generation failed...\n");
@@ -455,14 +488,18 @@ int aflr4_Surface_Mesh(const char* outputDirectory,
         printf("**********************************************************\n");
 
         remove(filename);
-        EG_saveModel(model, filename);
+/*@-nullpass@*/
+        (void) EG_saveModel(model, filename);
+/*@+nullpass@*/
         status = CAPS_EXECERR;
         goto cleanup;
     }
 
     // Reset CAD attribute data.
 
+/*@-nullpass@*/
     status = aflr4_cad_geom_reset_attr (AFLR4_Param_Struct_Ptr);
+/*@+nullpass@*/
     if (status != 0) {
         printf("aflr4_cad_geom_reset_attr failed!\n");
         status = CAPS_EXECERR;
@@ -512,9 +549,11 @@ int aflr4_Surface_Mesh(const char* outputDirectory,
                                 &xyz);
         if (status != CAPS_SUCCESS) goto cleanup;
 
-        fprintf(fp, "ZONE T=\"def %d\" N=%d, E=%d, F=FEPOINT, ET=Triangle\n", surf+1, numNodes, numTriFace);
+        fprintf(fp, "ZONE T=\"def %d\" N=%d, E=%d, F=FEPOINT, ET=Triangle\n",
+                surf+1, numNodes, numTriFace);
         for (int i = 0; i < numNodes; i++)
-          fprintf(fp, "%22.15e %22.15e %22.15e %22.15e %22.15e\n", xyz[i+1][0], xyz[i+1][1], xyz[i+1][2], uv[i+1][0], uv[i+1][1]);
+          fprintf(fp, "%22.15e %22.15e %22.15e %22.15e %22.15e\n",
+                  xyz[i+1][0], xyz[i+1][1], xyz[i+1][2], uv[i+1][0], uv[i+1][1]);
         for (int i = 0; i < numTriFace; i++)
           fprintf(fp, "%d %d %d\n", triCon[i+1][0], triCon[i+1][1], triCon[i+1][2]);
 
@@ -533,12 +572,16 @@ int aflr4_Surface_Mesh(const char* outputDirectory,
 
     status = egads_aflr4_get_tess (1, numBody, bodies, &tessBodies);
     if (status != EGADS_SUCCESS) goto cleanup;
+    if (tessBodies == NULL) {
+        status = CAPS_NULLOBJ;
+        goto cleanup;
+    }
 
     for (bodyIndex = 0; bodyIndex < numBody; bodyIndex++) {
 
         /* apply EGADS quading if requested */
-        if (EGADS_Quad == (int)true) {
-            if (quiet == (int)false )
+        if (EGADSQuad == (int) true) {
+            if (quiet == (int) false)
                 printf("Creating EGADS quads for Body %d\n", bodyIndex+1);
             tess = tessBodies[bodyIndex];
             status = EG_quadTess(tess, &tessBodies[bodyIndex]);
@@ -563,7 +606,7 @@ int aflr4_Surface_Mesh(const char* outputDirectory,
                                            &surfaceMeshes[bodyIndex]);
         if (status != CAPS_SUCCESS) goto cleanup;
 
-        status = aim_setTess(aimInfo, surfaceMeshes[bodyIndex].bodyTessMap.egadsTess);
+        status = aim_newTess(aimInfo, surfaceMeshes[bodyIndex].bodyTessMap.egadsTess);
         if (status != CAPS_SUCCESS) {
              printf(" aim_setTess return = %d\n", status);
              goto cleanup;
@@ -595,6 +638,7 @@ cleanup:
     aflr4_free_all (0);
 
     // Free program arguements
+/*@-nullpass*/
     ug_free_argv(prog_argv); prog_argv = NULL;
     ug_free_param (AFLR4_Param_Struct_Ptr);
 
@@ -605,6 +649,7 @@ cleanup:
 
     EG_free(copy_bodies);
     EG_deleteObject(model);
+/*@+nullpass@*/
 
     // free memory from egads_aflr4_tess
     EG_free(tessBodies); tessBodies = NULL;

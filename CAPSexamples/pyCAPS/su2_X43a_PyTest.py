@@ -39,8 +39,34 @@ myProblem.capsIntent = "CFD"
 # Change a design parameter - area in the geometry
 myProblem.geometry.setGeometryVal("tailLength", 150)
 
+
+# Load EGADS Tess aim
+mySurfMesh = myProblem.loadAIM(aim = "egadsTessAIM",
+                               analysisDir = workDir)
+
+# Set project name so a mesh file is generated
+mySurfMesh.setAnalysisVal("Proj_Name", "egadsTessMesh")
+
+# Set new EGADS body tessellation parameters
+mySurfMesh.setAnalysisVal("Tess_Params", [0.5, 0.1, 20.0])
+
+# Set output grid format since a project name is being supplied - Tecplot file
+mySurfMesh.setAnalysisVal("Mesh_Format", "Tecplot")
+
+# Run AIM pre-analysis
+mySurfMesh.preAnalysis()
+
+##########################################
+## egadsTess was ran during preAnalysis ##
+##########################################
+
+# Run AIM post-analysis
+mySurfMesh.postAnalysis()
+
+
 # Load Tetgen aim
-myProblem.loadAIM(aim = "tetgenAIM", analysisDir= ".")
+myProblem.loadAIM(aim = "tetgenAIM", analysisDir= ".",
+                  parents = mySurfMesh.aimName)
 
 # Set new EGADS body tessellation parameters
 #myProblem.analysis["tetgenAIM"].setAnalysisVal("Tess_Params", [.05, 0.01, 20.0])

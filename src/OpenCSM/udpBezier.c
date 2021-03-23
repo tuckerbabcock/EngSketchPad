@@ -11,7 +11,7 @@
  */
 
 /*
- * Copyright (C) 2013/2020  John F. Dannenhoffer, III (Syracuse University)
+ * Copyright (C) 2013/2021  John F. Dannenhoffer, III (Syracuse University)
  *
  * This library is free software; you can redistribute it and/or
  *    modify it under the terms of the GNU Lesser General Public
@@ -57,6 +57,8 @@ static double argDdefs[NUMUDPARGS] = {0.,         0.,      0.,       0.,       0
         printf("%s -> status=%d\n", #X, status);                  \
     }
 
+static void *realloc_temp=NULL;              /* used by RALLOC macro */
+
 
 /*
  ************************************************************************
@@ -83,6 +85,8 @@ udpExecute(ego  context,                /* (in)  EGADS context */
     ego     ecurve, esurf, eloop, eshell, etemp[8], eref, *echild;
     ego     *enodes=NULL, *eedges=NULL, *efaces=NULL;
 
+    ROUTINE(udpExecute);
+    
 #ifdef DEBUG
     printf("udpExecute(context=%llx)\n", (long long)context);
     printf("filename(0) = %s\n", FILENAME(0));
@@ -103,10 +107,7 @@ udpExecute(ego  context,                /* (in)  EGADS context */
 
     /* cache copy of arguments for future use */
     status = cacheUdp();
-    if (status < 0) {
-        printf(" udpExecute: problem caching arguments\n");
-        goto cleanup;
-    }
+    CHECK_STATUS(cacheUdp);
 
 #ifdef DEBUG
     printf("filename(%d) = %s\n", numUdp, FILENAME(numUdp));
@@ -142,11 +143,7 @@ udpExecute(ego  context,                /* (in)  EGADS context */
     IMAX(numUdp) = imax;
     JMAX(numUdp) = jmax;
 
-    udps[numUdp].arg[4].val = (double *) EG_reall(udps[numUdp].arg[4].val, 3*imax*jmax*sizeof(double));
-    if (udps[numUdp].arg[4].val == NULL) {
-        status  = EGADS_MALLOC;
-        goto cleanup;
-    }
+    RALLOC(udps[numUdp].arg[4].val, double, 3*imax*jmax);
 
     /* read the data */
     for (j = 0; j < jmax; j++) {
@@ -185,14 +182,9 @@ udpExecute(ego  context,                /* (in)  EGADS context */
         }
 
         /* temporary storage used during construction */
-        enodes = (ego*) EG_alloc((nipat+1)*sizeof(ego));
-        eedges = (ego*) EG_alloc((nipat  )*sizeof(ego));
-        senses = (int*) EG_alloc((nipat  )*sizeof(int));
-
-        if (enodes == NULL || eedges == NULL || senses == NULL) {
-            status = EGADS_MALLOC;
-            goto cleanup;
-        }
+        MALLOC(enodes, ego, (nipat+1));
+        MALLOC(eedges, ego, (nipat  ));
+        MALLOC(senses, int, (nipat  ));
 
         /* make the Nodes */
         for (ipat = 0; ipat <= nipat; ipat++) {
@@ -262,17 +254,11 @@ udpExecute(ego  context,                /* (in)  EGADS context */
         }
 
         /* temporary storage used during construction */
-        enodes = (ego*) EG_alloc(  (nipat+1)*(njpat+1)*sizeof(ego));
-        eedges = (ego*) EG_alloc(2*(nipat+1)*(njpat+1)*sizeof(ego));    /* actually bigger than needed */
-        esense = (int*) EG_alloc(2*(nipat+1)*(njpat+1)*sizeof(int));    /* actually bigger than needed */
-        efaces = (ego*) EG_alloc(  (nipat  )*(njpat  )*sizeof(ego));
-        senses = (int*) EG_alloc(           4         *sizeof(int));
-
-        if (enodes == NULL || eedges == NULL || esense == NULL ||
-            efaces == NULL || senses == NULL                     ) {
-            status = EGADS_MALLOC;
-            goto cleanup;
-        }
+        MALLOC(enodes, ego,   (nipat+1)*(njpat+1));
+        MALLOC(eedges, ego, 2*(nipat+1)*(njpat+1));    /* actually bigger than needed */
+        MALLOC(esense, int, 2*(nipat+1)*(njpat+1));    /* actually bigger than needed */
+        MALLOC(efaces, ego,   (nipat  )*(njpat  ));
+        MALLOC(senses, int,            4         );
 
         /* make (or copy) the Nodes */
         inode = 0;

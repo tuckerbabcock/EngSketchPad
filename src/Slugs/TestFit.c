@@ -9,7 +9,7 @@
 */
 
 /*
- * Copyright (C) 2013/2020  John F. Dannenhoffer, III (Syracuse University)
+ * Copyright (C) 2013/2021  John F. Dannenhoffer, III (Syracuse University)
  *
  * This library is free software; you can redistribute it and/or
  *    modify it under the terms of the GNU Lesser General Public
@@ -106,6 +106,13 @@
     }                                                           \
     PTR = NULL;
 
+#define SPLINT_CHECK_FOR_NULL(X)                                        \
+    if ((X) == NULL) {                                                  \
+        printf("ERROR:: SPLINT found %s is NULL (called from %s:%d)\n", #X, routine, __LINE__); \
+        status = -999;                                                  \
+        goto cleanup;                                                   \
+    }
+
 //static void *realloc_temp=NULL;            /* used by RALLOC macro */
 
 /*
@@ -138,12 +145,12 @@ ego    context;
 
 /* debug GRAFIC routies */
 #ifdef GRAFIC
-    int           plotCurve(int iedge, int m, double XYZcloud[], /*@null@*/double Tcloud[],
-                            int n, double cp[], double normf, double dotmin, int nmin);
+    int           plotCurve2(int iedge, int m, double XYZcloud[], /*@null@*/double Tcloud[],
+                             int n, double cp[], double normf, double dotmin, int nmin);
     static void   plotCurve_image(int*, void*, void*, void*, void*, void*,
                                   void*, void*, void*, void*, void*, float*, char*, int);
-    int           plotSurface(int iface, int m, double XYZcloud[], /*@null@*/double UVcloud[],
-                              int nu, int nv, double cp[], double normf, int nmin);
+    int           plotSurface2(int iface, int m, double XYZcloud[], /*@null@*/double UVcloud[],
+                               int nu, int nv, double cp[], double normf, int nmin);
     static void   plotSurface_image(int*, void*, void*, void*, void*, void*,
                                     void*, void*, void*, void*, void*, float*, char*, int);
 
@@ -222,7 +229,7 @@ main(int       argc,                /* (in)  number of arguments */
     printf("*                                                        *\n");
     printf("*                   Program TestFit                      *\n");
     printf("*                                                        *\n");
-    printf("*           written by John Dannenhoffer, 2020           *\n");
+    printf("*           written by John Dannenhoffer, 2021           *\n");
     printf("*                                                        *\n");
     printf("**********************************************************\n");
 
@@ -337,15 +344,14 @@ main(int       argc,                /* (in)  number of arguments */
         fit1d_time += (new_time - old_time);
         printf("fit1dCloud -> status=%d, normf=%10.3e, maxf=%10.3e, dotmin=%.3f, nmin=%d, CPU=%.4f\n\n",
                status, normf, maxf, dotmin, nmin, (double)(new_time-old_time) / (double)(CLOCKS_PER_SEC));
-#endif
 
 #ifdef GRAFIC
         if (status == FIT_SUCCESS) {
-            printf("plotting Edge %d (of %d)\n", iedge, nedge);
-            status = plotCurve(iedge+1, npnt-2, &(xyz[3]), edget[iedge], ncp[iedge], edgecp[iedge], normf, dotmin, nmin);
+            status = plotCurve2(iedge+1, npnt-2, &(xyz[3]), edget[iedge], ncp[iedge], edgecp[iedge], normf, dotmin, nmin);
             if (outLevel > 0) printf("plotCurve(iedge=%d) -> status=%d\n", iedge, status);
             CHECK_STATUS(plotCurve);
         }
+#endif
 #endif
 
         FREE(xyz);
@@ -629,11 +635,11 @@ main(int       argc,                /* (in)  number of arguments */
         fit2d_time += (new_time - old_time);
         printf("fit2dcloud -> status=%d, normf=%10.3e, maxf=%10.3e, nmin=%d, numiter=%d, CPU=%.4f\n\n",
                status, normf, maxf, nmin, numiter, (double)(new_time-old_time) / (double)(CLOCKS_PER_SEC));
-#endif
 
 #ifdef GRAFIC
-        status = plotSurface(iface+1, ncloud, xyz, uv, nu, nv, cp, normf, nmin);
-        CHECK_STATUS(plotSurface);
+        status = plotSurface2(iface+1, ncloud, xyz, uv, nu, nv, cp, normf, nmin);
+        CHECK_STATUS(plotSurface2);
+#endif
 #endif
 
         for (itri = 0; itri < ntri; itri++) {
@@ -730,6 +736,9 @@ cleanup:
     FREE(casename);
     FREE(filename);
 
+    SPLINT_CHECK_FOR_NULL(edgecp);
+    SPLINT_CHECK_FOR_NULL(edget );
+    
     for (iedge = 0; iedge < nedge; iedge++) {
         FREE(edgecp[iedge]);
         FREE(edget[ iedge]);
@@ -752,28 +761,28 @@ cleanup:
 /*
  ************************************************************************
  *                                                                      *
- *   plotCurve - plot curve data                                        *
+ *   plotCurve2 - plot curve data                                       *
  *                                                                      *
  ************************************************************************
  */
 #ifdef GRAFIC
 int
-plotCurve(int    iedge,                 /* (in)  Edge number */
-          int    m,                     /* (in)  number of points in cloud */
-          double XYZcloud[],            /* (in)  array  of points in cloud */
-/*@null@*/double Tcloud[],              /* (in)  T-parameters of points in cloud (or NULL) */
-          int    n,                     /* (in)  number of control points */
-          double cp[],                  /* (in)  array  of control points */
-          double normf,                 /* (in)  RMS of distances between cloud and fit */
-          double dotmin,                /* (in)  minimum normalized dot product of control polygon */
-          int    nmin)                  /* (in)  minimum number of control points in any interval */
+plotCurve2(int    iedge,                /* (in)  Edge number */
+           int    m,                    /* (in)  number of points in cloud */
+           double XYZcloud[],           /* (in)  array  of points in cloud */
+ /*@null@*/double Tcloud[],             /* (in)  T-parameters of points in cloud (or NULL) */
+           int    n,                    /* (in)  number of control points */
+           double cp[],                 /* (in)  array  of control points */
+           double normf,                /* (in)  RMS of distances between cloud and fit */
+           double dotmin,               /* (in)  minimum normalized dot product of control polygon */
+           int    nmin)                 /* (in)  minimum number of control points in any interval */
 {
     int    status = FIT_SUCCESS;         /* (out) return status */
 
     int    indgr=1+2+4+16+64+1024, itype=0;
     char   pltitl[255];
 
-    ROUTINE(plotCurve);
+    ROUTINE(plotCurve2);
 
     /* --------------------------------------------------------------- */
 
@@ -1055,27 +1064,27 @@ cleanup:
 /*
  ************************************************************************
  *                                                                      *
- *   plotSurface - plot surface data                                    *
+ *   plotSurface2 - plot surface data                                   *
  *                                                                      *
  ************************************************************************
  */
 int
-plotSurface(int    iface,               /* (in)  Face nummber */
-            int    m,                   /* (in)  number of points in cloud */
-            double XYZcloud[],          /* (in)  array  of points in cloud */
-  /*@null@*/double UVcloud[],           /* (in)  UV-parameters of points in cloud (or NULL) */
-            int    nu,                  /* (in)  number of control points in U direction */
-            int    nv,                  /* (in)  number of control points in V direction */
-            double cp[],                /* (in)  array  of control points */
-            double normf,               /* (in)  RMS of distances between cloud and fit */
-            int    nmin)                /* (in)  minimum number of cloud points in any interval */
+plotSurface2(int    iface,              /* (in)  Face nummber */
+             int    m,                  /* (in)  number of points in cloud */
+             double XYZcloud[],         /* (in)  array  of points in cloud */
+   /*@null@*/double UVcloud[],          /* (in)  UV-parameters of points in cloud (or NULL) */
+             int    nu,                 /* (in)  number of control points in U direction */
+             int    nv,                 /* (in)  number of control points in V direction */
+             double cp[],               /* (in)  array  of control points */
+             double normf,              /* (in)  RMS of distances between cloud and fit */
+             int    nmin)               /* (in)  minimum number of cloud points in any interval */
 {
     int    status = FIT_SUCCESS;        /* (out) return status */
 
     int    indgr=1+2+4+16+64+1024;
     char   pltitl[255];
 
-    ROUTINE(plotSurface);
+    ROUTINE(plotSurface2);
 
     /* --------------------------------------------------------------- */
 

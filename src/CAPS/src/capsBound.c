@@ -3,7 +3,7 @@
  *
  *             Bound, VertexSet & DataSet Object Functions
  *
- *      Copyright 2014-2020, Massachusetts Institute of Technology
+ *      Copyright 2014-2021, Massachusetts Institute of Technology
  *      Licensed under The GNU Lesser General Public License, version 2.1
  *      See http://www.opensource.org/licenses/lgpl-2.1.php
  *
@@ -26,8 +26,9 @@
 
 
 typedef struct {
-  int    eIndex;              /* the element index in source quilt */
-  double st[3];               /* position in element ref coords -- source */
+  int    bIndex;              /* the body index in quilt */
+  int    eIndex;              /* the element index in quilt */
+  double st[3];               /* position in element ref coords */
 } capsTarget;
 
 typedef struct {
@@ -78,7 +79,7 @@ int
 caps_integrateData(const capsObject *object, enum capstMethod method,
                    int *rank, double **data, char **units)
 {
-  int           i, j, status;
+  int           i, j, bIndex, status;
   double        *result;
   capsProblem   *problem;
   capsDataSet   *dataset;
@@ -120,27 +121,29 @@ caps_integrateData(const capsObject *object, enum capstMethod method,
   if (method == Average) for (i = 0; i < *rank; i++) result[*rank*2+i] = 0.0;
   
   /* loop over all of the elements */
-  for (i = 0; i < discr->nElems; i++) {
-    status = aim_Integration(problem->aimFPTR, analysis->loadName, discr,
-                             object->name, i+1, *rank, dataset->data,
-                             &result[*rank]);
-    if (status != CAPS_SUCCESS) {
-      printf(" caps_integrateData Warning: status = %d for %s/%s!\n",
-             status, analysis->loadName, object->name);
-      continue;
+  for (bIndex = 1; bIndex <= discr->nBodys; bIndex++) {
+    for (i = 0; i < discr->bodys[bIndex-1].nElems; i++) {
+      status = aim_Integration(problem->aimFPTR, analysis->loadName, discr,
+                               object->name, bIndex, i+1, *rank, dataset->data,
+                               &result[*rank]);
+      if (status != CAPS_SUCCESS) {
+        printf(" caps_integrateData Warning: status = %d for %s/%s!\n",
+               status, analysis->loadName, object->name);
+        continue;
+      }
+      for (j = 0; j < *rank; j++) result[j] += result[*rank+j];
+      if (method != Average) continue;
+      status = aim_Integration(problem->aimFPTR, analysis->loadName, discr,
+                               object->name, bIndex, i+1, *rank, NULL, &result[*rank]);
+      if (status != CAPS_SUCCESS) {
+        printf(" caps_integrateData Warning: Status = %d for %s/%s!\n",
+               status, analysis->loadName, object->name);
+        continue;
+      }
+      for (j = 0; j < *rank; j++) result[*rank*2+j] += result[*rank+j];
     }
-    for (j = 0; j < *rank; j++) result[j] += result[*rank+j];
-    if (method != Average) continue;
-    status = aim_Integration(problem->aimFPTR, analysis->loadName, discr,
-                             object->name, i+1, *rank, NULL, &result[*rank]);
-    if (status != CAPS_SUCCESS) {
-      printf(" caps_integrateData Warning: Status = %d for %s/%s!\n",
-             status, analysis->loadName, object->name);
-      continue;
-    }
-    for (j = 0; j < *rank; j++) result[*rank*2+j] += result[*rank+j];
   }
-  
+
   /* make weigted average, if called for */
   if (method == Average) {
     for (j = 0; j < *rank; j++) result[j] /= result[*rank*2+j];
@@ -315,7 +318,7 @@ caps_completeBound(capsObject *bobject)
       for (n = k = 0; k < bound->nVertexSet; k++) {
         if (k == i) continue;
         othervs = (capsVertexSet *) bound->vertexSet[k]->blind;
-        for (l = 0; i < othervs->nDataSets; l++) {
+        for (l = 0; l < othervs->nDataSets; l++) {
           if (strcmp(name, othervs->dataSets[l]->name) == 0) {
             otherds = (capsDataSet *) othervs->dataSets[l]->blind;
             if ((otherds->method != Interpolate) &&
@@ -516,7 +519,7 @@ caps_makeDataSet(capsObject *vobject, const char *dname, enum capsdMethod meth,
   dataset->startup = NULL;
   if ((meth == Interpolate) || (meth == Conserve)) {
     status = aim_UsesDataSet(problem->aimFPTR, analysis->loadName,
-                             analysis->instance, &analysis->info,
+                             analysis->instStore, &analysis->info,
                              bobject->name, dname, meth);
     if (status == CAPS_SUCCESS) dataset->dflag = 1;
   }
@@ -634,21 +637,21 @@ caps_makeVertexSet(capsObject *bobject, /*@null@*/ capsObject *aobject,
     EG_free(vertexset);
     return EGADS_MALLOC;
   }
-  vertexset->discr->dim      = bound->dim;
-  vertexset->discr->instance = -1;
-  vertexset->discr->nPoints  = 0;
-  vertexset->discr->aInfo    = NULL;
-  vertexset->discr->mapping  = NULL;
-  vertexset->discr->nVerts   = 0;
-  vertexset->discr->verts    = NULL;
-  vertexset->discr->celem    = NULL;
-  vertexset->discr->nTypes   = 0;
-  vertexset->discr->types    = NULL;
-  vertexset->discr->nElems   = 0;
-  vertexset->discr->elems    = NULL;
-  vertexset->discr->nDtris   = 0;
-  vertexset->discr->dtris    = NULL;
-  vertexset->discr->ptrm     = NULL;
+  vertexset->discr->dim       = bound->dim;
+  vertexset->discr->instStore = NULL;
+  vertexset->discr->nPoints   = 0;
+  vertexset->discr->aInfo     = NULL;
+  vertexset->discr->nVerts    = 0;
+  vertexset->discr->verts     = NULL;
+  vertexset->discr->celem     = NULL;
+  vertexset->discr->nDtris    = 0;
+  vertexset->discr->dtris     = NULL;
+  vertexset->discr->nTypes    = 0;
+  vertexset->discr->types     = NULL;
+  vertexset->discr->nBodys    = 0;
+  vertexset->discr->bodys     = NULL;
+  vertexset->discr->tessGlobal= NULL;
+  vertexset->discr->ptrm      = NULL;
 
 /*@-kepttrans@*/
   object->parent  = bobject;
@@ -668,8 +671,8 @@ caps_makeVertexSet(capsObject *bobject, /*@null@*/ capsObject *aobject,
   if (aobject != NULL) {
     analysis = (capsAnalysis *) aobject->blind;
     if (analysis != NULL) {
-      vertexset->discr->instance =  analysis->instance;
-      vertexset->discr->aInfo    = &analysis->info;
+      vertexset->discr->instStore =  analysis->instStore;
+      vertexset->discr->aInfo     = &analysis->info;
     }
     object->subtype = CONNECTED;
     status = caps_makeDataSet(object, "xyzd", BuiltIn, 3, &ds[1]);
@@ -965,7 +968,7 @@ obj_bar(int    n,                     /* (in)  number of design variables */
 {
   int     status = CAPS_SUCCESS;      /* (out) return status */
   
-  int        idat, ielms, ielmt, imat, irank, jrank, nrank, sindx, tindx;
+  int        idat, bIndex, ibods, ielms, ibodt, ielmt, imat, irank, jrank, nrank, sindx, tindx;
   char       *name;
   double     f_src, f_tgt;
   double     area_src, area_tgt, area_tgt_bar, obj_bar1;
@@ -987,24 +990,28 @@ obj_bar(int    n,                     /* (in)  number of design variables */
   /* compute the area for src */
   area_src = 0.0;
   
-  for (ielms = 0; ielms < cfit->src->nElems; ielms++) {
-    status = aim_IntegrIndex(*cfit->aimFPTR, sindx, cfit->src, name, ielms+1,
-                             nrank, cfit->data_src, result);
-    if (status != CAPS_SUCCESS) goto cleanup;
-    
-    area_src += result[irank];
+  for (bIndex = 1; bIndex <= cfit->src->nBodys; bIndex++) {
+    for (ielms = 0; ielms < cfit->src->bodys[bIndex-1].nElems; ielms++) {
+      status = aim_IntegrIndex(*cfit->aimFPTR, sindx, cfit->src, name, bIndex,
+                               ielms+1, nrank, cfit->data_src, result);
+      if (status != CAPS_SUCCESS) goto cleanup;
+
+      area_src += result[irank];
+    }
   }
   cfit->area_src = area_src;
   
   /* compute the area for tgt */
   area_tgt = 0.0;
   
-  for (ielmt = 0; ielmt < cfit->tgt->nElems; ielmt++) {
-    status = aim_IntegrIndex(*cfit->aimFPTR, tindx, cfit->tgt, name, ielmt+1,
-                             nrank, cfit->data_tgt, result);
-    if (status != CAPS_SUCCESS) goto cleanup;
-    
-    area_tgt += result[irank];
+  for (bIndex = 1; bIndex <= cfit->tgt->nBodys; bIndex++) {
+    for (ielmt = 0; ielmt < cfit->tgt->bodys[bIndex-1].nElems; ielmt++) {
+      status = aim_IntegrIndex(*cfit->aimFPTR, tindx, cfit->tgt, name, bIndex,
+                               ielmt+1, nrank, cfit->data_tgt, result);
+      if (status != CAPS_SUCCESS) goto cleanup;
+
+      area_tgt += result[irank];
+    }
   }
   cfit->area_tgt = area_tgt;
   
@@ -1013,18 +1020,20 @@ obj_bar(int    n,                     /* (in)  number of design variables */
   
   /* minimize the difference between source and target at the Match points */
   for (imat = 0; imat < cfit->nmat; imat++) {
+    ibods  = cfit->mat[imat].source.bIndex;
     ielms  = cfit->mat[imat].source.eIndex;
+    ibodt  = cfit->mat[imat].target.bIndex;
     ielmt  = cfit->mat[imat].target.eIndex;
     if ((ielms == -1) || (ielmt == -1)) continue;
-    status = aim_InterpolIndex(*cfit->aimFPTR, sindx, cfit->src, name, ielms,
-                               cfit->mat[imat].source.st, nrank, cfit->data_src,
-                               result);
+    status = aim_InterpolIndex(*cfit->aimFPTR, sindx, cfit->src, name, ibods,
+                               ielms, cfit->mat[imat].source.st, nrank,
+                               cfit->data_src, result);
     if (status != CAPS_SUCCESS) goto cleanup;
     f_src  = result[irank];
     
-    status = aim_InterpolIndex(*cfit->aimFPTR, tindx, cfit->tgt, name, ielmt,
-                               cfit->mat[imat].target.st, nrank, cfit->data_tgt,
-                               result);
+    status = aim_InterpolIndex(*cfit->aimFPTR, tindx, cfit->tgt, name, ibodt,
+                               ielmt, cfit->mat[imat].target.st, nrank,
+                               cfit->data_tgt, result);
     if (status != CAPS_SUCCESS) goto cleanup;
     f_tgt  = result[irank];
     
@@ -1056,26 +1065,28 @@ obj_bar(int    n,                     /* (in)  number of design variables */
   /* reverse: minimize the difference between the source and target
               at the Match points */
   for (imat = cfit->nmat-1; imat >= 0; imat--) {
+    ibods  = cfit->mat[imat].source.bIndex;
     ielms  = cfit->mat[imat].source.eIndex;
+    ibodt  = cfit->mat[imat].target.bIndex;
     ielmt  = cfit->mat[imat].target.eIndex;
     if ((ielms == -1) || (ielmt == -1)) continue;
-    status = aim_InterpolIndex(*cfit->aimFPTR, sindx, cfit->src, name, ielms,
-                               cfit->mat[imat].source.st, nrank, cfit->data_src,
-                               result);
+    status = aim_InterpolIndex(*cfit->aimFPTR, sindx, cfit->src, name, ibods,
+                               ielms, cfit->mat[imat].source.st, nrank,
+                               cfit->data_src, result);
     if (status != CAPS_SUCCESS) goto cleanup;
     f_src  = result[irank];
 
-    status = aim_InterpolIndex(*cfit->aimFPTR, tindx, cfit->tgt, name, ielmt,
-                               cfit->mat[imat].target.st, nrank, cfit->data_tgt,
-                               result);
+    status = aim_InterpolIndex(*cfit->aimFPTR, tindx, cfit->tgt, name, ibodt,
+                               ielmt, cfit->mat[imat].target.st, nrank,
+                               cfit->data_tgt, result);
     if (status != CAPS_SUCCESS) goto cleanup;
     f_tgt  = result[irank];
     
     result_bar[irank] = (f_tgt - f_src) * 2 * obj_bar1;
     
-    status = aim_InterpolIndBar(*cfit->aimFPTR, tindx, cfit->tgt, name, ielmt,
-                                cfit->mat[imat].target.st, nrank, result_bar,
-                                data_bar);
+    status = aim_InterpolIndBar(*cfit->aimFPTR, tindx, cfit->tgt, name, ibodt,
+                                ielmt, cfit->mat[imat].target.st, nrank,
+                                result_bar, data_bar);
     if (status != CAPS_SUCCESS) goto cleanup;
   }
   
@@ -1085,10 +1096,12 @@ obj_bar(int    n,                     /* (in)  number of design variables */
   result_bar[irank] = area_tgt_bar;
   
   /* reverse: compute the area for tgt */
-  for (ielmt = cfit->tgt->nElems-1; ielmt >= 0; ielmt--) {
-    status = aim_IntegrIndBar(*cfit->aimFPTR, tindx, cfit->tgt, name, ielmt+1,
-                              nrank, result_bar, data_bar);
-    if (status != CAPS_SUCCESS) goto cleanup;
+  for (ibodt = cfit->tgt->nBodys-1; ibodt >= 0; ibodt--) {
+    for (ielmt = cfit->tgt->bodys[ibodt].nElems-1; ielmt >= 0; ielmt--) {
+      status = aim_IntegrIndBar(*cfit->aimFPTR, tindx, cfit->tgt, name, ibodt+1, ielmt+1,
+                                nrank, result_bar, data_bar);
+      if (status != CAPS_SUCCESS) goto cleanup;
+    }
   }
   
   for (idat = 0; idat < n; idat++)
@@ -1106,17 +1119,20 @@ cleanup:
 static int
 caps_Match(capsConFit *fit, int dim)
 {
-  int       i, j, k, n, t, npts, stat;
+  int       i, j, k, ib, n, t, npts, stat;
   double    pos[3], *st;
   capsMatch *match;
 
   /* count the positions */
-  for (npts = i = 0; i < fit->tgt->nElems; i++) {
-    t = fit->tgt->elems[i].tIndex - 1;
-    if (fit->tgt->types[t].nmat == 0) {
-      npts += fit->tgt->types[t].nref;
-    } else {
-      npts += fit->tgt->types[t].nmat;
+  npts = 0;
+  for (ib = 0; ib < fit->tgt->nBodys; ib++) {
+    for (i = 0; i < fit->tgt->bodys[ib].nElems; i++) {
+      t = fit->tgt->bodys[ib].elems[i].tIndex - 1;
+      if (fit->tgt->types[t].nmat == 0) {
+        npts += fit->tgt->types[t].nref;
+      } else {
+        npts += fit->tgt->types[t].nmat;
+      }
     }
   }
 
@@ -1124,10 +1140,12 @@ caps_Match(capsConFit *fit, int dim)
   match = (capsMatch *) EG_alloc(npts*sizeof(capsMatch));
   if (match == NULL) return EGADS_MALLOC;
   for (i = 0; i < npts; i++) {
+    match[i].source.bIndex = -1;
     match[i].source.eIndex = -1;
     match[i].source.st[0]  = 0.0;
     match[i].source.st[1]  = 0.0;
     match[i].source.st[2]  = 0.0;
+    match[i].target.bIndex = -1;
     match[i].target.eIndex = -1;
     match[i].target.st[0]  = 0.0;
     match[i].target.st[1]  = 0.0;
@@ -1135,40 +1153,45 @@ caps_Match(capsConFit *fit, int dim)
   }
   
   /* set things up in parameter (or 3) space */
-  for (k = i = 0; i < fit->tgt->nElems; i++) {
-    t = fit->tgt->elems[i].tIndex - 1;
-    if (fit->tgt->types[t].nmat == 0) {
-      n  = fit->tgt->types[t].nref;
-      st = fit->tgt->types[t].gst;
-    } else {
-      n  = fit->tgt->types[t].nmat;
-      st = fit->tgt->types[t].matst;
-    }
-    for (j = 0; j < n; j++, k++) {
-      match[i].target.eIndex = i+1;
-      if (dim == 3) {
-        match[i].target.st[0] = st[0];
-        match[i].target.st[1] = st[1];
-        match[i].target.st[2] = st[2];
-        stat = aim_InterpolIndex(*fit->aimFPTR, fit->tindx, fit->tgt, "xyz", i+1,
-                                 &st[3*j], 3, fit->prms_tgt, pos);
+  for (ib = 0; ib < fit->tgt->nBodys; ib++) {
+    for (k = i = 0; i < fit->tgt->bodys[ib].nElems; i++) {
+      t = fit->tgt->bodys[ib].elems[i].tIndex - 1;
+      if (fit->tgt->types[t].nmat == 0) {
+        n  = fit->tgt->types[t].nref;
+        st = fit->tgt->types[t].gst;
       } else {
-        match[i].target.st[0] = st[0];
-        if (dim == 2) match[i].target.st[1] = st[1];
-        stat = aim_InterpolIndex(*fit->aimFPTR, fit->tindx, fit->tgt, "param",
-                                 i+1, &st[dim*j], dim, fit->prms_tgt, pos);
+        n  = fit->tgt->types[t].nmat;
+        st = fit->tgt->types[t].matst;
       }
-      if (stat != CAPS_SUCCESS) {
-        printf(" caps_getData: %d/%d aim_Interpolation %d = %d (match)!\n",
-               k, npts, fit->tindx, stat);
-        continue;
+      for (j = 0; j < n; j++, k++) {
+        match[i].target.bIndex = ib+1;
+        match[i].target.eIndex = i +1;
+        if (dim == 3) {
+          match[i].target.st[0] = st[0];
+          match[i].target.st[1] = st[1];
+          match[i].target.st[2] = st[2];
+          stat = aim_InterpolIndex(*fit->aimFPTR, fit->tindx, fit->tgt, "xyz",
+                                   ib+1, i+1, &st[3*j], 3, fit->prms_tgt, pos);
+        } else {
+          match[i].target.st[0] = st[0];
+          if (dim == 2) match[i].target.st[1] = st[1];
+          stat = aim_InterpolIndex(*fit->aimFPTR, fit->tindx, fit->tgt, "param",
+                                   ib+1, i+1, &st[dim*j], dim, fit->prms_tgt,
+                                   pos);
+        }
+        if (stat != CAPS_SUCCESS) {
+          printf(" caps_getData: %d/%d aim_Interpolation %d = %d (match)!\n",
+                 k, npts, fit->tindx, stat);
+          continue;
+        }
+        stat = aim_LocateElIndex(*fit->aimFPTR, fit->sindx, fit->src,
+                                 fit->prms_src, pos,
+                                 &match[i].source.bIndex, &match[i].source.eIndex,
+                                 match[i].source.st);
+        if (stat != CAPS_SUCCESS)
+          printf(" caps_getData: %d/%d aim_LocateElement = %d (match)!\n",
+                 i, npts, stat);
       }
-      stat = aim_LocateElIndex(*fit->aimFPTR, fit->sindx, fit->src,
-                               fit->prms_src, pos, &match[i].source.eIndex,
-                               match[i].source.st);
-      if (stat != CAPS_SUCCESS)
-        printf(" caps_getData: %d/%d aim_LocateElement = %d (match)!\n",
-               i, npts, stat);
     }
   }
   
@@ -1189,7 +1212,7 @@ caps_Conserve(capsConFit *fit, const char *bname, int dim)
 #ifdef DEBUG
   fp    = stdout;
 #endif
-  elems = (int *) EG_alloc(fit->npts*sizeof(int));
+  elems = (int *) EG_alloc(2*fit->npts*sizeof(int));
   if (elems == NULL) {
     printf(" caps_getData Error: Malloc on %d element indices!\n", fit->npts);
     return EGADS_MALLOC;
@@ -1204,10 +1227,11 @@ caps_Conserve(capsConFit *fit, const char *bname, int dim)
   ftgt = &ref[dim*fit->npts];
   tmp  = &ftgt[fit->npts];
   for (i = 0; i < fit->npts; i++) {
-    elems[i] = 0;
+    elems[2*i  ] = 0;
+    elems[2*i+1] = 0;
     stat     = aim_LocateElIndex(*fit->aimFPTR, fit->sindx, fit->src,
-                                  fit->prms_src, &fit->prms_tgt[dim*i],
-                                 &elems[i], &ref[dim*i]);
+                                 fit->prms_src, &fit->prms_tgt[dim*i],
+                                 &elems[2*i], &elems[2*i+1], &ref[dim*i]);
     if (stat != CAPS_SUCCESS)
       printf(" caps_getData: %d/%d aim_LocateElement = %d!\n",
              i, fit->npts, stat);
@@ -1217,9 +1241,9 @@ caps_Conserve(capsConFit *fit, const char *bname, int dim)
   for (j = 0; j < fit->nrank; j++) {
     fit->irank = j;
     for (i = 0; i < fit->npts; i++) {
-      if (elems[i] == 0) continue;
+      if (elems[2*i] == 0) continue;
       stat = aim_InterpolIndex(*fit->aimFPTR, fit->sindx, fit->src, fit->name,
-                               elems[i], &ref[dim*i], fit->nrank,
+                               elems[2*i], elems[2*i+1], &ref[dim*i], fit->nrank,
                                fit->data_src, tmp);
       if (stat != CAPS_SUCCESS)
         printf(" caps_getData: %d/%d aim_Interpolation = %d!\n",
@@ -1245,7 +1269,7 @@ int
 caps_triangulate(const capsObject *vobject, int *nGtris, int **gtris,
                  int *nDtris, int **dtris)
 {
-  int           i, j, n, status, ntris, eType, *tris;
+  int           i, j, ib, n, status, ntris, eType, *tris;
   capsObject    *pobject;
   capsVertexSet *vertexset;
   capsDiscr     *discr;
@@ -1266,32 +1290,37 @@ caps_triangulate(const capsObject *vobject, int *nGtris, int **gtris,
   discr = vertexset->discr;
   if ((discr->nPoints == 0) && (discr->nVerts == 0)) return CAPS_SUCCESS;
   
-  for (ntris = j = 0; j < discr->nElems; j++) {
-    eType = discr->elems[j].tIndex;
-    if (discr->types[eType-1].tris == NULL) {
-      ntris++;
-    } else {
-      ntris += discr->types[eType-1].ntri;
+  ntris = 0;
+  for (ib = 0; ib < discr->nBodys; ib++) {
+    for (j = 0; j < discr->bodys[ib].nElems; j++) {
+      eType = discr->bodys[ib].elems[j].tIndex;
+      if (discr->types[eType-1].tris == NULL) {
+        ntris++;
+      } else {
+        ntris += discr->types[eType-1].ntri;
+      }
     }
   }
   if (ntris != 0) {
     tris = (int *) EG_alloc(3*ntris*sizeof(int));
     if (tris == NULL) return EGADS_MALLOC;
-    for (ntris = j = 0; j < discr->nElems; j++) {
-      eType = discr->elems[j].tIndex;
-      if (discr->types[eType-1].tris == NULL) {
-        tris[3*ntris  ] = discr->elems[j].gIndices[0];
-        tris[3*ntris+1] = discr->elems[j].gIndices[2];
-        tris[3*ntris+2] = discr->elems[j].gIndices[4];
-        ntris++;
-      } else {
-        for (i = 0; i < discr->types[eType-1].ntri; i++, ntris++) {
-          n = discr->types[eType-1].tris[3*i  ] - 1;
-          tris[3*ntris  ] = discr->elems[j].gIndices[2*n];
-          n = discr->types[eType-1].tris[3*i+1] - 1;
-          tris[3*ntris+1] = discr->elems[j].gIndices[2*n];
-          n = discr->types[eType-1].tris[3*i+2] - 1;
-          tris[3*ntris+2] = discr->elems[j].gIndices[2*n];
+    for (ib = 0; ib < discr->nBodys; ib++) {
+      for (ntris = j = 0; j < discr->bodys[ib].nElems; j++) {
+        eType = discr->bodys[ib].elems[j].tIndex;
+        if (discr->types[eType-1].tris == NULL) {
+          tris[3*ntris  ] = discr->bodys[ib].elems[j].gIndices[0];
+          tris[3*ntris+1] = discr->bodys[ib].elems[j].gIndices[2];
+          tris[3*ntris+2] = discr->bodys[ib].elems[j].gIndices[4];
+          ntris++;
+        } else {
+          for (i = 0; i < discr->types[eType-1].ntri; i++, ntris++) {
+            n = discr->types[eType-1].tris[3*i  ] - 1;
+            tris[3*ntris  ] = discr->bodys[ib].elems[j].gIndices[2*n];
+            n = discr->types[eType-1].tris[3*i+1] - 1;
+            tris[3*ntris+1] = discr->bodys[ib].elems[j].gIndices[2*n];
+            n = discr->types[eType-1].tris[3*i+2] - 1;
+            tris[3*ntris+2] = discr->bodys[ib].elems[j].gIndices[2*n];
+          }
         }
       }
     }
@@ -1369,7 +1398,7 @@ int
 caps_getData(capsObject *dobject, int *npts, int *rank, double **data,
              char **units)
 {
-  int           i, j, elem, index, stat, OK = 1;
+  int           i, j, bIndex, eIndex, index, stat, OK = 1;
   double        *values, *params, *param, st[3];
   capsObject    *vobject, *bobject, *pobject, *aobject, *foundset, *foundanl;
   capsDataSet   *dataset, *otherset, *ds;
@@ -1566,14 +1595,14 @@ caps_getData(capsObject *dobject, int *npts, int *rank, double **data,
       if (dataset->method == Interpolate) {
         for (i = 0; i < *npts; i++) {
           stat = aim_LocateElIndex(problem->aimFPTR, index, founddsr, params,
-                                   &param[bound->dim*i], &elem, st);
+                                   &param[bound->dim*i], &bIndex, &eIndex, st);
           if (stat != CAPS_SUCCESS) {
             printf(" caps_getData: %d/%d aim_LocateElement = %d for %s!\n",
                    i, *npts, stat, dobject->name);
             continue;
           }
           stat = aim_InterpolIndex(problem->aimFPTR, index, founddsr,
-                                   dobject->name, elem, st, *rank,
+                                   dobject->name, bIndex, eIndex, st, *rank,
                                    otherset->data, &values[*rank*i]);
           if (stat != CAPS_SUCCESS)
             printf(" caps_getData: %d/%d aim_Interpolation = %d for %s!\n",

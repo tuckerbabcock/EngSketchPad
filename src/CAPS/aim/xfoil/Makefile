@@ -24,6 +24,9 @@ $(ODIR)/xfoilAIM.o: xfoilAIM.c $(IDIR)/capsTypes.h
 	$(CC) -c $(COPTS) $(DEFINE) -I$(IDIR) -I../utils \
 		xfoilAIM.c -o $(ODIR)/xfoilAIM.o
 
+lint:
+	$(LINT) -I../../include -I$(IDIR) -I../utils $(wildcard *.c) -exportlocal -nestcomment -evalorder -retvalother
+
 clean:
 	-rm $(ODIR)/xfoilAIM.o
 

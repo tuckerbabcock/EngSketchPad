@@ -85,7 +85,7 @@ aflr3.setAnalysisVal("Proj_Name", "AFLR3_Mesh")
 # Set mesh ascii flag
 aflr3.setAnalysisVal("Mesh_ASCII_Flag", True)
 
-# Set output mesh format -
+# Set project name - so a mesh file is generated
 aflr3.setAnalysisVal("Mesh_Format", "Tecplot")
 
 # Set AIM verbosity
@@ -95,7 +95,7 @@ aflr3.setAnalysisVal("Mesh_Quiet_Flag", True if args.verbosity == 0 else False)
 aflr3.preAnalysis()
 
 #################################################
-##  AFLR3  is internally ran during preAnalysis #
+##  AFLR3 is internally ran during preAnalysis #
 #################################################
 
 # Run AIM post-analysis
@@ -108,6 +108,9 @@ su2 = myProblem.loadAIM(aim = "su2AIM",
                           parents = ["aflr3"])
 
 projectName = "su2AFLRTest"
+
+# Set SU2 Version
+su2.setAnalysisVal("SU2_Version","Falcon")
 
 # Set project name
 su2.setAnalysisVal("Proj_Name", projectName)

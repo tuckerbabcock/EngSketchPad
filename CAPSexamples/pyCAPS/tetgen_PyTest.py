@@ -27,11 +27,34 @@ myProblem = capsProblem()
 geometryScript = os.path.join("..","csmData","cfdMultiBody.csm")
 myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 
-# Load TetGen aim
-myProblem.loadAIM(aim = "tetgenAIM", analysisDir= workDir)
 
-# Set new EGADS tessellation parameters
-myProblem.analysis["tetgenAIM"].setAnalysisVal("Tess_Params", [.05, 0.01, 20.0])
+# Load EGADS Tess aim
+myProblem.loadAIM(aim = "egadsTessAIM",
+                  analysisDir = workDir)
+
+# Set project name so a mesh file is generated
+myProblem.analysis["egadsTessAIM"].setAnalysisVal("Proj_Name", "egadsTessMesh")
+
+# Set new EGADS body tessellation parameters
+myProblem.analysis["egadsTessAIM"].setAnalysisVal("Tess_Params", [0.5, 0.1, 20.0])
+
+# Set output grid format since a project name is being supplied - Tecplot file
+myProblem.analysis["egadsTessAIM"].setAnalysisVal("Mesh_Format", "Tecplot")
+
+# Run AIM pre-analysis
+myProblem.analysis["egadsTessAIM"].preAnalysis()
+
+##########################################
+## egadsTess was ran during preAnalysis ##
+##########################################
+
+# Run AIM post-analysis
+myProblem.analysis["egadsTessAIM"].postAnalysis()
+
+
+# Load TetGen aim
+myProblem.loadAIM(aim = "tetgenAIM", analysisDir= workDir, 
+                  parents=myProblem.analysis["egadsTessAIM"].aimName)
 
 # Set Tetgen: maximum radius-edge ratio
 myProblem.analysis["tetgenAIM"].setAnalysisVal("Quality_Rad_Edge", 1.5)
@@ -60,5 +83,5 @@ myProblem.analysis["tetgenAIM"].preAnalysis()
 # Run AIM post-analysis
 myProblem.analysis["tetgenAIM"].postAnalysis()
 
-# Close CAPS
+# Close CAPS (optional)
 myProblem.closeCAPS()

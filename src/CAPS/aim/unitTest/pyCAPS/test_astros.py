@@ -95,15 +95,20 @@ class TestAstros(unittest.TestCase):
         filename = os.path.join("..","csmData","feaSimplePlate.csm")
         myGeometry = self.myProblem.loadCAPS(filename, verbosity=0)
 
+        mesh = self.myProblem.loadAIM(aim="egadsTessAIM")
+        
         astros = self.myProblem.loadAIM(aim = "astrosAIM",
-                                        analysisDir = "workDir_astrosPlate")
+                                        analysisDir = "workDir_astrosPlate", 
+                                        parents = mesh.aimName)
 
-        astros.setAnalysisVal("Edge_Point_Min", 3)
-        astros.setAnalysisVal("Edge_Point_Max", 4)
+        mesh.setAnalysisVal("Edge_Point_Min", 3)
+        mesh.setAnalysisVal("Edge_Point_Max", 4)
 
-        astros.setAnalysisVal("Quad_Mesh", True)
+        mesh.setAnalysisVal("Mesh_Elements", "Quad")
 
-        astros.setAnalysisVal("Tess_Params", [.25,.01,15])
+        mesh.setAnalysisVal("Tess_Params", [.25,.01,15])
+        mesh.preAnalysis()
+        mesh.postAnalysis()
 
 
         # Set analysis type
@@ -167,15 +172,22 @@ class TestAstros(unittest.TestCase):
         filename = os.path.join("..","csmData","feaWingOMLAero.csm")
         myGeometry = self.myProblem.loadCAPS(filename)
 
+        mesh = self.myProblem.loadAIM(aim="egadsTessAIM")
+        
         astros = self.myProblem.loadAIM(aim = "astrosAIM",
-                                        analysisDir = "workDir_astrosAero")
+                                        analysisDir = "workDir_astrosAero", 
+                                        parents = mesh.aimName)
 
         astros.setAnalysisVal("Proj_Name", "astrosAero")
 
-        astros.setAnalysisVal("Edge_Point_Min", 3)
-        astros.setAnalysisVal("Edge_Point_Max", 4)
+        mesh.setAnalysisVal("Edge_Point_Min", 3)
+        mesh.setAnalysisVal("Edge_Point_Max", 4)
 
-        astros.setAnalysisVal("Quad_Mesh", True)
+        mesh.setAnalysisVal("Mesh_Elements", "Quad")
+
+        mesh.setAnalysisVal("Tess_Params", [.25,.01,15])
+        mesh.preAnalysis()
+        mesh.postAnalysis()
 
         # Set analysis type
         astros.setAnalysisVal("Analysis_Type", "Aeroelastic")
@@ -236,7 +248,6 @@ class TestAstros(unittest.TestCase):
                    "dofSupport": 3}
 
         astros.setAnalysisVal("Support", ("ribSupport", support))
-
 
         # Aero
         wing = {"groupName"    : "Wing",

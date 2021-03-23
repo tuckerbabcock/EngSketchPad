@@ -3,7 +3,7 @@
  *
  *             Manipulate the Tessellation of a Face
  *
- *      Copyright 2011-2020, Massachusetts Institute of Technology
+ *      Copyright 2011-2021, Massachusetts Institute of Technology
  *      Licensed under The GNU Lesser General Public License, version 2.1
  *      See http://www.opensource.org/licenses/lgpl-2.1.php
  *
@@ -2352,7 +2352,7 @@ EG_addSideDist(int iter, double maxlen2, int sideMid, triStruct *ts)
 __HOST_AND_DEVICE__ int
 EG_tessellate(int outLevel, triStruct *ts, long tID)
 {
-  int    n0, n1, n2, n3, flag, stat[3], *tmp;
+  int    n0, n1, n2, n3, flag, stat[3], status, *tmp;
   int    i, j, k, l, stri, i0, i1, last, split, count, lsplit, qi1, qi3;
   int    eg_split, sideMid, badStart = 0;
   double result[18], trange[2], laccum, dist, lang, maxlen2, dot, xvec[3];
@@ -2626,9 +2626,11 @@ EG_tessellate(int outLevel, triStruct *ts, long tID)
     } else {
       for (i = 0; i < ts->nverts; i++) {
         aux[3*i  ] = aux[3*i+1] = aux[3*i+2] = 0.0;
-        if (EG_evaluate(ts->face, ts->verts[i].uv, result) != EGADS_SUCCESS) {
-          printf(" EGADS Internal: Face %d EG_evaluate %lf %lf\n", ts->fIndex,
-                 ts->verts[i].uv[0], ts->verts[i].uv[1]);
+        status = EG_evaluate(ts->face, ts->verts[i].uv, result);
+        if (status != EGADS_SUCCESS) {
+          if (status != EGADS_EXTRAPOL)
+            printf(" EGADS Internal: Face %d EG_evaluate %lf %lf = %d\n",
+                   ts->fIndex, ts->verts[i].uv[0], ts->verts[i].uv[1], status);
           continue;
         }
         CROSS(norm, deru, derv);

@@ -3,7 +3,7 @@
  *
  *             Load & Save Functions
  *
- *      Copyright 2011-2020, Massachusetts Institute of Technology
+ *      Copyright 2011-2021, Massachusetts Institute of Technology
  *      Licensed under The GNU Lesser General Public License, version 2.1
  *      See http://www.opensource.org/licenses/lgpl-2.1.php
  *
@@ -61,6 +61,8 @@ public:
   extern "C" void EG_readAttrs( egObject *obj, int nattr, FILE *fp );
   extern "C" void EG_writeAttr( egAttrs *attrs, FILE *fp );
   extern "C" int  EG_writeNumAttr( egAttrs *attrs );
+  extern "C" int  EG_dereferenceTopObj( egObject *object,
+                                        /*@null@*/ const egObject *ref );
 
   extern "C" int  EG_loadModel( egObject *context, int bflg, const char *name, 
                                 egObject **model );
@@ -92,6 +94,8 @@ public:
   extern "C" int  EG_isSame ( const egObject *obj1, const egObject *obj2 );
   extern "C" int  EG_invEvaluate( const egObject *obj, double *xyz,
                                   double *param, double *results );
+  extern "C" int  EG_writeEBody( const egObject *EBody, FILE *fp );
+  extern "C" int  EG_readEBody( FILE *fp, egObject *body, egObject **EBody );
 
   extern     void EG_splitPeriodics( egadsBody *body );
   extern     void EG_splitMultiplicity( egadsBody *body, int outLevel );
@@ -120,54 +124,80 @@ EG_revision(int *major, int *minor, char **OCCrev)
 }
 
 
-static void
-EG_attriBodyTrav(const egObject *obj, egadsBody *pbody)
+void
+EG_attriBodyTrav(const egObject *obj, const TopoDS_Shape& shape, egadsBody *pbody)
 {
   if (obj->blind == NULL) return;
-  
+
   if (obj->oclass == NODE) {
   
-    egadsNode *pnode = (egadsNode *) obj->blind;
-    int index = pbody->nodes.map.FindIndex(pnode->node);
-    if (index == 0) return;
-    EG_attributeDup(obj, pbody->nodes.objs[index-1]);
+    int index = pbody->nodes.map.FindIndex(shape);
+    if (index != 0)
+      EG_attributeDup(obj, pbody->nodes.objs[index-1]);
+    else
+      printf(" EGADS Internal: Dropping Node attributes!\n");
   
   } else if (obj->oclass == EDGE) {
   
     egadsEdge *pedge = (egadsEdge *) obj->blind;
-    int index = pbody->edges.map.FindIndex(pedge->edge);
-    if (index != 0)
+    int index = pbody->edges.map.FindIndex(shape);
+    if (index != 0) {
       EG_attributeDup(obj, pbody->edges.objs[index-1]);
-    EG_attriBodyTrav(pedge->nodes[0], pbody);
-    if (obj->mtype == TWONODE) EG_attriBodyTrav(pedge->nodes[1], pbody);
+    } else {
+      printf(" EGADS Internal: Dropping Edge attributes!\n");
+    }
+
+    TopoDS_Vertex V1, V2;
+    TopExp::Vertices(TopoDS::Edge(shape), V1, V2);
+
+    EG_attriBodyTrav(pedge->nodes[0], V1, pbody);
+    if (obj->mtype == TWONODE)
+      EG_attriBodyTrav(pedge->nodes[1], V2, pbody);
   
   } else if (obj->oclass == LOOP) {
   
     egadsLoop *ploop = (egadsLoop *) obj->blind;
-    int index = pbody->loops.map.FindIndex(ploop->loop);
-    if (index != 0)
+    int index = pbody->loops.map.FindIndex(shape);
+    if (index != 0) {
       EG_attributeDup(obj, pbody->loops.objs[index-1]);
-    for (int i = 0; i < ploop->nedges; i++)
-      EG_attriBodyTrav(ploop->edges[i], pbody);
+    } else {
+      printf(" EGADS Internal: Dropping Loop attributes!\n");
+    }
+
+    BRepTools_WireExplorer Exp(ploop->loop);
+    for (int i = 0; Exp.More(); Exp.Next(), i++) {
+      EG_attriBodyTrav(ploop->edges[i], Exp.Current(), pbody);
+    }
   
   } else if (obj->oclass == FACE) {
   
     egadsFace *pface = (egadsFace *) obj->blind;
-    int index = pbody->faces.map.FindIndex(pface->face);
-    if (index != 0)
+    int index = pbody->faces.map.FindIndex(shape);
+    if (index != 0) {
       EG_attributeDup(obj, pbody->faces.objs[index-1]);
-    for (int i = 0; i < pface->nloops; i++)
-      EG_attriBodyTrav(pface->loops[i], pbody);
+    } else {
+      printf(" EGADS Internal: Dropping Face attributes!\n");
+    }
+
+    TopExp_Explorer Exp(pface->face, TopAbs_WIRE);
+    for (int i = 0; Exp.More(); Exp.Next(), i++) {
+      EG_attriBodyTrav(pface->loops[i], Exp.Current(), pbody);
+    }
   
   } else if (obj->oclass == SHELL) {
   
     egadsShell *pshell = (egadsShell *) obj->blind;
-    int index = pbody->shells.map.FindIndex(pshell->shell);
-    if (index != 0)
+    int index = pbody->shells.map.FindIndex(shape);
+    if (index != 0) {
       EG_attributeDup(obj, pbody->shells.objs[index-1]);
-    for (int i = 0; i < pshell->nfaces; i++)
-      EG_attriBodyTrav(pshell->faces[i], pbody);
-  
+    } else {
+      printf(" EGADS Internal: Dropping Shell attributes!\n");
+    }
+
+    TopExp_Explorer Exp(pshell->shell, TopAbs_FACE);
+    for (int i = 0; Exp.More(); Exp.Next(), i++) {
+      EG_attriBodyTrav(pshell->faces[i], Exp.Current(), pbody);
+    }
   }
 }
 
@@ -332,8 +362,23 @@ EG_attriBodyDup(const egObject *src, egObject *dst)
   } else {
   
     // traverse the source to find objects with attributes
-    EG_attriBodyTrav(src, pbody);
-    
+    if (((dst->mtype == SOLIDBODY) || (dst->mtype == SHEETBODY)) &&
+         (src->oclass == SHELL)) {
+      egadsShell *pshell = (egadsShell *) src->blind;
+      TopExp_Explorer Exp(pbody->shape, TopAbs_SHELL);
+      bool found = false;
+      for (; Exp.More(); Exp.Next()) {
+        if (pshell->shell.IsSame(Exp.Current())) {
+          EG_attriBodyTrav(src, Exp.Current(), pbody);
+          found = true;
+          break;
+        }
+      }
+      if (!found)
+        printf(" EGADS Internal: Dropping Shell and sub-shape attributes!\n");
+    } else {
+      EG_attriBodyTrav(src, pbody->shape, pbody);
+    }
   }
   
   return EGADS_SUCCESS;
@@ -590,10 +635,195 @@ EG_initOCC()
 }
 
 
+static int
+EG_readTess(FILE *fp, egObject *body, egObject **tess)
+{
+  int     i, j, ir, status, nnode, nedge, nface, n[3], len, ntri, nattr;
+  int     *ptype, *pindex, *tris, *tric;
+  double  *xyz, *param;
+  egObject *obj;
+  
+  *tess  = NULL;
+  status = EG_getBodyTopos(body, NULL, NODE, &nnode, NULL);
+  if (status != EGADS_SUCCESS) return status;
+  if (body->oclass == EBODY) {
+    status = EG_getBodyTopos(body, NULL, EEDGE, &nedge, NULL);
+    if (status != EGADS_SUCCESS) return status;
+    status = EG_getBodyTopos(body, NULL, EFACE, &nface, NULL);
+    if (status != EGADS_SUCCESS) return status;
+  } else {
+    status = EG_getBodyTopos(body, NULL, EDGE, &nedge, NULL);
+    if (status != EGADS_SUCCESS) return status;
+    status = EG_getBodyTopos(body, NULL, FACE, &nface, NULL);
+    if (status != EGADS_SUCCESS) return status;
+  }
+  
+  ir = fscanf(fp, "%d %d %d", &n[0], &n[1], &n[2]);
+  if (ir != 3) {
+    printf(" EGADS Error: Header with only %d words (EG_readTess)!\n", ir);
+    return EGADS_INDEXERR;
+  }
+  if ((nnode != n[0]) || (nedge != n[1]) || (nface != n[2])) {
+    printf(" EGADS Error: Count mismatch %d %d  %d %d  %d %d (EG_readTess)!\n",
+           nnode, n[0], nedge, n[1], nface, n[2]);
+    return EGADS_INDEXERR;
+  }
+  
+  /* initialize the Tessellation Object */
+  status = EG_initTessBody(body, tess);
+  if (status != EGADS_SUCCESS) return status;
+  EG_dereferenceTopObj(body, *tess);
+  
+  /* do the Edges */
+  for (i = 0; i < nedge; i++) {
+    len = 0;
+    fscanf(fp, "%d", &len);
+    if (len == 0) continue;
+    xyz   = (double *) malloc(3*len*sizeof(double));
+    param = (double *) malloc(  len*sizeof(double));
+    if ((xyz == NULL) || (param == NULL)) {
+      printf(" EGADS Error: malloc on Edge %d -- len = %d (EG_readTess)!\n",
+               i+1, len);
+      if (xyz   != NULL) free(xyz);
+      if (param != NULL) free(param);
+      EG_deleteObject(*tess);
+      *tess = NULL;
+      return EGADS_MALLOC;
+    }
+    for (j = 0; j < len; j++) {
+      ir = fscanf(fp, "%le %le %le %le", &xyz[3*j  ], &xyz[3*j+1], &xyz[3*j+2],
+                  &param[j]);
+      if (ir != 4) {
+        printf(" EGADS Error: %d/%d Read got %d out of 4 (EG_readTess)!\n",
+               j+1, len, ir);
+        free(xyz);
+        free(param);
+        EG_deleteObject(*tess);
+        *tess = NULL;
+        return EGADS_READERR;
+      }
+    }
+    status = EG_setTessEdge(*tess, i+1, len, xyz, param);
+    free(xyz);
+    free(param);
+    if (status != EGADS_SUCCESS) {
+      printf(" EGADS Error: EG_setTessEdge %d = %d (EG_readTess)!\n",
+             i+1, status);
+      EG_deleteObject(*tess);
+      *tess = NULL;
+      return status;
+    }
+  }
+  
+  /* do the Faces */
+  for (i = 0; i < nface; i++) {
+    len = ntri = 0;
+    fscanf(fp, "%d %d", &len, &ntri);
+    if ((len == 0) || (ntri == 0)) continue;
+    xyz    = (double *) malloc(3*len*sizeof(double));
+    param  = (double *) malloc(2*len*sizeof(double));
+    ptype  = (int *)    malloc(  len* sizeof(int));
+    pindex = (int *)    malloc(  len* sizeof(int));
+    tris   = (int *)    malloc(3*ntri*sizeof(int));
+    tric   = (int *)    malloc(3*ntri*sizeof(int));
+    if ((xyz    == NULL) || (param == NULL) || (ptype == NULL) ||
+        (pindex == NULL) || (tris  == NULL) || (tric  == NULL)) {
+      printf(" EGADS Error: malloc on Face %d -- lens = %d %d (EG_readTess)!\n",
+             i+1, len, ntri);
+      if (xyz    != NULL) free(xyz);
+      if (param  != NULL) free(param);
+      if (ptype  != NULL) free(ptype);
+      if (pindex != NULL) free(pindex);
+      if (tris   != NULL) free(tris);
+      if (tric   != NULL) free(tric);
+      EG_deleteObject(*tess);
+      *tess = NULL;
+      return EGADS_MALLOC;
+    }
+    for (j = 0; j < len; j++) {
+      ir = fscanf(fp, "%le %le %le %le %le %d %d", &xyz[3*j], &xyz[3*j+1],
+                  &xyz[3*j+2], &param[2*j], &param[2*j+1], &ptype[j], &pindex[j]);
+      if (ir != 7) {
+        printf(" EGADS Error: %d/%d Read got %d out of 7 (EG_readTess)!\n",
+               j+1, len, ir);
+        free(xyz);
+        free(param);
+        free(ptype);
+        free(pindex);
+        free(tris);
+        free(tric);
+        EG_deleteObject(*tess);
+        *tess = NULL;
+        return EGADS_READERR;
+      }
+    }
+    for (j = 0; j < ntri; j++) {
+      ir = fscanf(fp, "%d %d %d %d %d %d", &tris[3*j], &tris[3*j+1],
+                  &tris[3*j+2], &tric[3*j], &tric[3*j+1], &tric[3*j+2]);
+      if (ir != 6) {
+        printf(" EGADS Error: %d/%d Read got %d out of 6 (EG_readTess)!\n",
+               j+1, len, ir);
+        free(xyz);
+        free(param);
+        free(ptype);
+        free(pindex);
+        free(tris);
+        free(tric);
+        EG_deleteObject(*tess);
+        *tess = NULL;
+        return EGADS_READERR;
+      }
+    }
+    status = EG_setTessFace(*tess, i+1, len, xyz, param, ntri, tris);
+    free(xyz);
+    free(param);
+    free(ptype);
+    free(pindex);
+    free(tris);
+    free(tric);
+    if (status != EGADS_SUCCESS) {
+      printf(" EGADS Error: EG_setTessFace %d = %d (EG_readTess)!\n",
+             i+1, status);
+      EG_deleteObject(*tess);
+      *tess = NULL;
+      return status;
+    }
+  }
+  
+  /* close up the open tessellation */
+  status = EG_statusTessBody(*tess, &obj, &i, &len);
+  if (status == EGADS_OUTSIDE) {
+    printf(" EGADS Warning: Tessellation Object is incomplete (EG_readTess)!\n");
+    egTessel *btess = (egTessel *) (*tess)->blind;
+    btess->done = 1;
+  } else if (status != EGADS_SUCCESS) {
+    printf(" EGADS Error: EG_statusTessBody = %d (EG_readTess)!\n", status);
+    EG_deleteObject(*tess);
+    *tess = NULL;
+    return status;
+  }
+  if ((status != EGADS_OUTSIDE) && (i != 1)) {
+    printf(" EGADS Warning: Tessellation Object is %d (EG_readTess)!\n", i);
+/*  EG_deleteObject(*tess);
+    *tess = NULL;
+    return EGADS_TESSTATE;  */
+    egTessel *btess = (egTessel *) (*tess)->blind;
+    btess->done = 1;
+  }
+  
+  /* attach the attributes */
+  fscanf(fp, "%d\n", &nattr);
+  if (nattr != 0) EG_readAttrs(*tess, nattr, fp);
+  
+  return EGADS_SUCCESS;
+}
+
+
 int
 EG_loadModel(egObject *context, int bflg, const char *name, egObject **model)
 {
   int          i, j, stat, outLevel, len, nattr, nerr, hite, hitf, nbs, egads;
+  int          oclass, ibody;
   double       scale = 1.0;
   const char   *units;
   egObject     *omodel, *aobj;
@@ -833,6 +1063,7 @@ EG_loadModel(egObject *context, int bflg, const char *name, egObject **model)
       return EGADS_NOLOAD;
     }
     iReader.TransferRoots();
+    if ((bflg&16) != 0) egads = -1;
 
     nbs = iReader.NbShapes();
     if (nbs <= 0) {
@@ -1078,6 +1309,7 @@ EG_loadModel(egObject *context, int bflg, const char *name, egObject **model)
   
   mshape              = new egadsModel;
   mshape->shape       = source;
+  mshape->nobjs       = nBody;
   mshape->nbody       = nBody;
   mshape->bbox.filled = 0;
   mshape->bodies = new egObject*[nBody];
@@ -1370,6 +1602,59 @@ EG_loadModel(egObject *context, int bflg, const char *name, egObject **model)
         EG_readAttrs(aobj, nattr, fp);
       }
     }
+    
+    /* get the ancillary objects from the EGADS files */
+    line[0] = line[1] = ' ';
+    fgets(line, 81, fp);
+    if ((line[0] == '#') && (line[1] == '#')) {
+      j = fscanf(fp, "%hd", &omodel->mtype);
+      if ((j != 1) || (omodel->mtype < mshape->nbody)) {
+        printf(" EGADS Info: Ext failure in %s  %d %d (EG_loadModel)!\n",
+               name, j, omodel->mtype);
+        omodel->mtype = 0;
+        fclose(fp);
+        return EGADS_SUCCESS;
+      }
+      egObject** bodies = new egObject*[omodel->mtype];
+      for (j = 0; j < mshape->nbody; j++) bodies[j] = mshape->bodies[j];
+      for (j = mshape->nbody; j < omodel->mtype; j++) bodies[j] = NULL;
+      delete [] mshape->bodies;
+      mshape->nobjs  = omodel->mtype;
+      mshape->bodies = bodies;
+      for (j = mshape->nbody; j < omodel->mtype; j++) {
+        i = fscanf(fp, "%d %d", &oclass, &ibody);
+        if (i != 2) {
+          omodel->mtype = j;
+          mshape->nobjs = omodel->mtype;
+          printf(" EGADS Info: Ext read failure in %s  %d (EG_loadModel)!\n",
+                 name, i);
+          break;
+        }
+        if (ibody > j) {
+          omodel->mtype = j;
+          mshape->nobjs = omodel->mtype;
+          printf(" EGADS Info: Ext read failure in %s  %d %d (EG_loadModel)!\n",
+                 name, ibody, j);
+          break;
+        }
+        if (oclass == TESSELLATION) {
+          stat = EG_readTess(fp,  mshape->bodies[ibody-1], &mshape->bodies[j]);
+          EG_referenceObject(mshape->bodies[ibody-1], mshape->bodies[j]);
+        } else {
+          stat = EG_readEBody(fp, mshape->bodies[ibody-1], &mshape->bodies[j]);
+        }
+        if (stat != EGADS_SUCCESS) {
+          omodel->mtype = j;
+          mshape->nobjs = omodel->mtype;
+          printf(" EGADS Info: Ext read failure in %s  %d %d %d (EG_loadModel)!\n",
+                 name, oclass, ibody, stat);
+          break;
+        }
+        EG_referenceObject(mshape->bodies[j], omodel);
+        EG_removeCntxtRef(mshape->bodies[j]);
+        mshape->bodies[j]->topObj = omodel;
+      }
+    }
   } else {
     printf(" EGADS Info: EGADS Header not found in %s (EG_loadModel)!\n", 
            name);
@@ -1526,10 +1811,83 @@ EG_writeAttrs(const egObject *obj, FILE *fp)
 }
 
 
+static int
+EG_writeTess(const egObject *tess, FILE *fp)
+{
+  int          j, status, len;
+  int          ntri, iedge, iface, nnode, nedge, nface, nattr = 0;
+  const double *pxyz  = NULL, *puv    = NULL, *pt    = NULL;
+  const int    *ptype = NULL, *pindex = NULL, *ptris = NULL, *ptric = NULL;
+  egAttrs      *attrs;
+
+  if (tess == NULL)                 return EGADS_NULLOBJ;
+  if (tess->magicnumber != MAGIC)   return EGADS_NOTOBJ;
+  if (tess->oclass != TESSELLATION) return EGADS_NOTTESS;
+  if (tess->blind == NULL)          return EGADS_NODATA;
+
+  // get the body from tessellation
+  egTessel  *btess = (egTessel *) tess->blind;
+  egObject  *body  = btess->src;
+
+  // get the sizes
+  status = EG_getBodyTopos(body, NULL, NODE, &nnode, NULL);
+  if (status != EGADS_SUCCESS) return status;
+  if (body->oclass == EBODY) {
+    status = EG_getBodyTopos(body, NULL, EEDGE, &nedge, NULL);
+    if (status != EGADS_SUCCESS) return status;
+    status = EG_getBodyTopos(body, NULL, EFACE, &nface, NULL);
+    if (status != EGADS_SUCCESS) return status;
+  } else {
+    status = EG_getBodyTopos(body, NULL, EDGE, &nedge, NULL);
+    if (status != EGADS_SUCCESS) return status;
+    status = EG_getBodyTopos(body, NULL, FACE, &nface, NULL);
+    if (status != EGADS_SUCCESS) return status;
+  }
+
+  // write the number of nodes, edges, and faces
+  fprintf(fp, " %d %d %d\n", nnode, nedge, nface);
+
+  // write out the edge tessellation
+  for (iedge = 0; iedge < nedge; iedge++) {
+    status = EG_getTessEdge(tess, iedge+1, &len, &pxyz, &pt);
+    if (status != EGADS_SUCCESS) return status;
+    fprintf(fp, " %d\n", len);
+    if (len == 0) continue;
+    for (j = 0; j < len; j++)
+      fprintf(fp, "%19.12le %19.12le %19.12le %19.12le\n", pxyz[3*j],
+              pxyz[3*j+1], pxyz[3*j+2], pt[j]);
+  }
+
+  // write out face tessellations
+  for (iface = 0; iface < nface; iface++) {
+    status = EG_getTessFace(tess, iface+1, &len, &pxyz, &puv, &ptype, &pindex,
+                            &ntri, &ptris, &ptric);
+    if (status != EGADS_SUCCESS) return status;
+    fprintf(fp, " %d %d\n", len, ntri);
+    if ((len == 0) || (ntri == 0)) continue;
+    for (j = 0; j < len; j++)
+      fprintf(fp, "%19.12le %19.12le %19.12le %19.12le %19.12le %d %d\n",
+              pxyz[3*j], pxyz[3*j+1], pxyz[3*j+2], puv[2*j], puv[2*j+1],
+              ptype[j], pindex[j]);
+    for (j = 0; j < ntri; j++)
+      fprintf(fp, "%d %d %d %d %d %d\n", ptris[3*j], ptris[3*j+1], ptris[3*j+2],
+              ptric[3*j], ptric[3*j+1], ptric[3*j+2]);
+  }
+
+  // write out the tessellation attributes
+  attrs = (egAttrs *) tess->attrs;
+  if (attrs != NULL) nattr = attrs->nattrs;
+  fprintf(fp, "%d\n", nattr);
+  if (nattr != 0) EG_writeAttr(attrs, fp);
+
+  return EGADS_SUCCESS;
+}
+
+
 int
 EG_saveModel(const egObject *model, const char *name)
 {
-  int            i, len, outLevel, nbody;
+  int            i, j, n, len, outLevel, ibody, nbody, stat;
   TopoDS_Shape   wshape;
   const egObject **objs;
   FILE           *fp;
@@ -1701,8 +2059,111 @@ EG_saveModel(const egObject *model, const char *name)
         }
       }
     }
-   
-   fclose(fp);
+    /* add non-Body types */
+    if ((model->oclass == MODEL) && (model->mtype > nbody)) {
+      fprintf(fp, "##EGADS HEADER FILE-EXT 1 ##\n");
+      fprintf(fp, "%hd\n", model->mtype);
+      for (j = nbody; j < model->mtype; j++) {
+        const egObject *obj = objs[j];
+        TopoDS_Shape bshape;
+        if (obj->oclass == TESSELLATION) {
+          egTessel  *btess = (egTessel *) obj->blind;
+          egObject  *src   = btess->src;
+          if (src->oclass == EBODY) {
+            for (i = nbody; i < model->mtype; i++) {
+              const egObject *bod = objs[i];
+              if (bod == src) break;
+            }
+            if (i == model->mtype) {
+              printf(" EGADS Internal: Ancillary tess %d -- cannot find EBody!\n",
+                     j+1);
+              break;
+            }
+            fprintf(fp, "%d %d\n", obj->oclass, i+1);
+            stat = EG_writeTess(obj, fp);
+            if (stat != EGADS_SUCCESS) {
+              printf(" EGADS Error: Ancillary tessellation %d -- status = %d\n",
+                     j+1, stat);
+              break;
+            }
+            continue;
+          }
+          egadsBody *pbody = (egadsBody *) src->blind;
+          bshape           = pbody->shape;
+        } else {
+          egEBody   *ebody = (egEBody *) obj->blind;
+          egObject  *ref   = ebody->ref;
+          egadsBody *pbody = (egadsBody *) ref->blind;
+          bshape           = pbody->shape;
+        }
+        n = ibody = 0;
+        for (Exp.Init(wshape, TopAbs_WIRE,  TopAbs_FACE); Exp.More(); Exp.Next()) {
+          TopoDS_Shape shape = Exp.Current();
+          for (i = 0; i < nbody; i++) {
+            const egObject *obj   = objs[i];
+            egadsBody      *pbody = (egadsBody *) obj->blind;
+            if (shape.IsSame(pbody->shape)) {
+              n++;
+              if (shape.IsSame(bshape)) ibody = n;
+              break;
+            }
+          }
+        }
+        for (Exp.Init(wshape, TopAbs_FACE,  TopAbs_SHELL); Exp.More(); Exp.Next()) {
+          TopoDS_Shape shape = Exp.Current();
+          for (i = 0; i < nbody; i++) {
+            const egObject *obj   = objs[i];
+            egadsBody      *pbody = (egadsBody *) obj->blind;
+            if (shape.IsSame(pbody->shape)) {
+              n++;
+              if (shape.IsSame(bshape)) ibody = n;
+              break;
+            }
+          }
+        }
+        for (Exp.Init(wshape, TopAbs_SHELL, TopAbs_SOLID); Exp.More(); Exp.Next()) {
+          TopoDS_Shape shape = Exp.Current();
+          for (i = 0; i < nbody; i++) {
+            const egObject *obj   = objs[i];
+            egadsBody      *pbody = (egadsBody *) obj->blind;
+            if (shape.IsSame(pbody->shape)) {
+              n++;
+              if (shape.IsSame(bshape)) ibody = n;
+              break;
+            }
+          }
+        }
+        for (Exp.Init(wshape, TopAbs_SOLID); Exp.More(); Exp.Next()) {
+          TopoDS_Shape shape = Exp.Current();
+          for (i = 0; i < nbody; i++) {
+            const egObject *obj   = objs[i];
+            egadsBody      *pbody = (egadsBody *) obj->blind;
+            if (shape.IsSame(pbody->shape)) {
+              n++;
+              if (shape.IsSame(bshape)) ibody = n;
+              break;
+            }
+          }
+        }
+        if ((n != nbody) || (ibody == 0)) {
+          printf(" EGADS Internal: Ancillary objects -- n = %d [%d], ib = %d\n",
+                 n, nbody, ibody);
+          break;
+        }
+        fprintf(fp, "%d %d\n", obj->oclass, ibody);
+        if (obj->oclass == TESSELLATION) {
+          stat = EG_writeTess(obj, fp);
+        } else {
+          stat = EG_writeEBody(obj, fp);
+        }
+        if (stat != EGADS_SUCCESS) {
+          printf(" EGADS Error: Ancillary objects %d -- status = %d\n",
+                 j+1, stat);
+          break;
+        }
+      }
+    }
+    fclose(fp);
 
   } else {
     if (outLevel > 0)
@@ -1718,12 +2179,12 @@ EG_saveModel(const egObject *model, const char *name)
 int
 EG_saveTess(egObject *tess, const char *name)
 {
-  int          status, len, outLevel, stat;
-  int          npts, ntri, iedge, iface;
-  int          nnode, nedge, nface, nattr=0;
-  const double *pxyz=NULL, *puv=NULL, *pt = NULL;
-  const int    *ptype=NULL, *pindex=NULL, *ptris=NULL, *ptric=NULL;
-  ego          body;
+  int          status, len,   outLevel, stat;
+  int          npts,   ntri,  iedge,    iface;
+  int          nnode,  nedge, nface,    nattr = 0;
+  const double *pxyz  = NULL, *puv    = NULL, *pt    = NULL;
+  const int    *ptype = NULL, *pindex = NULL, *ptris = NULL, *ptric = NULL;
+  egObject     *body;
   egAttrs      *attrs;
 
   if (tess == NULL)                 return EGADS_NULLOBJ;
@@ -1826,11 +2287,11 @@ cleanup:
 int
 EG_loadTess(egObject *body, const char *name, egObject **tess)
 {
-  int     i, ir, status, nnode, nedge, nface, n[3], len, ntri, nattr;
-  int     *ptype, *pindex, *tris, *tric;
-  double  *xyz, *param;
+  int      i, ir, status, nnode, nedge, nface, n[3], len, ntri, nattr;
+  int      *ptype, *pindex, *tris, *tric;
+  double   *xyz, *param;
   egObject *obj;
-  FILE    *fp;
+  FILE     *fp;
   
   *tess  = NULL;
   status = EG_getBodyTopos(body, NULL, NODE, &nnode, NULL);

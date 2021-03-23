@@ -24,6 +24,9 @@ $(ODIR)/egadsTessAIM.o:	egadsTessAIM.c $(IDIR)/capsTypes.h \
 	$(CC) -c $(COPTS) $(DEFINE) -I$(IDIR) -I../utils egadsTessAIM.c \
 		-o $(ODIR)/egadsTessAIM.o
 
+lint:
+	$(LINT) -I../../include -I$(IDIR) -I../utils $(wildcard *.c) -uniondef -exportlocal
+
 clean:
 	-rm $(ODIR)/egadsTessAIM.o
 

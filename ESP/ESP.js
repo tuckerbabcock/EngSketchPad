@@ -1,7 +1,7 @@
 // ESP.js implements functions for the Engineering Sketch Pad (ESP)
 // written by John Dannenhoffer and Bob Haimes
 
-// Copyright (C) 2010/2020  John F. Dannenhoffer, III (Syracuse University)
+// Copyright (C) 2010/2021  John F. Dannenhoffer, III (Syracuse University)
 //
 // This library is free software; you can redistribute it and/or
 //    modify it under the terms of the GNU Lesser General Public
@@ -260,6 +260,8 @@ var cmdQuit = function() {
 var cmdHome = function() {
     if (wv.curTool.cmdHome !== undefined) {
         wv.curTool.cmdHome();
+    } else if (wv.usingMain == 1) {
+        main.cmdHome();
     }
 };
 
@@ -268,8 +270,11 @@ var cmdHome = function() {
 // callback when "leftButton" is pressed (called by ESP.html)
 //
 var cmdLeft = function() {
+    printObject(wv.curTool);
     if (wv.curTool.cmdLeft !== undefined) {
         wv.curTool.cmdLeft();
+    } else if (wv.usingMain == 1) {
+        main.cmdLeft();
     }
 };
 
@@ -280,6 +285,8 @@ var cmdLeft = function() {
 var cmdRite = function() {
     if (wv.curTool.cmdRite !== undefined) {
         wv.curTool.cmdRite();
+    } else if (wv.usingMain == 1) {
+        main.cmdRite();
     }
 };
 
@@ -290,6 +297,8 @@ var cmdRite = function() {
 var cmdBotm = function() {
     if (wv.curTool.cmdBotm !== undefined) {
         wv.curTool.cmdBotm();
+    } else if (wv.usingMain == 1) {
+        main.cmdBotm();
     }
 };
 
@@ -300,6 +309,8 @@ var cmdBotm = function() {
 var cmdTop = function() {
     if (wv.curTool.cmdTop !== undefined) {
         wv.curTool.cmdTop();
+    } else if (wv.usingMain == 1) {
+        main.cmdTop();
     }
 };
 
@@ -310,6 +321,8 @@ var cmdTop = function() {
 var cmdIn = function() {
     if (wv.curTool.cmdIn !== undefined) {
         wv.curTool.cmdIn();
+    } else if (wv.usingMain == 1) {
+        main.cmdIn();
     }
 };
 
@@ -320,66 +333,80 @@ var cmdIn = function() {
 var cmdOut = function() {
     if (wv.curTool.cmdOut !== undefined) {
         wv.curTool.cmdOut();
+    } else if (wv.usingMain == 1) {
+        main.cmdOut();
     }
 };
 
 
 //
-// callback when any mouse is pressed in canvas (when wv.curMode==0)
+// callback when any mouse is pressed in canvas (when wv.usingMain==1)
 //
 var mouseDown = function(e) {
     if (wv.curTool.mouseDown !== undefined) {
         wv.curTool.mouseDown(e);
+    } else if (wv.usingMain == 1) {
+        main.mouseDown(e);
     }
 };
 
 
 //
-// callback when the mouse moves in canvas (when wv.curMode==0)
+// callback when the mouse moves in canvas (when wv.usingMain==1)
 //
 var mouseMove = function (e) {
     if (wv.curTool.mouseMove !== undefined) {
         wv.curTool.mouseMove(e);
+    } else if (wv.usingMain == 1) {
+        main.mouseMove(e);
     }
 };
 
 
 //
-// callback when the mouse is released in canvas (when wv.curMode==0)
+// callback when the mouse is released in canvas (when wv.usingMain==1)
 //
 var mouseUp = function (e) {
     if (wv.curTool.mouseUp !== undefined) {
         wv.curTool.mouseUp(e);
+    } else if (wv.usingMain == 1) {
+        main.mouseUp(e);
     }
 };
 
 
 //
-// callback when the mouse wheel is rolled in canvas (when wv.curMode==0)
+// callback when the mouse wheel is rolled in canvas (when wv.usingMain==1)
 //
 var mouseWheel = function (e) {
     if (wv.curTool.mouseWheel !== undefined) {
         wv.curTool.mouseWheel(e);
+    } else if (wv.usingMain == 1) {
+        main.mouseWheel(e);
     }
 };
 
 
 //
-// callback when the mouse leaves the canvas (when wv.curMode==0)
+// callback when the mouse leaves the canvas (when wv.usingMain==1)
 //
 var mouseLeftCanvas = function (e) {
     if (wv.curTool.mouseLeftCanvas !== undefined) {
         wv.curTool.mouseLeftCanvas(e);
+    } else if (wv.usingMain == 1) {
+        main.mouseLeftCanvas(e);
     }
 };
 
 
 //
-// callback when a key is pressed
+// callback when a key is pressed (when wv.usingMain==1)
 //
 var keyPress = function (e) {
     if (wv.curTool.keyPress !== undefined) {
         wv.curTool.keyPress(e);
+    } else if (wv.usingMain == 1) {
+        main.keyPress(e);
     }
 };
 
@@ -390,6 +417,8 @@ var keyPress = function (e) {
 var keyDown = function (e) {
     if (wv.curTool.keyDown != undefined) {
         wv.curTool.keyDown(e);
+    } else if (wv.usingMain == 1) {
+        main.keyDown(e);
     }
 };
 
@@ -400,6 +429,8 @@ var keyDown = function (e) {
 var keyUp = function (e) {
     if (wv.curTool.keyUp !== undefined) {
         wv.curTool.keyUp(e);
+    } else if (wv.usingMain == 1) {
+        main.keyUp(e);
     }
 };
 
@@ -450,7 +481,7 @@ var wvInitUI = function () {
     wv.builtTo   = 99999;          // last Branch in previous successful build
     wv.menuEvent = undefined;      // event associated with click in Tree
     wv.server    = undefined;      // string passed back from "identify;"
-    wv.plotType  =  0;             // =0 mono, =1 ubar, =2 vbar, =3 cmin, =4 cmax, =5 gc
+    wv.plotType  =  0;             // =0 mono, =1 ubar, =2 vbar, =3 cmin, =4 cmax, =5 gc, =6 erep
     wv.loLimit   = -1;             // lower limit in key
     wv.upLimit   = +1;             // upper limit in key
     wv.nchanges  = 0;              // number of Branch or Parameter changes by browser
@@ -471,9 +502,11 @@ var wvInitUI = function () {
                                    // 5 show editPmtrForm with editPmtrHeader
                                    // 6 show showOutpmtrsForm
                                    // 7 show editCsmForm
-                                   // 8o show sketcherForm
+                                   // 8 show sketcherForm
                                    // 9 show glovesForm
+                                   // 10 show WebViewer in canvas and enable new keys
     wv.curTool   = main;           // current tool
+    wv.usingMain =  1;             // =1 if using 3D grphics window
     wv.curStep   =  0;             // >0 if in StepThru mode
     wv.curPmtr   = -1;             // Parameter being editted (or -1)
     wv.curBrch   = -1;             // Branch being editted (or -1)
@@ -487,6 +520,7 @@ var wvInitUI = function () {
 //  wv.pick                        // set to 1 to turn picking on
 //  wv.locate                      // set to 1 to turn locating on
 //  wv.sceneGraph                  // pointer to sceneGraph
+//  ev.sceneUpdated()              // callback when scene graphs has been updated
 //  wv.picked                      // sceneGraph object that was picked
 //  wv.located                     // sceneGraph object that was located
 //  wv.sceneUpd                    // should be set to 1 to re-render scene
@@ -751,6 +785,10 @@ var wvUpdateUI = function () {
                 } catch (x) {
                 }
                 postMessage(mesg);
+
+            // second part of another operation (to be processed by wv.curTool)
+            } else if (wv.curTool.keyPressPart2 !== undefined) {
+                wv.curTool.keyPressPart2(wv.picking, wv.picked.gprim);
             }
 
             wv.picked  = undefined;
@@ -865,12 +903,20 @@ var wvUpdateUI = function () {
     }
 
     // deal with key presses
-    if (wv.keyPress != -1 && wv.curMode == 0) {
+    if (wv.keyPress != -1 && wv.usingMain == 1) {
 
         var myKeyPress = String.fromCharCode(wv.keyPress);
 
+        // check to see if wv.curTool can process this
+        var done = 0;
+        if (wv.curTool.keyPressPart1 !== undefined) {
+            done = wv.curTool.keyPressPart1(myKeyPress);
+        }
+
+        if (done == 1) {
+
         // '?' -- help
-        if (myKeyPress == "?") {
+        } else if (myKeyPress == "?") {
             postMessage("........................... Viewer Cursor options ...........................\n" +
                         "ctrl-h <Home> - initial view             ctrl-f        - front view          \n" +
                         "ctrl-l        - leftside view            ctrl-r        - riteside view       \n" +
@@ -1241,7 +1287,7 @@ var wvUpdateUI = function () {
             wv.keyPress = -1;
             return;
 
-            // NOP
+        // NOP
         } else if (wv.keyPress == 0 && wv.modifier == 0) {
 
 //$$$        // unknown command
@@ -1374,6 +1420,12 @@ var wvServerMessage = function (text) {
         } else {
             wv.focus = [];
         }
+
+//        if (wv.curTool.redraw !== undefined) {
+//            wv.curTool.redraw();
+//        }
+        
+        wv.sceneUpd = 1;
 
     // if it starts with "getPmtrs|" build the (global) pmtr array
     } else if (text.substring(0,9) == "getPmtrs|") {
@@ -1589,6 +1641,15 @@ var wvServerMessage = function (text) {
             changeMode(0);
         } else {
             alert("The sketch could not be saved");
+        }
+
+    // if it starts with "makeEBody|", report the error if there is one
+    } else if (text.substring(0,10) == "makeEBody|") {
+        if (text.substring(10,17) == "ERROR::") {
+            alert(text.substring(17));
+
+            var button = document.getElementById("solveButton");
+            button["innerHTML"] = "ShowEBodys";
         }
 
     // if it starts with "setLims|" do nothing
@@ -1980,6 +2041,18 @@ var wvUpdateCanvas = function (gl) {
     gl.deleteBuffer(buffer);
     gl.deleteBuffer(cbuf);
     gl.uniform1f(wv.u_wLightLoc, 1.0);
+};
+
+
+//
+// callback when the scene has been updated (called by wv-socket.js)
+//
+wv.sceneUpdated = function () {
+    // alert ("in wv.sceneUpdated()");
+    
+    if (wv.curTool.sceneUpdated !== undefined) {
+        wv.curTool.sceneUpdated();
+    }
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -2820,10 +2893,10 @@ var addColumn = function () {
 
 
 //
-// callback when "Compute Sensitivity" is pressed in editPmtrForm (called by ESP.html)
+// callback when "Compute Config Sensitivity" is pressed in editPmtrForm (called by ESP.html)
 //
-var compSens = function () {
-    // alert("in compSens()");
+var compConfigSens = function () {
+    // alert("in compConfigSens()");
 
     // disable this command if there were any changes to the Parameter
     if (numberOfPmtrChanges() > 0) {
@@ -2880,7 +2953,97 @@ var compSens = function () {
     }
 
     // clear any previous velocities
-    browserToServer("clrVels|");
+    browserToServer("clrVels|config|");
+    for (jpmtr = 0; jpmtr < pmtr.length; jpmtr++) {
+        pmtr[jpmtr].dot[0] = 0;
+    }
+
+    // set velocity for ipmtr
+    pmtr[ipmtr].dot[0] = 1.0;
+    browserToServer("setVel|"+pmtr[ipmtr].name+"|1|1|1|");
+    postMessage("Computing sensitivity with respect to "+pmtr[ipmtr].name);
+
+    // rebuild
+    browserToServer("build|0|");
+
+    browserToServer("getPmtrs|");
+    wv.pmtrStat = 6000;
+
+    browserToServer("getBrchs|");
+    wv.brchStat = 6000;
+
+    var button = document.getElementById("solveButton");
+    button["innerHTML"] = "Re-building...";
+    button.style.backgroundColor = "#FFFF3F";
+
+    // inactivate buttons until build is done
+    changeMode( 0);
+    changeMode(-1);
+};
+
+
+//
+// callback when "Compute Tessel Sensitivity" is pressed in editPmtrForm (called by ESP.html)
+//
+var compTesselSens = function () {
+    // alert("in compTesselSens()");
+
+    // disable this command if there were any changes to the Parameter
+    if (numberOfPmtrChanges() > 0) {
+        alert("Changes were made.  Press 'Cancel' or 'OK' first");
+        return;
+    }
+
+    // get the Tree Node
+    var id    = wv.menuEvent["target"].id;
+    var inode = Number(id.substring(4,id.length-4));
+
+    // get the Parameter name
+    var name = myTree.name[inode].replace(/\u00a0/g, "");
+    name = name.replace(/\^/g, "");
+
+    var jnode   = inode;
+    var newName = name;
+    while (myTree.parent[jnode] != 1) {
+        jnode   = myTree.parent[jnode];
+        newName = myTree.name[jnode] + newName;
+    }
+    name = newName.replace(/\u00a0/g, "");
+
+    // get the Parameter index
+    var ipmtr = -1;      // 0-bias
+    var jpmtr;           // 1-bias (and temp)
+    for (jpmtr = 0; jpmtr < pmtr.length; jpmtr++) {
+        if (pmtr[jpmtr].name.replace(/\^/g, "") == name) {
+            ipmtr = jpmtr;
+            break;
+        }
+    }
+    if (ipmtr < 0) {
+        alert(name+" not found");
+        return;
+    } else {
+        jpmtr = ipmtr + 1;
+    }
+
+    // can only compute sensitivity for a despmtr
+    if (pmtr[ipmtr].type != OCSM_DESPMTR) {
+        alert("Can only compute sensitivity for a DESPMTR (not a CFGPMTR).");
+        return;
+    }
+
+    // unhighlight the first column of the Tree
+    unhighlightColumn1();
+
+    // can only compute sensitivity for a scalar
+    if (pmtr[ipmtr].nrow > 1 || pmtr[ipmtr].ncol > 1) {
+//        alert("Use \"Set Design Velocity\" to select which element of this multi-valued parameter to use.  Then \"Press to Re-build\"");
+        alert("Use table at bottom to set velocity(s).  Then \"Press to Re-Build\"");
+        return;
+    }
+
+    // clear any previous velocities
+    browserToServer("clrVels|tessel|");
     for (jpmtr = 0; jpmtr < pmtr.length; jpmtr++) {
         pmtr[jpmtr].dot[0] = 0;
     }
@@ -3035,7 +3198,7 @@ var clrVels = function () {
     }
 
     // get an updated Parameter list (so that added Parameter is listed)
-    browserToServer("clrVels|");
+    browserToServer("clrVels|.|");
 
     // set all visible velocities to 0 and update display
     for (var ipmtr = 0; ipmtr < pmtr.length; ipmtr++) {
@@ -3279,7 +3442,7 @@ var showOutpmtrs = function () {
         alert("There are no OUTPMTRs");
         return;
     }
-    
+
     // build up the message to display
     var message = "";
     for (ipmtr = 0; ipmtr < pmtr.length; ipmtr++) {
@@ -3853,19 +4016,19 @@ var editBrchOk = function () {
         return;
     }
 
-    // make sure that we are not adding or changing a Branch associated with a UDC
-    if (brch[ibrch].type == "udparg" || brch[ibrch].type == "udprim") {
-        var value = editBrchForm.argValu1.value.replace(/\s/g, "");
-        if (value.charAt(0) == "/" || value.charAt(0) == "$") {
-            if (wv.curMode == 2) {
-                alert("Cannot add a \""+brch[ibrch].type+"\" that calls a UDC\nUse File->Edit instead.");
-                return;
-            } else if (brch[ibrch].args[0] != "$"+value) {
-                alert("Cannot change primtype to a UDC\nUse File->Edit instead.");
-                return;
-            }
-        }
-    }
+//    // make sure that we are not adding or changing a Branch associated with a UDC
+//    if (brch[ibrch].type == "udparg" || brch[ibrch].type == "udprim") {
+//        var value = editBrchForm.argValu1.value.replace(/\s/g, "");
+//        if (value.charAt(0) == "/" || value.charAt(0) == "$") {
+//            if (wv.curMode == 2) {
+//                alert("Cannot add a \""+brch[ibrch].type+"\" that calls a UDC\nUse File->Edit instead.");
+//                return;
+//            } else if (brch[ibrch].args[0] != "$"+value) {
+//                alert("Cannot change primtype to a UDC\nUse File->Edit instead.");
+//                return;
+//            }
+//        }
+//    }
 
     if (newBrchName != brch[ibrch].name) {
         // make sure that name does not start with "Brch_"
@@ -4187,7 +4350,7 @@ var chgDisplay = function () {
 
     if (change == null) {
         return;
-    } else if (isNaN(change)){
+    } else if (isNaN(change)) {
         alert("Illegal number format, so no change");
         return;
     } else if (Number(change) == +1) {
@@ -4467,6 +4630,7 @@ main.mouseLeftCanvas = function(e) {
 //
 main.keyPress = function(e) {
 //    if (!e) var e = event;
+    // alert("in main.keyPress(e="+e+")");
 
     // if <esc> was pressed, return to base mode
     if (e.charCode == 0 && e.keyCode == 27) {
@@ -4475,7 +4639,7 @@ main.keyPress = function(e) {
     }
 
     // if in canvas, record info about keypress
-    if (wv.curMode == 0) {
+    if (wv.usingMain == 1) {
         wv.keyPress = e.charCode;
         wv.keyCode  = e.keyCode;
 
@@ -4734,7 +4898,7 @@ var gotoCsmError = function (e) {
 var toggleViz = function (e) {
     // alert("in toggleViz(e="+e+")");
 
-    if (wv.curMode != 0) {
+    if (wv.usingMain != 1) {
         alert("Command disabled.  Press 'Cancel' or 'OK' first");
         return;
     }
@@ -4772,7 +4936,7 @@ var toggleViz = function (e) {
 var toggleGrd = function (e) {
     // alert("in toggleGrd(e="+e+")");
 
-    if (wv.curMode != 0) {
+    if (wv.usingMain != 1) {
         alert("Command disabled.  Press 'Cancel' or 'OK' first");
         return;
     }
@@ -4810,7 +4974,7 @@ var toggleGrd = function (e) {
 var toggleTrn = function (e) {
     // alert("in toggleTrn(e="+e+")");
 
-    if (wv.curMode != 0) {
+    if (wv.usingMain != 1) {
         alert("Command disabled.  Press 'Cancel' or 'OK' first");
         return;
     }
@@ -4852,7 +5016,7 @@ var toggleTrn = function (e) {
 var toggleOri = function (e) {
     // alert("in toggleOri(e="+e+")");
 
-    if (wv.curMode != 0) {
+    if (wv.usingMain != 1) {
         alert("Command disabled.  Press 'Cancel' or 'OK' first");
         return;
     }
@@ -4914,7 +5078,8 @@ var modifyDisplayType = function (e) {
                       "   2  normalized V parameter\n"+
                       "   3  minimum curvature\n"+
                       "   4  maximum curvature\n"+
-                      "   5  Gaussian curvature", "0");
+                      "   5  Gaussian curvature\n"+
+                      "   6  Erep", "0");
 
     if (ptype === null) {
         return;
@@ -4924,8 +5089,11 @@ var modifyDisplayType = function (e) {
     } else {
         wv.plotType = Number(ptype);
 
-        if (wv.plotType > 0) {
+        if (wv.plotType > 0 && wv.plotType < 6) {
             setKeyLimits(null);
+        } else {
+            // send the limits back to the server
+            browserToServer("setLims|"+wv.plotType+"|"+wv.loLimit+"|"+wv.upLimit+"|");
         }
     }
 };
@@ -5096,7 +5264,7 @@ var modifyDisplayFilter = function (e) {
         } else {
             attrValue = Number(attrValue);
             var scale = 1.0 / Math.max(Math.abs(attrValue), 1e-6);
-            
+
             for (gprim in wv.sceneGraph) {
                 try {
                     var attrs = wv.sgData[gprim];
@@ -6049,11 +6217,14 @@ var changeMode = function (newMode) {
     var wvKey            = document.getElementById("WVkey");
     var sketcherStatus   = document.getElementById("sketcherStatus");
     var glovesStatus     = document.getElementById("glovesStatus");
+    var erepedStatus     = document.getElementById("erepedStatus");
     var ESPlogo          = document.getElementById("ESPlogo");
 
     if (newMode == wv.curMode) {
         return;
     } else if (newMode < 0) {
+        wv.usingMain = 0;
+        
         // used to cause buttons such as "cmdSave" not to be active
         wv.curMode = newMode;
 
@@ -6062,6 +6233,8 @@ var changeMode = function (newMode) {
 
         return;
     } else if (newMode == 0) {
+        wv.usingMain = 1;
+        
         webViewer.hidden        = false;
         addBrchForm.hidden      = true;
         editBrchForm.hidden     = true;
@@ -6073,6 +6246,7 @@ var changeMode = function (newMode) {
         wvKey.hidden            = true;
         sketcherStatus.hidden   = true;
         glovesStatus.hidden     = true;
+        erepedStatus.hidden     = true;
         ESPlogo.hidden          = false;
 
         wv.curMode   = 0;
@@ -6083,6 +6257,8 @@ var changeMode = function (newMode) {
         wv.menuEvent = undefined;
         wv.keyPress  = -1;
     } else if (newMode == 1) {
+        wv.usingMain = 0;
+        
         webViewer.hidden        = true;
         addBrchForm.hidden      = false;
         editBrchForm.hidden     = true;
@@ -6094,6 +6270,7 @@ var changeMode = function (newMode) {
         wvKey.hidden            = true;
         sketcherStatus.hidden   = true;
         glovesStatus.hidden     = true;
+        erepedStatus.hidden     = true;
         ESPlogo.hidden          = false;
 
         // unselect all items
@@ -6105,6 +6282,8 @@ var changeMode = function (newMode) {
         wv.curTool = main;
         wv.curMode = 1;
     } else if (newMode == 2) {
+        wv.usingMain = 0;
+        
         webViewer.hidden        = true;
         addBrchForm.hidden      = true;
         editBrchForm.hidden     = false;
@@ -6116,6 +6295,7 @@ var changeMode = function (newMode) {
         wvKey.hidden            = true;
         sketcherStatus.hidden   = true;
         glovesStatus.hidden     = true;
+        erepedStatus.hidden     = true;
         ESPlogo.hidden          = false;
 
         addBrchHeader.hidden    = false;
@@ -6130,6 +6310,8 @@ var changeMode = function (newMode) {
         wv.curTool = main;
         wv.curMode = 2;
     } else if (newMode == 3) {
+        wv.singMain = 0;
+        
         webViewer.hidden        = true;
         addBrchForm.hidden      = true;
         editBrchForm.hidden     = false;
@@ -6141,6 +6323,7 @@ var changeMode = function (newMode) {
         wvKey.hidden            = true;
         sketcherStatus.hidden   = true;
         glovesStatus.hidden     = true;
+        erepedStatus.hidden     = true;
         ESPlogo.hidden          = false;
 
         addBrchHeader.hidden    = true;
@@ -6157,6 +6340,8 @@ var changeMode = function (newMode) {
         wv.curTool = main;
         wv.curMode = 3;
     } else if (newMode == 4) {
+        wv.usingMain = 0;
+        
         webViewer.hidden        = true;
         addBrchForm.hidden      = true;
         editBrchForm.hidden     = true;
@@ -6168,6 +6353,7 @@ var changeMode = function (newMode) {
         wvKey.hidden            = true;
         sketcherStatus.hidden   = true;
         glovesStatus.hidden     = true;
+        erepedStatus.hidden     = true;
         ESPlogo.hidden          = false;
 
         addPmtrHeader.hidden    = false;
@@ -6182,6 +6368,8 @@ var changeMode = function (newMode) {
         wv.curTool = main;
         wv.curMode = 4;
     } else if (newMode == 5) {
+        wv.usingMain = 0;
+        
         webViewer.hidden        = true;
         addBrchForm.hidden      = true;
         editBrchForm.hidden     = true;
@@ -6196,6 +6384,7 @@ var changeMode = function (newMode) {
 
         addPmtrHeader.hidden    = true;
         glovesStatus.hidden     = true;
+        erepedStatus.hidden     = true;
         editPmtrHeader.hidden   = false;
 
         if (wv.getFocus !== undefined) {
@@ -6207,6 +6396,8 @@ var changeMode = function (newMode) {
         wv.curTool = main;
         wv.curMode = 5;
     } else if (newMode == 6) {
+        wv.usingMain = 0;
+        
         webViewer.hidden        = true;
         addBrchForm.hidden      = true;
         editBrchForm.hidden     = true;
@@ -6222,6 +6413,8 @@ var changeMode = function (newMode) {
         wv.curTool = main;
         wv.curMode = 6;
     } else if (newMode == 7) {
+        wv.usingMain = 0;
+        
         webViewer.hidden        = true;
         addBrchForm.hidden      = true;
         editBrchForm.hidden     = true;
@@ -6233,11 +6426,14 @@ var changeMode = function (newMode) {
         wvKey.hidden            = true;
         sketcherStatus.hidden   = true;
         glovesStatus.hidden     = true;
+        erepedStatus.hidden     = true;
         ESPlogo.hidden          = false;
 
         wv.curTool = main;
         wv.curMode = 7;
     } else if (newMode == 8) {
+        wv.usingMain = 0;
+        
         webViewer.hidden        = true;
         addBrchForm.hidden      = true;
         editBrchForm.hidden     = true;
@@ -6249,11 +6445,14 @@ var changeMode = function (newMode) {
         wvKey.hidden            = true;
         sketcherStatus.hidden   = false;
         glovesStatus.hidden     = true;
+        erepedStatus.hidden     = true;
         ESPlogo.hidden          = true;
 
         wv.curTool = sket;
         wv.curMode = 8;
     } else if (newMode == 9) {
+        wv.usingMain = 0;
+        
         webViewer.hidden        = true;
         addBrchForm.hidden      = true;
         editBrchForm.hidden     = true;
@@ -6264,11 +6463,31 @@ var changeMode = function (newMode) {
         glovesForm.hidden       = false;
         wvKey.hidden            = true;
         sketcherStatus.hidden   = true;
-        glovesStatus.hidden     = true;
-        ESPlogo.hidden          = false;
+        glovesStatus.hidden     = false;
+        erepedStatus.hidden     = true;
+        ESPlogo.hidden          = true;
 
         wv.curTool = glov;
         wv.curMode = 9;
+    } else if (newMode == 10) {
+        wv.usingMain = 1;
+        
+        webViewer.hidden        = false;
+        addBrchForm.hidden      = true;
+        editBrchForm.hidden     = true;
+        editPmtrForm.hidden     = true;
+        showOutpmtrsForm.hidden = true;
+        editCsmForm.hidden      = true;
+        sketcherForm.hidden     = true;
+        glovesForm.hidden       = true;
+        wvKey.hidden            = true;
+        sketcherStatus.hidden   = true;
+        glovesStatus.hidden     = true;
+        erepedStatus.hidden     = false;
+        ESPlogo.hidden          = true;
+
+        wv.curTool = erep;
+        wv.curMode = 10;
     } else {
         alert("Bad new mode = "+newMode);
     }

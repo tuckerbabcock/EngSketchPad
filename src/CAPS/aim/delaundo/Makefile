@@ -24,6 +24,9 @@ $(ODIR)/delaundoAIM.o:	delaundoAIM.c $(IDIR)/capsTypes.h \
 	$(CC) -c $(COPTS) $(DEFINE) -I$(IDIR) -I../utils delaundoAIM.c \
 		-o $(ODIR)/delaundoAIM.o
 
+lint:
+	$(LINT) -I../../include -I$(IDIR) -I../utils $(wildcard *.c) -exportlocal -bufferoverflowhigh
+
 clean:
 	-rm $(ODIR)/delaundoAIM.o
 

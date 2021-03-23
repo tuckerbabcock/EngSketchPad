@@ -3,7 +3,7 @@
  *
  *             hsm AIM tester
  *
- *      Copyright 2014-2020, Massachusetts Institute of Technology
+ *      Copyright 2014-2021, Massachusetts Institute of Technology
  *      Licensed under The GNU Lesser General Public License, version 2.1
  *      See http://www.opensource.org/licenses/lgpl-2.1.php
  *
@@ -89,9 +89,10 @@ int main(int argc, char *argv[])
     if (status != CAPS_SUCCESS) goto cleanup;
 
     status = caps_info(problemObj, &name, &type, &subtype, &link, &parent, &current);
+    if (status != CAPS_SUCCESS)  goto cleanup;
 
     // Load the AIMs
-    status = caps_load(problemObj, "hsmAIM", analysisPath, NULL, NULL, 0, NULL, &hsmObj);
+    status = caps_makeAnalysis(problemObj, "hsmAIM", analysisPath, NULL, NULL, 0, NULL, &hsmObj);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     // Set HSM inputs - Materials
@@ -102,7 +103,7 @@ int main(int argc, char *argv[])
     material[0].name = EG_strdup("Madeupium");
     material[0].value = EG_strdup("{\"youngModulus\": 2.2E6, \"density\": 7850, \"poissonRatio\": 0.33}");
 
-    status = caps_setValue(tempObj, numMaterial, 1,  (void **) material);
+    status = caps_setValue(tempObj, Tuple, numMaterial, 1,  (void **) material, NULL, NULL, &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     //                       - Properties
@@ -113,7 +114,7 @@ int main(int argc, char *argv[])
     property[0].name = EG_strdup("plate");
     property[0].value = EG_strdup("{\"propertyType\": \"Shell\", \"membraneThickness\": 0.1}");
 
-    status = caps_setValue(tempObj, numProperty, 1,  (void **) property);
+    status = caps_setValue(tempObj, Tuple, numProperty, 1,  (void **) property, NULL, NULL, &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     //                       - Constraints
@@ -124,7 +125,7 @@ int main(int argc, char *argv[])
     constraint[0].name = EG_strdup("edgeConstraint");
     constraint[0].value = EG_strdup("{\"groupName\": \"plateEdge\", \"dofConstraint\": 123}");
 
-    status = caps_setValue(tempObj, numConstraint, 1,  (void **) constraint);
+    status = caps_setValue(tempObj, Tuple, numConstraint, 1,  (void **) constraint, NULL, NULL, &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     //                       - Analysis
@@ -135,28 +136,28 @@ int main(int argc, char *argv[])
     load[0].name = EG_strdup("appliedLoad");
     load[0].value = EG_strdup("{\"groupName\": \"plate\", \"loadType\": \"Pressure\", \"pressureForce\": 2.0E6}");
 
-    status = caps_setValue(tempObj, numLoad, 1,  (void **) load);
+    status = caps_setValue(tempObj, Tuple, numLoad, 1,  (void **) load, NULL, NULL, &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     status = caps_childByName(hsmObj, VALUE, ANALYSISIN, "Edge_Point_Max", &tempObj);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     intVal = 10;
-    status = caps_setValue(tempObj, 1, 1, (void *) &intVal);
+    status = caps_setValue(tempObj, Integer, 1, 1, (void *) &intVal, NULL, NULL, &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     status = caps_childByName(hsmObj, VALUE, ANALYSISIN, "Edge_Point_Min", &tempObj);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     intVal = 10;
-    status = caps_setValue(tempObj, 1, 1, (void *) &intVal);
+    status = caps_setValue(tempObj, Integer, 1, 1, (void *) &intVal, NULL, NULL, &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     status = caps_childByName(hsmObj, VALUE, ANALYSISIN, "Quad_Mesh", &tempObj);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     boolVal = (int) false;
-    status = caps_setValue(tempObj, 1, 1, (void *) &boolVal);
+    status = caps_setValue(tempObj, Boolean, 1, 1, (void *) &boolVal, NULL, NULL, &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     // Run hsm pre-analysis

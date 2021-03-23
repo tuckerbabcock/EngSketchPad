@@ -363,15 +363,14 @@ echo "set CAPS_GLYPH="$BASE/src/CAPS/aim/pointwise/glyph   >> tmp
 if [ "$PYTHONINC" != UNKNOWN ] && [ "$PYTHONLIB" != UNKNOWN ]; then
 	echo "set PYTHONINC=$PYTHONINC"                    >> tmp
 	echo "set PYTHONLIB=$PYTHONLIB"                    >> tmp
-	echo "set PYTHONPATH="$BASE/lib";"$BASE/pyOcsm     >> tmp
 else
 	echo "rem set PYTHONINC=C:\Python37\include"               >> tmp
 	echo "rem set PYTHONLIB=C:\Python37\Libs\python37.lib"     >> tmp
-	echo "rem set PYTHONPATH="$BASE/lib                        >> tmp
 	echo "rem set PATH=C:\Python37;%PATH%"                     >> tmp
 fi
+echo "set PYTHONPATH="$BASE/pyESP";%PYTHONPATH%"           >> tmp
 if [ "$TETGEN" != UNKNOWN ]; then
-	echo "set TETGEN=$TETGEN"                          >> tmp
+	echo "set TETGEN=$TETGEN"                                  >> tmp
 else
 	echo "rem set TETGEN=Z:\HOME\Projects\TetGen\tetgen1.6.0"  >> tmp
 fi

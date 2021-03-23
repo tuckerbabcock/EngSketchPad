@@ -3,7 +3,7 @@
  *
  *             fun3d, tetgen, mystran AIM tester
  *
- *      Copyright 2014-2020, Massachusetts Institute of Technology
+ *      Copyright 2014-2021, Massachusetts Institute of Technology
  *      Licensed under The GNU Lesser General Public License, version 2.1
  *      See http://www.opensource.org/licenses/lgpl-2.1.php
  *
@@ -33,7 +33,7 @@ int main(int argc, char *argv[])
     int i; // Indexing
 
     // CAPS objects
-    capsObj  problemObj, meshObj, fun3dObj, fun3dObj2, mystranObj, tempObj;
+    capsObj  problemObj, surfMeshObj, meshObj, fun3dObj, fun3dObj2, mystranObj, tempObj;
     capsErrs *errors;
     capsOwn  current;
 
@@ -49,7 +49,7 @@ int main(int argc, char *argv[])
     char *name;
     enum capsoType   type;
     enum capssType   subtype;
-    capsObj link, parent;
+    capsObj link, parent, source, target;
 
 
     // Input values
@@ -100,19 +100,23 @@ int main(int argc, char *argv[])
     if (status != CAPS_SUCCESS) goto cleanup;
 
     status = caps_info(problemObj, &name, &type, &subtype, &link, &parent, &current);
-
-    // Load the AIMs
-    status = caps_load(problemObj, "tetgenAIM", analysisPath, NULL, NULL, 0, NULL, &meshObj);
     if (status != CAPS_SUCCESS)  goto cleanup;
 
-    status = caps_load(problemObj, "fun3dAIM", analysisPath, NULL, NULL, 1, &meshObj, &fun3dObj);
+    // Load the AIMs
+    status = caps_makeAnalysis(problemObj, "egadsTessAIM", analysisPath, NULL, NULL, 0, NULL, &surfMeshObj);
+    if (status != CAPS_SUCCESS)  goto cleanup;
+
+    status = caps_makeAnalysis(problemObj, "tetgenAIM", analysisPath, NULL, NULL, 1, &surfMeshObj, &meshObj);
+    if (status != CAPS_SUCCESS)  goto cleanup;
+
+    status = caps_makeAnalysis(problemObj, "fun3dAIM", analysisPath, NULL, NULL, 1, &meshObj, &fun3dObj);
     if (status != CAPS_SUCCESS) goto cleanup;
 
-    status = caps_load(problemObj, "mystranAIM", analysisPath, NULL, NULL, 0, NULL, &mystranObj);
+    status = caps_makeAnalysis(problemObj, "mystranAIM", analysisPath, NULL, NULL, 0, NULL, &mystranObj);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     /* unused analysis object */
-    status = caps_load(problemObj, "fun3dAIM", "DummyDir", NULL, NULL, 0, NULL, &fun3dObj2);
+    status = caps_makeAnalysis(problemObj, "fun3dAIM", "DummyDir", NULL, NULL, 0, NULL, &fun3dObj2);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     // Create data bounds
@@ -135,6 +139,41 @@ int main(int argc, char *argv[])
     if (status != CAPS_SUCCESS) goto cleanup;
 
 
+    // Link surface mesh from EGADS to TetGen
+    status = caps_childByName(surfMeshObj, VALUE, ANALYSISOUT, "Surface_Mesh", &source);
+    if (status != CAPS_SUCCESS) {
+      printf("surfMeshObj childByName for Surface_Mesh = %d\n", status);
+      goto cleanup;
+    }
+    status = caps_childByName(meshObj, VALUE, ANALYSISIN, "Surface_Mesh",  &target);
+    if (status != CAPS_SUCCESS) {
+      printf("meshObj childByName for tessIn = %d\n", status);
+      goto cleanup;
+    }
+    status = caps_makeLinkage(source, Copy, target);
+    if (status != CAPS_SUCCESS) {
+      printf(" caps_makeLinkage = %d\n", status);
+      goto cleanup;
+    }
+
+    /* Link the volume mesh from TetGen to Fun3D */
+    status = caps_childByName(meshObj, VALUE, ANALYSISOUT, "Volume_Mesh", &source);
+    if (status != CAPS_SUCCESS) {
+      printf("meshObj childByName for Volume_Mesh = %d\n", status);
+      goto cleanup;
+    }
+    status = caps_childByName(fun3dObj, VALUE, ANALYSISIN, "Mesh",  &target);
+    if (status != CAPS_SUCCESS) {
+      printf("fun3dObj childByName for Mesh = %d\n", status);
+      goto cleanup;
+    }
+    status = caps_makeLinkage(source, Copy, target);
+    if (status != CAPS_SUCCESS) {
+      printf(" caps_makeLinkage = %d\n", status);
+      goto cleanup;
+    }
+
+
     // Find & set Boundary_Conditions for FUN3D
     status = caps_childByName(fun3dObj, VALUE, ANALYSISIN, "Boundary_Condition", &tempObj);
     if (status != CAPS_SUCCESS) goto cleanup;
@@ -149,7 +188,7 @@ int main(int argc, char *argv[])
     fun3dBC[2].name = EG_strdup("Farfield");
     fun3dBC[2].value = EG_strdup("farfield");
 
-    status = caps_setValue(tempObj, numFUN3DBC, 1,  (void **) fun3dBC);
+    status = caps_setValue(tempObj, Tuple, numFUN3DBC, 1,  (void **) fun3dBC, NULL, NULL, &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
 
 
@@ -158,21 +197,21 @@ int main(int argc, char *argv[])
     if (status != CAPS_SUCCESS) goto cleanup;
 
     doubleVal  = refVelocity/speedofSound;
-    status = caps_setValue(tempObj, 1, 1, (void *) &doubleVal);
+    status = caps_setValue(tempObj, Double, 1, 1, (void *) &doubleVal, NULL, NULL, &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     status = caps_childByName(fun3dObj, VALUE, ANALYSISIN, "Num_Iter", &tempObj);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     intVal  = 10;
-    status = caps_setValue(tempObj, 1, 1, (void *) &intVal);
+    status = caps_setValue(tempObj, Integer, 1, 1, (void *) &intVal, NULL, NULL, &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     status = caps_childByName(fun3dObj, VALUE, ANALYSISIN, "Viscous", &tempObj);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     stringVal = EG_strdup("inviscid");
-    status = caps_setValue(tempObj, 1, 1, (void *) stringVal);
+    status = caps_setValue(tempObj, String, 1, 1, (void *) stringVal, NULL, NULL, &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     if (stringVal != NULL) EG_free(stringVal);
@@ -182,7 +221,7 @@ int main(int argc, char *argv[])
     if (status != CAPS_SUCCESS) goto cleanup;
 
     stringVal = EG_strdup("off");
-    status = caps_setValue(tempObj, 1, 1, (void *) stringVal);
+    status = caps_setValue(tempObj, String, 1, 1, (void *) stringVal, NULL, NULL, &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     if (stringVal != NULL) EG_free(stringVal);
@@ -192,21 +231,22 @@ int main(int argc, char *argv[])
     if (status != CAPS_SUCCESS) goto cleanup;
 
     boolVal = true;
-    status = caps_setValue(tempObj, 1, 1, (void *) &boolVal);
+    status = caps_setValue(tempObj, Boolean, 1, 1, (void *) &boolVal, NULL, NULL, &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     status = caps_childByName(fun3dObj, VALUE, ANALYSISIN, "Proj_Name", &tempObj);
     if (status != CAPS_SUCCESS) goto cleanup;
 
-    status = caps_setValue(tempObj, 1, 1, (void *) &projectName);
+    status = caps_setValue(tempObj, String, 1, 1, (void *) &projectName, NULL, NULL, &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     status = caps_childByName(fun3dObj, VALUE, ANALYSISIN, "Pressure_Scale_Factor", &tempObj);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     doubleVal  = 0.5 * refDensity * refVelocity*refVelocity;
-    status = caps_setValue(tempObj, 1, 1, (void *) &doubleVal);
+    status = caps_setValue(tempObj, Double, 1, 1, (void *) &doubleVal, NULL, NULL, &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
+
 
     // Set Mystran inputs - Materials
     status = caps_childByName(mystranObj, VALUE, ANALYSISIN, "Material", &tempObj);
@@ -216,7 +256,7 @@ int main(int argc, char *argv[])
     material[0].name = EG_strdup("Madeupium");
     material[0].value = EG_strdup("{\"youngModulus\": 72.0E9, \"density\": 2.8E3}");
 
-    status = caps_setValue(tempObj, numMaterial, 1,  (void **) material);
+    status = caps_setValue(tempObj, Tuple, numMaterial, 1,  (void **) material, NULL, NULL, &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     //                       - Properties
@@ -229,7 +269,7 @@ int main(int argc, char *argv[])
     property[1].name = EG_strdup("Rib_Root");
     property[1].value = EG_strdup("{\"propertyType\": \"Shell\", \"membraneThickness\": 0.1}");
 
-    status = caps_setValue(tempObj, numProperty, 1,  (void **) property);
+    status = caps_setValue(tempObj, Tuple, numProperty, 1,  (void **) property, NULL, NULL, &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     //                      - Constraints
@@ -240,27 +280,27 @@ int main(int argc, char *argv[])
     constraint[0].name = EG_strdup("edgeConstraint");
     constraint[0].value = EG_strdup("{\"groupName\": \"Rib_Root\", \"dofConstraint\": 123456}");
 
-    status = caps_setValue(tempObj, numConstraint, 1,  (void **) constraint);
+    status = caps_setValue(tempObj, Tuple, numConstraint, 1,  (void **) constraint, NULL, NULL, &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     status = caps_childByName(mystranObj, VALUE, ANALYSISIN, "Proj_Name", &tempObj);
     if (status != CAPS_SUCCESS) goto cleanup;
 
-    status = caps_setValue(tempObj, 1, 1, (void *) &projectName);
+    status = caps_setValue(tempObj, String, 1, 1, (void *) &projectName, NULL, NULL, &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     status = caps_childByName(mystranObj, VALUE, ANALYSISIN, "Edge_Point_Min", &tempObj);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     intVal = 3;
-    status = caps_setValue(tempObj, 1, 1, (void *) &intVal);
+    status = caps_setValue(tempObj, Integer, 1, 1, (void *) &intVal, NULL, NULL, &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     status = caps_childByName(mystranObj, VALUE, ANALYSISIN, "Edge_Point_Max", &tempObj);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     intVal = 10;
-    status = caps_setValue(tempObj, 1, 1, (void *) &intVal);
+    status = caps_setValue(tempObj, Integer, 1, 1, (void *) &intVal, NULL, NULL, &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     status = caps_childByName(mystranObj, VALUE, ANALYSISIN, "Tess_Params", &tempObj);
@@ -269,7 +309,7 @@ int main(int argc, char *argv[])
     tessParams[0] = 0.5;
     tessParams[1] = 0.1;
     tessParams[2] = 0.15;
-    status = caps_setValue(tempObj, 3, 1, (void **) tessParams);
+    status = caps_setValue(tempObj, Double, 3, 1, (void **) tessParams, NULL, NULL, &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
 
 
@@ -277,14 +317,14 @@ int main(int argc, char *argv[])
     if (status != CAPS_SUCCESS) goto cleanup;
 
     stringVal = EG_strdup("Static");
-    status = caps_setValue(tempObj, 1, 1, (void *) stringVal);
+    status = caps_setValue(tempObj, String, 1, 1, (void *) stringVal, NULL, NULL, &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     status = caps_childByName(mystranObj, VALUE, ANALYSISIN, "Quad_Mesh", &tempObj);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     boolVal = (int) false;
-    status = caps_setValue(tempObj, 1, 1, (void *) &boolVal);
+    status = caps_setValue(tempObj, Boolean, 1, 1, (void *) &boolVal, NULL, NULL, &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
 
 #ifdef DEPENDENT
@@ -303,6 +343,16 @@ int main(int argc, char *argv[])
         }
     }
 #endif
+
+    // =========================================================
+    // Do the analysis -- actually run EGADS
+    status = caps_preAnalysis(surfMeshObj, &nErr, &errors);
+    if (status != CAPS_SUCCESS) goto cleanup;
+
+    // Everything is done in preAnalysis, so we just do the post
+    status = caps_postAnalysis(surfMeshObj, current, &nErr, &errors);
+    if (status != CAPS_SUCCESS) goto cleanup;
+    // =========================================================
 
     // =========================================================
     // Do the analysis -- actually run TetGen
@@ -401,7 +451,7 @@ int main(int argc, char *argv[])
     load[0].name = EG_strdup("pressureAero");
     load[0].value = EG_strdup("{\"loadType\": \"PressureExternal\", \"loadScaleFactor\": -1.0}");
 
-    status = caps_setValue(tempObj, numLoad, 1,  (void **) load);
+    status = caps_setValue(tempObj, Tuple, numLoad, 1,  (void **) load, NULL, NULL, &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     // Do the analysis  for Mystran

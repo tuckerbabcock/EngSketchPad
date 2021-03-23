@@ -76,6 +76,13 @@ $(ODIR)/cart3dTest.o:	cart3dTest.c $(IDIR)/caps.h
 	$(CC) -c $(COPTS) $(DEFINE) -I$(IDIR) cart3dTest.c \
 		-o $(ODIR)/cart3dTest.o
 
+lint:
+	@echo "Cart3D AIM:"
+	$(LINT) -I../../include -I$(IDIR) -I../utils -I$(CART3DLIB)/xddm -I$(CART3DLIB)/libCart3D -I$(CART3DLIB)/c3dio cart3dTest.c cart3dAIM.c -incondefs -exportlocal -nestcomment -uniondef -redef
+	@echo " "
+	@echo "ESPxddm:"
+	$(LINT) -I../../include -I$(IDIR) -I../utils -I$(CART3DLIB)/xddm -I$(CART3DLIB)/libCart3D -I$(CART3DLIB)/c3dio -Dxddm_free=free ESPxddm.c bodyTess.c -incondefs -exportlocal -nestcomment -uniondef
+
 clean:
 	-rm -f $(ODIR)/writeTrix.o $(ODIR)/xddm.o $(ODIR)/bodyTess.o \
 		$(ODIR)/ESPxddm.o $(ODIR)/cart3dAIM.o $(ODIR)/cart3dTest.o

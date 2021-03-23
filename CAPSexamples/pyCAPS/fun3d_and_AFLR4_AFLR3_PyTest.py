@@ -50,8 +50,8 @@ aflr4.setAnalysisVal("Mesh_Format", "Tecplot")
 aflr4.setAnalysisVal("ff_cdfr", 1.4)
 
 # Set maximum and minimum edge lengths relative to capsMeshLength
-aflr4.setAnalysisVal("max_scale", 0.2)
-aflr4.setAnalysisVal("min_scale", 0.01)
+aflr4.setAnalysisVal("max_scale", 0.5)
+aflr4.setAnalysisVal("min_scale", 0.05)
 
 # Run AIM pre-analysis
 aflr4.preAnalysis()
@@ -81,6 +81,9 @@ aflr3.setAnalysisVal("Proj_Name", "pyCAPS_AFLR4_AFLR3_VolMesh")
 
 # Set output grid format since a project name is being supplied - Tecplot tetrahedral file
 aflr3.setAnalysisVal("Mesh_Format", "Tecplot")
+
+# Set AIM verbosity
+aflr3.setAnalysisVal("Mesh_Quiet_Flag", True if args.verbosity == 0 else False)
 
 # Run AIM pre-analysis
 aflr3.preAnalysis()

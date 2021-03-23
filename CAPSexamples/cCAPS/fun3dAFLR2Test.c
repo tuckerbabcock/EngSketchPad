@@ -3,7 +3,7 @@
  *
  *             fun3d/aflr4 AIM tester
  *
- *      Copyright 2014-2020, Massachusetts Institute of Technology
+ *      Copyright 2014-2021, Massachusetts Institute of Technology
  *      Licensed under The GNU Lesser General Public License, version 2.1
  *      See http://www.opensource.org/licenses/lgpl-2.1.php
  *
@@ -40,7 +40,7 @@ int main(int argc, char *argv[])
     char *name;
     enum capsoType   type;
     enum capssType   subtype;
-    capsObj link, parent;
+    capsObj link, parent, source, target;
 
     // Input values
     capsTuple        *tupleVal = NULL;
@@ -86,7 +86,7 @@ int main(int argc, char *argv[])
     if (status != CAPS_SUCCESS) goto cleanup;
 
     // Load the AFLR2 AIM */
-    status = caps_load(problemObj, "aflr2AIM", analysisPath, NULL, NULL, 0, NULL, &meshObj);
+    status = caps_makeAnalysis(problemObj, "aflr2AIM", analysisPath, NULL, NULL, 0, NULL, &meshObj);
     if (status != CAPS_SUCCESS)  goto cleanup;
 
     // Set input variables for AFLR2
@@ -96,7 +96,7 @@ int main(int argc, char *argv[])
     if (status != CAPS_SUCCESS) goto cleanup;
 
     stringVal = EG_strdup("mquad=1 mpp=3");
-    status = caps_setValue(tempObj, 1, 1, (void *) stringVal);
+    status = caps_setValue(tempObj, String, 1, 1, (void *) stringVal, NULL, NULL, &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
 
 
@@ -113,7 +113,7 @@ int main(int argc, char *argv[])
     if (status != CAPS_SUCCESS) goto cleanup;
 
     // Now load the fun3dAIM
-    status = caps_load(problemObj, "fun3dAIM", analysisPath, NULL, NULL, 1, &meshObj, &fun3dObj);
+    status = caps_makeAnalysis(problemObj, "fun3dAIM", analysisPath, NULL, NULL, 1, &meshObj, &fun3dObj);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     // Find & set Boundary_Conditions
@@ -136,7 +136,7 @@ int main(int argc, char *argv[])
     tupleVal[4].name = EG_strdup("2DSlice");
     tupleVal[4].value = EG_strdup("SymmetryY");
 
-    status = caps_setValue(tempObj, tupleSize, 1,  (void **) tupleVal);
+    status = caps_setValue(tempObj, Tuple, tupleSize, 1,  (void **) tupleVal, NULL, NULL, &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     // Find & set Mach number input
@@ -144,7 +144,7 @@ int main(int argc, char *argv[])
     if (status != CAPS_SUCCESS) goto cleanup;
 
     doubleVal  = 0.4;
-    status = caps_setValue(tempObj, 1, 1, (void *) &doubleVal);
+    status = caps_setValue(tempObj, Double, 1, 1, (void *) &doubleVal, NULL, NULL, &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     // Find & set Overwrite_NML */
@@ -152,7 +152,7 @@ int main(int argc, char *argv[])
     if (status != CAPS_SUCCESS) goto cleanup;
 
     boolVal = true;
-    status = caps_setValue(tempObj, 1, 1, (void *) &boolVal);
+    status = caps_setValue(tempObj, Boolean, 1, 1, (void *) &boolVal, NULL, NULL, &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     // Find & set 2D mode */
@@ -160,8 +160,26 @@ int main(int argc, char *argv[])
     if (status != CAPS_SUCCESS) goto cleanup;
 
     boolVal = true;
-    status = caps_setValue(tempObj, 1, 1, (void *) &boolVal);
+    status = caps_setValue(tempObj, Boolean, 1, 1, (void *) &boolVal, NULL, NULL, &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
+
+    /* Link the surface mesh from AFLR2 to Fun3D */
+    status = caps_childByName(meshObj, VALUE, ANALYSISOUT, "Surface_Mesh", &source);
+    if (status != CAPS_SUCCESS) {
+      printf("meshObj childByName for Volume_Mesh = %d\n", status);
+      goto cleanup;
+    }
+    status = caps_childByName(fun3dObj, VALUE, ANALYSISIN, "Mesh",  &target);
+    if (status != CAPS_SUCCESS) {
+      printf("fun3dObj childByName for Mesh = %d\n", status);
+      goto cleanup;
+    }
+    status = caps_makeLinkage(source, Copy, target);
+    if (status != CAPS_SUCCESS) {
+      printf(" caps_makeLinkage = %d\n", status);
+      goto cleanup;
+    }
+
 
     // Do the analysis setup for FUN3D;
     status = caps_preAnalysis(fun3dObj, &nErr, &errors);

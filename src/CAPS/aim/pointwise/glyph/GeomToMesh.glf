@@ -416,7 +416,7 @@ proc geomtomesh { } {
 
     if { $conParams(InitDim) > 3 } {
         # Perform merge operation to eliminate duplicate connectors
-        if { 0 < [connectorMergeUsingEndpoints $conList] } {
+        if { 0 < [connectorMergeUsingEndpoints $conList $tol] } {
             set conList [pw::Grid getAll -type pw::Connector]
             puts "After endpoint based merge, connector list has [llength $conList] entries."
         }

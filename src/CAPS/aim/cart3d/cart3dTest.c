@@ -3,7 +3,7 @@
  *
  *             Cart3D AIM tester
  *
- *      Copyright 2014-2020, Massachusetts Institute of Technology
+ *      Copyright 2014-2021, Massachusetts Institute of Technology
  *      Licensed under The GNU Lesser General Public License, version 2.1
  *      See http://www.opensource.org/licenses/lgpl-2.1.php
  *
@@ -27,7 +27,9 @@ int main(int argc, char *argv[])
   int            i, j, n, stat, nFields, *ranks, dirty, nErr, nLines;
   int            naobj, npts, rank, exec, imm[2];
   char           *apath, *intents, **fnames, **lines, *name, *lunits, *us;
+/*@-unrecog@*/
   char           cpath[PATH_MAX];
+/*@+unrecog@*/
   const char     *tname;
   double         val, minmax[2], *data, ptess[3] = {0.003, 0.001, 7.5};
   capsObj        pobj, cobj, tobj, obj, bobj, vobj, dobj, link, parent;
@@ -52,7 +54,7 @@ int main(int argc, char *argv[])
   }
 
   /* look at the bodies and report units */
-  stat = caps_size(pobj, BODIES, NONE, &n);
+  stat = caps_size(pobj, BODIES, NONE, &n, &nErr, &errors);
   if (stat != CAPS_SUCCESS) {
     printf(" caps_size on Bodies = %d\n", stat);
   } else {
@@ -67,9 +69,9 @@ int main(int argc, char *argv[])
   }
 
   /* load the Cart3D AIM */
-  stat = caps_load(pobj, "cart3dAIM", argv[2], NULL, NULL, 0, NULL, &cobj);
+  stat = caps_makeAnalysis(pobj, "cart3dAIM", argv[2], NULL, NULL, 0, NULL, &cobj);
   if (stat != CAPS_SUCCESS) {
-    printf(" caps_load = %d\n", stat);
+    printf(" caps_makeAnalysis = %d\n", stat);
     caps_close(pobj);
     return 1;
   }
@@ -85,7 +87,7 @@ int main(int argc, char *argv[])
   if (stat != CAPS_SUCCESS) {
     printf(" caps_childByName = %d\n", stat);
   } else {
-    stat = caps_setValue(tobj, 1, 3, (void *) &ptess);
+    stat = caps_setValue(tobj, Double, 1, 3, (void *) &ptess, NULL, NULL, &nErr, &errors);
     if (stat != CAPS_SUCCESS)
       printf(" caps_setValue = %d\n", stat);
   }
@@ -96,7 +98,7 @@ int main(int argc, char *argv[])
     printf(" caps_childByName tParams = %d\n", stat);
   } else {
     val  = 2.0;
-    stat = caps_setValue(tobj, 1, 1, (void *) &val);
+    stat = caps_setValue(tobj, Double, 1, 1, (void *) &val, NULL, "degree", &nErr, &errors);
     if (stat != CAPS_SUCCESS)
       printf(" caps_setValue alpha = %d\n", stat);
   }
@@ -107,7 +109,7 @@ int main(int argc, char *argv[])
     printf(" caps_childByName maxR = %d\n", stat);
   } else {
     j    = 12;
-    stat = caps_setValue(tobj, 1, 1, (void *) &j);
+    stat = caps_setValue(tobj, Integer, 1, 1, (void *) &j, NULL, NULL, &nErr, &errors);
     if (stat != CAPS_SUCCESS)
       printf(" caps_setValue maxR = %d\n", stat);
   }
@@ -177,8 +179,10 @@ int main(int argc, char *argv[])
     
     /* execute flowCart and run the post */
     if (dirty == 5) {
-      
+
+/*@-unrecog@*/
       (void) getcwd(cpath, PATH_MAX);
+/*@+unrecog@*/
       if (chdir(apath) != 0) {
         printf(" ERROR: Cannot change directory to -> %s\n", apath);
         caps_close(pobj);

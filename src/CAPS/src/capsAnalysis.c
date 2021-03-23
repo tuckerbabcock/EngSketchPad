@@ -3,7 +3,7 @@
  *
  *             Analysis Object Functions
  *
- *      Copyright 2014-2020, Massachusetts Institute of Technology
+ *      Copyright 2014-2021, Massachusetts Institute of Technology
  *      Licensed under The GNU Lesser General Public License, version 2.1
  *      See http://www.opensource.org/licenses/lgpl-2.1.php
  *
@@ -17,6 +17,11 @@
 #ifdef WIN32
 #define snprintf _snprintf
 #define strtok_r strtok_s
+#define getcwd   _getcwd
+#define PATH_MAX _MAX_PATH
+#else
+#include <unistd.h>
+#include <limits.h>
 #endif
 
 #include "udunits.h"
@@ -65,6 +70,8 @@ extern int  caps_fillCoeff2D(int nrank, int nux, int nvx, double *fit,
 extern int  caps_Aprx2DFree(/*@only@*/ capsAprx2D *approx);
 extern int  caps_invInterpolate1D(capsAprx1D *interp, double *sv, double *t);
 extern int  caps_invInterpolate2D(capsAprx2D *interp, double *sv, double *uv);
+extern int  caps_build(capsObject *pobject, int *nErr, capsErrs **errors);
+extern int  caps_freeError(/*@only@*/ capsErrs *errs);
 
 
 static int
@@ -79,7 +86,16 @@ caps_checkAnalysis(capsProblem *problem, int nObject, capsObject **objects)
 
   /* check units */
   for (i = 0; i < nObject; i++) {
+    /* Don't look at AIMptr units -- these are programmer defined */
+    if (values[i].type == Pointer) {
+      if (values[i].units == NULL) return CAPS_UNITERR;
+      continue;
+    }
     if (values[i].units == NULL) continue;
+    /* Only double and Strings can have units */
+    if (!((values[i].type == Double) ||
+          (values[i].type == DoubleDot) ||
+          (values[i].type == String))) return CAPS_UNITERR;
     utunit = ut_parse((ut_system *) problem->utsystem, values[i].units,
                       UT_ASCII);
     if (utunit == NULL) return CAPS_UNITERR;
@@ -124,13 +140,18 @@ caps_checkAnalysis(capsProblem *problem, int nObject, capsObject **objects)
     if (j == values[k].length) return CAPS_HIERARCHERR;
   }
 
-  /* set the length */
+  /* set the length and check nullval*/
   for (i = 0; i < nObject; i++) {
     values[i].length = values[i].ncol*values[i].nrow;
     if (values[i].type == String) {
       if (values[i].vals.string == NULL) values[i].length = 0;
     } else {
       if (values[i].length <= 0) return CAPS_SHAPEERR;
+    }
+
+    if (values[i].nullVal != NotAllowed) {
+      if (values[i].type == Pointer)
+        values[i].nullVal = (values[i].vals.AIMptr == NULL) ? IsNull : NotNull;
     }
   }
 
@@ -201,8 +222,9 @@ int
 caps_queryAnalysis(capsObject *pobject, const char *aname, int *nIn, int *nOut,
                    int *execute)
 {
-  int          nField, *ranks;
+  int          nField, major, minor, *ranks;
   char         **fields;
+  void         *instStore = NULL;
   capsProblem  *problem;
 
   if (pobject              == NULL)      return CAPS_NULLOBJ;
@@ -212,11 +234,14 @@ caps_queryAnalysis(capsObject *pobject, const char *aname, int *nIn, int *nOut,
   if (aname                == NULL)      return CAPS_NULLNAME;
   problem = (capsProblem *) pobject->blind;
   problem->funID = CAPS_QUERYANALYSIS;
+  
+  major = CAPSMAJOR;
+  minor = CAPSMINOR;
 
   /* try to load the AIM and get the info */
   *execute = 1;
-  return aim_Initialize(&problem->aimFPTR, aname, 0, NULL, execute, NULL,
-                        nIn, nOut, &nField, &fields, &ranks);
+  return aim_Initialize(&problem->aimFPTR, aname, execute, NULL, &major, &minor,
+                        nIn, nOut, &nField, &fields, &ranks, &instStore);
 }
 
 
@@ -250,7 +275,7 @@ caps_getInput(capsObject *pobject, const char *aname, int index, char **ainame,
   defaults->ndot            = 0;
   defaults->dots            = NULL;
 
-  stat = aim_Inputs(problem->aimFPTR, aname, -1, NULL, index, ainame, defaults);
+  stat = aim_Inputs(problem->aimFPTR, aname, NULL, NULL, index, ainame, defaults);
   if (stat == CAPS_SUCCESS) defaults->length = defaults->ncol*defaults->nrow;
   return stat;
 }
@@ -286,7 +311,7 @@ caps_getOutput(capsObject *pobject, const char *aname, int index, char **aoname,
   form->ndot            = 0;
   form->dots            = NULL;
 
-  stat = aim_Outputs(problem->aimFPTR, aname, -1, NULL, index, aoname, form);
+  stat = aim_Outputs(problem->aimFPTR, aname, NULL, NULL, index, aoname, form);
   if (stat == CAPS_SUCCESS) form->length = form->ncol*form->nrow;
   return stat;
 }
@@ -295,6 +320,10 @@ caps_getOutput(capsObject *pobject, const char *aname, int index, char **aoname,
 int
 caps_AIMbackdoor(const capsObject *aobject, const char *JSONin, char **JSONout)
 {
+  int          stat;
+/*@-unrecog@*/
+  char         currentPath[PATH_MAX];
+/*@+unrecog@*/
   capsAnalysis *analysis;
   capsObject   *pobject;
   capsProblem  *problem;
@@ -310,22 +339,34 @@ caps_AIMbackdoor(const capsObject *aobject, const char *JSONin, char **JSONout)
   problem  = (capsProblem *)  pobject->blind;
   problem->funID = CAPS_AIMBACKDOOR;
 
-  return aim_Backdoor(problem->aimFPTR, analysis->loadName, analysis->instance,
+  /* do it! */
+/*@-unrecog@*/
+  (void) getcwd(currentPath, PATH_MAX);
+/*@+unrecog@*/
+  if (chdir(analysis->path) != 0) {
+    printf(" caps_AIMbackdoor: Path %s Error!\n", analysis->path);
+    return CAPS_DIRERR;
+  }
+  stat = aim_Backdoor(problem->aimFPTR, analysis->loadName, analysis->instStore,
                       &analysis->info, JSONin, JSONout);
+  chdir(currentPath);
+  return stat;
 }
 
 
 int
-caps_load(capsObject *pobject, const char *aname, const char *apath,
-          /*@null@*/ const char *unitSys, /*@null@*/ const char *intents,
-          int nparent, /*@null@*/ capsObject **parents, capsObject **aobject)
+caps_makeAnalysis(capsObject *pobject, const char *aname, const char *apath,
+                  /*@null@*/ const char *unitSys, /*@null@*/ const char *intents,
+                  int nparent, /*@null@*/ capsObject **parents, capsObject **aobject)
 {
-  int          i, j, status, len, nIn, nOut, *ranks, instance, nField, eFlag;
+  int          i, j, status, len, nIn, nOut, *ranks, nField, eFlag;
+  int          major, minor;
   char         **fields, *oname;
+  void         *instStore;
   capsObject   *object, **tmp;
   capsProblem  *problem;
   capsAnalysis *analysis;
-  capsValue    *value, *geomIn = NULL;
+  capsValue    *value;
 
   *aobject = NULL;
   if (pobject              == NULL)      return CAPS_NULLOBJ;
@@ -336,10 +377,6 @@ caps_load(capsObject *pobject, const char *aname, const char *apath,
   if (apath                == NULL)      return CAPS_NULLNAME;
   problem = (capsProblem *) pobject->blind;
   problem->funID = CAPS_LOAD;
-  if (problem->nGeomIn > 0) {
-    object = problem->geomIn[0];
-    geomIn = (capsValue *) object->blind;
-  }
 
   /* are our parents the correct objects? */
   if (parents != NULL)
@@ -370,15 +407,18 @@ caps_load(capsObject *pobject, const char *aname, const char *apath,
   EG_free(oname);
 
   /* try to load the AIM */
-  eFlag    = 0;
-  nField   = 0;
-  fields   = NULL;
-  ranks    = NULL;
-  instance = aim_Initialize(&problem->aimFPTR, aname, problem->nGeomIn, geomIn,
-                            &eFlag, unitSys, &nIn, &nOut, &nField, &fields,
-                            &ranks);
-  if (instance <  CAPS_SUCCESS) return instance;
-  if (nIn      <= 0) {
+  eFlag     = 0;
+  nField    = 0;
+  fields    = NULL;
+  ranks     = NULL;
+  major     = CAPSMAJOR;
+  minor     = CAPSMINOR;
+  instStore = NULL;
+  status    = aim_Initialize(&problem->aimFPTR, aname, &eFlag, unitSys, &major,
+                             &minor, &nIn, &nOut, &nField, &fields, &ranks,
+                             &instStore);
+  if (status <  CAPS_SUCCESS) return status;
+  if (nIn    <= 0) {
     if (fields != NULL) {
       for (i = 0; i < nField; i++) EG_free(fields[i]);
       EG_free(fields);
@@ -401,10 +441,13 @@ caps_load(capsObject *pobject, const char *aname, const char *apath,
   analysis->loadName         = EG_strdup(aname);
   analysis->path             = EG_strdup(apath);
   analysis->unitSys          = NULL;
-  analysis->instance         = instance;
+  analysis->major            = major;
+  analysis->minor            = minor;
+  analysis->instStore        = instStore;
   analysis->eFlag            = eFlag;
   analysis->intents          = EG_strdup(intents);
   analysis->info.magicnumber = CAPSMAGIC;
+  analysis->info.instance    = status;
   analysis->info.problem     = problem;
   analysis->info.analysis    = analysis;
   analysis->info.pIndex      = 0;
@@ -423,6 +466,8 @@ caps_load(capsObject *pobject, const char *aname, const char *apath,
   analysis->parents          = NULL;
   analysis->nBody            = 0;
   analysis->bodies           = NULL;
+  analysis->nTess            = 0;
+  analysis->tess             = NULL;
   analysis->pre.pname        = NULL;
   analysis->pre.pID          = NULL;
   analysis->pre.user         = NULL;
@@ -448,6 +493,7 @@ caps_load(capsObject *pobject, const char *aname, const char *apath,
     for (i = 0; i < nIn; i++) analysis->analysisIn[i] = NULL;
     value = (capsValue *) EG_alloc(nIn*sizeof(capsValue));
     if (value == NULL) {
+      EG_free(analysis->analysisIn);
       caps_freeAnalysis(0, analysis);
       return EGADS_MALLOC;
     }
@@ -460,7 +506,7 @@ caps_load(capsObject *pobject, const char *aname, const char *apath,
       value[i].nullVal         = NotAllowed;
       value[i].units           = NULL;
       value[i].link            = NULL;
-      value[i].vals.integer    = 0;
+      value[i].vals.reals      = NULL;
       value[i].limits.dlims[0] = value[i].limits.dlims[1] = 0.0;
       value[i].linkMethod      = Copy;
       value[i].gInType         = 0;
@@ -487,7 +533,7 @@ caps_load(capsObject *pobject, const char *aname, const char *apath,
     }
 
     for (i = 0; i < nIn; i++) {
-      status = aim_Inputs(problem->aimFPTR, aname, analysis->instance,
+      status = aim_Inputs(problem->aimFPTR, aname, analysis->instStore,
                           &analysis->info, i+1, &analysis->analysisIn[i]->name,
                           &value[i]);
       if (status != CAPS_SUCCESS) {
@@ -526,7 +572,7 @@ caps_load(capsObject *pobject, const char *aname, const char *apath,
       value[i].nullVal         = NotAllowed;
       value[i].units           = NULL;
       value[i].link            = NULL;
-      value[i].vals.integer    = 0;
+      value[i].vals.reals      = NULL;
       value[i].limits.dlims[0] = value[i].limits.dlims[1] = 0.0;
       value[i].linkMethod      = Copy;
       value[i].gInType         = 0;
@@ -553,7 +599,7 @@ caps_load(capsObject *pobject, const char *aname, const char *apath,
     }
 
     for (i = 0; i < nOut; i++) {
-      status = aim_Outputs(problem->aimFPTR, aname, analysis->instance,
+      status = aim_Outputs(problem->aimFPTR, aname, analysis->instStore,
                            &analysis->info, i+1,
                            &analysis->analysisOut[i]->name, &value[i]);
       if (status != CAPS_SUCCESS) {
@@ -630,12 +676,14 @@ int
 caps_dupAnalysis(capsObject *from, const char *apath, int nparent,
                  /*@null@*/ capsObject **parents,capsObject **aobject)
 {
-  int          i, j, status, len, nIn, nOut, *ranks, instance, eFlag, nField;
+  int          i, j, status, len, nIn, nOut, *ranks, eFlag, nField;
+  int          major, minor;
   char         **fields, *oname;
+  void         *instStore;
   capsObject   *pobject, *object, **tmp;
   capsAnalysis *froma, *analysis;
   capsProblem  *problem;
-  capsValue    *value, *src, *geomIn = NULL;
+  capsValue    *value, *src;
 
   *aobject = NULL;
   if (from              == NULL)      return CAPS_NULLOBJ;
@@ -649,10 +697,6 @@ caps_dupAnalysis(capsObject *from, const char *apath, int nparent,
   if (pobject->blind    == NULL)      return CAPS_NULLBLIND;
   problem = (capsProblem *) pobject->blind;
   problem->funID = CAPS_DUPANALYSIS;
-  if (problem->nGeomIn > 0) {
-    object = problem->geomIn[0];
-    geomIn = (capsValue *) object->blind;
-  }
 
   /* is the name unique? */
   len = strlen(froma->loadName) + strlen(apath) + 2;
@@ -674,15 +718,18 @@ caps_dupAnalysis(capsObject *from, const char *apath, int nparent,
   EG_free(oname);
 
   /* get a new instance AIM */
-  eFlag    = 0;
-  nField   = 0;
-  fields   = NULL;
-  ranks    = NULL;
-  instance = aim_Initialize(&problem->aimFPTR, froma->loadName, problem->nGeomIn,
-                            geomIn, &eFlag, froma->unitSys, &nIn, &nOut,
-                            &nField, &fields, &ranks);
-  if (instance <  CAPS_SUCCESS) return instance;
-  if (nIn      <= 0) {
+  eFlag     = 0;
+  nField    = 0;
+  fields    = NULL;
+  ranks     = NULL;
+  major     = CAPSMAJOR;
+  minor     = CAPSMINOR;
+  instStore = NULL;
+  status    = aim_Initialize(&problem->aimFPTR, froma->loadName, &eFlag,
+                             froma->unitSys, &major, &minor, &nIn, &nOut,
+                             &nField, &fields, &ranks, &instStore);
+  if (status <  CAPS_SUCCESS) return status;
+  if (nIn    <= 0) {
     if (fields != NULL) {
       for (i = 0; i < nField; i++) EG_free(fields[i]);
       EG_free(fields);
@@ -705,10 +752,13 @@ caps_dupAnalysis(capsObject *from, const char *apath, int nparent,
   analysis->loadName         = EG_strdup(froma->loadName);
   analysis->path             = EG_strdup(apath);
   analysis->unitSys          = EG_strdup(froma->unitSys);
-  analysis->instance         = instance;
+  analysis->major            = major;
+  analysis->minor            = minor;
+  analysis->instStore        = instStore;
   analysis->eFlag            = eFlag;
   analysis->intents          = EG_strdup(froma->intents);
   analysis->info.magicnumber = CAPSMAGIC;
+  analysis->info.instance    = status;
   analysis->info.problem     = problem;
   analysis->info.analysis    = analysis;
   analysis->info.pIndex      = 0;
@@ -727,6 +777,8 @@ caps_dupAnalysis(capsObject *from, const char *apath, int nparent,
   analysis->parents          = NULL;
   analysis->nBody            = 0;
   analysis->bodies           = NULL;
+  analysis->nTess            = 0;
+  analysis->tess             = NULL;
   analysis->pre.pname        = NULL;
   analysis->pre.pID          = NULL;
   analysis->pre.user         = NULL;
@@ -764,7 +816,7 @@ caps_dupAnalysis(capsObject *from, const char *apath, int nparent,
       value[i].nullVal         = NotAllowed;
       value[i].units           = NULL;
       value[i].link            = NULL;
-      value[i].vals.integer    = 0;
+      value[i].vals.reals      = NULL;
       value[i].limits.dlims[0] = value[i].limits.dlims[1] = 0.0;
       value[i].linkMethod      = Copy;
       value[i].gInType         = 0;
@@ -826,7 +878,7 @@ caps_dupAnalysis(capsObject *from, const char *apath, int nparent,
       value[i].nullVal         = NotAllowed;
       value[i].units           = NULL;
       value[i].link            = NULL;
-      value[i].vals.integer    = 0;
+      value[i].vals.reals      = NULL;
       value[i].limits.dlims[0] = value[i].limits.dlims[1] = 0.0;
       value[i].linkMethod      = Copy;
       value[i].gInType         = 0;
@@ -854,7 +906,7 @@ caps_dupAnalysis(capsObject *from, const char *apath, int nparent,
 
     for (i = 0; i < nOut; i++) {
       status = aim_Outputs(problem->aimFPTR, froma->loadName,
-                           analysis->instance, &analysis->info, i+1,
+                           analysis->instStore, &analysis->info, i+1,
                            &analysis->analysisOut[i]->name, &value[i]);
       if (status != CAPS_SUCCESS) {
         caps_freeAnalysis(0, analysis);
@@ -1050,30 +1102,69 @@ caps_analysisInfo(const capsObject *aobject, char **apath, char **unitSys,
 }
 
 
+/* maps gIndices indexes to body global tessellation indexes */
+static int
+caps_makeTessGlobal(capsDiscr *discr)
+{
+  int           i, k, iface, vert, local, global, bIndex, typ, len, stat;
+  int           state, nGlobal;
+  ego           body;
+  capsBodyDiscr *discBody = NULL;
+
+  if (discr->nPoints == 0) return CAPS_SUCCESS;
+  if (discr->nBodys  == 0) return CAPS_SUCCESS;
+
+  discr->bodys[0].globalOffset = 0;
+
+  stat = EGADS_MALLOC;
+  discr->tessGlobal = (int *) EG_alloc(2*discr->nPoints*sizeof(int));
+  if (discr->tessGlobal == NULL) goto cleanup;
+
+  for (bIndex = 1; bIndex <= discr->nBodys; bIndex++) {
+    discBody = &discr->bodys[bIndex-1];
+
+    /* fill in tessGlobal */
+    for (i = 0; i < discBody->nElems; i++) {
+      typ = discBody->elems[i].tIndex;
+      len = discr->types[typ-1].nref;
+      for (k = 0; k < len; k++) {
+        iface  = discBody->elems[i].eIndex;
+        vert   = discBody->elems[i].gIndices[2*k  ]-1;
+        local  = discBody->elems[i].gIndices[2*k+1];
+        stat = EG_localToGlobal(discBody->tess, iface, local, &global);
+        if (stat != EGADS_SUCCESS) goto cleanup;
+        discr->tessGlobal[2*vert  ] = bIndex;
+        discr->tessGlobal[2*vert+1] = global;
+      }
+    }
+
+    /* fill in globalOffset across bodies */
+    if (bIndex < discr->nBodys) {
+      stat = EG_statusTessBody(discBody->tess, &body, &state, &nGlobal);
+      if (stat != EGADS_SUCCESS) goto cleanup;
+      discr->bodys[bIndex].globalOffset = discBody->globalOffset + nGlobal;
+    }
+  }
+  
+  stat = CAPS_SUCCESS;
+
+cleanup:
+  return stat;
+}
+
+
 int
 caps_checkDiscr(capsDiscr *discr, int l, char *line)
 {
-  int          i, j, len, typ, stat, bIndex, nEdge, nFace, last, state;
-  int          nGlobal, npts, ntris;
-  ego          body, *objs;
-  aimInfo      *aInfo;
-  capsAnalysis *analysis;
-  const int    *ptype, *pindex, *tris, *tric;
-  const double *xyz, *prms;
+  int           i, j, len, typ, stat, bIndex, nEdge, nFace, last, state;
+  int           nGlobal, npts, ntris;
+  ego           body;
+  capsBodyDiscr *discBody;
+  const int     *ptype, *pindex, *tris, *tric;
+  const double  *xyz, *prms;
 
-  aInfo    = (aimInfo *)      discr->aInfo;
-  analysis = (capsAnalysis *) aInfo->analysis;
-
-  if (discr->mapping == NULL) {
-    snprintf(line, l, "caps_checkDiscr: mapping is NULL!\n");
-    return CAPS_NULLBLIND;
-  }
   if (discr->types == NULL) {
     snprintf(line, l, "caps_checkDiscr: types is NULL!\n");
-    return CAPS_NULLBLIND;
-  }
-  if (discr->elems == NULL) {
-    snprintf(line, l, "caps_checkDiscr: elems is NULL!\n");
     return CAPS_NULLBLIND;
   }
 
@@ -1106,21 +1197,6 @@ caps_checkDiscr(capsDiscr *discr, int l, char *line)
       }
   }
 
-  /* look at body indices */
-  for (i = 0; i < discr->nPoints; i++)
-    if ((discr->mapping[2*i] < 1) || (discr->mapping[2*i] > analysis->nBody)) {
-      snprintf(line, l, "caps_checkDiscr: body mapping %d = %d [1,%d]!\n",
-               i+1, discr->mapping[2*i], analysis->nBody);
-      return CAPS_BADINDEX;
-    }
-  for (i = 0; i < discr->nElems; i++)
-    if ((discr->elems[i].bIndex < 1) ||
-        (discr->elems[i].bIndex > analysis->nBody)) {
-      snprintf(line, l, "caps_checkDiscr: body element %d = %d [1,%d]!\n",
-               i+1, discr->elems[i].bIndex, analysis->nBody);
-      return CAPS_BADINDEX;
-    }
-
   /* check vert element indices */
   if (discr->nVerts != 0) {
     if (discr->verts == NULL) {
@@ -1133,192 +1209,254 @@ caps_checkDiscr(capsDiscr *discr, int l, char *line)
                discr->nVerts);
       return CAPS_NULLVALUE;
     }
-    for (i = 0; i < discr->nVerts; i++)
-      if ((discr->celem[i] < 1) || (discr->celem[i] > discr->nElems)) {
+    for (i = 0; i < discr->nVerts; i++) {
+      bIndex = discr->celem[2*i];
+      if ((bIndex < 1) || (bIndex > discr->nBodys)) {
         snprintf(line, l,
-                 "caps_checkDiscr: celem[%d] = %d out of range [1-%d] ",
-                 i+1, discr->celem[i], discr->nElems);
+                 "caps_checkDiscr:celem[2*%d] = %d out of range [1-%d] ",
+                 i, discr->celem[i], discr->nBodys);
         return CAPS_BADINDEX;
       }
+      discBody = &discr->bodys[discr->celem[2*i]-1];
+
+      if ((discr->celem[2*i] < 1) || (discr->celem[2*i+1] > discBody->nElems)) {
+        snprintf(line, l,
+                 "caps_checkDiscr: celem[2*%d+1] = %d out of range [1-%d] ",
+                 i, discr->celem[i], discBody->nElems);
+        return CAPS_BADINDEX;
+      }
+    }
   }
 
-  /* look at the data associated with each body */
-  for (bIndex = 1; bIndex <= analysis->nBody; bIndex++) {
-    stat = EG_getBodyTopos(analysis->bodies[bIndex-1], NULL, FACE, &nFace,
-                           &objs);
+  /* look at body discretizations */
+  if (discr->bodys == NULL) {
+    snprintf(line, l, "caps_checkDiscr: bodys is NULL!\n");
+    return CAPS_NULLBLIND;
+  }
+
+  for (bIndex = 1; bIndex <= discr->nBodys; bIndex++) {
+    discBody = &discr->bodys[bIndex-1];
+
+    if (discBody->tess == NULL) {
+      snprintf(line, l, "caps_checkDiscr: body %d etess is NULL!\n", bIndex);
+      return CAPS_NULLBLIND;
+    }
+
+    if (discBody->elems == NULL) {
+      snprintf(line, l, "caps_checkDiscr: body %d elems is NULL!\n", bIndex);
+      return CAPS_NULLBLIND;
+    }
+
+    stat = EG_statusTessBody(discBody->tess, &body, &state, &nGlobal);
+    if (stat < EGADS_SUCCESS) {
+      snprintf(line, l, "caps_checkDiscr: statusTessBody = %d for body %d!\n",
+               stat, bIndex);
+      return stat;
+    }
+    if (state == 0) {
+      snprintf(line, l, "caps_checkDiscr: Tessellation is Open for body %d!\n",
+               bIndex);
+      return EGADS_TESSTATE;
+    }
+
+    /* look at the data associated with each body */
+    stat = EG_getBodyTopos(body, NULL, FACE, &nFace, NULL);
     if (stat != EGADS_SUCCESS) {
       snprintf(line, l, "caps_checkDiscr: getBodyTopos (Face) = %d for %d!\n",
                stat, bIndex);
       return stat;
     }
-    EG_free(objs);
-    stat = EG_getBodyTopos(analysis->bodies[bIndex-1], NULL, FACE, &nEdge,
-                           &objs);
+    stat = EG_getBodyTopos(body, NULL, EDGE, &nEdge, NULL);
     if (stat != EGADS_SUCCESS) {
       snprintf(line, l, "caps_checkDiscr: getBodyTopos (Edge) = %d for %d!\n",
                stat, bIndex);
       return stat;
     }
-    EG_free(objs);
-
-    /* only check point mapping if tessellation exists on this body */
-    if (analysis->bodies[bIndex-1+analysis->nBody] != NULL) {
-      stat = EG_statusTessBody(analysis->bodies[bIndex-1+analysis->nBody], &body,
-                               &state, &nGlobal);
-      if (stat < EGADS_SUCCESS) {
-        snprintf(line, l, "caps_checkDiscr: statusTessBody = %d for %d!\n",
-                 stat, bIndex);
-        return stat;
-      }
-      if (state == 0) {
-        snprintf(line, l, "caps_checkDiscr: Tessellation is Open for %d!\n",
-                 bIndex);
-        return EGADS_TESSTATE;
-      }
-
-      /* check point mapping is withing the expected range for this body */
-      for (i = 0; i < discr->nPoints; i++)
-        if (discr->mapping[2*i] == bIndex)
-          if ((discr->mapping[2*i+1] < 1) || (discr->mapping[2*i+1] > nGlobal)) {
-            snprintf(line, l, "caps_checkDiscr: global mapping %d = %d [1,%d] for %d!\n",
-                     i+1, discr->mapping[2*i+1], nGlobal, bIndex);
-            return CAPS_BADINDEX;
-          }
-
-    } else {
-
-      /* check that the body is not in the mapping because it lacks tessellation */
-      for (i = 0; i < discr->nPoints; i++)
-        if (discr->mapping[2*i] == bIndex) {
-          snprintf(line, l, "caps_checkDiscr: global mapping exists for body %d which lacks tessellation!\n",
-                   bIndex);
-          return CAPS_BADINDEX;
-        }
-    }
 
     /* do the elements */
     last = 0;
-    for (i = 1; i <= discr->nElems; i++)
-      if (discr->elems[i-1].bIndex == bIndex) {
-        if ((discr->elems[i-1].tIndex < 1) ||
-            (discr->elems[i-1].tIndex > discr->nTypes)) {
+    for (i = 1; i <= discBody->nElems; i++) {
+      if ((discBody->elems[i-1].tIndex < 1) ||
+          (discBody->elems[i-1].tIndex > discr->nTypes)) {
+        snprintf(line, l,
+                 "caps_checkDiscr: elems[%d].tIndex = %d out of range [1-%d] ",
+                 i, discBody->elems[i].tIndex, discr->nTypes);
+        return CAPS_BADINDEX;
+      }
+      if (discr->dim == 1) {
+        if ((discBody->elems[i-1].eIndex < 1) ||
+            (discBody->elems[i-1].eIndex > nEdge)) {
           snprintf(line, l,
-                   "caps_checkDiscr: elems[%d].tIndex = %d out of range [1-%d] ",
-                   i, discr->elems[i-1].tIndex, discr->nTypes);
+                   "caps_checkDiscr: elems[%d].eIndex = %d out of range [1-%d] ",
+                   i, discBody->elems[i-1].eIndex, nEdge);
           return CAPS_BADINDEX;
         }
-        if (discr->dim == 1) {
-          if ((discr->elems[i-1].eIndex < 1) ||
-              (discr->elems[i-1].eIndex > nEdge)) {
-            snprintf(line, l,
-                     "caps_checkDiscr: elems[%d].eIndex = %d out of range [1-%d] ",
-                     i, discr->elems[i-1].eIndex, nEdge);
-            return CAPS_BADINDEX;
-          }
-          if (discr->elems[i-1].eIndex != last) {
+        if (discBody->elems[i-1].eIndex != last) {
 /*@-nullpass@*/
-            stat = EG_getTessEdge(analysis->bodies[bIndex-1+analysis->nBody],
-                                  discr->elems[i-1].eIndex, &npts, &xyz, &prms);
+          stat = EG_getTessEdge(discBody->tess, discBody->elems[i-1].eIndex, 
+                                &npts, &xyz, &prms);
 /*@+nullpass@*/
-            if (stat != EGADS_SUCCESS) {
-              snprintf(line, l, "caps_checkDiscr: getTessEdge %d = %d for %d!\n",
-                       discr->elems[i-1].eIndex, stat, bIndex);
-              return stat;
-            }
-            ntris = npts-1;
-            last  = discr->elems[i-1].eIndex;
+          if (stat != EGADS_SUCCESS) {
+            snprintf(line, l, "caps_checkDiscr: getTessEdge %d = %d for %d!\n",
+                     discBody->elems[i-1].eIndex, stat, bIndex);
+            return stat;
           }
-        } else if (discr->dim == 2) {
-          if ((discr->elems[i-1].eIndex < 1) ||
-              (discr->elems[i-1].eIndex > nFace)) {
-            snprintf(line, l,
-                     "caps_checkDiscr: elems[%d].eIndex = %d out of range [1-%d] ",
-                     i, discr->elems[i-1].eIndex, nFace);
-            return CAPS_BADINDEX;
-          }
-          if (discr->elems[i-1].eIndex != last) {
+          ntris = npts-1;
+          last  = discBody->elems[i-1].eIndex;
+        }
+      } else if (discr->dim == 2) {
+        if ((discBody->elems[i-1].eIndex < 1) ||
+            (discBody->elems[i-1].eIndex > nFace)) {
+          snprintf(line, l,
+                   "caps_checkDiscr: elems[%d].eIndex = %d out of range [1-%d] ",
+                   i, discBody->elems[i-1].eIndex, nFace);
+          return CAPS_BADINDEX;
+        }
+        if (discBody->elems[i-1].eIndex != last) {
 /*@-nullpass@*/
-            stat = EG_getTessFace(analysis->bodies[bIndex-1+analysis->nBody],
-                                  discr->elems[i-1].eIndex, &npts, &xyz, &prms,
-                                  &ptype, &pindex, &ntris, &tris, &tric);
+          stat = EG_getTessFace(discBody->tess,
+                                discBody->elems[i-1].eIndex, &npts, &xyz, &prms,
+                                &ptype, &pindex, &ntris, &tris, &tric);
 /*@+nullpass@*/
-            if (stat != EGADS_SUCCESS) {
-              snprintf(line, l, "caps_checkDiscr: getTessFace %d = %d for %d!\n",
-                       discr->elems[i-1].eIndex, stat, bIndex);
-              return stat;
-            }
-            last = discr->elems[i-1].eIndex;
+          if (stat != EGADS_SUCCESS) {
+            snprintf(line, l, "caps_checkDiscr: getTessFace %d = %d for %d!\n",
+                     discBody->elems[i-1].eIndex, stat, bIndex);
+            return stat;
           }
-        }
-        typ = discr->elems[i-1].tIndex;
-        len = discr->types[typ-1].nref;
-        for (j = 0; j < len; j++) {
-          if ((discr->elems[i-1].gIndices[2*j] < 1) ||
-              (discr->elems[i-1].gIndices[2*j] > discr->nPoints)) {
-            snprintf(line, l,
-                     "caps_checkDiscr: elems[%d].gIndices[%d]p = %d out of range [1-%d] ",
-                     i, j+1, discr->elems[i-1].gIndices[2*j], discr->nPoints);
-            return CAPS_BADINDEX;
-          }
-#ifndef __clang_analyzer__
-          if ((discr->elems[i-1].gIndices[2*j+1] < 1) ||
-              (discr->elems[i-1].gIndices[2*j+1] > npts)) {
-            snprintf(line, l,
-                     "caps_checkDiscr: elems[%d].gIndices[%d]t = %d out of range [1-%d] ",
-                     i, j+1, discr->elems[i-1].gIndices[2*j+1], npts);
-            return CAPS_BADINDEX;
-          }
-#endif
-        }
-        if (discr->verts != NULL) {
-          len = discr->types[typ-1].ndata;
-          if ((len != 0) && (discr->elems[i-1].dIndices == NULL)) {
-            snprintf(line, l,
-                     "caps_checkDiscr: elems[%d].dIndices[%d] == NULL ",
-                     i, j+1);
-            return CAPS_NULLVALUE;
-          }
-          for (j = 0; j < len; j++)
-            if ((discr->elems[i-1].dIndices[j] < 1) ||
-                (discr->elems[i-1].dIndices[j] > discr->nVerts)) {
-              snprintf(line, l,
-                       "caps_checkDiscr: elems[%d].dIndices[%d] = %d out of range [1-%d] ",
-                       i, j+1, discr->elems[i-1].dIndices[j], discr->nPoints);
-              return CAPS_BADINDEX;
-            }
-        }
-        len = discr->types[typ-1].ntri;
-        if (len > 2) {
-          if (discr->elems[i-1].eTris.poly == NULL) {
-            snprintf(line, l, "caps_checkDiscr: elems[%d].poly = NULL!", i);
-            return CAPS_NULLVALUE;
-          }
-          for (j = 0; j < len; j++) {
-#ifndef __clang_analyzer__
-            if ((discr->elems[i-1].eTris.poly[j] < 1) ||
-                (discr->elems[i-1].eTris.poly[j] > ntris)) {
-              snprintf(line, l,
-                       "caps_checkDiscr: elems[%d].eTris[%d] = %d out of range [1-%d] ",
-                       i, j+1, discr->elems[i-1].eTris.poly[j], ntris);
-              return CAPS_BADINDEX;
-            }
-#endif
-          }
-        } else {
-          for (j = 0; j < len; j++) {
-#ifndef __clang_analyzer__
-            if ((discr->elems[i-1].eTris.tq[j] < 1) ||
-                (discr->elems[i-1].eTris.tq[j] > ntris)) {
-              snprintf(line, l,
-                       "caps_checkDiscr: elems[%d].eTris[%d] = %d out of range [1-%d] ",
-                       i, j+1, discr->elems[i-1].eTris.tq[j], ntris);
-              return CAPS_BADINDEX;
-            }
-#endif
-          }
+          last = discBody->elems[i-1].eIndex;
         }
       }
+      typ = discBody->elems[i-1].tIndex;
+      len = discr->types[typ-1].nref;
+      for (j = 0; j < len; j++) {
+        if ((discBody->elems[i-1].gIndices[2*j] < 1) ||
+            (discBody->elems[i-1].gIndices[2*j] > discr->nPoints)) {
+          snprintf(line, l,
+                   "caps_checkDiscr: elems[%d].gIndices[%d]p = %d out of range [1-%d] ",
+                   i, j, discBody->elems[i-1].gIndices[2*j], discr->nPoints);
+          return CAPS_BADINDEX;
+        }
+#ifndef __clang_analyzer__
+        if ((discBody->elems[i-1].gIndices[2*j+1] < 1) ||
+            (discBody->elems[i-1].gIndices[2*j+1] > npts)) {
+          snprintf(line, l,
+                   "caps_checkDiscr: elems[%d].gIndices[%d]t = %d out of range [1-%d] ",
+                   i, j+1, discBody->elems[i-1].gIndices[2*j+1], npts);
+          return CAPS_BADINDEX;
+        }
+#endif
+      }
+      if (discr->verts != NULL) {
+        len = discr->types[typ-1].ndata;
+        if ((len != 0) && (discBody->elems[i-1].dIndices == NULL)) {
+          snprintf(line, l,
+                   "caps_checkDiscr: elems[%d].dIndices[%d] == NULL ",
+                   i, j+1);
+          return CAPS_NULLVALUE;
+        }
+        for (j = 0; j < len; j++)
+          if ((discBody->elems[i-1].dIndices[j] < 1) ||
+              (discBody->elems[i-1].dIndices[j] > discr->nVerts)) {
+            snprintf(line, l,
+                     "caps_checkDiscr: elems[%d].dIndices[%d] = %d out of range [1-%d] ",
+                     i, j, discBody->elems[i-1].dIndices[j], discr->nPoints);
+            return CAPS_BADINDEX;
+          }
+      }
+      len = discr->types[typ-1].ntri;
+      if (len > 2) {
+        if (discBody->elems[i-1].eTris.poly == NULL) {
+          snprintf(line, l, "caps_checkDiscr: elems[%d].poly = NULL!", i);
+          return CAPS_NULLVALUE;
+        }
+        for (j = 0; j < len; j++) {
+#ifndef __clang_analyzer__
+          if ((discBody->elems[i-1].eTris.poly[j] < 1) ||
+              (discBody->elems[i-1].eTris.poly[j] > ntris)) {
+            snprintf(line, l,
+                     "caps_checkDiscr: elems[%d].eTris[%d] = %d out of range [1-%d] ",
+                     i, j+1, discBody->elems[i-1].eTris.poly[j], ntris);
+            return CAPS_BADINDEX;
+          }
+#endif
+        }
 
+      } else {
+        for (j = 0; j < len; j++) {
+#ifndef __clang_analyzer__
+          if ((discBody->elems[i-1].eTris.tq[j] < 1) ||
+              (discBody->elems[i-1].eTris.tq[j] > ntris)) {
+            snprintf(line, l,
+                     "caps_checkDiscr: elems[%d].eTris[%d] = %d out of range [1-%d] ",
+                     i, j+1, discBody->elems[i].eTris.tq[j], ntris);
+            return CAPS_BADINDEX;
+          }
+#endif
+        }
+      }
+    }
+  }
+
+  /* create the global tessellation index and check */
+  if (discr->tessGlobal == NULL) {
+    stat = caps_makeTessGlobal(discr);
+    if (stat < EGADS_SUCCESS || discr->tessGlobal == NULL) {
+      snprintf(line, l, "caps_checkDiscr: caps_makeTessGlobal stat = %d!\n",
+               stat);
+      return stat;
+    }
+  }
+
+  /* look at body indices */
+/*@-nullderef@*/
+  for (i = 0; i < discr->nPoints; i++)
+    if ((discr->tessGlobal[2*i] < 1) || (discr->tessGlobal[2*i] > discr->nBodys)) {
+      snprintf(line, l, "caps_checkDiscr: body mapping %d = %d [1,%d]!\n",
+               i+1, discr->tessGlobal[2*i], discr->nBodys);
+      return CAPS_BADINDEX;
+    }
+/*@+nullderef@*/
+
+  for (bIndex = 1; bIndex <= discr->nBodys; bIndex++) {
+    discBody = &discr->bodys[bIndex-1];
+
+    stat = EG_statusTessBody(discBody->tess, &body, &state, &nGlobal);
+    if (stat < EGADS_SUCCESS) {
+      snprintf(line, l, "caps_checkDiscr: statusTessBody = %d for body %d!\n",
+               stat, bIndex);
+      return stat;
+    }
+    if (state == 0) {
+      snprintf(line, l, "caps_checkDiscr: Tessellation is Open for body %d!\n",
+               bIndex);
+      return EGADS_TESSTATE;
+    }
+
+    /* check point tessGlobal is withing the expected range for this body */
+/*@-nullderef@*/
+    for (i = 0; i < discr->nPoints; i++) {
+      if (discr->tessGlobal[2*i] != bIndex) continue;
+      if ((discr->tessGlobal[2*i+1] < 1) || (discr->tessGlobal[2*i+1] > nGlobal)) {
+        snprintf(line, l, "caps_checkDiscr: tessGlobal[2*%d+1] = %d [1,%d] for %d!\n",
+                 i, discr->tessGlobal[2*i+1], nGlobal, bIndex);
+        return CAPS_BADINDEX;
+      }
+    }
+/*@+nullderef@*/
+
+    if (bIndex == 1) {
+      if (discBody->globalOffset != 0) {
+        snprintf(line, l, "caps_checkDiscr: body %d globalOffset != 0!\n", bIndex);
+        return CAPS_BADINDEX;
+      }
+    }
+    if (bIndex < discr->nBodys) {
+      if (discr->bodys[bIndex].globalOffset != discBody->globalOffset + nGlobal) {
+        snprintf(line, l, "caps_checkDiscr: body %d globalOffset != %d!\n", bIndex+1,
+                 discBody->globalOffset + nGlobal);
+        return CAPS_BADINDEX;
+      }
+    }
   }
 
   /* check data triangulation */
@@ -1343,7 +1481,7 @@ caps_fillBuiltIn(capsObject *bobject, capsDiscr *discr, capsObject *dobject,
                  CAPSLONG sNum)
 {
   int           i, j, k, m, stat, npts, rank, bIndex, pt, pi, typ, len, OK = 1;
-  int           last, ntris, nptx, index;
+  int           last, ntris, nptx, index, global;
   double        *values, xyz[3], st[2];
   capsObject    *pobject, *vobject;
   capsProblem   *problem;
@@ -1353,6 +1491,7 @@ caps_fillBuiltIn(capsObject *bobject, capsDiscr *discr, capsObject *dobject,
   capsDataSet   *dataset, *ds;
   capsVertexSet *vertexset;
   capsOwn       *tmp;
+  capsBodyDiscr *discBody;
   const int     *ptype, *pindex, *tris, *tric;
   const double  *xyzs, *prms;
 
@@ -1393,15 +1532,15 @@ caps_fillBuiltIn(capsObject *bobject, capsDiscr *discr, capsObject *dobject,
 
   if (strcmp(dobject->name, "xyz") == 0) {
 
-    for (bIndex = 1; bIndex <= analysis->nBody; bIndex++)
-      for (i = 0; i < npts; i++) {
-        if (discr->mapping[2*i] != bIndex) continue;
-        stat = EG_getGlobal(analysis->bodies[bIndex-1+analysis->nBody],
-                            discr->mapping[2*i+1], &pt, &pi, &values[3*i]);
-        if (stat != EGADS_SUCCESS)
-          printf(" CAPS Internal: %d EG_getGlobal %d for %s = %d\n",
-                 bIndex, i+1, dobject->name, stat);
-      }
+    for (i = 0; i < npts; i++) {
+      bIndex = discr->tessGlobal[2*i  ];
+      global = discr->tessGlobal[2*i+1];
+      discBody = &discr->bodys[bIndex-1];
+      stat = EG_getGlobal(discBody->tess, global, &pt, &pi, &values[3*i]);
+      if (stat != EGADS_SUCCESS)
+        printf(" CAPS Internal: %d EG_getGlobal %d for %s = %d\n",
+               bIndex, i+1, dobject->name, stat);
+    }
     if (bound->lunits != NULL) {
       if (dataset->units != NULL) EG_free(dataset->units);
       dataset->units = EG_strdup(bound->lunits);
@@ -1427,26 +1566,26 @@ caps_fillBuiltIn(capsObject *bobject, capsDiscr *discr, capsObject *dobject,
         values[2*i+1] = 0.0;
       }
       if (bound->state != Multiple) {
-        for (bIndex = 1; bIndex <= analysis->nBody; bIndex++) {
-          for (last = j = 0; j < discr->nElems; j++) {
-            if (discr->elems[j].bIndex != bIndex) continue;
-            if (discr->elems[j].eIndex != last) {
-              stat = EG_getTessFace(analysis->bodies[bIndex-1+analysis->nBody],
-                                    discr->elems[j].eIndex, &nptx, &xyzs, &prms,
+        for (bIndex = 1; bIndex <= discr->nBodys; bIndex++) {
+          discBody = &discr->bodys[bIndex-1];
+          for (last = j = 0; j < discBody->nElems; j++) {
+            if (discBody->elems[j].eIndex != last) {
+              stat = EG_getTessFace(discBody->tess, discBody->elems[j].eIndex,
+                                    &nptx, &xyzs, &prms,
                                     &ptype, &pindex, &ntris, &tris, &tric);
               if (stat != EGADS_SUCCESS) {
                 printf(" CAPS Internal: getTessFace %d = %d for %d\n",
-                         discr->elems[j].eIndex, stat, bIndex);
+                       discBody->elems[j].eIndex, stat, bIndex);
                 continue;
               }
-              last = discr->elems[j].eIndex;
+              last = discBody->elems[j].eIndex;
             }
 #ifndef __clang_analyzer__
-            typ = discr->elems[j].tIndex;
+            typ = discBody->elems[j].tIndex;
             len = discr->types[typ-1].nref;
             for (k = 0; k < len; k++) {
-              i  = discr->elems[j].gIndices[2*k  ]-1;
-              pt = discr->elems[j].gIndices[2*k+1]-1;
+              i  = discBody->elems[j].gIndices[2*k  ]-1;
+              pt = discBody->elems[j].gIndices[2*k+1]-1;
               values[2*i  ] = prms[2*pt  ];
               values[2*i+1] = prms[2*pt+1];
             }
@@ -1454,67 +1593,66 @@ caps_fillBuiltIn(capsObject *bobject, capsDiscr *discr, capsObject *dobject,
           }
         }
       } else {
-        for (bIndex = 1; bIndex <= analysis->nBody; bIndex++)
-          for (i = 0; i < npts; i++) {
-            if (discr->mapping[2*i] != bIndex) continue;
-            stat = EG_getGlobal(analysis->bodies[bIndex-1+analysis->nBody],
-                                discr->mapping[2*i+1], &pt, &pi, xyz);
-            if (stat != EGADS_SUCCESS) {
-              printf(" CAPS Internal: %d EG_getGlobal %d for %s = %d\n",
-                     bIndex, i+1, dobject->name, stat);
-              continue;
-            }
-            stat = caps_invInterpolate2D(bound->surface, xyz, &values[2*i]);
-            if (stat != EGADS_SUCCESS)
-              printf(" CAPS Internal: caps_invInterpolate2D %d for %s = %d\n",
-                     i+1, dobject->name, stat);
+        for (i = 0; i < npts; i++) {
+          bIndex = discr->tessGlobal[2*i  ];
+          global = discr->tessGlobal[2*i+1];
+          discBody = &discr->bodys[bIndex-1];
+          stat = EG_getGlobal(discBody->tess, global, &pt, &pi, xyz);
+          if (stat != EGADS_SUCCESS) {
+            printf(" CAPS Internal: %d EG_getGlobal %d for %s = %d\n",
+                   bIndex, i+1, dobject->name, stat);
+            continue;
           }
+          stat = caps_invInterpolate2D(bound->surface, xyz, &values[2*i]);
+          if (stat != EGADS_SUCCESS)
+            printf(" CAPS Internal: caps_invInterpolate2D %d for %s = %d\n",
+                   i+1, dobject->name, stat);
+        }
       }
 
     } else {
 
       if (bound->state == Single) {
-        for (bIndex = 1; bIndex <= analysis->nBody; bIndex++) {
-          for (last = j = 0; j < discr->nElems; j++) {
-            if (discr->elems[j].bIndex != bIndex) continue;
-            if (discr->elems[j].eIndex != last) {
-              stat = EG_getTessEdge(analysis->bodies[bIndex-1+analysis->nBody],
-                                    discr->elems[j].eIndex, &nptx, &xyzs, &prms);
+        for (bIndex = 1; bIndex <= discr->nBodys; bIndex++) {
+          discBody = &discr->bodys[bIndex-1];
+          for (last = j = 0; j < discBody->nElems; j++) {
+            if (discBody->elems[j].eIndex != last) {
+              stat = EG_getTessEdge(discBody->tess, discBody->elems[j].eIndex,
+                                    &nptx, &xyzs, &prms);
               if (stat != EGADS_SUCCESS) {
                 printf(" CAPS Internal: getTessEdge %d = %d for %d\n",
-                       discr->elems[j].eIndex, stat, bIndex);
+                       discBody->elems[j].eIndex, stat, bIndex);
                 continue;
               }
-              last = discr->elems[j].eIndex;
+              last = discBody->elems[j].eIndex;
             }
 #ifndef __clang_analyzer__
-            typ = discr->elems[j].tIndex;
+            typ = discBody->elems[j].tIndex;
             len = discr->types[typ-1].nref;
             for (k = 0; k < len; k++) {
-              i  = discr->elems[j].gIndices[2*k  ]-1;
-              pt = discr->elems[j].gIndices[2*k+1]-1;
+              i  = discBody->elems[j].gIndices[2*k  ]-1;
+              pt = discBody->elems[j].gIndices[2*k+1]-1;
               values[i] = prms[pt];
             }
 #endif
           }
         }
       } else {
-        for (bIndex = 1; bIndex <= analysis->nBody; bIndex++)
-          for (i = 0; i < npts; i++) {
-            if (discr->mapping[2*i] != bIndex) continue;
-            stat = EG_getGlobal(analysis->bodies[bIndex-1+analysis->nBody],
-                                discr->mapping[2*i+1], &pt, &pi, xyz);
-            if (stat != EGADS_SUCCESS) {
-              printf(" CAPS Internal: %d EG_getGlobal %d for %s = %d\n",
-                     bIndex, i+1, dobject->name, stat);
-              continue;
-            }
-            stat = caps_invInterpolate1D(bound->curve, xyz, &values[i]);
-            if (stat != EGADS_SUCCESS)
-              printf(" CAPS Internal: caps_invInterpolate1D %d for %s = %d\n",
-                     i+1, dobject->name, stat);
+        for (i = 0; i < npts; i++) {
+          bIndex = discr->tessGlobal[2*i  ];
+          global = discr->tessGlobal[2*i+1];
+          discBody = &discr->bodys[bIndex-1];
+          stat = EG_getGlobal(discBody->tess, global, &pt, &pi, xyz);
+          if (stat != EGADS_SUCCESS) {
+            printf(" CAPS Internal: %d EG_getGlobal %d for %s = %d\n",
+                   bIndex, i+1, dobject->name, stat);
+            continue;
           }
-
+          stat = caps_invInterpolate1D(bound->curve, xyz, &values[i]);
+          if (stat != EGADS_SUCCESS)
+            printf(" CAPS Internal: caps_invInterpolate1D %d for %s = %d\n",
+                   i+1, dobject->name, stat);
+        }
       }
     }
 
@@ -1544,28 +1682,31 @@ caps_fillBuiltIn(capsObject *bobject, capsDiscr *discr, capsObject *dobject,
         values[2*i+1] = 0.0;
       }
       if (bound->state == Single) {
-        for (i = 0; i < npts; i++) {
-          if (index < 0) continue;
-          k   = discr->celem[i] - 1;
-          m   = discr->elems[k].tIndex - 1;
-          len = discr->types[m].ndata;
-          for (j = 0; j < len; j++)
-            if (discr->elems[k].dIndices[j] == i+1) {
-              st[0] = discr->types[m].dst[2*j  ];
-              st[1] = discr->types[m].dst[2*j+1];
-              break;
+        if (index >= 0) {
+          for (i = 0; i < npts; i++) {
+            bIndex = discr->celem[2*i  ];
+            k      = discr->celem[2*i+1] - 1;
+            discBody = &discr->bodys[bIndex-1];
+            m   = discBody->elems[k].tIndex - 1;
+            len = discr->types[m].ndata;
+            for (j = 0; j < len; j++)
+              if (discBody->elems[k].dIndices[j] == i+1) {
+                st[0] = discr->types[m].dst[2*j  ];
+                st[1] = discr->types[m].dst[2*j+1];
+                break;
+              }
+            if ((j == len) || (ds == NULL)) {
+              printf(" CAPS Internal: data ref %d for %s not found!\n",
+                     i+1, dobject->name);
+              continue;
             }
-          if ((j == len) || (ds == NULL)) {
-            printf(" CAPS Internal: data ref %d for %s not found!\n",
-                   i+1, dobject->name);
-            continue;
+            stat  = aim_InterpolIndex(problem->aimFPTR, index, discr, "paramd",
+                                      discr->celem[2*i], discr->celem[2*i+1],
+                                      st, 2, ds->data, &values[2*i]);
+            if (stat != CAPS_SUCCESS)
+              printf(" CAPS Internal: aim_InterpolIndex %d for %s = %d\n",
+                     i+1, dobject->name, stat);
           }
-          stat  = aim_InterpolIndex(problem->aimFPTR, index, discr, "paramd",
-                                    discr->celem[i], st, 2, ds->data,
-                                    &values[2*i]);
-          if (stat != CAPS_SUCCESS)
-            printf(" CAPS Internal: aim_InterpolIndex %d for %s = %d\n",
-                   i+1, dobject->name, stat);
         }
       } else {
         for (i = 0; i < npts; i++) {
@@ -1582,27 +1723,30 @@ caps_fillBuiltIn(capsObject *bobject, capsDiscr *discr, capsObject *dobject,
     } else {
       for (i = 0; i < npts; i++) values[i] = 0.0;
       if (bound->state == Single) {
-        for (i = 0; i < npts; i++) {
-          if (index < 0) continue;
-          k   = discr->celem[i] - 1;
-          m   = discr->elems[k].tIndex - 1;
-          len = discr->types[m].ndata;
-          for (j = 0; j < len; j++)
-            if (discr->elems[k].dIndices[j] == i+1) {
-              st[0] = discr->types[m].dst[j];
-              break;
+        if (index >= 0) {
+          for (i = 0; i < discr->nVerts; i++) {
+            bIndex = discr->celem[2*i  ];
+            k      = discr->celem[2*i+1] - 1;
+            discBody = &discr->bodys[bIndex-1];
+            m   = discBody->elems[k].tIndex - 1;
+            len = discr->types[m].ndata;
+            for (j = 0; j < len; j++)
+              if (discBody->elems[k].dIndices[j] == i+1) {
+                st[0] = discr->types[m].dst[j];
+                break;
+              }
+            if ((j == len) || (ds == NULL)) {
+              printf(" CAPS Internal: data ref %d for %s not found!\n",
+                     i+1, dobject->name);
+              continue;
             }
-          if ((j == len) || (ds == NULL)) {
-            printf(" CAPS Internal: data ref %d for %s not found!\n",
-                   i+1, dobject->name);
-            continue;
+            stat  = aim_InterpolIndex(problem->aimFPTR, index, discr, "paramd",
+                                      discr->celem[2*i], discr->celem[2*i+1],
+                                      st, 1, ds->data, &values[i]);
+            if (stat != CAPS_SUCCESS)
+              printf(" CAPS Internal: aim_InterpolIndex %d for %s = %d\n",
+                     i+1, dobject->name, stat);
           }
-          stat  = aim_InterpolIndex(problem->aimFPTR, index, discr, "paramd",
-                                    discr->celem[i], st, 1, ds->data,
-                                    &values[i]);
-          if (stat != CAPS_SUCCESS)
-            printf(" CAPS Internal: aim_InterpolIndex %d for %s = %d\n",
-                   i+1, dobject->name, stat);
         }
       } else {
         for (i = 0; i < npts; i++) {
@@ -1654,59 +1798,62 @@ caps_fillBuiltIn(capsObject *bobject, capsDiscr *discr, capsObject *dobject,
 static void
 caps_fillSensit(capsProblem *problem, capsDiscr *discr, capsDataSet *dataset)
 {
-  int          i, j, k, bIndex, index, ibody, stat;
+  int          i, j, k, bIndex, index, ibody, stat, state, nGlobal;
   int          ii, ni, oclass, mtype, nEdge, nFace, len, ntri, *bins;
   const int    *ptype, *pindex, *tris, *tric;
   const double *dxyz, *xyzs, *uvs;
-  ego          topRef, prev, next, tess, oldtess, *objs;
+  ego          topRef, prev, next, tess, oldtess, body;
   modl_T       *MODL;
-  aimInfo      *aInfo;
-  capsAnalysis *analysis;
-
-  aInfo    = (aimInfo *) discr->aInfo;
-  analysis = (capsAnalysis *) aInfo->analysis;
+  capsBodyDiscr *discBody;
 
   MODL = (modl_T *) problem->modl;
-  for (bIndex = 1; bIndex <= analysis->nBody; bIndex++) {
-    stat = EG_getInfo(analysis->bodies[bIndex-1], &oclass, &mtype, &topRef,
+  for (bIndex = 1; bIndex <= discr->nBodys; bIndex++) {
+    discBody = &discr->bodys[bIndex-1];
+
+    stat = EG_statusTessBody(discBody->tess, &body, &state, &nGlobal);
+    if (stat != EGADS_SUCCESS) {
+      printf(" caps_fillSensit abort: EG_statusTessBody = %d for body %d!\n",
+             stat, bIndex);
+      return;
+    }
+
+    stat = EG_getInfo(body, &oclass, &mtype, &topRef,
                       &prev, &next);
     if (stat != EGADS_SUCCESS) {
-      printf(" caps_fillSensit abort: getInfo = %d for %d!\n", stat, bIndex);
+      printf(" caps_fillSensit abort: getInfo = %d for body %d!\n",
+             stat, bIndex);
       return;
     }
     nEdge = nFace = 0;
     if (mtype == WIREBODY) {
-      stat = EG_getBodyTopos(analysis->bodies[bIndex-1], NULL, EDGE, &nEdge,
-                             &objs);
+      stat = EG_getBodyTopos(body, NULL, EDGE, &nEdge, NULL);
       if (stat != EGADS_SUCCESS) {
         printf(" caps_fillSensit abort: getBodyTopos (Edge) = %d for %d!\n",
                stat, bIndex);
         return;
       }
     } else {
-      stat = EG_getBodyTopos(analysis->bodies[bIndex-1], NULL, FACE, &nFace,
-                             &objs);
+      stat = EG_getBodyTopos(body, NULL, FACE, &nFace, NULL);
       if (stat != EGADS_SUCCESS) {
         printf(" caps_fillSensit abort: getBodyTopos (Face) = %d for %d!\n",
                stat, bIndex);
         return;
       }
     }
-    EG_free(objs);
     for (ibody = 1; ibody <= MODL->nbody; ibody++) {
       if (MODL->body[ibody].onstack != 1) continue;
       if (MODL->body[ibody].botype  == OCSM_NULL_BODY) continue;
-      if (MODL->body[ibody].ebody   == analysis->bodies[bIndex-1]) break;
+      if (MODL->body[ibody].ebody   == body) break;
     }
     if (ibody > MODL->nbody) {
       printf(" caps_fillSensit abort: Body Not Found in OpenCSM stack!\n");
       return;
     }
     oldtess = MODL->body[ibody].etess;
-    tess    = analysis->bodies[analysis->nBody+bIndex-1];
+    tess    = discBody->tess;
     if (tess == NULL) {
       printf(" caps_fillSensit abort: Body Tess %d Not Found!\n",
-             ibody);
+             bIndex);
       return;
     }
     MODL->body[ibody].etess = tess;
@@ -1718,14 +1865,15 @@ caps_fillSensit(capsProblem *problem, capsDiscr *discr, capsDataSet *dataset)
       MODL->body[ibody].etess = oldtess;
       return;
     }
-    for (ii = 0; ii < discr->nElems; ii++)
-      if (discr->elems[ii].bIndex == bIndex) {
-        j = discr->elems[ii].eIndex - 1;
-        bins[j]++;
-      }
+
+    for (ii = 0; ii < discBody->nElems; ii++) {
+      j = discBody->elems[ii].eIndex - 1;
+      bins[j]++;
+    }
 
     if (nFace == 0) {
 
+/* TODO: Need to call ocsmGetTessVel for NODEs of the EDGE */
       for (index = 1; index <= nEdge; index++) {
         if (bins[index-1] == 0) continue;
         stat = EG_getTessEdge(tess, index, &len, &xyzs, &uvs);
@@ -1740,13 +1888,12 @@ caps_fillSensit(capsProblem *problem, capsDiscr *discr, capsDataSet *dataset)
                  stat, index);
           continue;
         }
-        for (ii = 0; ii < discr->nElems; ii++) {
-          if (discr->elems[ii].bIndex != bIndex) continue;
-          if (discr->elems[ii].eIndex !=  index) continue;
-          ni = discr->types[discr->elems[ii].tIndex-1].nref;
+        for (ii = 0; ii < discBody->nElems; ii++) {
+          if (discBody->elems[ii].eIndex != index) continue;
+          ni = discr->types[discBody->elems[ii].tIndex-1].nref;
           for (k = 0; k < ni; k++) {
-            i = discr->elems[ii].gIndices[2*k  ]-1;
-            j = discr->elems[ii].gIndices[2*k+1]-1;
+            i = discBody->elems[ii].gIndices[2*k  ]-1;
+            j = discBody->elems[ii].gIndices[2*k+1]-1;
             dataset->data[3*i  ] = dxyz[3*j  ];
             dataset->data[3*i+1] = dxyz[3*j+1];
             dataset->data[3*i+2] = dxyz[3*j+2];
@@ -1756,6 +1903,7 @@ caps_fillSensit(capsProblem *problem, capsDiscr *discr, capsDataSet *dataset)
 
     } else {
 
+/* TODO: Need to call ocsmGetTessVel for EDGEs and NODEs of the FACE */
       for (index = 1; index <= nFace; index++) {
         if (bins[index-1] == 0) continue;
         stat = EG_getTessFace(tess, index, &len, &xyzs, &uvs, &ptype,
@@ -1771,13 +1919,12 @@ caps_fillSensit(capsProblem *problem, capsDiscr *discr, capsDataSet *dataset)
                  stat, index);
           continue;
         }
-        for (ii = 0; ii < discr->nElems; ii++) {
-          if (discr->elems[ii].bIndex != bIndex) continue;
-          if (discr->elems[ii].eIndex !=  index) continue;
-          ni = discr->types[discr->elems[ii].tIndex-1].nref;
+        for (ii = 0; ii < discBody->nElems; ii++) {
+          if (discBody->elems[ii].eIndex != index) continue;
+          ni = discr->types[discBody->elems[ii].tIndex-1].nref;
           for (k = 0; k < ni; k++) {
-            i = discr->elems[ii].gIndices[2*k  ]-1;
-            j = discr->elems[ii].gIndices[2*k+1]-1;
+            i = discBody->elems[ii].gIndices[2*k  ]-1;
+            j = discBody->elems[ii].gIndices[2*k+1]-1;
             dataset->data[3*i  ] = dxyz[3*j  ];
             dataset->data[3*i+1] = dxyz[3*j+1];
             dataset->data[3*i+2] = dxyz[3*j+2];
@@ -1828,14 +1975,13 @@ caps_paramQuilt(capsBound *bound, int l, char *line)
 {
   int           i, j, k, m, n, stat, npts, ntris, own, nu, nv, per, eType;
   int           ntrx, nptx, last, bIndex, pt, pi, *ppnts, *vtab, count, iVS;
-  int           i0, i1, i2;
+  int           i0, i1, i2, global;
   double        coord[3], box[6], tol, rmserr, maxerr, dotmin, area, d;
   double        *grid, *r, *xyzs;
-  capsAnalysis  *analysis;
   capsDiscr     *quilt;
   capsAprx2D    *surface;
   capsVertexSet *vertexset;
-  capsObject    *aobject;
+  capsBodyDiscr *discBody;
   prmXYZ        *xyz;
   prmTri        *tris;
   prmUVF        *uvf;
@@ -1853,12 +1999,16 @@ caps_paramQuilt(capsBound *bound, int l, char *line)
     if (vertexset->analysis              == NULL)      continue;
     if (vertexset->discr                 == NULL)      continue;
     quilt  = vertexset->discr;
-    for (j = 0; j < quilt->nElems; j++) {
-      eType = quilt->elems[j].tIndex;
-      if (quilt->types[eType-1].tris == NULL) {
-        ntris++;
-      } else {
-        ntris += quilt->types[eType-1].ntri;
+
+    for (bIndex = 1; bIndex <= quilt->nBodys; bIndex++) {
+      discBody = &quilt->bodys[bIndex-1];
+      for (j = 0; j < discBody->nElems; j++) {
+        eType = discBody->elems[j].tIndex;
+        if (quilt->types[eType-1].tris == NULL) {
+          ntris++;
+        } else {
+          ntris += quilt->types[eType-1].ntri;
+        }
       }
     }
     npts += quilt->nPoints;
@@ -1913,8 +2063,6 @@ caps_paramQuilt(capsBound *bound, int l, char *line)
     vertexset = (capsVertexSet *) bound->vertexSet[i]->blind;
     if (vertexset->analysis              == NULL)      continue;
     if (vertexset->discr                 == NULL)      continue;
-    aobject  = vertexset->analysis;
-    analysis = (capsAnalysis *) aobject->blind;
     quilt    = vertexset->discr;
 #ifdef VSOUTPUT
     {
@@ -1945,9 +2093,9 @@ caps_paramQuilt(capsBound *bound, int l, char *line)
           fprintf(fp, " %8d %8d\n", quilt->nPoints, 3);
           for (bIndex = 1; bIndex <= analysis->nBody; bIndex++)
             for (j = 0; j < quilt->nPoints; j++) {
-              if (quilt->mapping[2*j] != bIndex) continue;
-              stat = EG_getGlobal(analysis->bodies[bIndex-1+analysis->nBody],
-                                  quilt->mapping[2*j+1], &pt, &pi, coord);
+              bIndex = quilt->tessGlobal[2*j];
+              stat = EG_getGlobal(quilt->bodys[bIndex-1].tess,
+                                  quilt->tessGlobal[2*j+1], &pt, &pi, coord);
               if (stat != EGADS_SUCCESS) {
                 printf(" CAPS Internal: %d EG_getGlobal %d = %d\n",
                        bIndex, j+1, stat);
@@ -1963,13 +2111,13 @@ caps_paramQuilt(capsBound *bound, int l, char *line)
 #endif
     d     = 0.0;
     ntris = 0;
-    for (bIndex = 1; bIndex <= analysis->nBody; bIndex++)
-      for (last = j = 0; j < quilt->nElems; j++) {
-        if (quilt->elems[j].bIndex != bIndex) continue;
-        eType = quilt->elems[j].tIndex;
-        own   = quilt->elems[j].eIndex;
+    for (bIndex = 1; bIndex <= quilt->nBodys; bIndex++) {
+      discBody = &quilt->bodys[bIndex-1];
+      for (last = j = 0; j < discBody->nElems; j++) {
+        eType = discBody->elems[j].tIndex;
+        own   = discBody->elems[j].eIndex;
         if (own != last) {
-          stat = EG_getTessFace(analysis->bodies[bIndex-1+analysis->nBody],
+          stat = EG_getTessFace(discBody->tess,
                                 own, &nptx, &xyzx, &prms, &ptype, &pindex,
                                 &ntrx, &trix, &tric);
           if (stat != EGADS_SUCCESS) {
@@ -1983,26 +2131,27 @@ caps_paramQuilt(capsBound *bound, int l, char *line)
         }
         if (quilt->types[eType-1].tris == NULL) {
 #ifndef __clang_analyzer__
-          i0 = quilt->elems[j].gIndices[1] - 1;
-          i1 = quilt->elems[j].gIndices[3] - 1;
-          i2 = quilt->elems[j].gIndices[5] - 1;
+          i0 = discBody->elems[j].gIndices[1] - 1;
+          i1 = discBody->elems[j].gIndices[3] - 1;
+          i2 = discBody->elems[j].gIndices[5] - 1;
           d += caps_triangleArea3D(&xyzx[3*i0], &xyzx[3*i1], &xyzx[3*i2]);
 #endif
           ntris++;
         } else {
 #ifndef __clang_analyzer__
           for (k = 0; k < quilt->types[eType-1].ntri; k++, ntris++) {
-            n  = quilt->types[eType-1].tris[3*k  ] - 1;
-            i0 = quilt->elems[j].gIndices[2*n+1]   - 1;
-            n  = quilt->types[eType-1].tris[3*k+1] - 1;
-            i1 = quilt->elems[j].gIndices[2*n+1]   - 1;
-            n  = quilt->types[eType-1].tris[3*k+2] - 1;
-            i2 = quilt->elems[j].gIndices[2*n+1]   - 1;
+            n  = quilt->types[eType-1].tris [3*k  ] - 1;
+            i0 = discBody->elems[j].gIndices[2*n+1] - 1;
+            n  = quilt->types[eType-1].tris [3*k+1] - 1;
+            i1 = discBody->elems[j].gIndices[2*n+1] - 1;
+            n  = quilt->types[eType-1].tris [3*k+2] - 1;
+            i2 = discBody->elems[j].gIndices[2*n+1] - 1;
             d += caps_triangleArea3D(&xyzx[3*i0], &xyzx[3*i1], &xyzx[3*i2]);
           }
 #endif
         }
       }
+    }
 #ifdef DEBUG
     printf(" VertexSet %d: area = %lf  ntris = %d\n", i+1, d, ntris);
 #endif
@@ -2035,21 +2184,19 @@ caps_paramQuilt(capsBound *bound, int l, char *line)
     vertexset = (capsVertexSet *) bound->vertexSet[i]->blind;
     if (vertexset->analysis              == NULL)      continue;
     if (vertexset->discr                 == NULL)      continue;
-    aobject  = vertexset->analysis;
-    analysis = (capsAnalysis *) aobject->blind;
     quilt    = vertexset->discr;
     prms     = NULL;
-    for (bIndex = 1; bIndex <= analysis->nBody; bIndex++)
-      for (last = j = 0; j < quilt->nElems; j++) {
-        if (quilt->elems[j].bIndex != bIndex) continue;
-        eType = quilt->elems[j].tIndex;
-        own   = quilt->elems[j].eIndex;
+    for (bIndex = 1; bIndex <= quilt->nBodys; bIndex++) {
+      discBody = &quilt->bodys[bIndex-1];
+      for (last = j = 0; j < discBody->nElems; j++) {
+        eType = discBody->elems[j].tIndex;
+        own   = discBody->elems[j].eIndex;
         if (own != last) {
           count++;
 /*        printf(" Analysis %d/%d Body %d/%d Face %d: count = %d, npts = %d\n",
                  i+1, bound->nVertexSet, bIndex, analysis->nBody, own, count,
                  npts);  */
-          stat = EG_getTessFace(analysis->bodies[bIndex-1+analysis->nBody],
+          stat = EG_getTessFace(discBody->tess,
                                 own, &nptx, &xyzx, &prms, &ptype, &pindex,
                                 &ntrx, &trix, &tric);
           if (stat != EGADS_SUCCESS) {
@@ -2061,54 +2208,55 @@ caps_paramQuilt(capsBound *bound, int l, char *line)
         }
         if (prms == NULL) continue;
         if (quilt->types[eType-1].tris == NULL) {
-          m = quilt->elems[j].gIndices[1] - 1;
+          m = discBody->elems[j].gIndices[1] - 1;
           uvf[ntris].u0          = prms[2*m  ];
           uvf[ntris].v0          = prms[2*m+1];
-          tris[ntris].indices[0] = quilt->elems[j].gIndices[0] + npts;
-          m = quilt->elems[j].gIndices[3] - 1;
+          tris[ntris].indices[0] = discBody->elems[j].gIndices[0] + npts;
+          m = discBody->elems[j].gIndices[3] - 1;
           uvf[ntris].u1          = prms[2*m  ];
           uvf[ntris].v1          = prms[2*m+1];
-          tris[ntris].indices[1] = quilt->elems[j].gIndices[2] + npts;
-          m = quilt->elems[j].gIndices[5] - 1;
+          tris[ntris].indices[1] = discBody->elems[j].gIndices[2] + npts;
+          m = discBody->elems[j].gIndices[5] - 1;
           uvf[ntris].u2          = prms[2*m  ];
           uvf[ntris].v2          = prms[2*m+1];
-          tris[ntris].indices[2] = quilt->elems[j].gIndices[4] + npts;
+          tris[ntris].indices[2] = discBody->elems[j].gIndices[4] + npts;
           tris[ntris].own        = count;
           ntris++;
         } else {
           for (k = 0; k < quilt->types[eType-1].ntri; k++, ntris++) {
-            n = quilt->types[eType-1].tris[3*k  ] - 1;
-            m = quilt->elems[j].gIndices[2*n+1]   - 1;
+            n = quilt->types[eType-1].tris [3*k  ] - 1;
+            m = discBody->elems[j].gIndices[2*n+1] - 1;
             uvf[ntris].u0          = prms[2*m  ];
             uvf[ntris].v0          = prms[2*m+1];
-            tris[ntris].indices[0] = quilt->elems[j].gIndices[2*n] + npts;
-            n = quilt->types[eType-1].tris[3*k+1] - 1;
-            m = quilt->elems[j].gIndices[2*n+1]   - 1;
+            tris[ntris].indices[0] = discBody->elems[j].gIndices[2*n] + npts;
+            n = quilt->types[eType-1].tris [3*k+1] - 1;
+            m = discBody->elems[j].gIndices[2*n+1] - 1;
             uvf[ntris].u1          = prms[2*m  ];
             uvf[ntris].v1          = prms[2*m+1];
-            tris[ntris].indices[1] = quilt->elems[j].gIndices[2*n] + npts;
-            n = quilt->types[eType-1].tris[3*k+2] - 1;
-            m = quilt->elems[j].gIndices[2*n+1]   - 1;
+            tris[ntris].indices[1] = discBody->elems[j].gIndices[2*n] + npts;
+            n = quilt->types[eType-1].tris [3*k+2] - 1;
+            m = discBody->elems[j].gIndices[2*n+1] - 1;
             uvf[ntris].u2          = prms[2*m  ];
             uvf[ntris].v2          = prms[2*m+1];
-            tris[ntris].indices[2] = quilt->elems[j].gIndices[2*n] + npts;
+            tris[ntris].indices[2] = discBody->elems[j].gIndices[2*n] + npts;
             tris[ntris].own        = count;
           }
         }
       }
-    for (bIndex = 1; bIndex <= analysis->nBody; bIndex++)
-      for (j = 0; j < quilt->nPoints; j++) {
-        if (quilt->mapping[2*j] != bIndex) continue;
-        stat = EG_getGlobal(analysis->bodies[bIndex-1+analysis->nBody],
-                            quilt->mapping[2*j+1], &pt, &pi, coord);
-        if (stat != EGADS_SUCCESS) {
-          printf(" CAPS Internal: %d EG_getGlobal %d = %d\n", bIndex, j+1, stat);
-        } else {
-          xyz[npts+j].x = coord[0];
-          xyz[npts+j].y = coord[1];
-          xyz[npts+j].z = coord[2];
-        }
+    }
+    for (j = 0; j < quilt->nPoints; j++) {
+      bIndex = quilt->tessGlobal[2*j  ];
+      global = quilt->tessGlobal[2*j+1];
+      discBody = &quilt->bodys[bIndex-1];
+      stat = EG_getGlobal(discBody->tess, global, &pt, &pi, coord);
+      if (stat != EGADS_SUCCESS) {
+        printf(" CAPS Internal: %d EG_getGlobal %d = %d\n", bIndex, j+1, stat);
+      } else {
+        xyz[npts+j].x = coord[0];
+        xyz[npts+j].y = coord[1];
+        xyz[npts+j].z = coord[2];
       }
+    }
     npts += quilt->nPoints;
   }
 
@@ -2286,14 +2434,14 @@ caps_paramQuilt(capsBound *bound, int l, char *line)
 static int
 caps_parameterize(capsProblem *problem, capsObject *bobject, int l, char *line)
 {
-  int           i, j, k, stat, last, top;
+  int           i, j, k, stat, last, top, bIndex, state, nGlobal;
   char          *units;
   double        plims[4];
-  ego           entity;
+  ego           entity, body;
   capsBound     *bound;
-  capsAnalysis  *analysis;
   capsVertexSet *vertexset;
   capsDiscr     *discr;
+  capsBodyDiscr *discBody;
   bodyObjs      *bodies;
 
   bound = (capsBound *) bobject->blind;
@@ -2364,12 +2512,23 @@ caps_parameterize(capsProblem *problem, capsObject *bobject, int l, char *line)
       caps_freeBodyObjs(problem->nBodies, bodies);
       return CAPS_BADINDEX;
     }
-    analysis = (capsAnalysis *) vertexset->analysis->blind;
-    for (j = 0; j < discr->nElems; j++) {
+    for (bIndex = 1; bIndex <= discr->nBodys; bIndex++) {
+      discBody = &discr->bodys[bIndex-1];
+
+      stat = EG_statusTessBody(discBody->tess, &body, &state, &nGlobal);
+      if (stat != EGADS_SUCCESS) {
+        printf(" caps_parameterize: EG_statusTessBody = %d for body %d!\n",
+               stat, bIndex);
+        caps_freeBodyObjs(problem->nBodies, bodies);
+        return stat;
+      }
+
       for (k = 0; k < problem->nBodies; k++)
-        if (problem->bodies[k] == analysis->bodies[discr->elems[j].bIndex-1]) {
-          bodies[k].indices[discr->elems[j].eIndex-1]++;
-          break;
+        if (problem->bodies[k] == body) {
+          for (j = 0; j < discBody->nElems; j++) {
+            bodies[k].indices[discBody->elems[j].eIndex-1]++;
+            break;
+          }
         }
     }
   }
@@ -2555,6 +2714,51 @@ caps_geomOutSensit(capsProblem *problem, int ipmtr, int irow, int icol)
 
 
 static int
+caps_transferLinks(capsAnalysis *analysis,
+                   int *nErr, capsErrs **errors)
+{
+  int              i, status;
+  enum capstMethod method;
+  capsValue        *value;
+  capsObject       *source, *object, *last;
+
+  /* fill in any values that have links */
+  for (i = 0; i < analysis->nAnalysisIn; i++) {
+    source = object = analysis->analysisIn[i];
+    do {
+      if (source->magicnumber != CAPSMAGIC) return CAPS_BADOBJECT;
+      if (source->type        != VALUE)     return CAPS_BADTYPE;
+      if (source->blind       == NULL)      return CAPS_NULLBLIND;
+      value = (capsValue *) source->blind;
+      if (value->link == object)            return CAPS_CIRCULARLINK;
+      last   = source;
+      source = value->link;
+    } while (value->link != NULL);
+    if (last != object) {
+      value  = (capsValue *) object->blind;
+      source = value->link;
+      method = value->linkMethod;
+      status = caps_transferValues(last, method, object, nErr, errors);
+      value->link       = source;
+      value->linkMethod = method;
+      if (status != CAPS_SUCCESS) {
+        printf(" CAPS Info: transferValues for %s from %s = %d\n",
+               object->name, source->name, status);
+        return status;
+      }
+      caps_freeOwner(&object->last);
+      object->last       = last->last;
+      object->last.pname = EG_strdup(last->last.pname);
+      object->last.pID   = EG_strdup(last->last.pID);
+      object->last.user  = EG_strdup(last->last.user);
+    }
+  }
+
+  return CAPS_SUCCESS;
+}
+
+
+static int
 caps_refillBound(capsProblem *problem, capsObject *bobject,
                  int *nErr, capsErrs **errors)
 {
@@ -2598,13 +2802,19 @@ caps_refillBound(capsProblem *problem, capsObject *bobject,
       if (vertexset->analysis->blind != NULL) {
         anal = (capsAnalysis *) vertexset->analysis->blind;
         aim_FreeDiscr(problem->aimFPTR, anal->loadName, vertexset->discr);
+
+        /* fill in any values that have links */
+        status = caps_transferLinks(anal, nErr, errors);
+        if (status != CAPS_SUCCESS) return status;
+
         status = aim_Discr(problem->aimFPTR, anal->loadName,
                            bobject->name, vertexset->discr);
         if (status != CAPS_SUCCESS) {
+          aim_FreeDiscr(problem->aimFPTR, anal->loadName, vertexset->discr);
           snprintf(error, 129, "Bound = %s and Analysis = %s",
                    bobject->name, anal->loadName);
           caps_makeSimpleErr(bound->vertexSet[j],
-                             "caps_preAnalysis Error: aimDiscr fails!",
+                             "caps_refillBound Error: aimDiscr fails!",
                              error, NULL, NULL, errors);
           if (*errors != NULL) {
             errs  = *errors;
@@ -2638,7 +2848,7 @@ caps_refillBound(capsProblem *problem, capsObject *bobject,
     if (status != CAPS_SUCCESS) {
       snprintf(error, 129, "Bound = %s", bobject->name);
       caps_makeSimpleErr(bobject,
-                         "caps_preAnalysis: Bound Parameterization fails!",
+                         "caps_refillBound: Bound Parameterization fails!",
                          error, NULL, NULL, errors);
       if (*errors != NULL) {
         errs  = *errors;
@@ -2804,7 +3014,6 @@ caps_toktokcmp(const char *str1, const char *str2)
   /* do a token/token compare against 2 strings */
   strncpy(copy1, str1, 1024);
   copy1[1024] = 0;
-/*@-unrecog@*/
   word1 = strtok_r(copy1, sep, &last1);
   while (word1 != NULL) {
     strncpy(copy2, str2, 1024);
@@ -2816,7 +3025,6 @@ caps_toktokcmp(const char *str1, const char *str2)
     }
     word1 = strtok_r(NULL, sep, &last1);
   }
-/*@+unrecog@*/
 
   return 1;
 }
@@ -2831,9 +3039,9 @@ caps_filter(capsProblem *problem, capsAnalysis *analysis)
   const double *areals;
   const char   *astr;
 
-  bodies = (ego *) EG_alloc(2*problem->nBodies*sizeof(ego));
+  bodies = (ego *) EG_alloc(problem->nBodies*sizeof(ego));
   if (bodies == NULL) return EGADS_MALLOC;
-  for (i = 0; i < 2*problem->nBodies; i++) bodies[i] = NULL;
+  for (i = 0; i < problem->nBodies; i++) bodies[i] = NULL;
 
   /* do any bodies have our "capsAIM" attribute? */
   for (nBody = i = 0; i < problem->nBodies; i++) {
@@ -2899,10 +3107,15 @@ caps_filter(capsProblem *problem, capsAnalysis *analysis)
 int
 caps_getBodies(const capsObject *aobject, int *nBody, ego **bodies)
 {
-  int          stat;
+  int          i, nErr, stat;
   capsObject   *pobject;
   capsProblem  *problem;
   capsAnalysis *analysis;
+  capsErrs      *errors;
+
+  /* TODO: Promote these to the function arguments? */
+  nErr = 0;
+  errors = NULL;
 
   *nBody  = 0;
   *bodies = NULL;
@@ -2915,29 +3128,36 @@ caps_getBodies(const capsObject *aobject, int *nBody, ego **bodies)
 
   analysis = (capsAnalysis *) aobject->blind;
   if (analysis->bodies == NULL) {
+    /* make sure geometry is up-to-date */
+    stat = caps_build(pobject, &nErr, &errors);
+    if ((stat != CAPS_SUCCESS) && (stat != CAPS_CLEAN)) goto cleanup;
     problem = (capsProblem *)  pobject->blind;
     stat    = caps_filter(problem, analysis);
     if (stat != CAPS_SUCCESS) return stat;
   }
   *nBody   = analysis->nBody;
   *bodies  = analysis->bodies;
-  return CAPS_SUCCESS;
+
+  stat = CAPS_SUCCESS;
+
+cleanup:
+
+  for (i = 0; i < nErr; i++)
+    caps_freeError(errors+i);
+
+  return stat;
 }
 
 
 int
 caps_preAnalysis(capsObject *aobject, int *nErr, capsErrs **errors)
 {
-  int              i, j, k, m, n, stat, status, gstatus;
-  int              type, nrow, ncol, buildTo, builtTo, nbody, ibody;
-  char             name[MAX_NAME_LEN], error[129], vstr[MAX_STRVAL_LEN], *units;
-  double           dot, *values;
-  enum capstMethod method;
+  int              i, stat, status, gstatus;
+  char             currentPath[PATH_MAX];
   CAPSLONG         sn;
-  modl_T           *MODL;
   capsValue        *valIn, *value;
   capsProblem      *problem;
-  capsAnalysis     *analysis, *analy;
+  capsAnalysis     *analysis;
   capsObject       *pobject, *source, *object, *last;
   capsErrs         *errs;
 
@@ -2964,45 +3184,15 @@ caps_preAnalysis(capsObject *aobject, int *nErr, capsErrs **errors)
   }
   problem->funID = CAPS_PREANALYSIS;
 
-  /* do we need new geometry? */
-  gstatus = 0;
-  if (pobject->subtype == PARAMETRIC) {
-    /* check for dirty geometry inputs */
-    for (i = 0; i < problem->nGeomIn; i++) {
-      source = object = problem->geomIn[i];
-      do {
-        if (source->magicnumber != CAPSMAGIC) return CAPS_BADOBJECT;
-        if (source->type        != VALUE)     return CAPS_BADTYPE;
-        if (source->blind       == NULL)      return CAPS_NULLBLIND;
-        value = (capsValue *) source->blind;
-        if (value->link == object)            return CAPS_CIRCULARLINK;
-        last   = source;
-        source = value->link;
-      } while (value->link != NULL);
-      if (last->last.sNum > problem->geometry.sNum) {
-        gstatus = 1;
-        break;
-      }
-    }
-    /* check for dirty branchs */
-    for (i = 0; i < problem->nBranch; i++) {
-      source = object = problem->branchs[i];
-      do {
-        if (source->magicnumber != CAPSMAGIC) return CAPS_BADOBJECT;
-        if (source->type        != VALUE)     return CAPS_BADTYPE;
-        if (source->blind       == NULL)      return CAPS_NULLBLIND;
-        value = (capsValue *) source->blind;
-        if (value->link == object)            return CAPS_CIRCULARLINK;
-        last   = source;
-        source = value->link;
-      } while (value->link != NULL);
-      if (last->last.sNum > problem->geometry.sNum) {
-        gstatus = 1;
-        break;
-      }
-    }
+  /* make sure geometry is up-to-date */
+  gstatus = caps_build(pobject, nErr, errors);
+  if (analysis == NULL) {
+    if (gstatus == CAPS_CLEAN) return CAPS_CLEAN;
+    if (problem->nBodies == 0)
+      printf(" caps_preAnalysis Warning: No bodies generated!\n");
+    return CAPS_SUCCESS;
   }
-  if ((analysis == NULL) && (gstatus == 0)) return CAPS_CLEAN;
+  if ((gstatus != CAPS_SUCCESS) && (gstatus != CAPS_CLEAN)) return gstatus;
 
   /* are we "analysis" clean? */
   status = 0;
@@ -3033,340 +3223,12 @@ caps_preAnalysis(capsObject *aobject, int *nErr, capsErrs **errors)
           if (sn > analysis->pre.sNum) status = 1;
       }
     }
-    if ((status == 0) && (gstatus == 0) &&
+    if ((status == 0) && (gstatus == CAPS_CLEAN) &&
         (problem->geometry.sNum < analysis->pre.sNum)) return CAPS_CLEAN;
 
     /* fill in any values that have links */
-    for (i = 0; i < analysis->nAnalysisIn; i++) {
-      source = object = analysis->analysisIn[i];
-      do {
-        if (source->magicnumber != CAPSMAGIC) return CAPS_BADOBJECT;
-        if (source->type        != VALUE)     return CAPS_BADTYPE;
-        if (source->blind       == NULL)      return CAPS_NULLBLIND;
-        value = (capsValue *) source->blind;
-        if (value->link == object)            return CAPS_CIRCULARLINK;
-        last   = source;
-        source = value->link;
-      } while (value->link != NULL);
-      if (last != object) {
-        value  = (capsValue *) object->blind;
-        source = value->link;
-        method = value->linkMethod;
-        status = caps_transferValues(last, method, object, nErr, errors);
-        value->link       = source;
-        value->linkMethod = method;
-        if (status != CAPS_SUCCESS) {
-          printf(" CAPS Info: transferValues for %s from %s = %d\n",
-                 object->name, source->name, status);
-          return status;
-        }
-        caps_freeOwner(&object->last);
-        object->last       = last->last;
-        object->last.pname = EG_strdup(last->last.pname);
-        object->last.pID   = EG_strdup(last->last.pID);
-        object->last.user  = EG_strdup(last->last.user);
-      }
-    }
-  }
-
-  /* generate new geometry if required */
-  if (gstatus == 1) {
-    MODL           = (modl_T *) problem->modl;
-    MODL->context  = problem->context;
-    MODL->userdata = problem;
-
-    /* update the dirty values in OpenCSM -- Geometry In already updated */
-    for (i = 0; i < problem->nBranch; i++) {
-      source = object = problem->branchs[i];
-      do {
-        if (source->magicnumber != CAPSMAGIC) return CAPS_BADOBJECT;
-        if (source->type        != VALUE)     return CAPS_BADTYPE;
-        if (source->blind       == NULL)      return CAPS_NULLBLIND;
-        value = (capsValue *) source->blind;
-        if (value->link == object)            return CAPS_CIRCULARLINK;
-        last   = source;
-        source = value->link;
-      } while (value->link != NULL);
-      if (last != object) {
-        value  = (capsValue *) object->blind;
-        source = value->link;
-        method = value->linkMethod;
-        status = caps_transferValues(last, method, object, nErr, errors);
-        value->link       = source;
-        value->linkMethod = method;
-        if (status != CAPS_SUCCESS) return status;
-        caps_freeOwner(&object->last);
-        object->last       = last->last;
-        object->last.pname = EG_strdup(last->last.pname);
-        object->last.pID   = EG_strdup(last->last.pID);
-        object->last.user  = EG_strdup(last->last.user);
-      }
-      if (object->last.sNum > problem->geometry.sNum) {
-        value = (capsValue *) object->blind;
-        if (value         == NULL)    return CAPS_NULLVALUE;
-        if (value->type   != Integer) return CAPS_BADTYPE;
-        if (value->length != 1)       return CAPS_BADVALUE;
-        status = ocsmSetBrch(problem->modl, i+1, value->vals.integer);
-        if ((status != SUCCESS) && (status != OCSM_CANNOT_BE_SUPPRESSED)) {
-          snprintf(error, 129, "Cannot change %d Branch %s to %d!",
-                   i+1, object->name, value->vals.integer);
-          caps_makeSimpleErr(object,
-                             "caps_preAnalysis Error: ocsmSetBrch fails!",
-                             error, NULL, NULL, errors);
-          if (*errors != NULL) {
-            errs  = *errors;
-            *nErr = errs->nError;
-          }
-          return status;
-        }
-      }
-    }
-
-    /* have OpenCSM do the rebuild */
-    if (problem->bodies != NULL) {
-      for (i = 0; i < problem->nBodies; i++)
-        if (problem->lunits[i] != NULL) EG_free(problem->lunits[i]);
-      /* remove old bodies & tessellations for all Analyses */
-      for (i = 0; i < problem->nAnalysis; i++) {
-        analy = (capsAnalysis *) problem->analysis[i]->blind;
-        if (analy == NULL) continue;
-        if (analy->bodies != NULL) {
-          for (j = 0; j < analy->nBody; j++)
-            if (analy->bodies[j+analy->nBody] != NULL) {
-              EG_deleteObject(analy->bodies[j+analy->nBody]);
-              analy->bodies[j+analy->nBody] = NULL;
-            }
-          EG_free(analy->bodies);
-          analy->bodies = NULL;
-          analy->nBody  = 0;
-        }
-      }
-      EG_free(problem->bodies);
-      EG_free(problem->lunits);
-      problem->nBodies       = 0;
-      problem->bodies        = NULL;
-      problem->lunits        = NULL;
-      problem->geometry.sNum = 0;
-    }
-    buildTo = 0;                          /* all */
-    nbody   = 0;
-    status  = ocsmBuild(problem->modl, buildTo, &builtTo, &nbody, NULL);
-    if (status != SUCCESS) {
-      caps_makeSimpleErr(pobject,
-                         "caps_preAnalysis Error: ocsmBuild fails!",
-                         NULL, NULL, NULL, errors);
-      if (*errors != NULL) {
-        errs  = *errors;
-        *nErr = errs->nError;
-      }
-      return status;
-    }
-    nbody = 0;
-    for (ibody = 1; ibody <= MODL->nbody; ibody++) {
-      if (MODL->body[ibody].onstack != 1) continue;
-      if (MODL->body[ibody].botype  == OCSM_NULL_BODY) continue;
-      nbody++;
-    }
-
-    units = NULL;
-    if (nbody > 0) {
-      problem->lunits = (char **) EG_alloc(nbody*sizeof(char *));
-      problem->bodies = (ego *)   EG_alloc(nbody*sizeof(ego));
-      if ((problem->bodies == NULL) || (problem->lunits == NULL)) {
-        if (problem->bodies != NULL) EG_free(problem->bodies);
-        if (problem->lunits != NULL) EG_free(problem->lunits);
-        for (ibody = 1; ibody <= MODL->nbody; ibody++) {
-          if (MODL->body[ibody].onstack != 1) continue;
-          if (MODL->body[ibody].botype  == OCSM_NULL_BODY) continue;
-          EG_deleteObject(MODL->body[ibody].ebody);
-        }
-        caps_makeSimpleErr(aobject,
-                           "caps_preAnalysis: Error on Body memory allocation!",
-                           NULL, NULL, NULL, errors);
-        if (*errors != NULL) {
-          errs  = *errors;
-          *nErr = errs->nError;
-        }
-        return EGADS_MALLOC;
-      }
-      problem->nBodies = nbody;
-      i = 0;
-      for (ibody = 1; ibody <= MODL->nbody; ibody++) {
-        if (MODL->body[ibody].onstack != 1) continue;
-        if (MODL->body[ibody].botype  == OCSM_NULL_BODY) continue;
-        problem->bodies[i] = MODL->body[ibody].ebody;
-        caps_fillLengthUnits(problem, problem->bodies[i], &problem->lunits[i]);
-        i++;
-      }
-      units = problem->lunits[nbody-1];
-    }
-    caps_freeOwner(&problem->geometry);
-    problem->sNum         += 1;
-    problem->geometry.sNum = problem->sNum;
-    caps_fillDateTime(problem->geometry.datetime);
-
-    /* get geometry outputs */
-    for (i = 0; i < problem->nGeomOut; i++) {
-      if (problem->geomOut[i]->magicnumber != CAPSMAGIC) continue;
-      if (problem->geomOut[i]->type        != VALUE)     continue;
-      if (problem->geomOut[i]->blind       == NULL)      continue;
-      value = (capsValue *) problem->geomOut[i]->blind;
-      if (value->dots != NULL)
-        for (j = 0; j < value->ndot; j++) {
-          if (value->dots[j].dot != NULL) {
-            EG_free(value->dots[j].dot);
-            value->dots[j].dot = NULL;
-          }
-        }
-      if (value->type == String) {
-        if (value->vals.string != NULL) EG_free(value->vals.string);
-        value->vals.string = NULL;
-      } else {
-        if (value->length != 1)
-          if (value->vals.reals != NULL) EG_free(value->vals.reals);
-        value->vals.reals = NULL;
-      }
-      if (value->partial != NULL) {
-        EG_free(value->partial);
-        value->partial = NULL;
-      }
-      status = ocsmGetPmtr(problem->modl, value->pIndex, &type, &nrow, &ncol,
-                           name);
-      if (status != SUCCESS) {
-        snprintf(error, 129, "Cannot get info on Output %s",
-                 problem->geomOut[i]->name);
-        caps_makeSimpleErr(problem->geomOut[i],
-                           "caps_preAnalysis Error: ocsmGetPmtr fails!",
-                           error, NULL, NULL, errors);
-        if (*errors != NULL) {
-          errs  = *errors;
-          *nErr = errs->nError;
-        }
-        return status;
-      }
-      if (strcmp(name,problem->geomOut[i]->name) != 0) {
-        snprintf(error, 129, "Cannot Geom Output[%d] %s != %s",
-                 i, problem->geomOut[i]->name, name);
-        caps_makeSimpleErr(problem->geomOut[i],
-                           "caps_preAnalysis Error: ocsmGetPmtr MisMatch!",
-                           error, NULL, NULL, errors);
-        if (*errors != NULL) {
-          errs  = *errors;
-          *nErr = errs->nError;
-        }
-        return CAPS_MISMATCH;
-      }
-      if ((nrow == 0) || (ncol == 0)) {
-        status = ocsmGetValuS(problem->modl, value->pIndex, vstr);
-        if (status != SUCCESS) {
-          snprintf(error, 129, "Cannot get string on Output %s",
-                   problem->geomOut[i]->name);
-          caps_makeSimpleErr(problem->geomOut[i],
-                             "caps_preAnalysis Error: ocsmGetValuSfails!",
-                             error, NULL, NULL, errors);
-          if (*errors != NULL) {
-            errs  = *errors;
-            *nErr = errs->nError;
-          }
-          return status;
-        }
-        value->nullVal     = NotNull;
-        value->type        = String;
-        value->length      = 1;
-        value->nrow        = 1;
-        value->ncol        = 1;
-        value->dim         = Scalar;
-        value->vals.string = EG_strdup(vstr);
-        if (value->vals.string == NULL) value->nullVal = IsNull;
-      } else {
-        value->nullVal = NotNull;
-        value->type    = Double;
-        value->nrow    = nrow;
-        value->ncol    = ncol;
-        value->length  = nrow*ncol;
-        value->dim     = Scalar;
-        if ((nrow > 1) || (ncol > 1)) value->dim = Vector;
-        if ((nrow > 1) && (ncol > 1)) value->dim = Array2D;
-        if (value->length == 1) {
-          values = &value->vals.real;
-        } else {
-          values = (double *) EG_alloc(value->length*sizeof(double));
-          if (values == NULL) {
-            value->nullVal = IsNull;
-            snprintf(error, 129, "length = %d doubles for %s",
-                     value->length, problem->geomOut[i]->name);
-            caps_makeSimpleErr(problem->geomOut[i],
-                               "caps_preAnalysis Error: Memory Allocation fails!",
-                               error, NULL, NULL, errors);
-            if (*errors != NULL) {
-              errs  = *errors;
-              *nErr = errs->nError;
-            }
-            return EGADS_MALLOC;
-          }
-          value->vals.reals = values;
-        }
-        /* flip storage
-         for (n = m = j = 0; j < ncol; j++)
-         for (k = 0; k < nrow; k++, n++) {  */
-        for (n = m = k = 0; k < nrow; k++)
-          for (j = 0; j < ncol; j++, n++) {
-            status = ocsmGetValu(problem->modl, value->pIndex, k+1, j+1,
-                                 &values[n], &dot);
-            if (status != SUCCESS) {
-              snprintf(error, 129, "irow = %d icol = %d on %s",
-                       k+1, j+1, problem->geomOut[i]->name);
-              caps_makeSimpleErr(problem->geomOut[i],
-                                 "caps_preAnalysis Error: Output ocsmGetValu fails!",
-                                 error, NULL, NULL, errors);
-              if (*errors != NULL) {
-                errs  = *errors;
-                *nErr = errs->nError;
-              }
-              return status;
-            }
-            if (values[n] == -HUGEQ) m++;
-          }
-        if (m != 0) {
-          value->nullVal = IsNull;
-          if (m != nrow*ncol) {
-            value->partial = (int *) EG_alloc(nrow*ncol*sizeof(int));
-            if (value->partial == NULL) {
-              snprintf(error, 129, "nrow = %d ncol = %d on %s",
-                       nrow, ncol, problem->geomOut[i]->name);
-              caps_makeSimpleErr(problem->geomOut[i],
-                                 "caps_preAnalysis Error: Alloc of partial fails!",
-                                 error, NULL, NULL, errors);
-              if (*errors != NULL) {
-                errs  = *errors;
-                *nErr = errs->nError;
-              }
-              return EGADS_MALLOC;
-            }
-            for (n = k = 0; k < nrow; k++)
-              for (j = 0; j < ncol; j++, n++) {
-                value->partial[n] = NotNull;
-                if (values[n] == -HUGEQ) value->partial[n] = IsNull;
-              }
-            value->nullVal = IsPartial;
-          }
-        }
-      }
-
-      if (value->units != NULL) EG_free(value->units);
-      value->units = NULL;
-      caps_geomOutUnits(name, units, &value->units);
-
-      caps_freeOwner(&problem->geomOut[i]->last);
-      problem->geomOut[i]->last.sNum = problem->sNum;
-      caps_fillDateTime(problem->geomOut[i]->last.datetime);
-    }
-  }
-
-  if (analysis == NULL) {
-    if (problem->nBodies == 0)
-      printf(" caps_preAnalysis Warning: No bodies generated!\n");
-    return CAPS_SUCCESS;
+    status = caps_transferLinks(analysis, nErr, errors);
+    if (status != CAPS_SUCCESS) return status;
   }
 
   if ((problem->nBodies <= 0) || (problem->bodies == NULL)) {
@@ -3380,9 +3242,14 @@ caps_preAnalysis(capsObject *aobject, int *nErr, capsErrs **errors)
   }
 
   /* do it! */
+  (void) getcwd(currentPath, PATH_MAX);
+  if (chdir(analysis->path) != 0) {
+    printf(" caps_preAnalysis: Path %s Error!\n", analysis->path);
+    return CAPS_DIRERR;
+  }
   status = aim_PreAnalysis(problem->aimFPTR, analysis->loadName,
-                           analysis->instance, &analysis->info, analysis->path,
-                           valIn, errors);
+                           analysis->instStore, &analysis->info, valIn, errors);
+  chdir(currentPath);
   if (*errors != NULL) {
     errs  = *errors;
     *nErr = errs->nError;
@@ -3413,6 +3280,7 @@ caps_fillAnaLinkages(capsProblem *problem, capsAnalysis *analysis, int nObj,
                      capsObject **objs, int *nErr, capsErrs **errors)
 {
   int        i, j, k, status;
+  char       currentPath[PATH_MAX];
   capsObject *source, *last;
   capsValue  *value, *valu0;
   capsErrs   *errs;
@@ -3452,14 +3320,20 @@ caps_fillAnaLinkages(capsProblem *problem, capsAnalysis *analysis, int nObj,
             }
           } else if (value->type == Tuple) {
             caps_freeTuple(value->length, value->vals.tuple);
-          } else {
+          } else if (value->type != Pointer) {
             return CAPS_BADTYPE;
           }
           caps_freeOwner(&analysis->analysisOut[j]->last);
           analysis->analysisOut[j]->last.sNum = 0;
+          (void) getcwd(currentPath, PATH_MAX);
+          if (chdir(analysis->path) != 0) {
+            printf(" caps_fillLinkages: Path %s Error!\n", analysis->path);
+            return CAPS_DIRERR;
+          }
           status = aim_CalcOutput(problem->aimFPTR, analysis->loadName,
-                                  analysis->instance, &analysis->info,
-                                  analysis->path, j+1, value, errors);
+                                  analysis->instStore, &analysis->info, j+1,
+                                  value, errors);
+          chdir(currentPath);
           if (*errors != NULL) {
             errs  = *errors;
             *nErr = errs->nError;
@@ -3575,8 +3449,10 @@ caps_postAnalysis(capsObject *aobject, capsOwn current, int *nErr,
   int           i, j, k, OK, nparent, nField, status, exec, dirty, deferred;
   int           *ranks;
   char          name[129], error[129], *intents, *apath, *unitSys, **fnames;
+  char          currentPath[PATH_MAX];
   capsProblem   *problem;
   capsAnalysis  *analysis, *other;
+  capsValue     *valIn = NULL;
   capsObject    *pobject, *bobject, *object, *dso, **parents;
   capsBound     *bound;
   capsVertexSet *vs;
@@ -3604,11 +3480,20 @@ caps_postAnalysis(capsObject *aobject, capsOwn current, int *nErr,
   if (status != CAPS_SUCCESS) return status;
   if (dirty == 0) return CAPS_CLEAN;
   if (dirty <  5) return CAPS_DIRTY;
+  
+  if (analysis->nAnalysisIn > 0)
+    valIn = (capsValue *) analysis->analysisIn[0]->blind;
 
   /* call post in the AIM */
+  (void) getcwd(currentPath, PATH_MAX);
+  if (chdir(analysis->path) != 0) {
+    printf(" caps_postAnalysis: Path %s Error!\n", analysis->path);
+    return CAPS_DIRERR;
+  }
   status = aim_PostAnalysis(problem->aimFPTR, analysis->loadName,
-                            analysis->instance, &analysis->info, analysis->path,
+                            analysis->instStore, &analysis->info, 0, valIn,
                             errors);
+  chdir(currentPath);
   if (status != CAPS_SUCCESS) {
     if (*errors != NULL) *nErr = (*errors)->nError;
     return status;
@@ -3694,6 +3579,7 @@ caps_postAnalysis(capsObject *aobject, capsOwn current, int *nErr,
         status = aim_Discr(problem->aimFPTR, other->loadName,
                            bobject->name, vs->discr);
         if (status != CAPS_SUCCESS) {
+          aim_FreeDiscr(problem->aimFPTR, other->loadName, vs->discr);
           snprintf(error, 129, "Bound = %s and Analysis = %s",
                    bobject->name, other->loadName);
           caps_makeSimpleErr(bound->vertexSet[j],
@@ -3760,6 +3646,7 @@ caps_postAnalysis(capsObject *aobject, capsOwn current, int *nErr,
           status = aim_Discr(problem->aimFPTR, other->loadName,
                              bobject->name, vs->discr);
           if (status != CAPS_SUCCESS) {
+            aim_FreeDiscr(problem->aimFPTR, other->loadName, vs->discr);
             snprintf(error, 129, "Bound = %s and Analysis = %s",
                      bobject->name, other->loadName);
             caps_makeSimpleErr(bound->vertexSet[j],
@@ -3805,9 +3692,15 @@ caps_postAnalysis(capsObject *aobject, capsOwn current, int *nErr,
           }
           if (ds->units != NULL) EG_free(ds->units);
           ds->units = NULL;
+          (void) getcwd(currentPath, PATH_MAX);
+          if (chdir(analysis->path) != 0) {
+            printf(" caps_postAnalysis: Path %s Error!\n", analysis->path);
+            return CAPS_DIRERR;
+          }
           status = aim_Transfer(problem->aimFPTR, other->loadName, vs->discr,
                                 dso->name, ds->npts, ds->rank, ds->data,
                                 &ds->units);
+          chdir(currentPath);
           if (status != CAPS_SUCCESS) {
             EG_free(ds->data);
             ds->data = NULL;

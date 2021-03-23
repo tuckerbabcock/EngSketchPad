@@ -9,7 +9,7 @@
  */
 
 /*
- * Copyright (C) 2011/2020  John F. Dannenhoffer, III (Syracuse University)
+ * Copyright (C) 2011/2021  John F. Dannenhoffer, III (Syracuse University)
  *
  * This library is free software; you can redistribute it and/or
  *    modify it under the terms of the GNU Lesser General Public
@@ -161,6 +161,12 @@
         printf(FORMAT,A,B,C,D,E,F,G,H,I,J,K,L,M,N,O); printf("\n");  \
     }
 
+#define SPLINT_CHECK_FOR_NULL(X)                                        \
+    if ((X) == NULL) {                                                  \
+        printf("ERROR:: SPLINT found %s is NULL (called from %s:%d)\n", #X, routine, __LINE__); \
+        status = -9999;                                                 \
+        goto cleanup;                                                   \
+    }
 
 /* error codes */
 #define           BAD_MALLOC      -900

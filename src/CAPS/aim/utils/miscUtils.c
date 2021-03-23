@@ -1,3 +1,5 @@
+// This software has been cleared for public release on 05 Nov 2020, case number 88ABW-2020-3462.
+
 // Miscellaneous related utility functions - Written by Dr. Ryan Durscher AFRL/RQVC
 
 #include <stdlib.h>
@@ -12,6 +14,7 @@
 #endif
 
 #include "egads.h"
+#include "aimUtil.h"
 #include "capsTypes.h"  // Bring in CAPS types
 #include "miscTypes.h"  // Bring in misc. structures
 #include "miscUtils.h"  // Bring in misc. utility header
@@ -43,8 +46,9 @@ int file_exist(char *file) {
 //  for example ("3.0", 5, "foo", ("f", 1, 4), [1,2,3]) - note the strings of the outer tuple should NOT contain commas, Tuple elements
 //  consisting of internal tuples and arrays are okay (only 1 level deep).  If the string coming in is not a tuple the string
 // is simply copied. Also quotations are removed from values elements of the (outer) tuple.
-int json_parseTuple(char *stringToParse, int *arraySize, char **stringArray[]) {
-
+int json_parseTuple(/*@null@*/ char *stringToParse, int *arraySize,
+                    char **stringArray[])
+{
     int i, j;         // Array indexing
 
     int matchLength;  // String length of matching pattern
@@ -150,7 +154,6 @@ int json_parseTuple(char *stringToParse, int *arraySize, char **stringArray[]) {
         arrayIndex = 0;
         // Parse string based on defined pattern
         for (i = 1; i < strlen(stringToParse); i++) {
-            matchLength = 0;
 
             if (stringToParse[i] == '(') foundInternalTuple = (int) true;
             if (stringToParse[i] == ')') foundInternalTuple = (int) false;
@@ -199,6 +202,7 @@ int json_parseTuple(char *stringToParse, int *arraySize, char **stringArray[]) {
                     if ((*stringArray)[arrayIndex] == NULL) {
 
                         // Free string array
+                        EG_free(quoteString);
                         for (j = 0; j <  arrayIndex; j++) EG_free((*stringArray)[j]);
                         EG_free(*stringArray);
 
@@ -398,16 +402,7 @@ char * string_removeQuotation(char *string) {
         stringNoQuotation[length] = '\0';
 
     } else {
-        length = strlen(string);
-
-        stringNoQuotation = (char *) EG_alloc((length + 1) * sizeof(char));
-        if (stringNoQuotation == NULL) {
-            printf("Memory allocation error in string_removeQuotation\n");
-            return stringNoQuotation;
-        }
-
-        memcpy(stringNoQuotation, string, length);
-        stringNoQuotation[length] = '\0';
+        stringNoQuotation = EG_strdup(string);
     }
 
     // Debug
@@ -472,7 +467,8 @@ int string_toDoubleArray(char *stringToSearch, int arraySize, double numberArray
 
             // Make sure we aren't exceeding our arrays bounds
             if (arrayIndex >= arraySize) {
-                printf("Warning (string_toDoubleArray): Array size mismatch - to many values found!!\n");
+                printf("Warning (string_toDoubleArray): Array size mismatch - to many values found (arraySize = %d, found = %d)!\n",
+                        arraySize, arrayIndex);
                 return CAPS_MISMATCH;
             }
 
@@ -504,6 +500,7 @@ int string_toDoubleArray(char *stringToSearch, int arraySize, double numberArray
                 status = string_toDouble(numberString, &numberArray[arrayIndex]);
                 if (status != CAPS_SUCCESS) {
                     printf("Error: Cannot convert '%s' to double!\n", numberString);
+                    AIM_FREE(numberString);
                     return CAPS_BADVALUE;
                 }
 
@@ -515,16 +512,15 @@ int string_toDoubleArray(char *stringToSearch, int arraySize, double numberArray
     }
 
     // Check to see if our array is under-sized
-    if (arrayIndex != arraySize) {
+    if (arrayIndex < arraySize) {
         printf("Warning (string_toDoubleArray): Array size mismatch - remaining values will be 0\n");
-        return CAPS_MISMATCH;
     }
 
     // Debug function - print out number array
     //for (i = 0; i < arraySize; i++) printf("Value = %f\n", numberArray[i]);
 
     // Free allocated numberString
-    if (numberString != NULL) EG_free(numberString);
+    AIM_FREE(numberString);
 
     return CAPS_SUCCESS;
 }
@@ -628,7 +624,10 @@ int string_toDoubleDynamicArray(char *stringToSearch, int *arraySize, double *nu
 
                     // Convert array element to double
                     status = string_toDouble(numberString, &(*numberArray)[arrayIndex]);
-                    if (status != CAPS_SUCCESS) return status;
+                    if (status != CAPS_SUCCESS) {
+                      AIM_FREE(numberString);
+                      return status;
+                    }
 
                     // Increment start indexes
                     arrayIndex += 1;
@@ -648,7 +647,119 @@ int string_toDoubleDynamicArray(char *stringToSearch, int *arraySize, double *nu
 }
 
 // Convert a string to an array of strings - array is assumed to be bounded by '[' and ']' and comma separated
-//  for example ["3.0", "hey", "foo"] - note the strings should NOT contain commas. If the
+//  for example ["3.0", "hey", "foo"] - note if strings contain quotation marks, they should NOT contain commas.
+int string_toStringArray(char *stringToSearch, int arraySize, char *stringArray[]) {
+
+    int i, j;         // Array indexing
+
+    int matchLength;  // String length of matching pattern
+    int startIndex; // Keep track of where we are in the string array
+
+    int arrayIndex;
+    // int haveArray = (int) false;
+    char *quoteString = NULL; // Temporary string to hold the found string
+    char *noQuoteString = NULL;  // Temporary string to hold the found string with quotation marks removed
+    int insideQuotes = (int) false;
+
+    // Debug function
+    //printf("Search string - %s length %d\n", stringToSearch, strlen(stringToSearch));
+
+    if (stringToSearch == NULL) return CAPS_BADVALUE;
+
+    // Check to make sure first and last of the incoming string denote an array
+    if (stringToSearch[0] != '[' &&
+        stringToSearch[strlen(stringToSearch)] != ']') {
+
+        printf("Error (string_toStringArray): incoming string should be bounded by '[' and ']' and comma separated\n");
+        return CAPS_BADVALUE;
+    }
+
+    // Set default array values
+    for (i = 0; i < arraySize; i++) stringArray[i] = NULL;
+
+    startIndex = 1;
+    arrayIndex = 0;
+    // Parse string based on defined pattern
+    for (i = 1; i < strlen(stringToSearch); i++) {
+
+        if (stringToSearch[i] == '"') {
+            insideQuotes = !insideQuotes;
+        }
+
+        if((stringToSearch[i] == ',' && (!insideQuotes)) ||
+                stringToSearch[i] == ']') {
+            matchLength = i-startIndex;
+
+            // Debug function
+            //printf("MatchLength = %d\n", matchLength);
+
+            // Make sure we aren't exceeding our arrays bounds
+            if (arrayIndex >= arraySize) {
+                return CAPS_MISMATCH;
+            }
+
+            // If not just a blank space
+            if (matchLength > 0) {
+
+                // Allocate the quoted string array
+                quoteString = (char *) EG_alloc( (matchLength+1) * sizeof(char));
+                if (quoteString == NULL) return EGADS_MALLOC;
+
+                strncpy(quoteString, stringToSearch + startIndex, matchLength);
+                quoteString[matchLength] = '\0';
+
+                // Remove quotations
+                noQuoteString = string_removeQuotation(quoteString);
+
+                // Free quote string array
+                if (quoteString != NULL) {
+                    EG_free(quoteString);
+                    quoteString = NULL;
+                }
+
+                // Allocate string array element based on no quote string
+                stringArray[arrayIndex] = (char *) EG_alloc( (strlen(noQuoteString)+1) * sizeof(char));
+
+                // Check for malloc error
+                if (stringArray[arrayIndex] == NULL) {
+                    EG_free(quoteString);
+                    for (j = 0; j <  arrayIndex; j++) EG_free(stringArray[j]);
+                    EG_free(noQuoteString);
+                    return EGADS_MALLOC;
+                }
+
+                // Copy no quote string into array
+                strncpy(stringArray[arrayIndex], noQuoteString, strlen(noQuoteString));
+                stringArray[arrayIndex][strlen(noQuoteString)] = '\0';
+
+                // Free no quote array
+                if (noQuoteString != NULL) {
+                    EG_free(noQuoteString);
+                    noQuoteString = NULL;
+                }
+
+                // Increment start indexes
+                arrayIndex += 1;
+                startIndex = i+1; // +1 to skip the commas
+            }
+        }
+    }
+
+    // Debug function - print out number array
+    //for (i = 0; i < *arraySize; i++) printf("Value = %s\n", (*stringArray)[i]);
+
+    // Free quote array
+    if (quoteString != NULL) EG_free(quoteString);
+
+    // Free no quote array
+    if (noQuoteString != NULL) EG_free(noQuoteString);
+
+
+    return CAPS_SUCCESS;
+}
+
+// Convert a string to an array of strings - array is assumed to be bounded by '[' and ']' and comma separated
+//  for example ["3.0", "hey", "foo"] - note if strings contain quotation marks, they should NOT contain commas. If the
 //  string coming in is not an array the string is simply copied. Also quotations are removed
 int string_toStringDynamicArray(char *stringToSearch, int *arraySize, char **stringArray[]) {
 
@@ -661,6 +772,7 @@ int string_toStringDynamicArray(char *stringToSearch, int *arraySize, char **str
     int haveArray = (int) false;
     char *quoteString = NULL; // Temporary string to hold the found string
     char *noQuoteString = NULL;  // Temporary string to hold the found string with quotation marks removed
+    int insideQuotes = (int) false;
 
     // Debug function
     //printf("Search string - %s length %d\n", stringToSearch, strlen(stringToSearch));
@@ -682,7 +794,11 @@ int string_toStringDynamicArray(char *stringToSearch, int *arraySize, char **str
             *arraySize = 1;
             for (i = 1; i < strlen(stringToSearch); i++) {
 
-                if (stringToSearch[i] == ',') {
+                if (stringToSearch[i] == '"') {
+                    insideQuotes = !insideQuotes;
+                }
+                
+                if (stringToSearch[i] == ',' && (!insideQuotes)) {
 
                     *arraySize = *arraySize + 1;
                 }
@@ -737,12 +853,18 @@ int string_toStringDynamicArray(char *stringToSearch, int *arraySize, char **str
 
     } else {
 
+        insideQuotes = (int) false;
+
         startIndex = 1;
         arrayIndex = 0;
         // Parse string based on defined pattern
         for (i = 1; i < strlen(stringToSearch); i++) {
-            matchLength = 0;
-            if(stringToSearch[i] == ',' ||
+
+            if (stringToSearch[i] == '"') {
+                insideQuotes = !insideQuotes;
+            }
+
+            if((stringToSearch[i] == ',' && (!insideQuotes)) ||
                     stringToSearch[i] == ']') {
 
                 matchLength = i-startIndex;
@@ -779,12 +901,9 @@ int string_toStringDynamicArray(char *stringToSearch, int *arraySize, char **str
 
                     // Check for malloc error
                     if ((*stringArray)[arrayIndex] == NULL) {
-
-                        // Free string array
+                        EG_free(quoteString);
                         for (j = 0; j <  arrayIndex; j++) EG_free((*stringArray)[j]);
                         EG_free(*stringArray);
-
-                        // Free no quote string
                         if (noQuoteString != NULL) EG_free(noQuoteString);
 
                         return EGADS_MALLOC;
@@ -831,6 +950,107 @@ int string_toInteger(const char *string, int *number) {
     *number = strtol(string, &next, 10);
 
     if (string == next) return CAPS_BADVALUE;
+
+    return CAPS_SUCCESS;
+}
+
+// Convert a string to integer array - array is assumed to be bounded by '[' and ']' and comma separated
+//  for example [3, 41, -4]
+int string_toIntegerArray(char *stringToSearch, int arraySize, int numberArray[]) {
+
+    int status = CAPS_SUCCESS;
+    int i, j;         // Array indexing
+
+    int matchLength;  // String length of matching pattern
+    int startIndex; // Keep track of where we are in the string array
+
+    int arrayIndex;
+    char *numberString = NULL; // Temporary string to hold the found number
+
+    // Debug function
+    // printf("Search string - [%s]\n", stringToSearch);
+
+    // Check to make sure first and last of the incoming string denote an array
+    if (stringToSearch[0] != '[' &&
+        stringToSearch[strlen(stringToSearch)] != ']') {
+
+        printf("Error (string_toIntegerArray): incoming string should be bounded by '[' and ']' and comma separated\n");
+        return CAPS_BADVALUE;
+    }
+
+    // Set default array values
+    for (i = 0; i < arraySize; i++) numberArray[i] = 0;
+
+    startIndex = 1;
+    arrayIndex = 0;
+    // Parse string based on defined pattern
+    for (i = 1; i < strlen(stringToSearch); i++) {
+
+        if(stringToSearch[i] == ',' ||
+           stringToSearch[i] == ']') {
+
+            matchLength = i-startIndex;
+
+            // Debug function
+            // printf("MatchLength = %d\n", matchLength);
+
+            // Make sure we aren't exceeding our arrays bounds
+            if (arrayIndex >= arraySize) {
+                printf("Warning (string_toIntegerArray): Array size mismatch - to many values found!!\n");
+                return CAPS_MISMATCH;
+            }
+
+            // If not just a blank space
+            if (matchLength > 0) {
+
+                if (numberString != NULL) EG_free(numberString);
+
+                numberString = (char *) EG_alloc( (matchLength+1) * sizeof(char));
+
+                // Check for malloc error
+                if (numberString == NULL) {
+
+                    // If no match was found fill in the rest of the array with 0
+                    for (j = arrayIndex; j < arraySize; j++) numberArray[j] = 0;
+
+                    printf("string_toIntegerArray: MALLOC error!\n");
+                    return EGADS_MALLOC;
+                }
+
+                // Copy sub-string, that is the elements of the array
+                strncpy(numberString, stringToSearch + startIndex, matchLength);
+                numberString[matchLength] = '\0';
+
+                //Debug function
+                //printf("Number string = [%s]\n",numberString);
+
+                // Convert array element to double
+                status = string_toInteger(numberString, &numberArray[arrayIndex]);
+                if (status != CAPS_SUCCESS) {
+                    printf("Error: Cannot convert '%s' to integer!\n", numberString);
+                    AIM_FREE(numberString);
+                    return CAPS_BADVALUE;
+                }
+
+                // Increment start indexes
+                arrayIndex += 1;
+                startIndex = i+1; // +1 to skip the commas
+            }
+        }
+    }
+
+    // Check to see if our array is under-sized
+    if (arrayIndex != arraySize) {
+        printf("Warning (string_toIntegerArray): Array size mismatch - remaining values will be 0\n");
+        AIM_FREE(numberString);
+        return CAPS_MISMATCH;
+    }
+
+    // Debug function - print out number array
+    //for (i = 0; i < arraySize; i++) printf("Value = %f\n", numberArray[i]);
+
+    // Free allocated numberString
+    if (numberString != NULL) EG_free(numberString);
 
     return CAPS_SUCCESS;
 }
@@ -934,7 +1154,10 @@ int string_toIntegerDynamicArray(char *stringToSearch, int *arraySize, int *numb
 
                     // Convert array element to double
                     status = string_toInteger(numberString, &(*numberArray)[arrayIndex]);
-                    if (status != CAPS_SUCCESS) return status;
+                    if (status != CAPS_SUCCESS) {
+                      AIM_FREE(numberString);
+                      return status;
+                    }
 
                     // Increment start indexes
                     arrayIndex += 1;
@@ -948,7 +1171,7 @@ int string_toIntegerDynamicArray(char *stringToSearch, int *arraySize, int *numb
     //for (i = 0; i < arraySize; i++) printf("Value = %f\n", numberArray[i]);
 
     // Free allocated numberString
-    if (numberString != NULL) EG_free(numberString);
+    AIM_FREE(numberString);
 
     return CAPS_SUCCESS;
 }
@@ -997,7 +1220,7 @@ int string_toProgArgs(char *meshInputString, int *prog_argc, char ***prog_argv)
 
         // Count out how many space for allocation purposes
         *prog_argc = 2; // Argue 1 = program, Last argument will not have a space after it
-        //*prog_argc = 1; // Last argument will not have a space after it
+        // *prog_argc = 1; // Last argument will not have a space after it
 
         for (startIndex = 0; startIndex < strlen(meshInputString); startIndex++) {
             if (meshInputString[startIndex] == ' ') *prog_argc += 1;
@@ -1064,6 +1287,73 @@ void string_toUpperCase ( char *sPtr )
         *sPtr = toupper ( ( unsigned char ) *sPtr );
         ++sPtr;
     }
+}
+
+// Return newly allocated string formatted by `format` and any variadic string args
+// NOTE: sentinel denoting end of variadic args is NULL, if NULL is not provided,
+//       behavior may be undefined
+char *string_format(char *format, ...) {
+
+    int i, narg, nspec, length;
+    char c, *formatted = NULL, *arg = NULL;
+    va_list args;
+
+    // get number of expected format string args (number of %s specifiers)
+    for (i = 0, nspec = 0; i < strlen(format) - 1; i++) {
+        c = format[i];
+        if (c == '%') {
+            if ((i > 0) && format[i-1] == '\\') {
+                continue;
+            }
+            if (format[i+1] == 's') {
+                nspec++;
+            }
+        }
+    }
+
+    // get total string length
+    va_start(args, format);
+    length = strlen(format);
+    narg = 0;
+    arg = va_arg(args, char *);
+    //   loop until arg is NULL, or narg == nspec, this safeguards a little
+    //   against undefined behavior if NULL sentinel is not used
+    while (arg != NULL && narg < nspec) {
+        length += strlen(arg);
+        arg = va_arg(args, char *);
+        narg++;
+    }
+    va_end(args);
+
+    // allocate
+    formatted = EG_alloc(sizeof(char) * (length + 1));
+    if (formatted == NULL) {
+        return NULL;
+    }
+
+    // create formatted string
+    va_start(args, format);
+    vsprintf(formatted, format, args);
+    va_end(args);
+
+    return formatted;
+}
+
+// Return whether string `find` is in `array`
+int string_isInArray(char *find, int arraySize, char **array) {
+    int i;
+    for (i = 0; i < arraySize; i++) {
+        if (strcmp(array[i], find) == 0) {
+            return (int) true;
+        }
+    }
+    return (int) false;
+}
+
+// Free and null a char pointer
+void string_free( char **string) {
+    if (*string != NULL) EG_free(*string);
+    *string = NULL;
 }
 
 // The max x,y,z coordinates where P(3*i + 0) = x_i, P(3*i + 1) = y_i, and P(3*i + 2) = z_i
@@ -1193,28 +1483,15 @@ char * convert_integerToString(int integerVal, int fieldWidth, int leftOrRight)
     // Ouput:
     //  stringVal - Returned integer in string format. Returned as a const char *
 
-    int i; // Indexing
-
-    int numSpaces = 0; // Number of blank spaces counter
     int inputTest = 0; // Input check
 
+    char tmp[42];
     char *stringVal = NULL; // Returned string array
-    char *blankSpaces = NULL; // Blank space array
 
 
     // First check input parameters
     if( fieldWidth > 15 ) {
         inputTest = 2;
-    }
-    if ( (integerVal >= 0) &&  // Positive values
-            ( (long) integerVal >= (long) pow(10.0,(double) fieldWidth)) ) {
-
-        inputTest = 1;
-    }
-    if ( (integerVal < 0) &&  // Negative values
-         ( (long) abs(integerVal) >= (long) pow(10.0,(double) fieldWidth-1)) ) {
-
-        inputTest = 1;
     }
 
     if (fieldWidth <= 0) inputTest = 3;
@@ -1236,36 +1513,27 @@ char * convert_integerToString(int integerVal, int fieldWidth, int leftOrRight)
         return stringVal;
     }
 
-    // Find out how many blank spaces there will be
-    numSpaces = fieldWidth - 1;
-    for (i = 1; i < fieldWidth; i++) {
-
-        if (integerVal >= 0 &&     (long) integerVal  < (long) pow(10.0,(double) i  )) break;
-        if (integerVal  < 0 && (long) abs(integerVal) < (long) pow(10.0,(double) i-1)) break;
-
-        numSpaces -= 1;
-    }
-
-    // Alloc blank spaces array
-    blankSpaces = (char *) EG_alloc((numSpaces+1)*sizeof(char));
-    for (i = 0; i < numSpaces; i++) blankSpaces[i] = ' ';
-    blankSpaces[numSpaces] = '\0';
-
-    // Alloc output string array
-    stringVal = (char *) EG_alloc((fieldWidth+1)*sizeof(char));
 
     // Populate output string array with blank spaces and integer depending on justification
     if (leftOrRight == 0) {
-        if      (integerVal >= 0) sprintf(stringVal,"%i%s",     integerVal , blankSpaces);
-        else if (integerVal  < 0) sprintf(stringVal,"-%i%s",abs(integerVal), blankSpaces);
+
+        inputTest = sprintf(tmp, "%-*d", fieldWidth, integerVal);
 
     } else {
-        if      (integerVal >= 0) sprintf(stringVal,"%s%i" ,blankSpaces,    integerVal);
-        else if (integerVal  < 0) sprintf(stringVal,"%s-%i",blankSpaces,abs(integerVal));
+
+        inputTest = sprintf(tmp, "%*d", fieldWidth, integerVal);
     }
 
-    // Free blanks space array
-    EG_free(blankSpaces);
+    if (inputTest < 0 || inputTest > fieldWidth) {
+        printf("Error in convert_integerToString: Input %i fails with requested fieldWidth of %d\n", integerVal,
+                                                                                                     fieldWidth);
+        printf("\tReturning a 'NaN' string.\n");
+        stringVal = EG_strdup("NaN");
+        return stringVal;
+    }
+
+    // Copy over the output
+    stringVal = EG_strdup(tmp);
 
     // Return string array
     return stringVal;
@@ -1910,16 +2178,30 @@ int retrieve_CAPSConnectLinkAttr(ego geomEntity, const char **string) {
     return status;
 }
 
-// Retrieve the value following a capsDiscipline
-int retrieve_CAPSDisciplineAttr(ego geomEntity, const char **string) {
+// Retrieve the string following a capsResponse tag
+int retrieve_CAPSResponseAttr(ego geomEntity, const char **string) {
 
-    int status; // Status return
-    char *attributeKey = "capsDiscipline";
+    int status;
+    char *attributeKey = "capsResponse";
 
     status = retrieve_stringAttr(geomEntity, attributeKey, string);
     return status;
+}
 
-    return CAPS_SUCCESS;
+// Retrieve the value following a capsDiscipline
+int retrieve_CAPSDisciplineAttr(ego geomEntity, const char **string) {
+
+    char *attributeKey = "capsDiscipline";
+
+    return retrieve_stringAttr(geomEntity, attributeKey, string);
+}
+
+// Retrieve the value following a capsMesh
+int retrieve_CAPSMeshAttr(ego geomEntity, const char **string) {
+
+    char *attributeKey = "capsMesh";
+
+    return retrieve_stringAttr(geomEntity, attributeKey, string);
 }
 
 /*
@@ -2368,6 +2650,50 @@ int create_CAPSConnectAttrToIndexMap(int numBody, ego bodies[], int attrLevel, m
     int status; // Function return integer
 
     char *mapName = "capsConnect";
+
+    status = create_genericAttrToIndexMap(numBody, bodies, attrLevel, mapName, attrMap);
+
+    return status;
+}
+
+// Create a mapping between unique capsResponse attribute names and an index value
+int create_CAPSResponseAttrToIndexMap(int numBody, ego bodies[], int attrLevel, mapAttrToIndexStruct *attrMap) {
+
+    // In:
+    //      numBody   = Number of incoming bodies
+    //      bodies    = Array of ego bodies
+    //      attrLevel = Level of depth to traverse the body:  0 - search just body attributes
+    //                                                        1 - search the body and all the faces
+    //                                                        2 - search the body, faces, and all the edges
+    //                                                       >2 - search the body, faces, edges, and all the nodes
+    // Out:
+    //      attrMap = A filled mapAttrToIndex structure
+
+    int status; // Function return integer
+
+    char *mapName = "capsResponse";
+
+    status = create_genericAttrToIndexMap(numBody, bodies, attrLevel, mapName, attrMap);
+
+    return status;
+}
+
+// Create a mapping between unique capsMesh attribute names and an index value
+int create_CAPSMeshAttrToIndexMap(int numBody, ego bodies[], int attrLevel, mapAttrToIndexStruct *attrMap) {
+
+    // In:
+    //      numBody   = Number of incoming bodies
+    //      bodies    = Array of ego bodies
+    //      attrLevel = Level of depth to traverse the body:  0 - search just body attributes
+    //                                                        1 - search the body and all the faces
+    //                                                        2 - search the body, faces, and all the edges
+    //                                                       >2 - search the body, faces, edges, and all the nodes
+    // Out:
+    //      attrMap = A filled mapAttrToIndex structure
+
+    int status; // Function return integer
+
+    char *mapName = "capsMesh";
 
     status = create_genericAttrToIndexMap(numBody, bodies, attrLevel, mapName, attrMap);
 

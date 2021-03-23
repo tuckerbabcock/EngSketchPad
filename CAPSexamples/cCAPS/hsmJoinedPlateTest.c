@@ -3,7 +3,7 @@
  *
  *             hsm AIM tester
  *
- *      Copyright 2014-2020, Massachusetts Institute of Technology
+ *      Copyright 2014-2021, Massachusetts Institute of Technology
  *      Licensed under The GNU Lesser General Public License, version 2.1
  *      See http://www.opensource.org/licenses/lgpl-2.1.php
  *
@@ -72,7 +72,7 @@ int main(int argc, char *argv[])
     feenableexcept(FE_INVALID | FE_OVERFLOW | FE_DIVBYZERO);
 #endif
 
-    printf("\n\nAttention: hsmCantileverPlate is hard coded to look for ../csmData/feaCantileverPlate.csm\n");
+    printf("\n\nAttention: hsmJoinedPlate is hard coded to look for ../csmData/feaJoinedPlate.csm\n");
     printf("An analysisPath maybe specified as a command line option, if none is given "
             "a directory called \"runDirectory\" in the current folder is assumed to exist!\n\n");
 
@@ -99,25 +99,26 @@ int main(int argc, char *argv[])
     if (status != CAPS_SUCCESS) goto cleanup;
 
     status = caps_info(problemObj, &name, &type, &subtype, &link, &parent, &current);
+    if (status != CAPS_SUCCESS)  goto cleanup;
 
     // Change the plate to length = 1, width = 0.2
     status = caps_childByName(problemObj, VALUE, GEOMETRYIN, "plateLength", &tempObj);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     plateLength = 1.0;
-    status = caps_setValue(tempObj, 1, 1, (void *) &plateLength);
+    status = caps_setValue(tempObj, Double, 1, 1, (void *) &plateLength, NULL, NULL, &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     status = caps_childByName(problemObj, VALUE, GEOMETRYIN, "plateWidth", &tempObj);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     doubleVal = 0.1;
-    status = caps_setValue(tempObj, 1, 1, (void *) &doubleVal);
+    status = caps_setValue(tempObj, Double, 1, 1, (void *) &doubleVal, NULL, NULL, &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
 
 
     // Load the AIMs
-    status = caps_load(problemObj, "hsmAIM", analysisPath, NULL, NULL, 0, NULL, &hsmObj);
+    status = caps_makeAnalysis(problemObj, "hsmAIM", analysisPath, NULL, NULL, 0, NULL, &hsmObj);
     if (status != CAPS_SUCCESS) goto cleanup;
 
 
@@ -135,7 +136,7 @@ int main(int argc, char *argv[])
     material[0].name = EG_strdup("Madeupium");
     material[0].value = EG_strdup(line);
 
-    status = caps_setValue(tempObj, numMaterial, 1,  (void **) material);
+    status = caps_setValue(tempObj, Tuple, numMaterial, 1,  (void **) material, NULL, NULL, &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     //                       - Properties
@@ -149,7 +150,7 @@ int main(int argc, char *argv[])
     snprintf(line, 128,"{\"propertyType\": \"Shell\", \"membraneThickness\": %lf}", tshell);
     property[0].value = EG_strdup(line);
 
-    status = caps_setValue(tempObj, numProperty, 1,  (void **) property);
+    status = caps_setValue(tempObj, Tuple, numProperty, 1,  (void **) property, NULL, NULL, &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     //                       - Constraints
@@ -160,7 +161,7 @@ int main(int argc, char *argv[])
     constraint[0].name = EG_strdup("edgeConstraint");
     constraint[0].value = EG_strdup("{\"groupName\": \"plateEdge\", \"dofConstraint\": 123456}");
 
-    status = caps_setValue(tempObj, numConstraint, 1,  (void **) constraint);
+    status = caps_setValue(tempObj, Tuple, numConstraint, 1,  (void **) constraint, NULL, NULL, &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     //                       - Analysis
@@ -180,28 +181,28 @@ int main(int argc, char *argv[])
     snprintf(line, 128,"{\"groupName\": \"plateTip\", \"loadType\": \"LineMoment\", \"momentScaleFactor\": %lf, \"directionVector\": [0.0, 1.0, 0.0]}", myload);
     load[0].value = EG_strdup(line);
 
-    status = caps_setValue(tempObj, numLoad, 1,  (void **) load);
+    status = caps_setValue(tempObj, Tuple, numLoad, 1,  (void **) load, NULL, NULL, &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     status = caps_childByName(hsmObj, VALUE, ANALYSISIN, "Edge_Point_Max", &tempObj);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     intVal = 5;
-    status = caps_setValue(tempObj, 1, 1, (void *) &intVal);
+    status = caps_setValue(tempObj, Integer, 1, 1, (void *) &intVal, NULL, NULL, &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     status = caps_childByName(hsmObj, VALUE, ANALYSISIN, "Edge_Point_Min", &tempObj);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     intVal = 2;
-    status = caps_setValue(tempObj, 1, 1, (void *) &intVal);
+    status = caps_setValue(tempObj, Integer, 1, 1, (void *) &intVal, NULL, NULL, &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     status = caps_childByName(hsmObj, VALUE, ANALYSISIN, "Quad_Mesh", &tempObj);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     boolVal = (int) true;
-    status = caps_setValue(tempObj, 1, 1, (void *) &boolVal);
+    status = caps_setValue(tempObj, Boolean, 1, 1, (void *) &boolVal, NULL, NULL, &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     // Run hsm pre-analysis

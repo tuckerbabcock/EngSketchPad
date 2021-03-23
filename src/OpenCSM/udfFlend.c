@@ -9,7 +9,7 @@
  */
 
 /*
- * Copyright (C) 2013/2020  John F. Dannenhoffer, III (Syracuse University)
+ * Copyright (C) 2013/2021  John F. Dannenhoffer, III (Syracuse University)
  *
  * This library is free software; you can redistribute it and/or
  *    modify it under the terms of the GNU Lesser General Public
@@ -117,6 +117,8 @@ udpExecute(ego  emodel,                 /* (in)  input model */
     ego      esurf, enode, eedge, *enodes, *eedges2, topRef, prev, next;
     void     *modl;
 
+    ROUTINE(udpExecute);
+    
 #ifdef DEBUG
     printf("udpExecute(emodel=%llx)\n", (long long)emodel);
     printf("fraca( 0) = %f\n", FRACA( 0));
@@ -195,7 +197,7 @@ udpExecute(ego  emodel,                 /* (in)  input model */
     /* check that Model was input that contains two Bodys */
     status = EG_getTopology(emodel, &eref, &oclass, &mtype,
                             data, &nchild, &ebodys, &senses);
-    if (status != EGADS_SUCCESS) goto cleanup;
+    CHECK_STATUS(EG_getTopology);
 
     printf("emodel contains %d Bodys\n", nchild);
 
@@ -222,10 +224,7 @@ udpExecute(ego  emodel,                 /* (in)  input model */
 
     /* cache copy of arguments for future use */
     status = cacheUdp();
-    if (status < 0) {
-        printf(" udpExecute: problem caching arguments\n");
-        goto cleanup;
-    }
+    CHECK_STATUS(cacheUdp);
 
 #ifdef DEBUG
     printf("fraca( %d) = %f\n", numUdp, FRACA( numUdp));
@@ -238,7 +237,7 @@ udpExecute(ego  emodel,                 /* (in)  input model */
 #endif
 
     status = EG_getContext(emodel, &context);
-    if (status != EGADS_SUCCESS) goto cleanup;
+    CHECK_STATUS(EG_getContext);
 
     /* return the modfied Model that contains the two input Bodys */
     *ebody = emodel;
@@ -250,31 +249,24 @@ udpExecute(ego  emodel,                 /* (in)  input model */
 
     /* get pointer to model */
     status = EG_getUserPointer(context, (void**)(&(modl)));
-    if (status != EGADS_SUCCESS) {
-        printf(" udpExecute: bad return from getUserPointer\n");
-        goto cleanup;
-    }
+    CHECK_STATUS(EG_getUserPointer);
 
     /* make a list of the exposed Edges in BodyA (which are adjacent to one Face
        with the _flend=remove attribute) */
     status = EG_getBodyTopos(ebodys[0], NULL, EDGE, &nedgeA, &eedgesA);
-    if (status != EGADS_SUCCESS) goto cleanup;
+    CHECK_STATUS(EG_getBodyTopos);
 
     nlistA = 0;
-    elistA = (ego *) EG_alloc(nedgeA*sizeof(ego));
-    if (elistA == NULL) {
-        status = EGADS_MALLOC;
-        goto cleanup;
-    }
+    MALLOC(elistA, ego, nedgeA);
 
     for (iedgeA = 0; iedgeA < nedgeA; iedgeA++) {
         status = EG_getInfo(eedgesA[iedgeA], &oclass, &mtype, &topRef, &prev, &next);
-        if (status != EGADS_SUCCESS) goto cleanup;
+        CHECK_STATUS(EG_getInfo);
 
         if (mtype == DEGENERATE) continue;
         
         status = EG_getBodyTopos(ebodys[0], eedgesA[iedgeA], FACE, &ntemp, &etemps);
-        if (status != EGADS_SUCCESS) goto cleanup;
+        CHECK_STATUS(EG_getBodyTopos);
 
         if (ntemp == 1) {
             count = 1;
@@ -303,23 +295,19 @@ udpExecute(ego  emodel,                 /* (in)  input model */
     /* make a list of the exposed Edges in BodyB (which are adjacent to one Face
        with the _flend=remove attribute) */
     status = EG_getBodyTopos(ebodys[1], NULL, EDGE, &nedgeB, &eedgesB);
-    if (status != EGADS_SUCCESS) goto cleanup;
+    CHECK_STATUS(EG_getBodyTopos);
 
     nlistB = 0;
-    elistB = (ego *) EG_alloc(nedgeB*sizeof(ego));
-    if (elistB == NULL) {
-        status = EGADS_MALLOC;
-        goto cleanup;
-    }
+    MALLOC(elistB, ego, nedgeB);
 
     for (iedgeB = 0; iedgeB < nedgeB; iedgeB++) {
         status = EG_getInfo(eedgesB[iedgeB], &oclass, &mtype, &topRef, &prev, &next);
-        if (status != EGADS_SUCCESS) goto cleanup;
+        CHECK_STATUS(EG_getInfo);
 
         if (mtype == DEGENERATE) continue;
         
         status = EG_getBodyTopos(ebodys[1], eedgesB[iedgeB], FACE, &ntemp, &etemps);
-        if (status != EGADS_SUCCESS) goto cleanup;
+        CHECK_STATUS(EG_getBodyTopos);
 
         if (ntemp == 1) {
             count = 1;
@@ -362,11 +350,7 @@ udpExecute(ego  emodel,                 /* (in)  input model */
         goto cleanup;
     }
 
-    eloops = (ego *) EG_alloc(nloop*sizeof(ego));
-    if (eloops == NULL) {
-        status = EGADS_MALLOC;
-        goto cleanup;
-    }
+    MALLOC(eloops, ego, nloop);
 
     /* make a Loop from the exposed Edges in BodyA */
     status = EG_makeLoop(nlistA, elistA, NULL, 0, &eloops[0]);
@@ -390,28 +374,24 @@ udpExecute(ego  emodel,                 /* (in)  input model */
 
     /* reorient eloops[nloop-1] to minimize twist from eloops[0] */
     status = reorderLoop(nloop, eloops);
-    if (status != EGADS_SUCCESS) goto cleanup;
+    CHECK_STATUS(reorderLoop);
 
     /* get Edges for bounding loops */
     status = EG_getTopology(eloops[0], &eref, &oclass, &mtype, data, &nedgeA, &eedgesA, &sensesA);
-    if (status != EGADS_SUCCESS) goto cleanup;
+    CHECK_STATUS(EG_getTopology);
 
     status = EG_getTopology(eloops[nloop-1], &eref, &oclass, &mtype, data, &nedgeB, &eedgesB, &sensesB);
-    if (status != EGADS_SUCCESS) goto cleanup;
+    CHECK_STATUS(EG_getTopology);
 
-    efacesA = (ego *) EG_alloc(nedgeA*sizeof(ego));
-    efacesB = (ego *) EG_alloc(nedgeB*sizeof(ego));
-    if (efacesA== NULL || efacesB == NULL) {
-        status = EGADS_MALLOC;
-        goto cleanup;
-    }
+    MALLOC(efacesA, ego, nedgeA);
+    MALLOC(efacesB, ego, nedgeB);
 
     /* get the Faces in BodyA adjacent to the Edges in eloops[0] */
     for (iedge = 0; iedge < nedgeA; iedge++) {
         efacesA[iedge] = NULL;
 
         status = EG_getBodyTopos(ebodys[0], eedgesA[iedge], FACE, &ntemp, &etemps);
-        if (status != EGADS_SUCCESS) goto cleanup;
+        CHECK_STATUS(EG_getBodyTopos);
 
         for (itemp = 0; itemp < ntemp; itemp++) {
             status = EG_attributeRet(etemps[itemp], "_flend", &atype, &alen,
@@ -435,7 +415,7 @@ udpExecute(ego  emodel,                 /* (in)  input model */
         efacesB[iedge] = NULL;
 
         status = EG_getBodyTopos(ebodys[1], eedgesB[iedge], FACE, &ntemp, &etemps);
-        if (status != EGADS_SUCCESS) goto cleanup;
+        CHECK_STATUS(EG_getBodyTopos);
 
         for (itemp = 0; itemp < ntemp; itemp++) {
             status = EG_attributeRet(etemps[itemp], "_flend", &atype, &alen,
@@ -455,11 +435,7 @@ udpExecute(ego  emodel,                 /* (in)  input model */
     }
 
     /* get an array to hold the points that will be used to make the Curves */
-    point = (double *) EG_alloc(3*npnt*nloop*nedgeA*sizeof(double));
-    if (point == NULL) {
-        status = EGADS_MALLOC;
-        goto cleanup;
-    }
+    MALLOC(point, double, 3*npnt*nloop*nedgeA);
 
 #define XPNT(IEDGE,ILOOP,IPNT) point[3*(IPNT+npnt*(ILOOP+nloop*IEDGE))  ]
 #define YPNT(IEDGE,ILOOP,IPNT) point[3*(IPNT+npnt*(ILOOP+nloop*IEDGE))+1]
@@ -468,10 +444,10 @@ udpExecute(ego  emodel,                 /* (in)  input model */
     /* get the (initial) Points in the Loops */
     for (iedge = 0; iedge < nedgeA; iedge++) {
         status = EG_getRange(eedgesA[iedge], trangeA, &periodic);
-        if (status != EGADS_SUCCESS) goto cleanup;
+        CHECK_STATUS(EG_getRange);
 
         status = EG_arcLength(eedgesA[iedge], trangeA[0], trangeA[1], &lenA);
-        if (status != EGADS_SUCCESS) goto cleanup;
+        CHECK_STATUS(EG_arcLength);
 
         printf("sensesA=%d, trangeA=%10.5f %10.5f, lenA=%10.5f\n", sensesA[iedge], trangeA[0], trangeA[1], lenA);
         (void) EG_evaluate(eedgesA[iedge], &trangeA[0], data);
@@ -480,10 +456,10 @@ udpExecute(ego  emodel,                 /* (in)  input model */
         printf("    end(A) = %10.5f %10.5f %10.5f\n", data[0], data[1], data[2]);
 
         status = EG_getRange(eedgesB[iedge], trangeB, &periodic);
-        if (status != EGADS_SUCCESS) goto cleanup;
+        CHECK_STATUS(EG_getRange);
 
         status = EG_arcLength(eedgesB[iedge], trangeB[0], trangeB[1], &lenB);
-        if (status != EGADS_SUCCESS) goto cleanup;
+        CHECK_STATUS(EG_arcLength);
 
         printf("sensesB=%d, trangeB=%10.5f %10.5f, lenB=%10.5f\n", sensesB[iedge], trangeB[0], trangeB[1], lenB);
 
@@ -509,7 +485,7 @@ udpExecute(ego  emodel,                 /* (in)  input model */
                     tt = (tleft + trite) / 2;
 
                     status = EG_arcLength(eedgesA[iedge], trangeA[0], tt, &ss);
-                    if (status != EGADS_SUCCESS) goto cleanup;
+                    CHECK_STATUS(EG_arcLength);
 
                     if (ss < stgt) {
                         tleft = tt;
@@ -535,7 +511,7 @@ udpExecute(ego  emodel,                 /* (in)  input model */
                 }
                 
                 status = EG_arcLength(eedgesB[iedge], trangeB[0], tt, &ss);
-                if (status != EGADS_SUCCESS) goto cleanup;
+                CHECK_STATUS(EG_arcLength);
 
                 if (sensesB[iedge] == sensesA[iedge]) {
                     stgt =         ss  / lenB * lenA;
@@ -549,7 +525,7 @@ udpExecute(ego  emodel,                 /* (in)  input model */
                     tt = (tleft + trite) / 2;
 
                     status = EG_arcLength(eedgesA[iedge], trangeA[0], tt, &ss);
-                    if (status != EGADS_SUCCESS) goto cleanup;
+                    CHECK_STATUS(EG_arcLength);
 
                     if (ss < stgt) {
                         tleft = tt;
@@ -568,7 +544,7 @@ udpExecute(ego  emodel,                 /* (in)  input model */
             }
 
             status = EG_evaluate(eedgesA[iedge], &tt, data);
-            if (status != EGADS_SUCCESS) goto cleanup;
+            CHECK_STATUS(EG_evaluate);
 
             XPNT(iedge,0,ipnt) = data[0];
             YPNT(iedge,0,ipnt) = data[1];
@@ -590,7 +566,7 @@ udpExecute(ego  emodel,                 /* (in)  input model */
                     tt = (tleft + trite) / 2;
 
                     status = EG_arcLength(eedgesB[iedge], trangeB[0], tt, &ss);
-                    if (status != EGADS_SUCCESS) goto cleanup;
+                    CHECK_STATUS(EG_arcLength);
 
                     if (ss < stgt) {
                         tleft = tt;
@@ -608,7 +584,7 @@ udpExecute(ego  emodel,                 /* (in)  input model */
                 }
                 
                 status = EG_arcLength(eedgesA[iedge], trangeA[0], tt, &ss);
-                if (status != EGADS_SUCCESS) goto cleanup;
+                CHECK_STATUS(EG_arcLength);
 
                 if (sensesA[iedge] == sensesB[iedge]) {
                     stgt =         ss  / lenA * lenB;
@@ -622,7 +598,7 @@ udpExecute(ego  emodel,                 /* (in)  input model */
                     tt = (tleft + trite) / 2;
 
                     status = EG_arcLength(eedgesB[iedge], trangeB[0], tt, &ss);
-                    if (status != EGADS_SUCCESS) goto cleanup;
+                    CHECK_STATUS(EG_arcLength);
 
                     if (ss < stgt) {
                         tleft = tt;
@@ -649,7 +625,7 @@ udpExecute(ego  emodel,                 /* (in)  input model */
             }
 
             status = EG_evaluate(eedgesB[iedge], &tt, data);
-            if (status != EGADS_SUCCESS) goto cleanup;
+            CHECK_STATUS(EG_evaluate);
 
             XPNT(iedge,nloop-1,ipnt) = data[0];
             YPNT(iedge,nloop-1,ipnt) = data[1];
@@ -680,7 +656,7 @@ udpExecute(ego  emodel,                 /* (in)  input model */
 
         /* BodyA */
         status = EG_getRange(eedgesA[iedge], trangeA, &periodic);
-        if (status != EGADS_SUCCESS) goto cleanup;
+        CHECK_STATUS(EG_getRange);
 
         if (sensesA[iedge] == SFORWARD) {
             tt = trangeA[0];
@@ -689,11 +665,11 @@ udpExecute(ego  emodel,                 /* (in)  input model */
         }
 
         status = EG_getEdgeUV(efacesA[iedge], eedgesA[iedge], 0, tt, uvA);
-        if (status != EGADS_SUCCESS) goto cleanup;
+        CHECK_STATUS(EG_getEdgeUV);
 
         /* BodyB */
         status = EG_getRange(eedgesB[iedge], trangeB, &periodic);
-        if (status != EGADS_SUCCESS) goto cleanup;
+        CHECK_STATUS(EG_getRange);
 
         if (sensesB[iedge] == SFORWARD) {
             tt = trangeB[0];
@@ -702,7 +678,7 @@ udpExecute(ego  emodel,                 /* (in)  input model */
         }
 
         status = EG_getEdgeUV(efacesB[iedge], eedgesB[iedge], 0, tt, uvB);
-        if (status != EGADS_SUCCESS) goto cleanup;
+        CHECK_STATUS(EG_getEdgeUV);
 
         /* process loop adjacent to BodyA */
         iloop = 1;
@@ -712,7 +688,7 @@ udpExecute(ego  emodel,                 /* (in)  input model */
            simply project the point to the shared efaceA */
         if (efacesA[iedge] == efacesA[jedge]) {
             status = EG_evaluate(efacesA[iedge], uvA, tangA);
-            if (status != EGADS_SUCCESS) goto cleanup;
+            CHECK_STATUS(EG_evaluate);
 
             /* only use component of vector that is along the Face */
             vold[0] = XPNT(iedge,iloop,ipnt) - XPNT(iedge,0,ipnt);
@@ -735,7 +711,7 @@ udpExecute(ego  emodel,                 /* (in)  input model */
         /* otherwise find the Edge that sets direction for C1 continuity */
         } else {
             status = EG_getTopology(eedgesA[iedge], &eref, &oclass, &mtype, data, &nnode, &enodes, &senses);
-            if (status != EGADS_SUCCESS) goto cleanup;
+            CHECK_STATUS(EG_getTopology);
 
             if (sensesA[iedge] == SFORWARD) {
                 enode = enodes[0];
@@ -744,7 +720,7 @@ udpExecute(ego  emodel,                 /* (in)  input model */
             }
 
             status = EG_getBodyTopos(ebodys[0], enode, EDGE, &nedge2, &eedges2);
-            if (status != EGADS_SUCCESS) goto cleanup;
+            CHECK_STATUS(EG_getBodyTopos);
 
             eedge = NULL;
             for (iedge2 = 0; iedge2 < nedge2; iedge2++) {
@@ -756,15 +732,17 @@ udpExecute(ego  emodel,                 /* (in)  input model */
 
             EG_free(eedges2);
 
+            if (eedge == NULL) goto cleanup;      // needed for splint
+
             status = EG_getTopology(eedge, &eref, &oclass, &mtype, data, &nnode, &enodes, &senses);
-            if (status != EGADS_SUCCESS) goto cleanup;
+            CHECK_STATUS(EG_getTopology);
 
             if        (enodes[0] == enode) {
                 status = EG_evaluate(eedge, &data[0], tangA);
-                if (status != EGADS_SUCCESS) goto cleanup;
+                CHECK_STATUS(EG_evaluate);
             } else if (enodes[1] == enode) {
                 status = EG_evaluate(eedge, &data[1], tangA);
-                if (status != EGADS_SUCCESS) goto cleanup;
+                CHECK_STATUS(EG_evaluate);
             } else {
                 printf("did not match Nodes\n");
                 exit(0);
@@ -795,7 +773,7 @@ udpExecute(ego  emodel,                 /* (in)  input model */
            simply project the point to the shared efaceB */
         if (efacesB[iedge] == efacesB[jedge]) {
             status = EG_evaluate(efacesB[iedge], uvB, tangB);
-            if (status != EGADS_SUCCESS) goto cleanup;
+            CHECK_STATUS(EG_evaluate);
 
             /* only use component of vector that is along the Face */
             vold[0] = XPNT(iedge,iloop,ipnt) - XPNT(iedge,nloop-1,ipnt);
@@ -818,7 +796,7 @@ udpExecute(ego  emodel,                 /* (in)  input model */
         /* otherwise find the Edge that sets direction for C1 continuity */
         } else {
             status = EG_getTopology(eedgesB[iedge], &eref, &oclass, &mtype, data, &nnode, &enodes, &senses);
-            if (status != EGADS_SUCCESS) goto cleanup;
+            CHECK_STATUS(EG_getTopology);
 
             if (sensesB[iedge] == SFORWARD) {
                 enode = enodes[0];
@@ -827,7 +805,7 @@ udpExecute(ego  emodel,                 /* (in)  input model */
             }
 
             status = EG_getBodyTopos(ebodys[1], enode, EDGE, &nedge2, &eedges2);
-            if (status != EGADS_SUCCESS) goto cleanup;
+            CHECK_STATUS(EG_getBodyTopos);
 
             eedge = NULL;
             for (iedge2 = 0; iedge2 < nedge2; iedge2++) {
@@ -839,15 +817,17 @@ udpExecute(ego  emodel,                 /* (in)  input model */
 
             EG_free(eedges2);
 
+            if (eedge == NULL) goto cleanup;      // needed for splint
+
             status = EG_getTopology(eedge, &eref, &oclass, &mtype, data, &nnode, &enodes, &senses);
-            if (status != EGADS_SUCCESS) goto cleanup;
+            CHECK_STATUS(EG_getTopology);
 
             if        (enodes[0] == enode) {
                 status = EG_evaluate(eedge, &data[0], tangB);
-                if (status != EGADS_SUCCESS) goto cleanup;
+                CHECK_STATUS(EG_evaluate);
             } else if (enodes[1] == enode) {
                 status = EG_evaluate(eedge, &data[1], tangB);
-                if (status != EGADS_SUCCESS) goto cleanup;
+                CHECK_STATUS(EG_evaluate);
             } else {
                 printf("did not match Nodes\n");
                 exit(0);
@@ -934,10 +914,10 @@ udpExecute(ego  emodel,                 /* (in)  input model */
     /* generate the points for the interior loops */
     for (iedge = 0; iedge < nedgeA; iedge++) {
         status = EG_getRange(eedgesA[iedge], trangeA, &periodic);
-        if (status != EGADS_SUCCESS) goto cleanup;
+        CHECK_STATUS(EG_getRange);
 
         status = EG_getRange(eedgesB[iedge], trangeB, &periodic);
-        if (status != EGADS_SUCCESS) goto cleanup;
+        CHECK_STATUS(EG_getRange);
 
         /* create the Curve using npnt points */
         for (ipnt = 1; ipnt < npnt-1; ipnt++) {
@@ -954,10 +934,10 @@ udpExecute(ego  emodel,                 /* (in)  input model */
             }
 
             status = EG_getEdgeUV(efacesA[iedge], eedgesA[iedge], 0, tt, uvA);
-            if (status != EGADS_SUCCESS) goto cleanup;
+            CHECK_STATUS(EG_getEdgeUV);
 
             status = EG_evaluate(efacesA[iedge], uvA, tangA);
-            if (status != EGADS_SUCCESS) goto cleanup;
+            CHECK_STATUS(EG_evaluate);
 
             /* only use component of vector that is along the surface */
             vold[0] = XPNT(iedge,iloop,ipnt) - XPNT(iedge,0,ipnt);
@@ -997,10 +977,10 @@ udpExecute(ego  emodel,                 /* (in)  input model */
             }
 
             status = EG_getEdgeUV(efacesB[iedge], eedgesB[iedge], 0, tt, uvB);
-            if (status != EGADS_SUCCESS) goto cleanup;
+            CHECK_STATUS(EG_getEdgeUV);
 
             status = EG_evaluate(efacesB[iedge], uvB, tangB);
-            if (status != EGADS_SUCCESS) goto cleanup;
+            CHECK_STATUS(EG_evaluate);
 
             /* only use component of vector that is along the surface */
             vold[0] = XPNT(iedge,iloop,ipnt) - XPNT(iedge,nloop-1,ipnt);
@@ -1055,9 +1035,9 @@ udpExecute(ego  emodel,                 /* (in)  input model */
                     fprintf(fp, " %9.5f %9.5f %9.5f\n", XPNT(iedge,nloop-1,ipnt), YPNT(iedge,nloop-1,ipnt), ZPNT(iedge,nloop-1,ipnt));
                 }
             }
+            fprintf(fp, "    0    0 end\n");
+            fclose(fp);
         }
-        fprintf(fp, "    0    0 end\n");
-        fclose(fp);
     }
 
     /* get list of Faces in BodyA and BodyB */
@@ -1065,31 +1045,23 @@ udpExecute(ego  emodel,                 /* (in)  input model */
     EG_free(efacesB);
 
     status = EG_getBodyTopos(ebodys[0], NULL, FACE, &nfaceA, &efacesA);
-    if (status != EGADS_SUCCESS) goto cleanup;
+    CHECK_STATUS(EG_getBodyTopos);
 
     status = EG_getBodyTopos(ebodys[1], NULL, FACE, &nfaceB, &efacesB);
-    if (status != EGADS_SUCCESS) goto cleanup;
+    CHECK_STATUS(EG_getBodyTopos);
 
     /* get a list to hold all Faces */
-    efacelist = (ego *) EG_alloc((nedgeA+nfaceA+nfaceB)*sizeof(ego));
-    if (efacelist == NULL) {
-        status = EGADS_MALLOC;
-        goto cleanup;
-    }
+    MALLOC(efacelist, ego, (nedgeA+nfaceA+nfaceB));
 
     status = ocsmEvalExpr(modl, "@nbody", &value, &dot, temp);
-    if (status != EGADS_SUCCESS) goto cleanup;
+    CHECK_STATUS(ocsmEvalExpr);
 
     brchattr[0] = -1;                   // fixed in buildPrimitive because _markFaces_ is not set
     bodyattr[0] = value + 1.01;
 
-    spln = (double *) EG_alloc(6*npnt*sizeof(double));
-    west = (double *) EG_alloc(3*npnt*sizeof(double));
-    east = (double *) EG_alloc(3*npnt*sizeof(double));
-    if (spln == NULL || west == NULL || east == NULL) {
-        status = EGADS_MALLOC;
-        goto cleanup;
-    }
+    MALLOC(spln, double, 6*npnt);
+    MALLOC(west, double, 3*npnt);
+    MALLOC(east, double, 3*npnt);
 
     /* make a Face associated with each Edge */
     for (iedge = 0; iedge < nedgeA; iedge++) {
@@ -1113,14 +1085,14 @@ udpExecute(ego  emodel,                 /* (in)  input model */
 
         status = EG_spline2dAppx(context, 0, NULL, NULL, NULL, west, east,
                                  NULL, NULL, NULL, NULL, 2, npnt, spln, toler, &esurf);
-        if (status != EGADS_SUCCESS) goto cleanup;
+        CHECK_STATUS(EG_spline2dAppx);
 
         data[0] = 0;
         data[1] = 1;
         data[2] = 0;
         data[3] = 1;
         status = EG_makeFace(esurf, SFORWARD, data, &efacelist[iedge]);
-        if (status != EGADS_SUCCESS) goto cleanup;
+        CHECK_STATUS(EG_makeFace);
 
         /* set _brch and _body Attributes on new Face */
         brchattr[1] = iedge + 1;
@@ -1128,11 +1100,11 @@ udpExecute(ego  emodel,                 /* (in)  input model */
 
         status = EG_attributeAdd(efacelist[iedge], "_brch", ATTRINT, 2,
                                  brchattr, NULL, NULL);
-        if (status != EGADS_SUCCESS) goto cleanup;
+        CHECK_STATUS(EG_attributeAdd);
 
         status = EG_attributeAdd(efacelist[iedge], "_body", ATTRINT, 2,
                                  bodyattr, NULL, NULL);
-        if (status != EGADS_SUCCESS) goto cleanup;
+        CHECK_STATUS(EG_attributeAdd);
     }
 
     /* add to efacelist the unmarked Faces in BodyA and BodyB */
@@ -1159,11 +1131,11 @@ udpExecute(ego  emodel,                 /* (in)  input model */
 
     /* sew the Faces into a single (output) Body */
     status = EG_sewFaces(nfacelist, efacelist, TOLER(0), 0, &emodel);
-    if (status != EGADS_SUCCESS) goto cleanup;
+    CHECK_STATUS(EG_sewFaces);
 
     status = EG_getTopology(emodel, &eref, &oclass, &mtype,
                             data, &nchild, &echilds, &senses);
-    if (status != EGADS_SUCCESS) goto cleanup;
+    CHECK_STATUS(EG_getTopology);
 
     if (nchild != 1) {
         printf(" udpExecute: expecting emodel to have only one child, but has %d\n", nchild);
@@ -1172,11 +1144,11 @@ udpExecute(ego  emodel,                 /* (in)  input model */
     }
 
     status = EG_copyObject(echilds[0], NULL, ebody);
-    if (status != EGADS_SUCCESS) goto cleanup;
+    CHECK_STATUS(EG_copyObject);
 
     status = EG_getTopology(*ebody, &eref, &oclass, &mtype,
                             data, &nchild, &echilds, &senses);
-    if (status != EGADS_SUCCESS) goto cleanup;
+    CHECK_STATUS(EG_getTopology);
 
     if (mtype != SOLIDBODY) {
         printf(" udpExecute: expecting SolidBody\n");
@@ -1185,7 +1157,7 @@ udpExecute(ego  emodel,                 /* (in)  input model */
     }
 
     status = EG_deleteObject(emodel);
-    if (status != EGADS_SUCCESS) goto cleanup;
+    CHECK_STATUS(EG_deleteObject);
 
     /* return output value(s) */
 
@@ -1292,41 +1264,37 @@ reorderLoop(int    nloop,               /* (in)  Loop to be reordered */
     /* get info on iloop */
     status = EG_getTopology(eloops[iloop], &erefi,
                             &oclassi, &mtypei, uvlimitsi, &nedgei, &eedgesi, &sensesi);
-    if (status != EGADS_SUCCESS) goto cleanup;
+    CHECK_STATUS(EG_getTopology);
 
     /* get info on jloop */
     status = EG_getTopology(eloops[jloop], &erefj,
                             &oclassj, &mtypej, uvlimitsj, &nedgej, &eedgesj, &sensesj);
-    if (status != EGADS_SUCCESS) goto cleanup;
+    CHECK_STATUS(EG_getTopology);
 
     /* set up the coordinates at the Nodes and midpoints in the two Loops */
-    xyzi = (double *) EG_alloc(6*nedgei*sizeof(double));
-    xyzj = (double *) EG_alloc(6*nedgei*sizeof(double));
-    if (xyzi == NULL || xyzj == NULL) {
-        status = EGADS_MALLOC;
-        goto cleanup;
-    }
+    MALLOC(xyzi, double, 6*nedgei);
+    MALLOC(xyzj, double, 6*nedgei);
 
     for (iedge = 0; iedge < nedgei; iedge++) {
         status = EG_getTopology(eedgesi[iedge], &erefk,
                                 &oclassk, &mtypeg, uvlimitsk, &nnode, &enodes, &sensesk);
-        if (status != EGADS_SUCCESS) goto cleanup;
+        CHECK_STATUS(EG_getTopology);
 
         if (sensesi[iedge] > 0) {
             status = EG_getTopology(enodes[0], &erefk,
                                     &oclassk, &mtypek, &(xyzi[6*iedge]), &nnode, &elist, &sensesk);
-            if (status != EGADS_SUCCESS) goto cleanup;
+            CHECK_STATUS(EG_getTopology);
         } else {
             status = EG_getTopology(enodes[1], &erefk,
                                     &oclassk, &mtypek, &(xyzi[6*iedge]), &nnode, &elist, &sensesk);
-            if (status != EGADS_SUCCESS) goto cleanup;
+            CHECK_STATUS(EG_getTopology);
         }
 
         if (mtypeg != DEGENERATE) {
             uvlimitsk[2] = (uvlimitsk[0] + uvlimitsk[1]) / 2;
 
             status = EG_evaluate(eedgesi[iedge], &uvlimitsk[2], data);
-            if (status != EGADS_SUCCESS) goto cleanup;
+            CHECK_STATUS(EG_evaluate);
 
             xyzi[6*iedge+3] = data[0];
             xyzi[6*iedge+4] = data[1];
@@ -1341,23 +1309,23 @@ reorderLoop(int    nloop,               /* (in)  Loop to be reordered */
     for (iedge = 0; iedge < nedgej; iedge++) {
         status = EG_getTopology(eedgesj[iedge], &erefk,
                                 &oclassk, &mtypeg, uvlimitsk, &nnode, &enodes, &sensesk);
-        if (status != EGADS_SUCCESS) goto cleanup;
+        CHECK_STATUS(EG_getTopology);
 
         if (sensesj[iedge] > 0) {
             status = EG_getTopology(enodes[0], &erefk,
                                     &oclassk, &mtypek, &(xyzj[6*iedge]), &nnode, &elist, &sensesk);
-            if (status != EGADS_SUCCESS) goto cleanup;
+            CHECK_STATUS(EG_getTopology);
         } else {
             status = EG_getTopology(enodes[1], &erefk,
                                     &oclassk, &mtypek, &(xyzj[6*iedge]), &nnode, &elist, &sensesk);
-            if (status != EGADS_SUCCESS) goto cleanup;
+            CHECK_STATUS(EG_getTopology);
         }
 
         if (mtypeg != DEGENERATE) {
             uvlimitsk[2] = (uvlimitsk[0] + uvlimitsk[1]) / 2;
 
             status = EG_evaluate(eedgesj[iedge], &uvlimitsk[2], data);
-            if (status != EGADS_SUCCESS) goto cleanup;
+            CHECK_STATUS(EG_evaluate);
 
             xyzj[6*iedge+3] = data[0];
             xyzj[6*iedge+4] = data[1];
@@ -1393,32 +1361,32 @@ reorderLoop(int    nloop,               /* (in)  Loop to be reordered */
     dotprod = areai[0] * areaj[0] + areai[1] * areaj[1] + areai[2] * areaj[2];
     if (dotprod < 0) {
         status = flipLoop(&(eloops[jloop]));
-        if (status != EGADS_SUCCESS) goto cleanup;
+        CHECK_STATUS(flipLoop);
 
         status = EG_getTopology(eloops[jloop], &erefj,
                                 &oclassj, &mtypej, uvlimitsj, &nedgej, &eedgesj, &sensesj);
-        if (status != EGADS_SUCCESS) goto cleanup;
+        CHECK_STATUS(EG_getTopology);
 
         if (oclassj == FACE) {
             etemp  = eedgesj[0];
             status = EG_getTopology(etemp, &erefj,
                                     &oclassj, &mtypej, uvlimitsj, &nedgej, &eedgesj, &sensesj);
-            if (status != EGADS_SUCCESS) goto cleanup;
+            CHECK_STATUS(EG_getTopology);
         }
 
         for (iedge = 0; iedge < nedgej; iedge++) {
             status = EG_getTopology(eedgesj[iedge], &erefk,
                                     &oclassk, &mtypek, uvlimitsk, &nnode, &enodes, &sensesk);
-            if (status != EGADS_SUCCESS) goto cleanup;
+            CHECK_STATUS(EG_getTopology);
 
             if (sensesj[iedge] > 0) {
                 status = EG_getTopology(enodes[0], &erefk,
                                         &oclassk, &mtypek, &(xyzj[6*iedge]), &nnode, &elist, &sensesk);
-                if (status != EGADS_SUCCESS) goto cleanup;
+                CHECK_STATUS(EG_getTopology);
             } else {
                 status = EG_getTopology(enodes[1], &erefk,
                                         &oclassk, &mtypek, &(xyzj[6*iedge]), &nnode, &elist, &sensesk);
-                if (status != EGADS_SUCCESS) goto cleanup;
+                CHECK_STATUS(EG_getTopology);
             }
         }
     }
@@ -1447,12 +1415,8 @@ reorderLoop(int    nloop,               /* (in)  Loop to be reordered */
 
     /* create the new rotated Loop */
     if (ishift > 0) {
-        eedgesnew = (ego *) EG_alloc(2*nedgej*sizeof(ego));
-        sensesnew = (int *) EG_alloc(2*nedgej*sizeof(int));
-        if (eedgesnew == NULL || sensesnew == NULL) {
-            status = EGADS_MALLOC;
-            goto cleanup;
-        }
+        MALLOC(eedgesnew, ego, 2*nedgej);
+        MALLOC(sensesnew, int, 2*nedgej);
 
         /* shift the Loop by ishift */
         for (iedge = 0; iedge < nedgej; iedge++) {
@@ -1463,11 +1427,11 @@ reorderLoop(int    nloop,               /* (in)  Loop to be reordered */
 
         status = EG_getTopology(eloops[jloop], &erefk,
                                 &oclassk, &mtypek, uvlimitsk, &nedgek, &eedgesk, &sensesk);
-        if (status != EGADS_SUCCESS) goto cleanup;
+        CHECK_STATUS(EG_getTopology);
 
         if (oclassk == FACE) {
             status = EG_getGeometry(erefk, &oclassg, &mtypeg, &erefg, NULL, NULL);
-            if (status != EGADS_SUCCESS) goto cleanup;
+            CHECK_STATUS(EG_getGeometry);
 
             if (mtypeg != PLANE) {
                 for (iedge = 0; iedge < nedgej; iedge++) {
@@ -1480,11 +1444,11 @@ reorderLoop(int    nloop,               /* (in)  Loop to be reordered */
 
         /* make new Loop */
         status = EG_getContext(eloops[0], &context);
-        if (status != EGADS_SUCCESS) goto cleanup;
+        CHECK_STATUS(EG_getContext);
 
         status = EG_makeTopology(context, erefk, LOOP, CLOSED,
                                  NULL, nedgej, eedgesnew, sensesnew, &eloops[jloop]);
-        if (status != EGADS_SUCCESS) goto cleanup;
+        CHECK_STATUS(EG_makeTopology);
 
         EG_free(sensesnew);
         EG_free(eedgesnew);
@@ -1523,11 +1487,11 @@ flipLoop(ego    *eloop)                 /* (both) Loop to be flipped */
     /* --------------------------------------------------------------- */
 
     status = EG_getContext(*eloop, &context);
-    if (status != EGADS_SUCCESS) goto cleanup;
+    CHECK_STATUS(EG_getContext);
 
     status = EG_getTopology(*eloop, &eref, &oclass, &mtype,
                             data, &nedge, &oldEedges, &oldSenses);
-    if (status != EGADS_SUCCESS) goto cleanup;
+    CHECK_STATUS(EG_getTopology);
 
     /* if eref!=NULL, we might need to take care of Pcurves too */
     if (oclass != LOOP || mtype != CLOSED || eref != NULL) {
@@ -1535,12 +1499,8 @@ flipLoop(ego    *eloop)                 /* (both) Loop to be flipped */
         goto cleanup;
     }
 
-    newEedges = (ego *) EG_alloc(nedge*sizeof(ego));
-    newSenses = (int *) EG_alloc(nedge*sizeof(int));
-    if (newEedges == NULL || newSenses == NULL) {
-        status = EGADS_MALLOC;
-        goto cleanup;
-    }
+    MALLOC(newEedges, ego, nedge);
+    MALLOC(newSenses, int, nedge);
 
     i = 0;
     j = nedge - 1;
@@ -1558,7 +1518,7 @@ flipLoop(ego    *eloop)                 /* (both) Loop to be flipped */
 
     status = EG_makeTopology(context, eref, LOOP, CLOSED, data,
                              nedge, newEedges, newSenses, eloop);
-    if (status != EGADS_SUCCESS) goto cleanup;
+    CHECK_STATUS(EG_makeTopology);
 
 cleanup:
     if (newEedges != NULL) EG_free(newEedges);

@@ -40,10 +40,16 @@ geometryScript = os.path.join("..","csmData","aeroelasticDataTransferSimple.csm"
 myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 
 # Load AIMs
+mySurfMesh = myProblem.loadAIM(aim = "egadsTessAIM",
+                           altName= "egads",
+                           analysisDir = workDir + "_SU2",
+                           capsIntent = "CFD")
+
 myMesh = myProblem.loadAIM(aim = "tetgenAIM",
-                  altName= "tetgen",
-                  analysisDir = workDir + "_SU2",
-                  capsIntent = "CFD")
+                           altName= "tetgen",
+                           analysisDir = workDir + "_SU2",
+                           parents = mySurfMesh.aimName,
+                           capsIntent = "CFD")
 
 su2 = myProblem.loadAIM(aim = "su2AIM",
                         altName = "su2",
@@ -64,8 +70,10 @@ for i in transfers:
                                  transferMethod = "Interpolate", # "Conserve",
                                  capsBound = i)
 
+# Set inputs for EGADS
+mySurfMesh.setAnalysisVal("Tess_Params", [.3, 0.01, 20.0])
+
 # Set inputs for tetgen
-myMesh.setAnalysisVal("Tess_Params", [.3, 0.01, 20.0])
 myMesh.setAnalysisVal("Preserve_Surf_Mesh", True)
 myMesh.setAnalysisVal("Mesh_Quiet_Flag", True if args.verbosity == 0 else False)
 
@@ -129,6 +137,15 @@ mystran.setAnalysisVal("Constraint", ("edgeConstraint", constraint))
 # Static uniform pressure load
 load = {"groupName": "Skin", "loadType" : "Pressure", "pressureForce": 1E8}
 mystran.setAnalysisVal("Load", ("pressureInternal", load ))
+
+####### EGADS ########################
+# Run pre/post-analysis for tetgen
+print ("\nRunning PreAnalysis ......", "tetgen")
+mySurfMesh.preAnalysis()
+
+print ("\nRunning PostAnalysis ......", "tetgen")
+mySurfMesh.postAnalysis()
+#######################################
 
 ####### Tetgen ########################
 # Run pre/post-analysis for tetgen

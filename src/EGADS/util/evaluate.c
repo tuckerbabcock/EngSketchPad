@@ -3,7 +3,7 @@
  *
  *             Internal Geometry Evaluation Functions
  *
- *      Copyright 2011-2020, Massachusetts Institute of Technology
+ *      Copyright 2011-2021, Massachusetts Institute of Technology
  *      Licensed under The GNU Lesser General Public License, version 2.1
  *      See http://www.opensource.org/licenses/lgpl-2.1.php
  *
@@ -2332,7 +2332,39 @@ EG_invEvaGeomLimits(const egObject *geomx, /*@null@*/ const double *limits,
         }
       }
     } else {
-      if (geom->mtype == BEZIER) {
+      /* raw parabola -- limit range */
+      if ((geom->mtype == PARABOLA) && (range[0] < -1.e100) &&
+                                       (range[1] >  1.e100)) {
+        tx   = 0.0;
+        stat = EG_evaluateGeom(geom, &tx, data);
+        if (stat != EGADS_SUCCESS) return stat;
+        a  = (data[0]-xyz[0])*(data[0]-xyz[0]) +
+             (data[1]-xyz[1])*(data[1]-xyz[1]) +
+             (data[2]-xyz[2])*(data[2]-xyz[2]);
+        tx = -1.0;
+        while (tx > range[0]) {
+          stat = EG_evaluateGeom(geom, &tx, data);
+          if (stat != EGADS_SUCCESS) return stat;
+          if ((data[0]-xyz[0])*(data[0]-xyz[0]) +
+              (data[1]-xyz[1])*(data[1]-xyz[1]) +
+              (data[2]-xyz[2])*(data[2]-xyz[2]) > a) break;
+          tx *= 2.0;
+        }
+        range[0] = tx;
+        tx       = 1.0;
+        while (tx < range[1]) {
+          stat = EG_evaluateGeom(geom, &tx, data);
+          if (stat != EGADS_SUCCESS) return stat;
+          if ((data[0]-xyz[0])*(data[0]-xyz[0]) +
+              (data[1]-xyz[1])*(data[1]-xyz[1]) +
+              (data[2]-xyz[2])*(data[2]-xyz[2]) > a) break;
+          tx *= 2.0;
+        }
+        range[1] = tx;
+/*      printf(" Parabola new range = %le %le\n", range[0], range[1]);  */
+      }
+      
+      if ((geom->mtype == BEZIER) || (geom->mtype == PARABOLA)) {
         urats = xfinrt;
         ulen = 20;
       } else if (geom->mtype == LINE) {
@@ -2475,7 +2507,39 @@ EG_invEvaGeomLimits(const egObject *geomx, /*@null@*/ const double *limits,
         }
       }
     } else {
-      if (geom->mtype == BEZIER) {
+      /* raw parabola -- limit range */
+      if ((geom->mtype == PARABOLA) && (range[0] < -1.e100) &&
+                                       (range[1] >  1.e100)) {
+        tx   = 0.0;
+        stat = EG_evaluateGeom(geom, &tx, data);
+        if (stat != EGADS_SUCCESS) return stat;
+        a  = (data[0]-xyz[0])*(data[0]-xyz[0]) +
+             (data[1]-xyz[1])*(data[1]-xyz[1]) +
+             (data[2]-xyz[2])*(data[2]-xyz[2]);
+        tx = -1.0;
+        while (tx > range[0]) {
+          stat = EG_evaluateGeom(geom, &tx, data);
+          if (stat != EGADS_SUCCESS) return stat;
+          if ((data[0]-xyz[0])*(data[0]-xyz[0]) +
+              (data[1]-xyz[1])*(data[1]-xyz[1]) +
+              (data[2]-xyz[2])*(data[2]-xyz[2]) > a) break;
+          tx *= 2.0;
+        }
+        range[0] = tx;
+        tx       = 1.0;
+        while (tx < range[1]) {
+          stat = EG_evaluateGeom(geom, &tx, data);
+          if (stat != EGADS_SUCCESS) return stat;
+          if ((data[0]-xyz[0])*(data[0]-xyz[0]) +
+              (data[1]-xyz[1])*(data[1]-xyz[1]) +
+              (data[2]-xyz[2])*(data[2]-xyz[2]) > a) break;
+          tx *= 2.0;
+        }
+        range[1] = tx;
+/*      printf(" Parabola new range = %le %le\n", range[0], range[1]);  */
+      }
+      
+      if ((geom->mtype == BEZIER) || (geom->mtype == PARABOLA)) {
         urats = xfinrt;
         ulen = 20;
       } else if (geom->mtype == LINE) {
@@ -3667,7 +3731,7 @@ EG_getWindingAngle(egObject *edge, double t, double *angle)
   if (x0[0]*p1[0]+x0[1]*p1[1] > 0.0) cx = 1;
   if (x1[0]*p0[0]+x1[1]*p0[1] > 0.0) cx = 1;
   dist = DOT(dir[0], dir[1]);
-  if ((dist < -1.0) || (dist > 1.0))
+  if ((dist < -1.0000001) || (dist > 1.0000001))
     printf(" EG_getWindingAngle: dot = %20.12lf\n", dist);
   if (dist < -1.0) dist = -1.0;
   if (dist >  1.0) dist =  1.0;

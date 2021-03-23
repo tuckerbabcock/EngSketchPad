@@ -4,7 +4,8 @@
 
 int aflr2_Surface_Mesh(int Message_Flag, ego bodyIn,
                        meshInputStruct meshInput,
-                       mapAttrToIndexStruct attrMap,
+                       mapAttrToIndexStruct groupMap,
+                       mapAttrToIndexStruct meshMap,
                        int numMeshProp,
                        meshSizingStruct *meshProp,
                        meshStruct *surfaceMesh);

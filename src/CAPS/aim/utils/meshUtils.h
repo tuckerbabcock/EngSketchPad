@@ -1,3 +1,5 @@
+// This software has been cleared for public release on 05 Nov 2020, case number 88ABW-2020-3462.
+
 // Mesh related utility functions - Written by Dr. Ryan Durscher AFRL/RQVC
 
 #include "meshTypes.h"  // Bring in mesh structures
@@ -17,6 +19,8 @@ int mesh_bodyTessellation(ego tess, mapAttrToIndexStruct *attrMap,
                           int *numNodes, double *xyzCoord[],
                           int *numTriFace, int *triFaceConn[], int *triFaceCompID[], int *triFaceTopoID[],
                           int *numBndEdge, int *bndEdgeConn[], int *bndEdgeCompID[], int *bndEdgeTopoID[],
+                          int *numNodeEle, int *nodeEleConn[], int *nodeEleCompID[], int *nodeEleTopoID[],
+                          int *twoDMesh,
                           int *tessFaceQuadMap,
                           int *numQuadFace, int *quadFaceConn[], int *quadFaceCompID[], int *quadFaceTopoID[]);
 
@@ -49,7 +53,7 @@ void get_Surface_Norm(double p1[3],
                       double norm[3]);
 
 // Populate bndCondStruct boundary condition information - Boundary condition values get filled with 99
-int populate_bndCondStruct_from_bcPropsStruct(cfdBCsStruct *bcProps,
+int populate_bndCondStruct_from_bcPropsStruct(cfdBoundaryConditionStruct *bcProps,
                                               bndCondStruct *bndConds);
 
 // Populate bndCondStruct boundary condition information from attribute map - Boundary condition values get filled with 99
@@ -303,7 +307,6 @@ int mesh_writeFAST(char *fname,
 int mesh_writeAbaqus(char *fname,
                      int asciiFlag,
                      meshStruct *mesh,
-                     mapAttrToIndexStruct *attrMap, // Mapping between element sets and property IDs
                      double scaleFactor); // Scale factor for coordinates
 
 // Extrude a surface mesh a single unit the length of extrusionLength - return a
@@ -331,6 +334,35 @@ int mesh_createIgnoreMesh(meshStruct *mesh, meshStruct *meshIgnore);
 
 // Changes the analysisType of a mesh
 int mesh_setAnalysisType(meshAnalysisTypeEnum analysisType, meshStruct *mesh);
+
+// Find meshNodeStructs with `isMatch` function
+// Returns array of borrowed pointers
+int mesh_findNodes(meshStruct *mesh, 
+                   int (*isMatch)(meshNodeStruct *, void *), 
+                   void *isMatchArg, 
+                   int *numFound, 
+                   meshNodeStruct ***foundSet);
+
+// Find meshElementStructs with `isMatch` function
+// Returns array of borrowed pointers
+int mesh_findElements(meshStruct *mesh, 
+                      int (*isMatch)(meshElementStruct *, void *), 
+                      void *isMatchArg, 
+                      int *numFound, 
+                      meshElementStruct ***foundSet);
+
+// Find meshElementStructs with given groupName(s)
+// Returns array of borrowed pointers
+int mesh_findGroupElements(meshStruct *mesh,
+                      mapAttrToIndexStruct *attrMap, 
+                      int numGroupName, 
+                      char **groupName, 
+                      int *numGroupElement, 
+                      meshElementStruct ***groupElementSet);
+
+// General routine to do fill up a AIM capsDiscr data structure
+int mesh_fillDiscr(char *tname, mapAttrToIndexStruct *groupMap,
+                   int numBody, ego *tess, capsDiscr *discr);
 
 #ifdef __cplusplus
 }

@@ -67,9 +67,11 @@ IFTHEN    COMP:Wing EQ 1
   
             FACE HAS        tagType=spar tagIndex=1
             SET             capsGroup=wingSpar1
+            SET             capsMesh=wingSpar1
 
             FACE HAS        tagType=spar tagIndex=2
             SET             capsGroup=wingSpar2
+            SET             capsMesh=wingSpar2
 >>
 
     ELSE
@@ -93,9 +95,11 @@ IFTHEN    COMP:Wing EQ 1
 
             FACE HAS        tagType=spar tagIndex=1
             SET             capsGroup=wingSpar1
+            SET             capsMesh=wingSpar1
 
             FACE HAS        tagType=spar tagIndex=2
             SET             capsGroup=wingSpar2
+            SET             capsMesh=wingSpar2
 >>
     ENDIF
 
@@ -133,7 +137,7 @@ IFTHEN    COMP:Wing EQ 1
     SET       leadingEdges @sellist
     PATBEG    i   leadingEdges.size
         SELECT    EDGE   leadingEdges[i]
-            ATTRIBUTE capsGroup  $leadingEdge
+            ATTRIBUTE capsMesh  $leadingEdge
     PATEND
 
     # Identify faces adjacent to the leading edge
@@ -146,7 +150,7 @@ IFTHEN    COMP:Wing EQ 1
     UDPRIM    editAttr  filename  <<
         EDGE ADJ2FACE tagTemp=leadingEdgeFace
         AND  ADJ2FACE tagComp=rootWing
-        SET           capsGroup=rootLeadingEdge
+        SET           capsMesh=rootLeadingEdge
 >>
 
     IFTHEN VIEW:ClampedStructure EQ 1

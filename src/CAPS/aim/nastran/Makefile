@@ -17,11 +17,14 @@ endif
 
 $(LDIR)/nastranAIM.so:	$(ODIR)/nastranAIM.o $(LDIR)/libutils.a $(LDIR)/libaimUtil.a
 	$(CC) $(SOFLGS) -o $(LDIR)/nastranAIM.so $(ODIR)/nastranAIM.o \
-		-L$(LDIR) -lutils -laimUtil -locsm -legads -ludunits2 -lm $(CPPSLB)
+		-L$(LDIR) -lutils -laimUtil -locsm -legads -ludunits2 -lm $(CPPSLB) $(PYTHONLIB)
 
 $(ODIR)/nastranAIM.o:	nastranAIM.c $(IDIR)/capsTypes.h
 	$(CC) -c $(COPTS) $(DEFINE) -I$(IDIR) -I../utils nastranAIM.c \
 		-o $(ODIR)/nastranAIM.o
+
+lint:
+	$(LINT) -I../../include -I$(IDIR) -I../utils $(wildcard *.c) -exportlocal -nestcomment -evalorder -retvalother -boolops -bufferoverflowhigh -uniondef
 
 clean:
 	-rm $(ODIR)/nastranAIM.o

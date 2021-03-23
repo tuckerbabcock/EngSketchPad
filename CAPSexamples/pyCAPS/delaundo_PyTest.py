@@ -28,44 +28,41 @@ workDir = str(args.workDir[0]) + "/DelaundoAnalysisTest"
 geometryScript = os.path.join("..","csmData","cfd2D.csm")
 myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 
-# Set intention - could also be set during .loadAIM
-myProblem.capsIntent = "CFD"
-
 # Set the sharp trailing edge geometry design parameter
 myProblem.geometry.setGeometryVal("sharpTE", 0.0)
 
 # Load delaundo aim
-myProblem.loadAIM(aim = "delaundoAIM", analysisDir = workDir)
+myMesh = myProblem.loadAIM(aim = "delaundoAIM", analysisDir = workDir)
 
 # Set airfoil edge parameters
 airfoil = {"numEdgePoints" : 100, "edgeDistribution" : "Tanh", "initialNodeSpacing" : [0.001, 0.001]}
 
 # Set meshing parameters
-myProblem.analysis["delaundoAIM"].setAnalysisVal("Mesh_Sizing", [("Airfoil"   , airfoil),
+myMesh.setAnalysisVal("Mesh_Sizing", [("Airfoil"   , airfoil),
                                                                  ("TunnelWall", {"numEdgePoints" : 5}),
                                                                  ("InFlow",     {"numEdgePoints" : 5}),
                                                                  ("OutFlow",    {"numEdgePoints" : 5})])
 
 # Thickness of stretched region
-myProblem.analysis["delaundoAIM"].setAnalysisVal("Delta_Thickness", .1)
+myMesh.setAnalysisVal("Delta_Thickness", .1)
 
 # Maximum aspect ratio
-myProblem.analysis["delaundoAIM"].setAnalysisVal("Max_Aspect", 90.0)
+myMesh.setAnalysisVal("Max_Aspect", 90.0)
 
 # Set project name and output mesh type
 projectName = "delaundoMesh"
-myProblem.analysis["delaundoAIM"].setAnalysisVal("Proj_Name", projectName )
+myMesh.setAnalysisVal("Proj_Name", projectName )
 
-myProblem.analysis["delaundoAIM"].setAnalysisVal("Mesh_Format", "Tecplot")
+myMesh.setAnalysisVal("Mesh_Format", "Tecplot")
 
 # Run AIM pre-analysis
-myProblem.analysis["delaundoAIM"].preAnalysis()
+myMesh.preAnalysis()
 
 ####### Run delaundo ####################
 print ("\n\nRunning Delaundo......")
 currentDirectory = os.getcwd() # Get our current working directory
 
-os.chdir(myProblem.analysis["delaundoAIM"].analysisDir) # Move into test directory
+os.chdir(myMesh.analysisDir) # Move into test directory
 
 file = open("Input.sh", "w") # Create a simple input shell script with are control file name
 file.write(projectName + ".ctr\n")
@@ -77,10 +74,10 @@ if (args.noAnalysis == False): # Don't run delaundo if noAnalysis is set
 os.chdir(currentDirectory) # Move back to top directory
 
 # Run AIM post-analysis
-myProblem.analysis["delaundoAIM"].postAnalysis()
+myMesh.postAnalysis()
 
 # Retrieve Surface mesh - and rewrite it in desired format
-myProblem.analysis["delaundoAIM"].getAnalysisOutVal("Mesh")
+myMesh.getAnalysisOutVal("Mesh")
 
 # Close CAPS
 myProblem.closeCAPS()

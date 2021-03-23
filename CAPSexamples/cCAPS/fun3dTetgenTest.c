@@ -3,7 +3,7 @@
  *
  *             fun3d/tetgen AIM tester
  *
- *      Copyright 2014-2020, Massachusetts Institute of Technology
+ *      Copyright 2014-2021, Massachusetts Institute of Technology
  *      Licensed under The GNU Lesser General Public License, version 2.1
  *      See http://www.opensource.org/licenses/lgpl-2.1.php
  *
@@ -31,7 +31,7 @@ int main(int argc, char *argv[])
     int i; // Indexing
 
     // CAPS objects
-    capsObj          problemObj, meshObj, fun3dObj, tempObj;
+    capsObj          problemObj, surfMeshObj, meshObj, fun3dObj, tempObj;
     capsErrs         *errors;
     capsOwn          current;
 
@@ -40,7 +40,7 @@ int main(int argc, char *argv[])
     char *name;
     enum capsoType   type;
     enum capssType   subtype;
-    capsObj link, parent;
+    capsObj link, parent, source, target;
 
 
     // Input values
@@ -80,12 +80,41 @@ int main(int argc, char *argv[])
     if (status != CAPS_SUCCESS) goto cleanup;
 
     status = caps_info(problemObj, &name, &type, &subtype, &link, &parent, &current);
-
-    // Load the AFLR4 AIM */
-    status = caps_load(problemObj, "tetgenAIM", analysisPath, NULL, NULL, 0, NULL, &meshObj);
     if (status != CAPS_SUCCESS)  goto cleanup;
 
-    // Set input variables for Tetgen  - None needed
+    // Load the EGADS Tess AIM */
+    status = caps_makeAnalysis(problemObj, "egadsTessAIM", analysisPath, NULL, NULL, 0, NULL, &surfMeshObj);
+    if (status != CAPS_SUCCESS)  goto cleanup;
+
+    // Do the analysis -- actually run EGADS
+    status = caps_preAnalysis(surfMeshObj, &nErr, &errors);
+    if (status != CAPS_SUCCESS) goto cleanup;
+
+    // Everything is done in preAnalysis, so we just do the post
+    status = caps_postAnalysis(surfMeshObj, current, &nErr, &errors);
+    if (status != CAPS_SUCCESS) goto cleanup;
+
+
+    // Load the Tetgen AIM */
+    status = caps_makeAnalysis(problemObj, "tetgenAIM", analysisPath, NULL, NULL, 1, &surfMeshObj, &meshObj);
+    if (status != CAPS_SUCCESS)  goto cleanup;
+
+    // Link surface mesh from EGADS to TetGen
+    status = caps_childByName(surfMeshObj, VALUE, ANALYSISOUT, "Surface_Mesh", &source);
+    if (status != CAPS_SUCCESS) {
+      printf("surfMeshObj childByName for Surface_Mesh = %d\n", status);
+      goto cleanup;
+    }
+    status = caps_childByName(meshObj, VALUE, ANALYSISIN, "Surface_Mesh",  &target);
+    if (status != CAPS_SUCCESS) {
+      printf("meshObj childByName for tessIn = %d\n", status);
+      goto cleanup;
+    }
+    status = caps_makeLinkage(source, Copy, target);
+    if (status != CAPS_SUCCESS) {
+      printf(" caps_makeLinkage = %d\n", status);
+      goto cleanup;
+    }
 
     // Do the analysis -- actually run Tetgen
     status = caps_preAnalysis(meshObj, &nErr, &errors);
@@ -99,8 +128,10 @@ int main(int argc, char *argv[])
     status = caps_childByName(meshObj, VALUE, ANALYSISOUT, "Done", &tempObj);
     if (status != CAPS_SUCCESS) goto cleanup;
 
+
+
     // Now load the fun3dAIM
-    status = caps_load(problemObj, "fun3dAIM", analysisPath, NULL, NULL, 1, &meshObj, &fun3dObj);
+    status = caps_makeAnalysis(problemObj, "fun3dAIM", analysisPath, NULL, NULL, 1, &meshObj, &fun3dObj);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     // Find & set Boundary_Conditions
@@ -117,7 +148,7 @@ int main(int argc, char *argv[])
     tupleVal[2].name = EG_strdup("Farfield");
     tupleVal[2].value = EG_strdup("farfield");
 
-    status = caps_setValue(tempObj, tupleSize, 1,  (void **) tupleVal);
+    status = caps_setValue(tempObj, Tuple, tupleSize, 1,  (void **) tupleVal, NULL, NULL, &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     // Find & set Mach number input
@@ -125,7 +156,7 @@ int main(int argc, char *argv[])
     if (status != CAPS_SUCCESS) goto cleanup;
 
     doubleVal  = 0.4;
-    status = caps_setValue(tempObj, 1, 1, (void *) &doubleVal);
+    status = caps_setValue(tempObj, Double, 1, 1, (void *) &doubleVal, NULL, NULL, &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     // Find & set Overwrite_NML */
@@ -133,8 +164,26 @@ int main(int argc, char *argv[])
     if (status != CAPS_SUCCESS) goto cleanup;
 
     boolVal = true;
-    status = caps_setValue(tempObj, 1, 1, (void *) &boolVal);
+    status = caps_setValue(tempObj, Boolean, 1, 1, (void *) &boolVal, NULL, NULL, &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
+
+    // Link the volume mesh from TetGen to Fun3D
+    status = caps_childByName(meshObj, VALUE, ANALYSISOUT, "Volume_Mesh", &source);
+    if (status != CAPS_SUCCESS) {
+      printf("meshObj childByName for Volume_Mesh = %d\n", status);
+      goto cleanup;
+    }
+    status = caps_childByName(fun3dObj, VALUE, ANALYSISIN, "Mesh",  &target);
+    if (status != CAPS_SUCCESS) {
+      printf("fun3dObj childByName for Mesh = %d\n", status);
+      goto cleanup;
+    }
+    status = caps_makeLinkage(source, Copy, target);
+    if (status != CAPS_SUCCESS) {
+      printf(" caps_makeLinkage = %d\n", status);
+      goto cleanup;
+    }
+
 
     // Do the analysis setup for FUN3D;
     status = caps_preAnalysis(fun3dObj, &nErr, &errors);

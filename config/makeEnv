@@ -471,16 +471,16 @@ else
 fi
 if [ "$PYTH" != UNKNOWN ]; then
 	if [ "$PYTH" != ERROR ]; then
-		echo "export PYTHONINC="$PYTHONINC             >> ../ESPenv.sh
+		echo "export PYTHONINC=\""$PYTHONINC\"         >> ../ESPenv.sh
 		echo "export PYTHONLIB=\""$PYTHONLIB\"         >> ../ESPenv.sh
 	else
-		echo "#export PYTHONINC="$PYTHONINC            >> ../ESPenv.sh
+		echo "#export PYTHONINC=\""$PYTHONINC\"        >> ../ESPenv.sh
 		echo "#export PYTHONLIB=\""$PYTHONLIB\"        >> ../ESPenv.sh
 	fi
-	if [ -z "$PYTHONPATH" ]; then
-		echo "export PYTHONPATH=$BASE/lib:$BASE/pyOcsm"  >> ../ESPenv.sh
+        if [ -z "$PYTHONPATH" ]; then
+		echo "export PYTHONPATH=$BASE/pyESP"           >> ../ESPenv.sh
 	else
-		echo "export PYTHONPATH=$BASE/lib:$BASE/pyOcsm":'$PYTHONPATH' >> ../ESPenv.sh
+		echo "export PYTHONPATH=$BASE/pyESP":'$PYTHONPATH' >> ../ESPenv.sh
 	fi
 fi
 if [ "$EFCOMP" != UNKNOWN ]; then
@@ -553,16 +553,16 @@ else
 fi
 if [ "$PYTH" != UNKNOWN ]; then
 	if [ "$PYTH" != ERROR ]; then
-		echo "setenv PYTHONINC "$PYTHONINC             >> ../ESPenv.csh
+		echo "setenv PYTHONINC \""$PYTHONINC\"         >> ../ESPenv.csh
 		echo "setenv PYTHONLIB \""$PYTHONLIB\"         >> ../ESPenv.csh
 	else
-		echo "#setenv PYTHONINC "$PYTHONINC            >> ../ESPenv.csh
+		echo "#setenv PYTHONINC \""$PYTHONINC\"        >> ../ESPenv.csh
 		echo "#setenv PYTHONLIB \""$PYTHONLIB\"        >> ../ESPenv.csh
 	fi
 	if [ -z "$PYTHONPATH" ]; then
-		echo "setenv PYTHONPATH $BASE/lib:$BASE/pyOcsm" >> ../ESPenv.csh
+		echo "setenv PYTHONPATH $BASE/pyESP"           >> ../ESPenv.csh
 	else
-		echo "setenv PYTHONPATH $BASE/lib:$BASE/pyOcsm":'$PYTHONPATH' >> ../ESPenv.csh
+		echo "setenv PYTHONPATH $BASE/pyESP":'$PYTHONPATH' >> ../ESPenv.csh
 	fi
 fi
 if [ "$EFCOMP" != UNKNOWN ]; then

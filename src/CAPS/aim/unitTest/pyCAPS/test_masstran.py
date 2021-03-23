@@ -32,7 +32,7 @@ class TestMasstran(unittest.TestCase):
         #self.masstran.setAnalysisVal("Tess_Params", [0.25, 0.001, 15.0])
 
         # Generate quad meshes
-        self.masstran.setAnalysisVal("Quad_Mesh", 1)
+        self.masstran.setAnalysisVal("Quad_Mesh", True)
 
         # Set materials
         madeupium    = {"materialType" : "isotropic",

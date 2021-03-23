@@ -33,8 +33,8 @@ myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 myProblem.loadAIM(aim = "egadsTessAIM", analysisDir = workDir)
 
 # Set new EGADS body tessellation parameters
-myProblem.analysis["egadsTessAIM"].setAnalysisVal("Tess_Params", [.01, 0.001, 20.0])
-#myProblem.analysis["egadsTessAIM"].setAnalysisVal("Tess_Params", [1.0, 0.01, 20.0])
+#myProblem.analysis["egadsTessAIM"].setAnalysisVal("Tess_Params", [.01, 0.001, 20.0])
+myProblem.analysis["egadsTessAIM"].setAnalysisVal("Tess_Params", [1.0, 0.01, 20.0])
 
 # Set project name and output mesh type
 myProblem.analysis["egadsTessAIM"].setAnalysisVal("Proj_Name", "egadsTessMesh")

@@ -3,7 +3,7 @@
  *
  *             FORTRAN Bindings for Base & Effective Topo Functions
  *
- *      Copyright 2011-2020, Massachusetts Institute of Technology
+ *      Copyright 2011-2021, Massachusetts Institute of Technology
  *      Licensed under The GNU Lesser General Public License, version 2.1
  *      See http://www.opensource.org/licenses/lgpl-2.1.php
  *
@@ -38,16 +38,17 @@
                             egObject **copy);
   extern int  EG_flipObject(const egObject *object, egObject **copy);
   extern int  EG_close(egObject *context);
-  extern int  EG_virtualize(egObject *tess, double angle, egObject **EBody);
-  extern int  EG_finalize(egObject *EBody);
-  extern int  EG_makeComposite(egObject *EBody, int nFace, /*@null@*/
-                               const egObject **Faces, egObject **EFace);
-  extern int  EG_makeAttrComposites(egObject *EBody, const char *attrName,
-                                    int *nEFace, egObject ***EFaces);
+  extern int  EG_initEBody(egObject *tess, double angle, egObject **EBody);
+  extern int  EG_finishEBody(egObject *EBody);
+  extern int  EG_makeEFace(egObject *EBody, int nFace, /*@null@*/
+                           const egObject **Faces, egObject **EFace);
+  extern int  EG_makeAttrEFaces(egObject *EBody, const char *attrName,
+                                int *nEFace, egObject ***EFaces);
   extern int  EG_effectiveMap(egObject *EObject, double *eparam,
                               egObject **Object, double *param);
-  extern int  EG_getEdgeList(egObject *EEdge, int *nedges, egObject ***edges,
-                             int **senses, double **tstart);
+  extern int  EG_effectiveEdgeList(egObject *EEdge, int *nedges,
+                                   egObject ***edges, int **senses,
+                                   double **tstart);
 
 
 
@@ -318,9 +319,9 @@ ig_close_(INT8 *obj)
 
 int
 #ifdef WIN32
-IG_VIRTUALIZE (INT8 *tess, double *angle, INT8 *ebody)
+IG_INITEBODY (INT8 *tess, double *angle, INT8 *ebody)
 #else
-ig_virtualize_(INT8 *tess, double *angle, INT8 *ebody)
+ig_initebody_(INT8 *tess, double *angle, INT8 *ebody)
 #endif
 {
   int      stat;
@@ -328,7 +329,7 @@ ig_virtualize_(INT8 *tess, double *angle, INT8 *ebody)
   
   *ebody = 0;
   object = (egObject *) *tess;
-  stat   = EG_virtualize(object, *angle, &body);
+  stat   = EG_initEBody(object, *angle, &body);
   if (stat == EGADS_SUCCESS) *ebody = (INT8) body;
   return stat;
 }
@@ -336,23 +337,23 @@ ig_virtualize_(INT8 *tess, double *angle, INT8 *ebody)
 
 int
 #ifdef WIN32
-IG_FINALIZE (INT8 *obj)
+IG_FINISHEBODY (INT8 *obj)
 #else
-ig_finalize_(INT8 *obj)
+ig_finishebody_(INT8 *obj)
 #endif
 {
   egObject *object;
 
   object = (egObject *) *obj;
-  return EG_finalize(object);
+  return EG_finishEBody(object);
 }
 
 
 int
 #ifdef WIN32
-IG_MAKECOMPOSITE (INT8 *ebody, int *nface, INT8 *faces, INT8 *eface)
+IG_MAKEEFACE (INT8 *ebody, int *nface, INT8 *faces, INT8 *eface)
 #else
-ig_makecomposite_(INT8 *ebody, int *nface, INT8 *faces, INT8 *eface)
+ig_makeeface_(INT8 *ebody, int *nface, INT8 *faces, INT8 *eface)
 #endif
 {
   int      i, stat;
@@ -366,7 +367,7 @@ ig_makecomposite_(INT8 *ebody, int *nface, INT8 *faces, INT8 *eface)
     for (i = 0; i < *nface; i++)
       objs[i] = (egObject *) faces[i];
   }
-  stat = EG_makeComposite(object, *nface, (const egObject **) objs, &oface);
+  stat = EG_makeEFace(object, *nface, (const egObject **) objs, &oface);
   if (objs != NULL) EG_free(objs);
   if (stat == EGADS_SUCCESS) *eface = (INT8) oface;
   return stat;
@@ -375,11 +376,11 @@ ig_makecomposite_(INT8 *ebody, int *nface, INT8 *faces, INT8 *eface)
 
 int
 #ifdef WIN32
-IG_MAKEATTRCOMPOSITES (INT8 *ebody, const char *attr, int *nface, INT8 **efaces,
-                       int attrLen)
+IG_MAKEATTREFACES (INT8 *ebody, const char *attr, int *nface, INT8 **efaces,
+                   int attrLen)
 #else
-ig_makeattrcomposites_(INT8 *ebody, const char *attr, int *nface, INT8 **efaces,
-                       int attrLen)
+ig_makeattrefaces_(INT8 *ebody, const char *attr, int *nface, INT8 **efaces,
+                   int attrLen)
 #endif
 {
   int      i, stat;
@@ -392,7 +393,7 @@ ig_makeattrcomposites_(INT8 *ebody, const char *attr, int *nface, INT8 **efaces,
   object  = (egObject *) *ebody;
   fattr   = EG_f2c(attr, attrLen);
   if (fattr == NULL) return EGADS_MALLOC;
-  stat = EG_makeAttrComposites(object, fattr, nface, &objs);
+  stat = EG_makeAttrEFaces(object, fattr, nface, &objs);
   EG_free(fattr);
   if (stat != EGADS_SUCCESS) return stat;
   EG_free(fattr);
@@ -428,11 +429,11 @@ ig_effectivemap_(INT8 *eobj, double *eparam, INT8 *obj, double *param)
 
 int
 #ifdef WIN32
-IG_GETEDGELIST (INT8 *eobj, int *nedges, INT8 **edges, int **senses,
-                double **tstart)
+IG_EFFECTIVEEDGELIST (INT8 *eobj, int *nedges, INT8 **edges, int **senses,
+                      double **tstart)
 #else
-ig_getedgelist_(INT8 *eobj, int *nedges, INT8 **edges, int **senses,
-                double **tstart)
+ig_effectiveedgelist_(INT8 *eobj, int *nedges, INT8 **edges, int **senses,
+                      double **tstart)
 #endif
 {
   int      i, stat;
@@ -443,7 +444,7 @@ ig_getedgelist_(INT8 *eobj, int *nedges, INT8 **edges, int **senses,
   *senses = NULL;
   *tstart = NULL;
   eobject = (egObject *) *eobj;
-  stat    = EG_getEdgeList(eobject, nedges, &edgos, senses, tstart);
+  stat    = EG_effectiveEdgeList(eobject, nedges, &edgos, senses, tstart);
   if (stat != EGADS_SUCCESS) return stat;
   
   if (*nedges > 0) {

@@ -322,13 +322,13 @@ Standard_Integer BRepLib_FuseEdges::NbVertices()
 {
 
   Standard_NullObject_Raise_if(myShape.IsNull(),"FuseEdges : No Shape");
-  Standard_Integer nbedges, nbvertices = 0;
+  Standard_Integer nbvertices = 0;
 
   if (!myEdgesDone) {
     BuildListEdges();
   }
 
-  if ((nbedges = myMapLstEdg.Extent()) > 0) {
+  if (myMapLstEdg.Extent() > 0) {
 
     TopTools_DataMapIteratorOfDataMapOfIntegerListOfShape itEdg;
     for (itEdg.Initialize(myMapLstEdg); itEdg.More(); itEdg.Next()) {
@@ -626,7 +626,9 @@ void BRepLib_FuseEdges::BuildListConnexEdge(const TopoDS_Shape& theEdge,
   TopoDS_Shape edgecur = theEdge;
   theLstEdg.Clear();
   theLstEdg.Append(edgecur);
+#ifndef __clang_analyzer__
   theMapUniq.Add(edgecur);
+#endif
   TopAbs_Orientation ori2;
 
   // we first build the list of edges connex to edgecur by looking from the last Vertex VL
@@ -643,7 +645,9 @@ void BRepLib_FuseEdges::BuildListConnexEdge(const TopoDS_Shape& theEdge,
       break;
     }
     VL = TopExp::LastVertex(TopoDS::Edge(edgecur),Standard_True);
+#ifndef __clang_analyzer__
     theMapUniq.Add(edgecur);
+#endif
   }
 
   edgecur = theEdge;
@@ -663,7 +667,9 @@ void BRepLib_FuseEdges::BuildListConnexEdge(const TopoDS_Shape& theEdge,
       break;
     }
     VF = TopExp::FirstVertex(TopoDS::Edge(edgecur),Standard_True);
+#ifndef __clang_analyzer__
     theMapUniq.Add(edgecur);
+#endif
   }
 
 }

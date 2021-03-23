@@ -3,7 +3,7 @@
  *
  *             Internal UVmap Functions
  *
- *      Copyright 2011-2020, Massachusetts Institute of Technology
+ *      Copyright 2011-2021, Massachusetts Institute of Technology
  *      Licensed under The GNU Lesser General Public License, version 2.1
  *      See http://www.opensource.org/licenses/lgpl-2.1.php
  *
@@ -269,10 +269,13 @@ EG_uvmapLocate(void *uvmap, int *trmap, double *uv, int *fID, int *itri,
   verts[1] = i2;
   verts[2] = i3;
   EG_triRemap(trmap, cls, 0, verts, ws);
-  
-  if (neg < -2.e-5)
+/*
+  if (neg < -1.e-4) {
     printf(" EGADS Info: Extrapolate -> Ws = %le %le %le (EG_uvmapLocate)!\n",
            ws[0], ws[1], ws[2]);
+    return EGADS_EXTRAPOL;
+  }
+ */
   return EGADS_SUCCESS;
 }
 
@@ -596,4 +599,122 @@ malloc:
   uvmap_free(uvstruct->u);
   uvmap_free(uvstruct);
   return stat;
+}
+
+
+int
+EG_uvmapCopy(void *uvsrc, int *trsrc, void **uvmap, int **trmap)
+{
+  int          i, *map = NULL;
+  INT_         err = 0;
+  uvmap_struct *uvstruct, *sstruct;
+  
+  *uvmap   = NULL;
+  *trmap   = NULL;
+  sstruct  = (uvmap_struct *) uvsrc;
+  uvstruct = (uvmap_struct *) uvmap_malloc(&err, sizeof(uvmap_struct));
+  if ((err != 0) || (uvstruct == NULL)) {
+    printf(" EGADS Error: Failed to allocate UVmap (EG_uvmapRead)!\n");
+    return EGADS_MALLOC;
+  }
+  uvstruct->ndef   = 1;
+  uvstruct->mdef   = 1;
+  uvstruct->idef   = 1;
+  uvstruct->isrch  = sstruct->isrch;
+  uvstruct->ibface = sstruct->ibface;
+  uvstruct->nbface = sstruct->nbface;
+  uvstruct->nnode  = sstruct->nnode;
+
+  uvstruct->idibf  = NULL;
+  uvstruct->msrch  = NULL;
+  uvstruct->inibf  = NULL;
+  uvstruct->ibfibf = NULL;
+  uvstruct->u      = NULL;
+  
+  uvstruct->idibf = (INT_ *) uvmap_malloc(&err,
+                                          (uvstruct->nbface+1)*sizeof(INT_));
+  if ((err != 0) || (uvstruct->idibf == NULL)) {
+    printf(" EGADS Error: malloc %d id (EG_uvmapCopy)!\n", uvstruct->nbface);
+    goto malloc;
+  }
+  uvstruct->idibf[0] = 0;
+  for (i = 1; i <= uvstruct->nbface; i++)
+    uvstruct->idibf[i] = sstruct->idibf[i];
+  
+  uvstruct->inibf = (INT_3D *) uvmap_malloc(&err,
+                                           (uvstruct->nbface+1)*sizeof(INT_3D));
+  if ((err != 0) || (uvstruct->inibf == NULL)) {
+    printf(" EGADS Error: malloc %d in (EG_uvmapCopy)!\n", uvstruct->nbface);
+    goto malloc;
+  }
+  uvstruct->inibf[0][0] = uvstruct->inibf[0][1] = uvstruct->inibf[0][2] = 0;
+  for (i = 1; i <= uvstruct->nbface; i++) {
+    uvstruct->inibf[i][0] = sstruct->inibf[i][0];
+    uvstruct->inibf[i][1] = sstruct->inibf[i][1];
+    uvstruct->inibf[i][2] = sstruct->inibf[i][2];
+  }
+  
+  uvstruct->ibfibf = (INT_3D *) uvmap_malloc(&err,
+                                           (uvstruct->nbface+1)*sizeof(INT_3D));
+  if ((err != 0) || (uvstruct->ibfibf == NULL)) {
+    printf(" EGADS Error: malloc %d ibf (EG_uvmapCopy)!\n", uvstruct->nbface);
+    goto malloc;
+  }
+  uvstruct->ibfibf[0][0] = uvstruct->ibfibf[0][1] = uvstruct->ibfibf[0][2] = 0;
+  for (i = 1; i <= uvstruct->nbface; i++) {
+    uvstruct->ibfibf[i][0] = sstruct->ibfibf[i][0];
+    uvstruct->ibfibf[i][1] = sstruct->ibfibf[i][1];
+    uvstruct->ibfibf[i][2] = sstruct->ibfibf[i][2];
+  }
+
+  uvstruct->u = (DOUBLE_2D *) uvmap_malloc(&err,
+                                         (uvstruct->nnode+1)*sizeof(DOUBLE_2D));
+  if ((err != 0) || (uvstruct->u == NULL)) {
+    printf(" EGADS Error: malloc %d u (EG_uvmapCopy)!\n", uvstruct->nnode);
+    goto malloc;
+  }
+  uvstruct->u[0][0] = uvstruct->u[0][1] = 0.0;
+  for (i = 1; i <= uvstruct->nnode; i++) {
+    uvstruct->u[i][0] = sstruct->u[i][0];
+    uvstruct->u[i][1] = sstruct->u[i][1];
+  }
+  
+  if (sstruct->msrch != NULL) {
+    uvstruct->msrch = (INT_ *) uvmap_malloc(&err,
+                                            (uvstruct->nbface+1)*sizeof(INT_));
+    if ((err != 0) || (uvstruct->msrch == NULL)) {
+      printf(" EGADS Error: malloc %d msrch (EG_uvmapCopy)!\n",
+             uvstruct->nbface);
+      goto malloc;
+    }
+    uvstruct->msrch[0] = 0;
+    for (i = 1; i <= uvstruct->nbface; i++)
+      uvstruct->msrch[i] = sstruct->msrch[i];
+  }
+
+  if (trsrc != NULL) {
+    map = (int *) EG_alloc(uvstruct->nbface*sizeof(int));
+    if (map == NULL) {
+      printf(" EGADS Error: malloc %d trmap (EG_uvmapCopy)!\n",
+             uvstruct->nbface);
+      goto malloc;
+    }
+    for (i = 0; i < uvstruct->nbface; i++) map[i] = trsrc[i];
+    *trmap = map;
+  }
+
+  *uvmap  = uvstruct;
+  return EGADS_SUCCESS;
+  
+malloc:
+/*@+dependenttrans@*/
+  uvmap_free(uvstruct->idibf);
+/*@-nullpass@*/
+  uvmap_free(uvstruct->msrch);
+/*@+nullpass@*/
+  uvmap_free(uvstruct->inibf);
+  uvmap_free(uvstruct->ibfibf);
+  uvmap_free(uvstruct->u);
+  uvmap_free(uvstruct);
+  return EGADS_MALLOC;
 }

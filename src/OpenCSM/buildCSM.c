@@ -9,7 +9,7 @@
  */
 
 /*
- * Copyright (C) 2013/2020  John F. Dannenhoffer, III (Syracuse University)
+ * Copyright (C) 2013/2021  John F. Dannenhoffer, III (Syracuse University)
  *
  * This library is free software; you can redistribute it and/or
  *    modify it under the terms of the GNU Lesser General Public
@@ -276,7 +276,7 @@ main(int       argc,                    /* (in)  number of arguments */
     SPRINT0(1, "*                    Program buildCSM                    *");
     SPRINT2(1, "*                     version %2d.%02d                      *", imajor, iminor);
     SPRINT0(1, "*                                                        *");
-    SPRINT0(1, "*        written by John Dannenhoffer, 2010/2020         *");
+    SPRINT0(1, "*        written by John Dannenhoffer, 2010/2021         *");
     SPRINT0(1, "*                                                        *");
     SPRINT0(1, "**********************************************************");
 
@@ -504,7 +504,7 @@ main(int       argc,                    /* (in)  number of arguments */
     status = ocsmFree(modl);
     SPRINT2(1, "--> ocsmFree() -> status=%d (%s)", status, ocsmGetText(status));
 
-    /* remove tmp files (if they exist) and clean up udp storage */
+    /* clean up the udp storage */
     status = ocsmFree(NULL);
     SPRINT2(1, "--> ocsmFree(NULL) -> status=%d (%s)", status, ocsmGetText(status));
 

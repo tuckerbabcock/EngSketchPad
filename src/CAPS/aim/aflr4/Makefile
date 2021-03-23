@@ -98,6 +98,9 @@ $(ODIR)/%.o: %.cpp $(ODIR)/aflr4_version
 	$(CXX) -c $(CPPOPT) $(DEFINE) -I$(AFLR)/src $< -o $@
 endif
 
+lint:
+	$(LINT) -I../../include -I$(IDIR) $(wildcard *.c) -I../utils -I$(AFLR)/src -exportlocal
+
 clean:
 	-rm -f $(ODIR)/aflr4_Interface.o $(ODIR)/aflr4AIM.o $(ODIR)/aflr4_version $(OBJS) $(OBJSP)
 

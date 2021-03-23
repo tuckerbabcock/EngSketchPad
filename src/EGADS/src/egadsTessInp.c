@@ -3,7 +3,7 @@
  *
  *             Tessellation Input Functions
  *
- *      Copyright 2011-2020, Massachusetts Institute of Technology
+ *      Copyright 2011-2021, Massachusetts Institute of Technology
  *      Licensed under The GNU Lesser General Public License, version 2.1
  *      See http://www.opensource.org/licenses/lgpl-2.1.php
  *
@@ -136,12 +136,17 @@ __HOST_AND_DEVICE__ int
 EG_openTessBody(egObject *tess)
 {
   egTessel *btess;
-  egObject *obj;
+  egObject *obj, *context;
 
   if (tess == NULL)                 return EGADS_NULLOBJ;
   if (tess->magicnumber != MAGIC)   return EGADS_NOTOBJ;
   if (tess->oclass != TESSELLATION) return EGADS_NOTTESS;
   if (EG_sameThread(tess))          return EGADS_CNTXTHRD;
+  context = EG_context(tess);
+  if (tess->topObj != context) {
+    printf(" EGADS Error: Tessellation in Model (EG_openTessBody)!\n");
+    return EGADS_REFERCE;
+  }
   btess = (egTessel *) tess->blind;
   if (btess == NULL) {
     printf(" EGADS Error: NULL Blind Object (EG_openTessBody)!\n");
@@ -156,7 +161,7 @@ EG_openTessBody(egObject *tess)
     printf(" EGADS Error: Source Not an Object (EG_openTessBody)!\n");
     return EGADS_NOTOBJ;
   }
-  if (obj->oclass != BODY) {
+  if ((obj->oclass != BODY) && (obj->oclass != EBODY)) {
     printf(" EGADS Error: Source Not Body (EG_openTessBody)!\n");
     return EGADS_NOTBODY;
   }
@@ -184,18 +189,26 @@ EG_initTessBody(egObject *object, egObject **tess)
   egObject *ttess, *context, *geom, **faces, **loops, **edges, **nodes, **dum;
 
   *tess = NULL;
-  if (object == NULL)               return EGADS_NULLOBJ;
-  if (object->magicnumber != MAGIC) return EGADS_NOTOBJ;
-  if (object->oclass != BODY)       return EGADS_NOTBODY;
-  if (EG_sameThread(object))        return EGADS_CNTXTHRD;
+  if  (object == NULL)               return EGADS_NULLOBJ;
+  if  (object->magicnumber != MAGIC) return EGADS_NOTOBJ;
+  if ((object->oclass != BODY) &&
+      (object->oclass != EBODY))     return EGADS_NOTBODY;
+  if  (EG_sameThread(object))        return EGADS_CNTXTHRD;
   outLevel = EG_outLevel(object);
   context  = EG_context(object);
   if (context == NULL)              return EGADS_NULLOBJ;
 
-  stat = EG_getBodyTopos(object, NULL, EDGE, &nedge, &edges);
-  if (stat != EGADS_SUCCESS) return stat;
-  stat = EG_getBodyTopos(object, NULL, FACE, &nface, &faces);
-  if (stat  != EGADS_SUCCESS) return stat;
+  if (object->oclass == EBODY) {
+    stat = EG_getBodyTopos(object, NULL, EEDGE, &nedge, &edges);
+    if (stat != EGADS_SUCCESS) return stat;
+    stat = EG_getBodyTopos(object, NULL, EFACE, &nface, &faces);
+    if (stat  != EGADS_SUCCESS) return stat;
+  } else {
+    stat = EG_getBodyTopos(object, NULL, EDGE, &nedge, &edges);
+    if (stat != EGADS_SUCCESS) return stat;
+    stat = EG_getBodyTopos(object, NULL, FACE, &nface, &faces);
+    if (stat  != EGADS_SUCCESS) return stat;
+  }
 
   btess = (egTessel *) EG_alloc(sizeof(egTessel));
   if (btess == NULL) {
@@ -672,8 +685,10 @@ __HOST_AND_DEVICE__ int
 EG_statusTessBody(egObject *tess, egObject **body, int *state, int *npts)
 {
   int          i, j, k, stat, outLevel, atype, alen, warn = 1;
+  int          len, oclass, mtype, *senses;
+  double       *xyzs, *ts;
   egTessel     *btess;
-  egObject     *obj;
+  egObject     *obj, *ref, **nodes, **objs;
   const int    *ints;
   const double *reals;
   const char   *str;
@@ -725,6 +740,58 @@ EG_statusTessBody(egObject *tess, egObject **body, int *state, int *npts)
 
     /* are we done? */
     for (i = 0; i < btess->nEdge; i++) {
+      
+      /* fill in empty degenerte Edge */
+      if ((btess->tess1d[i].obj->mtype == DEGENERATE) &&
+          (btess->tess1d[i].npts == 0)) {
+        /* allocate the data */
+        len  = 2;
+        xyzs = (double *) EG_alloc(3*len*sizeof(double));
+        if (xyzs == NULL) {
+          if (outLevel > 0)
+            printf(" EGADS Warning: Allocating %d Coordinates (EG_statusTessBody)!\n",
+                   len);
+          continue;
+        }
+        ts = (double *) EG_alloc(len*sizeof(double));
+        if (ts == NULL) {
+          if (outLevel > 0)
+            printf(" EGADS Warning: Allocating %d Parameters (EG_statusTessBody)!\n",
+                   len);
+          EG_free(xyzs);
+          continue;
+        }
+        stat = EG_getTopology(btess->tess1d[i].obj, &ref, &oclass, &mtype,
+                              ts, &j, &nodes, &senses);
+        if (stat != EGADS_SUCCESS) {
+          if (outLevel > 0)
+            printf(" EGADS Warning: EG_getTopo Degen %d = %d (EG_statusTessBody)!\n",
+                   i, stat);
+          EG_free(xyzs);
+          EG_free(ts);
+          continue;
+        }
+        stat = EG_getTopology(nodes[0], &ref, &oclass, &mtype, xyzs, &j, &objs,
+                              &senses);
+        if (stat != EGADS_SUCCESS) {
+          if (outLevel > 0)
+            printf(" EGADS Warning: EG_getTopo Node %d = %d (EG_statusTessBody)!\n",
+                   i, stat);
+          EG_free(xyzs);
+          EG_free(ts);
+          continue;
+        }
+        /* set the data */
+        if (btess->tess1d[i].xyz != NULL) EG_free(btess->tess1d[i].xyz);
+        if (btess->tess1d[i].t   != NULL) EG_free(btess->tess1d[i].t);
+        xyzs[3]               = xyzs[0];
+        xyzs[4]               = xyzs[1];
+        xyzs[5]               = xyzs[2];
+        btess->tess1d[i].npts = len;
+        btess->tess1d[i].xyz  = xyzs;
+        btess->tess1d[i].t    = ts;
+      }
+
       if (btess->tess1d[i].nodes[0] == -btess->tess1d[i].nodes[1]) continue;
       if (btess->tess1d[i].npts == 0) return EGADS_OUTSIDE;
     }
@@ -847,7 +914,7 @@ EG_setTessEdge(const egObject *tess, int index, int len, const double *xyz,
       printf(" EGADS Error: Source Not an Object (EG_setTessEdge)!\n");
     return EGADS_NOTOBJ;
   }
-  if (obj->oclass != BODY) {
+  if ((obj->oclass != BODY) && (obj->oclass != EBODY)) {
     if (outLevel > 0)
       printf(" EGADS Error: Source Not Body (EG_setTessEdge)!\n");
     return EGADS_NOTBODY;
@@ -877,7 +944,11 @@ EG_setTessEdge(const egObject *tess, int index, int len, const double *xyz,
   }
 
   /* are any of our Faces already set? */
-  stat = EG_getBodyTopos(obj, btess->tess1d[index-1].obj, FACE, &n, &objs);
+  if (obj->oclass == EBODY) {
+    stat = EG_getBodyTopos(obj, btess->tess1d[index-1].obj, EFACE, &n, &objs);
+  } else {
+    stat = EG_getBodyTopos(obj, btess->tess1d[index-1].obj,  FACE, &n, &objs);
+  }
   if (stat  != EGADS_SUCCESS) {
     if (outLevel > 0)
       printf(" EGADS Error: Edge %d - EG_getBodyTopos = %d (EG_setTessEdge)!\n",
@@ -1150,7 +1221,7 @@ EG_setTessFace(const egObject *tess, int index, int len, const double *xyz,
       printf(" EGADS Error: Source Not an Object (EG_setTessFace)!\n");
     return EGADS_NOTOBJ;
   }
-  if (obj->oclass != BODY) {
+  if ((obj->oclass != BODY) && (obj->oclass != EBODY)) {
     if (outLevel > 0)
       printf(" EGADS Error: Source Not Body (EG_setTessFace)!\n");
     return EGADS_NOTBODY;
@@ -1190,7 +1261,11 @@ EG_setTessFace(const egObject *tess, int index, int len, const double *xyz,
   }
 
   /* get our Face object */
-  stat = EG_getBodyTopos(obj, NULL, FACE, &i, &faces);
+  if (obj->oclass == EBODY) {
+    stat = EG_getBodyTopos(obj, NULL, EFACE, &i, &faces);
+  } else {
+    stat = EG_getBodyTopos(obj, NULL,  FACE, &i, &faces);
+  }
   if (stat  != EGADS_SUCCESS) {
     if (outLevel > 0)
       printf(" EGADS Error: Face %d - EG_getBodyTopos Faces = %d (EG_setTessFace)!\n",
@@ -1201,7 +1276,11 @@ EG_setTessFace(const egObject *tess, int index, int len, const double *xyz,
   EG_free(faces);
 
   /* make sure we have all of the edge tessellations */
-  stat = EG_getBodyTopos(obj, face, EDGE, &nedge, &edges);
+  if (obj->oclass == EBODY) {
+    stat = EG_getBodyTopos(obj, face, EEDGE, &nedge, &edges);
+  } else {
+    stat = EG_getBodyTopos(obj, face,  EDGE, &nedge, &edges);
+  }
   if (stat  != EGADS_SUCCESS) {
     if (outLevel > 0)
       printf(" EGADS Error: Face %d - EG_getBodyTopos Edges = %d (EG_setTessFace)!\n",
@@ -1728,7 +1807,11 @@ EG_localToGlobal(const egObject *tess, int index, int local, int *global)
       printf(" EGADS Error: EG_objectBodyTopo = %d (EG_localToGlobal)!\n", stat);
       return stat;
     }
-    stat = EG_getBodyTopos(btess->src, node, EDGE, &n, &edges);
+    if (btess->src->oclass == EBODY) {
+      stat = EG_getBodyTopos(btess->src, node, EEDGE, &n, &edges);
+    } else {
+      stat = EG_getBodyTopos(btess->src, node,  EDGE, &n, &edges);
+    }
     if (stat != EGADS_SUCCESS) {
       printf(" EGADS Error: EG_getBodyTopos = %d (EG_localToGlobal)!\n", stat);
       return stat;
@@ -3238,7 +3321,7 @@ EG_quadTess(const egObject *tess, egObject **quadTess)
       printf(" EGADS Error: Source Not an Object (EG_quadTess)!\n");
     return EGADS_NOTOBJ;
   }
-  if (obj->oclass != BODY) {
+  if ((obj->oclass != BODY) && (obj->oclass != EBODY)) {
     if (outLevel > 0)
       printf(" EGADS Error: Source Not Body (EG_quadTess)!\n");
     return EGADS_NOTBODY;
@@ -3262,7 +3345,11 @@ EG_quadTess(const egObject *tess, egObject **quadTess)
     return stat;
   }
 
-  stat = EG_getBodyTopos(obj, NULL, EDGE, &nedges, &edges);
+  if (obj->oclass == EBODY) {
+    stat = EG_getBodyTopos(obj, NULL, EEDGE, &nedges, &edges);
+  } else {
+    stat = EG_getBodyTopos(obj, NULL,  EDGE, &nedges, &edges);
+  }
   if (stat != EGADS_SUCCESS) {
     if (outLevel > 0)
       printf(" EGADS Error: EG_getBodyTopos E = %d (EG_quadTess)!\n", stat);
@@ -3352,7 +3439,11 @@ EG_quadTess(const egObject *tess, egObject **quadTess)
 
   /* size and allocate temporary arrays */
 
-  stat = EG_getBodyTopos(obj, NULL, FACE, &nfaces, &faces);
+  if (obj->oclass == EBODY) {
+    stat = EG_getBodyTopos(obj, NULL, EFACE, &nfaces, &faces);
+  } else {
+    stat = EG_getBodyTopos(obj, NULL,  FACE, &nfaces, &faces);
+  }
   if (stat != EGADS_SUCCESS) {
     if (outLevel > 0)
       printf(" EGADS Error: EG_getBodyTopos F = %d (EG_quadTess)!\n", stat);
@@ -3445,7 +3536,11 @@ EG_quadTess(const egObject *tess, egObject **quadTess)
     /* find degenerate nodes (if any) */
     degens[0] = degens[1] = 0;
     iuv[0]    = iuv[1]    = 0;
-    stat      = EG_getBodyTopos(obj, faces[i], EDGE, &k, &objs);
+    if (obj->oclass == EBODY) {
+      stat    = EG_getBodyTopos(obj, faces[i], EEDGE, &k, &objs);
+    } else {
+      stat    = EG_getBodyTopos(obj, faces[i],  EDGE, &k, &objs);
+    }
     if (stat != EGADS_SUCCESS) {
       printf(" EGADS Internal: EG_getBodyTopos on Face %d = %d\n", i+1, stat);
     } else {
@@ -3810,7 +3905,11 @@ EG_quadTess(const egObject *tess, egObject **quadTess)
     /* find degenerate nodes (if any) */
     degens[0] = degens[1] = 0;
     iuv[0]    = iuv[1]    = 0;
-    stat = EG_getBodyTopos(obj, faces[i], EDGE, &k, &objs);
+    if (obj->oclass == EBODY) {
+      stat = EG_getBodyTopos(obj, faces[i], EEDGE, &k, &objs);
+    } else {
+      stat = EG_getBodyTopos(obj, faces[i],  EDGE, &k, &objs);
+    }
     if (stat != EGADS_SUCCESS) {
       printf(" EGADS Internal: EG_getBodyTopos on Face %d = %d\n", i+1, stat);
     } else {
@@ -4194,15 +4293,24 @@ EG_quadTess(const egObject *tess, egObject **quadTess)
 
   /* yes! */
   bodydata.tess = newTess;
-  stat = EG_getBodyTopos(btess->src, NULL, EDGE, &bodydata.nedges, NULL);
+  if (btess->src->oclass == EBODY) {
+    stat = EG_getBodyTopos(btess->src, NULL, EEDGE, &bodydata.nedges, NULL);
+  } else {
+    stat = EG_getBodyTopos(btess->src, NULL,  EDGE, &bodydata.nedges, NULL);
+  }
   if (stat != EGADS_SUCCESS) {
     if (outLevel > 0)
       printf(" EGADS Warning: EG_getBodyTopos E = %d (EG_quadTess)!\n", stat);
     EG_deleteObject(newTess);
     return stat;
   }
-  stat = EG_getBodyTopos(btess->src, NULL, FACE, &bodydata.nfaces,
-                         &bodydata.faces);
+  if (btess->src->oclass == EBODY) {
+    stat = EG_getBodyTopos(btess->src, NULL, EFACE, &bodydata.nfaces,
+                           &bodydata.faces);
+  } else {
+    stat = EG_getBodyTopos(btess->src, NULL,  FACE, &bodydata.nfaces,
+                           &bodydata.faces);
+  }
   if (stat != EGADS_SUCCESS) {
     if (outLevel > 0)
       printf(" EGADS Warning: EG_getBodyTopos F = %d (EG_quadTess)!\n", stat);

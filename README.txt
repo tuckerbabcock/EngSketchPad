@@ -1,8 +1,12 @@
                         ESP: The Engineering Sketch Pad
-                         Rev 1.19beta -- October 2020
+                           Rev 1.19beta -- March 2021
 
 
 0. Warnings!
+
+    If you have been using previous Betas and writing EGADS files with
+    Effective Topology Bodies, you need to delete the files. The internals
+    of the Effective Topology data has changed.
 
     Windows 7 & 8 are no longer supported, only Windows 10 is tested. 
     This also means that older versions of MS Visual Studio are no longer 
@@ -12,12 +16,11 @@
     work, but we strongly advise going to at least Python 3.7. Also, we
     now only support OpenCASCADE at Rev 7.3 or higher. And these must be
     the versions taken from the ESP website (and not from elsewhere). At
-    this point we recommend 7.3.1 and are testing 7.4.1, which you can find 
-    currently in the ESP website subdirectory "otherOCCs".
+    this point we recommend 7.4.1 and are testing 7.5.1.
 
     Apple's OSX Catalina (10.15) is a REAL problem. You cannot download the
     distributions using a browser. For instructions on how to get ESP see 
-    OSXcatalina.txt on the web site.
+    OSXcatalina.txt on the web site. Big Sur (11.0) has not been tested.
 
 
 1. Prerequisites
@@ -59,7 +62,8 @@
     include           - location for all ESP header files
     lib               - a directory that will contain libraries, shared objects
                         and DLLs
-    pyOcsm            - Python bindings to the OpenCSM API
+    LICENSE.txt       - the GNU Lesser General Public license (LGPL 2.1) text
+    pyESP             - Python bindings
     SLUGS             - the browser code for Slugs (web Slugs client)
     src               - source files (contains EGADS, CAPS, wvServer & OpenCSM)
     training          - training slides and examples
@@ -70,66 +74,26 @@
 
 1.2.1 EGADS
 
-    There has been 2 significant updates made to EGADS from Rev 1.17:
+    The significant updates made to EGADS from Rev 1.18 are:
 
-    1) EGADSlite has been refactored in order to support CUDA and GPUs
-    2) The tessellator has been improved in both quality and robustness
+    1) Refactored documentation
+    2) Effective (virtual) Topology support
+    3) The ability to save Effective Bodies (EBody) and Tessellation Objects
+       in Model Objects and write them in EGADS files.
 
 1.2.2 ESP
 
     In addition to many big fixes (see $ESP_ROOT/src/OpenCSMnotes.txt
     for a full list), the significant upgrades are:
 
-    1) New/updated commands/statements and functions
-     a) Node, Edges, and Faces can now be SELECTed by bounding boxes
-     b) SUBTRACT can now be applied to coplanar SheetBodys
-     c) SCALE can now scale about a scaling center
-     d) SELECT ADD can now add Faces, Edges, or Nodes by index
-     e) SELECT SUB can now subtract entities by index
-     f) GROUP with a negative argument ungroups
-     g) CONNECT generates degenerate Faces when edgeList* contains a zero
-     h) SWEEP can be applied to a FaceBody
-     i) new SSLOPE allows a user to specify the slope at the beginning
-        or end of a SPLINE in a sketch
-     j) COMBINE command now returns a SheetBody if the Shell created is
-        not closed
-     k) SELECTing via attributes has been extended to have attribute
-        values that are strings, integer(s), or real(s)
-   2) New command line arguments
-     a) -skipTess allows a user to skip the tessellation on the Bodys on
-        the stack at the end
-     b) -printStack allows a user to print the constants of the stack
-        after every Branch
-     c) -batch is automatically selected when -skipTess is specified
-   3) New/updated UDPs, UDCs, or UDFs
-     a) applyTparams.udc puts .tParams on Body based upon its size
-     b) calcCG.udc computes the CG of all Bodys on the stack
-     c) dpEllipse is modified to have nedge and thbeg input parameters
-     d) editAttrUdf now allows PATBEG/PATEND statements
-   4) OpenCSM updates
-     a) update default tessellation parameters
-     b) allow UDFs to receive any number of input Bodys (back to Mark
-        or beginning of stack)
-     c) add ocsmUpdateDespmtrs to allow a user to update the DESPMTR
-        values from a file
-     d) add __filename__ to files processed by -loadEgads and -dumpEgads
-     e) remove tmp_OpenCSM files at beginning of ocsmLoad
-     f) Edges that come from Booleans no longer have the Attributes
-        of possibly-coincident Edges in one of the parents
-     g) significantly speed up finishing all Bodys
-   5) ESP updates
-     a) allow user to add an EVALUATE statement from ESP interface
-     b) add CFGPMTR highlighting and hints in ESP
-     c) unpost File or Tool menu if File, Tool, StepThur, Help,
-        UpToDate, or Undo button is pressed
-     d) make groups for at- and at-at-parameters in ESP
-     e) in serveCSM -sensTess, show Face tufts in blue and Edge tufts in red
-     f) add option to ESP to turn on/off all Nodes, Edges, Faces, or Csystems
-     g) allow plotfile to contain triangles (if jmax==-2)
 
-1.2.3 Known issues in v1.18:
+1.2.3 Known issues in v1.19:
 
     Sensitivities for BLENDS with C0 are done by finite differences.
+
+1.2.4 pyCAPS
+
+    pyCAPS has been rewritten.
 
 
 2. Building the Software

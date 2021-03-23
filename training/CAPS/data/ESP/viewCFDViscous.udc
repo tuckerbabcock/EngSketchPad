@@ -51,6 +51,7 @@ IFTHEN    makeFuseOml EQ 1
     STORE     .
     RESTORE   FuseOml
         ATTRIBUTE capsGroup    $Fuselage
+        ATTRIBUTE capsMesh     $Fuselage
         ATTRIBUTE AFLR4_Cmp_ID AFLR4_Cmp_Fuse
     SELECT body
         ATTRIBUTE capsAIM      cfdAIMs
@@ -159,6 +160,7 @@ IFTHEN    makeWingOml EQ 1
     # put capsGroup and AFR4_Cmp_ID on the faces
     SELECT face
         ATTRIBUTE capsGroup    $Wing
+        ATTRIBUTE capsMesh     $Wing
         ATTRIBUTE AFLR4_Cmp_ID AFLR4_Cmp_Wing
 
     IFTHEN    makeFuseOml EQ 1
@@ -253,6 +255,7 @@ IFTHEN    makeHtailOml EQ 1
     # put capsGroup and AFR4_Cmp_ID on the faces
     SELECT face
         ATTRIBUTE capsGroup    $Htail
+        ATTRIBUTE capsMesh     $Htail
         ATTRIBUTE AFLR4_Cmp_ID AFLR4_Cmp_Htail
 
     IFTHEN    makeFuseOml EQ 1
@@ -347,6 +350,7 @@ IFTHEN    makeVtailOml EQ 1
     # put capsGroup and AFR4_Cmp_ID on the faces
     SELECT face
         ATTRIBUTE capsGroup    $Vtail
+        ATTRIBUTE capsMesh     $Vtail
         ATTRIBUTE AFLR4_Cmp_ID AFLR4_Cmp_Vtail
 
     IFTHEN    makeFuseOml EQ 1
@@ -369,22 +373,26 @@ IFTHEN    makePylonOml EQ 1 AND makePodOml EQ 1
     ENDIF
     RESTORE   PylonLeftOml
         ATTRIBUTE capsGroup    $Pylon
+        ATTRIBUTE capsMesh     $Pylon
         ATTRIBUTE AFLR4_Cmp_ID AFLR4_Cmp_Pod
     UNION     0        "pylon:x2+pylon:length/2; pod:y; pod:z+0.1; 0; 0; 1"
 
     RESTORE   PylonRiteOml
         ATTRIBUTE capsGroup    $Pylon
+        ATTRIBUTE capsMesh     $Pylon
         ATTRIBUTE AFLR4_Cmp_ID AFLR4_Cmp_Pod
     UNION     0        "pylon:x2+pylon:length/2; -pod:y; pod:z+0.1; 0; 0; 1"
 
     RESTORE   PodLeftOml
         ATTRIBUTE capsGroup    $Pod
+        ATTRIBUTE capsMesh     $Pod
         ATTRIBUTE AFLR4_Cmp_ID AFLR4_Cmp_Pod
         ATTRIBUTE _color       $red
     UNION     0        "pylon:xle+pylon:length/2; pylon:yle; pylon:zle; 0; 0; -1"
 
     RESTORE   PodRiteOml
         ATTRIBUTE capsGroup    $Pod
+        ATTRIBUTE capsMesh     $Pod
         ATTRIBUTE AFLR4_Cmp_ID AFLR4_Cmp_Pod
         ATTRIBUTE _color       $red
     UNION     0        "pylon:xle+pylon:length/2; pylon:yle; pylon:zle; 0; 0; -1"
@@ -425,6 +433,7 @@ ENDIF
 IFTHEN    makePylonOml EQ 0 AND makePodOml EQ 1
    RESTORE   PodLeftOml
       ATTRIBUTE capsGroup    $Pod
+      ATTRIBUTE capsMesh     $Pod
       ATTRIBUTE AFLR4_Cmp_ID AFLR4_Cmp_Pod
       ATTRIBUTE _color       $red
    SELECT body
@@ -432,6 +441,7 @@ IFTHEN    makePylonOml EQ 0 AND makePodOml EQ 1
 
    RESTORE   PodRiteOml
       ATTRIBUTE capsGroup    $Pod
+      ATTRIBUTE capsMesh     $Pod
       ATTRIBUTE AFLR4_Cmp_ID AFLR4_Cmp_Pod
       ATTRIBUTE _color       $red
    SELECT body
@@ -444,6 +454,7 @@ IFTHEN    makeWingHinge EQ 1
     PATBEG    ihinge wing:hinge.nrow
         RESTORE                WingControl  ihinge
             ATTRIBUTE capsGroup $Control
+            ATTRIBUTE capsMesh  $Control
         SELECT body
             ATTRIBUTE capsAIM   cfdAIMs
             ATTRIBUTE _name     $WingControl_+ihinge
@@ -454,6 +465,7 @@ IFTHEN     makeHtailHinge EQ 1
     PATBEG    ihinge htail:hinge.nrow
         RESTORE                HtailControl  ihinge
             ATTRIBUTE capsGroup $Control
+            ATTRIBUTE capsMesh  $Control
         SELECT body
             ATTRIBUTE capsAIM   cfdAIMs
             ATTRIBUTE _name     $HtailControl_+ihinge
@@ -464,6 +476,7 @@ IFTHEN     makeVtailHinge EQ 1
     PATBEG    ihinge vtail:hinge.nrow
         RESTORE                VtailControl  ihinge
             ATTRIBUTE capsGroup $Control
+            ATTRIBUTE capsMesh  $Control
         SELECT body
             ATTRIBUTE capsAIM   cfdAIMs
             ATTRIBUTE _name     $VtailControl_+ihinge
@@ -474,6 +487,7 @@ ENDIF
 SET       size  20*max(ffxmax-ffxmin,ffymax-ffymin)
 BOX       (ffxmin+ffxmax-size)/2  (ffymin+ffymax-size)/2  (ffzmin+ffzmax-size)/2  size  size  size
     ATTRIBUTE capsGroup          $Farfield
+    ATTRIBUTE capsMesh           $Farfield
     ATTRIBUTE AFLR4_Cmp_ID       AFLR4_Cmp_Farfield
     ATTRIBUTE capsReferenceArea  wing:area
     ATTRIBUTE capsReferenceSpan  wing:span

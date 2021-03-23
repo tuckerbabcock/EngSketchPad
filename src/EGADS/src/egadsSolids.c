@@ -3,7 +3,7 @@
  *
  *             Solid Primitives Functions
  *
- *      Copyright 2011-2020, Massachusetts Institute of Technology
+ *      Copyright 2011-2021, Massachusetts Institute of Technology
  *      Licensed under The GNU Lesser General Public License, version 2.1
  *      See http://www.opensource.org/licenses/lgpl-2.1.php
  *
@@ -57,11 +57,11 @@ EG_expectClassType(int oclass, int mtype, int eclass, int etype)
   static 
   const char *topoType[5] = {"ONENODE", "TWONODE", "OPEN", "CLOSED", "DEGENERATE"};
   static 
-  const char *curvType[9] = {"LINE", "CIRCLE", "ELLIPSE", "PARABOLA",
-                             "HYPERBOLA", "TRIMMED", "BEZIER", "BSPLINE",
-                             "OFFSET"};
+  const char *curvType[10] = {"", "LINE", "CIRCLE", "ELLIPSE", "PARABOLA",
+                              "HYPERBOLA", "TRIMMED", "BEZIER", "BSPLINE",
+                              "OFFSET"};
   static 
-  const char *surfType[11] = {"PLANE", "SPHERICAL", "CYLINDER", "REVOLUTION",
+  const char *surfType[12] = {"", "PLANE", "SPHERICAL", "CYLINDER", "REVOLUTION",
                               "TOROIDAL", "TRIMMED" , "BEZIER", "BSPLINE",
                               "OFFSET", "CONICAL", "EXTRUSION"};
   const char **objType, **eType;
@@ -94,8 +94,8 @@ EG_expectClassType(int oclass, int mtype, int eclass, int etype)
       return EGADS_GEOMERR;
     }
     printf(" EGADS Error: Object %s %s is not expected %s %s (%s)!\n",
-           classType[oclass], objType[mtype-1], classType[eclass],
-           eType[etype-1], __func__);
+           classType[oclass], objType[mtype], classType[eclass],
+           eType[etype], __func__);
     return EGADS_GEOMERR;
   }
 

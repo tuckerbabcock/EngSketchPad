@@ -45,7 +45,7 @@ aflr4.postAnalysis()
 
 # Load AFLR3 AIM to generate the volume mesh
 aflr3 = myProblem.loadAIM(aim         = "aflr3AIM",
-                          analysisDir = "workDir_AFLR4_AFLR3_9_ViscousWing",
+                          analysisDir = "workDir_AFLR4_AFLR3_09_ViscousWing",
                           parents     = aflr4.aimName)
 
 # Dump VTK files for visualization

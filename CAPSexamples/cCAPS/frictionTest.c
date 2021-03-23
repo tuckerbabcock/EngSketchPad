@@ -3,7 +3,7 @@
  *
  *             Friction AIM tester
  *
- *      Copyright 2014-2020, Massachusetts Institute of Technology
+ *      Copyright 2014-2021, Massachusetts Institute of Technology
  *      Licensed under The GNU Lesser General Public License, version 2.1
  *      See http://www.opensource.org/licenses/lgpl-2.1.php
  *
@@ -43,10 +43,9 @@ int main(int argc, char *argv[])
     // Input values
     double            doubleVal[2];
 
-    int               integerVal;
-    //enum capsBoolean  boolVal;
-
     // Output values
+    int nrow, ncol;
+    const int  *partial;
     const char *valunits;
     const void *data;
 
@@ -90,9 +89,10 @@ int main(int argc, char *argv[])
     if (status != CAPS_SUCCESS) goto cleanup;
 
     status = caps_info(problemObj, &name, &type, &subtype, &link, &parent, &current);
+    if (status != CAPS_SUCCESS)  goto cleanup;
 
     // Now load the frictionAIM
-    status = caps_load(problemObj, "frictionAIM", analysisPath, NULL, NULL, 0, NULL, &frictionObj);
+    status = caps_makeAnalysis(problemObj, "frictionAIM", analysisPath, NULL, NULL, 0, NULL, &frictionObj);
     if (status != CAPS_SUCCESS) goto cleanup;
 
 
@@ -102,7 +102,7 @@ int main(int argc, char *argv[])
 
     doubleVal[0] = 0.5;
     doubleVal[1] = 1.5;
-    status = caps_setValue(tempObj, 2, 1, (void *) &doubleVal);
+    status = caps_setValue(tempObj, Double, 2, 1, (void *) &doubleVal, NULL, NULL, &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
 
 
@@ -112,7 +112,7 @@ int main(int argc, char *argv[])
 
     doubleVal[0] = 29.52756; // kft
     doubleVal[1] = 59.711286;
-    status = caps_setValue(tempObj, 2, 1, (void *) &doubleVal);
+    status = caps_setValue(tempObj, Double, 2, 1, (void *) &doubleVal, NULL, "kft", &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
 
 
@@ -150,10 +150,10 @@ int main(int argc, char *argv[])
     status = caps_childByName(frictionObj, VALUE, ANALYSISOUT, "CDfric", &tempObj);
     if (status != CAPS_SUCCESS) goto cleanup;
 
-    status = caps_getValue(tempObj, &vtype, &integerVal, &data, &valunits, &nErr, &errors);
+    status = caps_getValue(tempObj, &vtype, &nrow, &ncol, &data, &partial, &valunits, &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
 
-    for (i = 0; i < integerVal; i++) {
+    for (i = 0; i < nrow*ncol; i++) {
         printf("\nValue of CDfric = %f\n", ((double *) data)[i]);
     }
 

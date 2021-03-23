@@ -1,15 +1,9 @@
 #
-# allow for clang static analyzer
-CCSAV = $(CC)
-CXSAV = $(CXX)
-include ../include/$(ESP_ARCH)
-ifneq (,$(findstring analyzer,$(CCSAV)))
-DEFANL = -DDEBUG -I../util
-CPPOPT = -O -fPIC -DOCC_CONVERT_SIGNALS -DCSFDB -DHAVE_WOK_CONFIG_H -DHAVE_CONFIG_H -DNDEBUG -D_OCC64 -Wno-write-strings -Wunused -Wno-dangling-else -Wno-unused-result
-CC     = $(CCSAV)
-CXX    = $(CXSAV)
+ifndef ESP_ROOT
+$(error ESP_ROOT must be set -- Please fix the environment...)
 endif
-
+#
+include ../include/$(ESP_ARCH)
 LDIR  = $(ESP_ROOT)/lib
 IDIR  = $(ESP_ROOT)/include
 SIDIR = $(IDIR)/Surreal
@@ -19,13 +13,23 @@ else
 ODIR  = .
 endif
 
+# allow for clang static analyzer
+ifneq (,$(findstring analyzer,$(CC)))
+CPPOPT += -UNo_Exception -UNDEBUG
+DEFINE += -DDEBUG
+endif
+ifneq (,$(findstring intercept,$(CC)))
+CPPOPT += -UNo_Exception -UNDEBUG
+DEFINE += -DDEBUG
+endif
+
 VPATH = $(ODIR)
 
-OBJSP = egadsGeom.o egadsHLevel.o egadsTopo.o   egadsCopy.o   egadsSpline.o \
-	egadsIO.o   egadsSplineFit.o            egadsTessSens.o BRepLib_FuseEdges.o
+OBJSP = egadsGeom.o egadsHLevel.o    egadsTopo.o     egadsCopy.o     egadsSpline.o \
+	egadsIO.o   egadsSplineFit.o egadsSkinning.o egadsTessSens.o BRepLib_FuseEdges.o
 OBJS  = egadsBase.o egadsMemory.o egadsAttrs.o  egadsTess.o   egadsTessInp.o \
 	egadsTris.o egadsQuads.o  egadsFit.o    egadsRobust.o egadsSBO.o \
-	prmCfit.o   prmGrid.o     prmUV.o       egadsExport.o egadsSkinning.o \
+	prmCfit.o   prmGrid.o     prmUV.o       egadsExport.o  \
 	egadsEffect.o egadsSolids.o
 FOBJS = fgadsBase.o fgadsMemory.o fgadsAttrs.o  fgadsTess.o   fgadsHLevel.o \
 	fgadsGeom.o fgadsTopo.o
@@ -33,13 +37,9 @@ SRINC = $(SIDIR)/SurrealD.h $(SIDIR)/SurrealD_Lazy.h $(SIDIR)/SurrealD_Trad.h \
         $(SIDIR)/SurrealS.h $(SIDIR)/SurrealS_Lazy.h $(SIDIR)/SurrealS_Trad.h \
 	$(SIDIR)/always_inline.h
 
-default:	$(IDIR)/$(ESP_ARCH) uts $(LDIR)/$(SHLIB) \
-		$(LDIR)/libegadstatic.a $(LDIR)/libfgads.a $(LDIR)/libemp.a \
-		$(IDIR)/egads.h $(IDIR)/egads_dot.h $(IDIR)/egads.inc \
-		$(IDIR)/egadsErrors.h $(IDIR)/egadsTypes.h $(IDIR)/emp.h \
-		$(IDIR)/prm.h $(IDIR)/wsserver.h $(IDIR)/wsserver.inc \
-		$(IDIR)/wsss.h $(IDIR)/egadsTris.h $(IDIR)/egadsSplineFit.h \
-		$(IDIR)/egadsSplineVels.h $(IDIR)/egadsf90.inc $(SRINC) end
+default:	includes uts $(LDIR)/$(SHLIB) \
+		$(LDIR)/libegadstatic.a $(LDIR)/libfgads.a $(LDIR)/libemp.a
+	@echo " *** EGADS Build Complete! ***"
 
 $(LDIR)/libegads.so:	$(OBJSP) $(OBJS) emp.o evaluate.o rational.o \
 			regQuads.o $(LDIR)/libuvmap.a
@@ -82,7 +82,7 @@ $(LDIR)/libegadstatic.a:	$(OBJSP) $(OBJS) emp.o evaluate.o rational.o \
 		evaluate.o rational.o regQuads.o; $(RANLB) )
 
 $(LDIR)/libuvmap.a:
-	(cd ../util; make)
+	$(MAKE) -C ../util
 
 $(LDIR)/libfgads.a:		$(FOBJS)
 	touch $(LDIR)/libfgads.a
@@ -111,11 +111,11 @@ $(ODIR)/SurrealS4:	../util/SurrealS4_btest.cpp
 	$(ODIR)/SurrealS4
 
 uts:	$(ODIR)/SurrealD1 $(ODIR)/SurrealD4 $(ODIR)/SurrealS1 $(ODIR)/SurrealS4
-	(cd ../util; make)
+	$(MAKE) -C ../util
 
 $(OBJS): %.o:	%.c ../include/egadsErrors.h egadsInternals.h egadsStack.h \
 		../include/egadsTypes.h egadsTris.h
-	$(CC) -c $(COPTS) $(DEFANL) $(DEFINE) $(XDEF) -I../include -I../util \
+	$(CC) -c $(COPTS) $(DEFINE) $(XDEF) -I../include -I../util \
 		$< -o $(ODIR)/$@
 
 $(FOBJS): %.o:	%.c ../include/egadsErrors.h egadsInternals.h egadsStack.h \
@@ -125,7 +125,7 @@ $(FOBJS): %.o:	%.c ../include/egadsErrors.h egadsInternals.h egadsStack.h \
 $(OBJSP): %.o:	%.cpp ../include/egadsErrors.h egadsOCC.h egadsInternals.h \
 		../include/egadsTypes.h ../include/egads_dot.h \
 		egadsClasses.h egadsSplineFit.h egadsStack.h Surreal/SurrealS.h
-	$(CXX) -c $(CPPOPT) $(DEFANL) $(DEFINE) $(XDEF) $(INCS) -I../include \
+	$(CXX) -c $(CPPOPT) $(DEFINE) $(XDEF) $(INCS) -I../include \
 		-I. $< -o $(ODIR)/$@
 
 emp.o:		../util/emp.c
@@ -144,10 +144,22 @@ regQuads.o:	../util/regQuads.c ../util/regQuads.h
 	$(CC) -c $(COPTS) $(DEFINE) $(INCS) -I../include -I../util \
 		../util/regQuads.c -o $(ODIR)/regQuads.o
 
+includes: 	$(IDIR)/$(ESP_ARCH) $(IDIR)/STANALYZER.make \
+		$(IDIR)/egads.h $(IDIR)/egads_dot.h $(IDIR)/egads.inc \
+		$(IDIR)/egadsErrors.h $(IDIR)/egadsTypes.h $(IDIR)/emp.h \
+		$(IDIR)/prm.h $(IDIR)/wsserver.h $(IDIR)/wsserver.inc \
+		$(IDIR)/wsss.h $(IDIR)/egadsTris.h $(IDIR)/egadsSplineFit.h \
+		$(IDIR)/egadsSplineVels.h $(IDIR)/egadsf90.inc $(SRINC)
+
 $(IDIR)/$(ESP_ARCH):	../include/$(ESP_ARCH)
 	touch $(IDIR)/$(ESP_ARCH)
 	rm $(IDIR)/$(ESP_ARCH)
 	cp -p ../include/$(ESP_ARCH) $(IDIR)/$(ESP_ARCH)
+
+$(IDIR)/STANALYZER.make:	../include/STANALYZER.make
+	touch $(IDIR)/STANALYZER.make
+	rm $(IDIR)/STANALYZER.make
+	cp -p ../include/STANALYZER.make $(IDIR)/STANALYZER.make
 
 $(IDIR)/egads.h:	../include/egads.h
 	touch $(IDIR)/egads.h
@@ -225,8 +237,17 @@ $(SRINC):	Surreal/SurrealD.h Surreal/SurrealS.h Surreal/always_inline.h \
 	mkdir -p $(SIDIR)
 	cp Surreal/$(notdir $@) $@
 
-end:
-	@echo " *** EGADS Build Complete! ***"
+# Static analysis
+SCANDIR=/tmp/scanEGADS
+SCANEXCLUDE=
+include ../include/STANALYZER.make
+
+lint:
+	@echo EGADS library:
+	$(LINT) -I../include -I../util egadsBase.c egadsAttrs.c egadsMemory.c egadsTess.c egadsTessInp.c egadsTris.c egadsQuads.c egadsFit.c egadsRobust.c egadsSBO.c ../util/regQuads.c egadsExport.c egadsSolids.c egadsEffect.c -evalorder -exportlocal -incompletetype -boolops -predboolothers -dependenttrans -nestcomment
+	@echo " "
+	@echo FORTRAN bindings:
+	$(LINT) -I../include fgadsBase.c fgadsTopo.c fgadsGeom.c fgadsAttrs.c fgadsMemory.c fgadsTess.c fgadsHLevel.c
 
 clean:
 	-(cd ../util; make clean)

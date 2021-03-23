@@ -62,6 +62,9 @@ $(HSMOBJS): $(HSMINC)
 $(LDIR)/libhsm.a: $(HSMOBJS)
 	$(MAKE) -C src $@
 
+lint:
+	$(LINT) -I../../include -I$(IDIR) -I../utils $(wildcard *.c) -exportlocal -nestcomment -bufferoverflowhigh
+
 cleanAIM:
 	-rm -f $(ODIR)/hsmAIM.o $(ODIR)/hsmUtils.o $(ODIR)/hsmAdj.o $(ODIR)/rcm.o $(ODIR)/genrcmi.o
 

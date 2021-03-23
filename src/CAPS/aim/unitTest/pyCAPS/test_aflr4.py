@@ -47,7 +47,6 @@ class TestAFLR4(unittest.TestCase):
         # Set output grid format since a project name is being supplied - Tecplot  file
         myAnalysis.setAnalysisVal("Mesh_Format", "Tecplot")
 
-        # Set output grid format since a project name is being supplied - Tecplot  file
         myAnalysis.setAnalysisVal("Mesh_Length_Factor", -1)
 
         with self.assertRaises(pyCAPS.CAPSError) as e:

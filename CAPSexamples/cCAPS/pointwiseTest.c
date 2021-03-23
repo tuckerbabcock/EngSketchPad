@@ -3,7 +3,7 @@
  *
  *             pointwise AIM tester
  *
- *      Copyright 2014-2020, Massachusetts Institute of Technology
+ *      Copyright 2014-2021, Massachusetts Institute of Technology
  *      Licensed under The GNU Lesser General Public License, version 2.1
  *      See http://www.opensource.org/licenses/lgpl-2.1.php
  *
@@ -84,9 +84,10 @@ int main(int argc, char *argv[])
     if (status != CAPS_SUCCESS) goto cleanup;
 
     status = caps_info(problemObj, &name, &type, &subtype, &link, &parent, &current);
+    if (status != CAPS_SUCCESS)  goto cleanup;
 
     // Now load the pointwiseAIM
-    status = caps_load(problemObj, "pointwiseAIM", analysisPath, NULL, NULL, 0, NULL, &pointwiseObj);
+    status = caps_makeAnalysis(problemObj, "pointwiseAIM", analysisPath, NULL, NULL, 0, NULL, &pointwiseObj);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     // Do the analysis setup for pointwise;

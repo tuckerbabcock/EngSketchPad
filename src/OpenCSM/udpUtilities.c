@@ -10,7 +10,7 @@
  */
 
 /*
- * Copyright (C) 2011/2020  John F. Dannenhoffer, III (Syracuse University)
+ * Copyright (C) 2011/2021  John F. Dannenhoffer, III (Syracuse University)
  *
  * This library is free software; you can redistribute it and/or
  *    modify it under the terms of the GNU Lesser General Public
@@ -528,7 +528,7 @@ udpGet(ego    ebody,                    /* (in)  Body pointer */
 //$$$                snprintf(message, 256, "%s %s", message, argNames[iarg]);
             }
         }
-        
+
         printf(" udpGet: %s\n", message);
     } else {
         printf(" udpGet: Parameter \"%s\" not known.  should be one of:", name);

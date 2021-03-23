@@ -14,7 +14,7 @@
  */
 
 /*
- * Copyright (C) 2012/2020  John F. Dannenhoffer, III (Syracuse University)
+ * Copyright (C) 2012/2021  John F. Dannenhoffer, III (Syracuse University)
  *
  * This library is free software; you can redistribute it and/or
  *    modify it under the terms of the GNU Lesser General Public
@@ -1730,6 +1730,7 @@ fit2d_step(void    *context,            /* (in)  context */
         D(2*k  ) = - dXYZdU[0] * fit2d->f[3*k] - dXYZdU[1] * fit2d->f[3*k+1] - dXYZdU[2] * fit2d->f[3*k+2];
         D(2*k+1) = - dXYZdV[0] * fit2d->f[3*k] - dXYZdV[1] * fit2d->f[3*k+1] - dXYZdV[2] * fit2d->f[3*k+2];
 
+#ifndef __clang_analyzer__
         jvar = 0;
         for (j = 1; j < fit2d->nv-1; j++) {
             for (i = 1; i < fit2d->nu-1; i++) {
@@ -1742,6 +1743,7 @@ fit2d_step(void    *context,            /* (in)  context */
                 jvar += 3;
             }
         }
+#endif
     }
 
     /* create bottom-right (C) part of JtJ */
@@ -1750,6 +1752,7 @@ fit2d_step(void    *context,            /* (in)  context */
                                fit2d->cp, XYZ, dXYZdU, dXYZdV, dXYZdP);
         CHECK_STATUS(eval2dBspline);
 
+#ifndef __clang_analyzer__
         ivar = 0;
         for (j = 1; j < fit2d->nv-1; j++) {
             for (i = 1; i < fit2d->nu-1; i++) {
@@ -1766,6 +1769,7 @@ fit2d_step(void    *context,            /* (in)  context */
                 ivar += 3;
             }
         }
+#endif
     }
 
 #ifndef __clang_analyzer__
@@ -1817,6 +1821,7 @@ fit2d_step(void    *context,            /* (in)  context */
 
     /* update:  C = C - trans(B) * inv(A) * B
        update:  E = E - trans(B) * inv(A) * D  */
+#ifndef __clang_analyzer__
     for (k = 0; k < fit2d->m; k++) {
         fact = 1 / (A(2*k,1) * A(2*k,1) - A(2*k,0) * A(2*k+1,0));
 
@@ -1830,6 +1835,7 @@ fit2d_step(void    *context,            /* (in)  context */
                          + D(2*k+1)   * (A(2*k,1) * B(2*k  ,i) - A(2*k  ,0) * B(2*k+1,i))) * fact;
         }
     }
+#endif
 
     /* solve for the second part of beta (the control points) */
     status = matsol(CC, EE, nn, &(delta[2*fit2d->m]));
@@ -1842,16 +1848,19 @@ fit2d_step(void    *context,            /* (in)  context */
         sum0 = - D(2*k  );
         sum1 = - D(2*k+1);
 
+#ifndef __clang_analyzer__
         for (i = 0; i < nn; i++) {
             sum0 += B(2*k  ,i) * delta[2*fit2d->m+i];
             sum1 += B(2*k+1,i) * delta[2*fit2d->m+i];
         }
+#endif
 
         delta[2*k  ] = (A(2*k+1,0) * sum0 - A(2*k,1) * sum1) * fact;
         delta[2*k+1] = (A(2*k  ,0) * sum1 - A(2*k,1) * sum0) * fact;
     }
 
     /* find the temporary new beta (and clip the UVclouds) */
+#ifndef __clang_analyzer__
     for (ivar = 0; ivar < nvar; ivar++) {
         betanew[ivar] = beta[ivar] + delta[ivar];
         if (ivar < 2*fit2d->m) {
@@ -1861,6 +1870,7 @@ fit2d_step(void    *context,            /* (in)  context */
             if (ivar%2 == 1 && betanew[ivar] > fit2d->nv-3) betanew[ivar] = fit2d->nv-3;
         }
     }
+#endif
 
     /* extract the temporary control points from betanew */
     next = 2 * fit2d->m;
@@ -1903,10 +1913,12 @@ fit2d_step(void    *context,            /* (in)  context */
         }
 
         /* save new design variables, control points, and objective function */
+#ifndef __clang_analyzer__
         for (k = 0; k < fit2d->m; k++) {
             fit2d->UVcloud[2*k  ] = betanew[2*k  ];
             fit2d->UVcloud[2*k+1] = betanew[2*k+1];
         }
+#endif
         for (j = 0; j < fit2d->nv; j++) {
             for (i = 0; i < fit2d->nu; i++) {
                 fit2d->cp[IJ(i,j,0)] = cpnew[IJ(i,j,0)];
@@ -2069,6 +2081,7 @@ fit2d_objf(fit2d_T *fit2d,              /* (in)  pointer to fit2d structure */
 
     /* --------------------------------------------------------------- */
 
+#ifndef __clang_analyzer__
     next = 0;
 
     for (k = 0; k < fit2d->m; k++) {
@@ -2096,6 +2109,7 @@ fit2d_objf(fit2d_T *fit2d,              /* (in)  pointer to fit2d structure */
                                                         +     cp[IJ(i-1,j+1,2)] +     cp[IJ(i+1,j+1,2)]);
         }
     }
+#endif
 
 cleanup:
     return status;
