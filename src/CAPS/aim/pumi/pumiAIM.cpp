@@ -80,10 +80,22 @@ EG_saveTess(ego tess, const char *name); // super secret experimental EGADS tess
 extern "C" int
 EG_loadTess(ego body, const char *name, ego *tess);
 
-#define NUMINPUT   3  // number of mesh inputs
-#define NUMOUT     1  // number of outputs // placeholder for now
-
 //#define DEBUG
+
+enum aimInputs
+{
+  Proj_Name = 1,                 /* index is 1-based */
+  Mesh_Format,
+  Mesh,
+  Mesh_Order,
+  NUMINPUT = Mesh_Order    /* Total number of inputs */
+};
+
+enum aimOutputs
+{
+  Done = 1,                    /* index is 1-based */
+  NUMOUT = Done         /* Total number of outputs */
+};
 
 typedef struct {
 
@@ -173,45 +185,45 @@ void createEdge(apf::Mesh2* m, apf::MeshEntity* a, apf::MeshEntity* b,
                       edgeVerts);
 }
 
-static aimStorage *pumiInstance = NULL;
-static int         numInstance  = 0;
-
-static int destroy_aimStorage(int iIndex) {
+static int destroy_aimStorage(aimStorage *pumiInstance) {
 
     int i; // Indexing
 
     int status; // Function return status
 
     // Destroy meshInput
-    status = destroy_meshInputStruct(&pumiInstance[iIndex].meshInput);
-    if (status != CAPS_SUCCESS) printf("Status = %d, pumiAIM instance %d, meshInput cleanup!!!\n", status, iIndex);
+    status = destroy_meshInputStruct(&pumiInstance->meshInput);
+    if (status != CAPS_SUCCESS)
+        printf("Status = %d, pumiAIM meshInput cleanup!!!\n", status);
 
     // Destroy mesh allocated arrays
-    if (pumiInstance[iIndex].meshInherited == (int) false) { // Did the parent aim already destroy the meshes?
-        if (pumiInstance[iIndex].mesh != NULL) {
-            for (i = 0; i < pumiInstance[iIndex].numMesh; i++) {
-                status = destroy_meshStruct(&pumiInstance[iIndex].mesh[i]);
-                if (status != CAPS_SUCCESS) printf("Error during destroy_meshStruct, status = %d, pumiAIM instance %d\n", status, iIndex);
+    if (pumiInstance->meshInherited == (int) false) { // Did the parent aim already destroy the meshes?
+        if (pumiInstance->mesh != NULL) {
+            for (i = 0; i < pumiInstance->numMesh; i++) {
+                status = destroy_meshStruct(&pumiInstance->mesh[i]);
+                if (status != CAPS_SUCCESS)
+                    printf("Error during destroy_meshStruct, status = %d, pumiAIM\n", status);
             }
-            EG_free(pumiInstance[iIndex].mesh);
+            EG_free(pumiInstance->mesh);
         }
     }
 
     // Destroy PUMI mesh
-    if (pumiInstance[iIndex].pumiMesh != NULL) {
-        for (i = 0; i < pumiInstance[iIndex].numPUMIMesh; i++) {
-            pumiInstance[iIndex].pumiMesh->destroyNative();
-            apf::destroyMesh(pumiInstance[iIndex].pumiMesh);
+    if (pumiInstance->pumiMesh != NULL) {
+        for (i = 0; i < pumiInstance->numPUMIMesh; i++) {
+            pumiInstance->pumiMesh->destroyNative();
+            apf::destroyMesh(pumiInstance->pumiMesh);
         }
     }
 
-    pumiInstance[iIndex].numMesh = 0;
-    pumiInstance[iIndex].meshInherited = (int) false;
-    pumiInstance[iIndex].mesh = NULL;
+    pumiInstance->numMesh = 0;
+    pumiInstance->meshInherited = (int) false;
+    pumiInstance->mesh = NULL;
 
     // Destroy attribute to index map
-    status = destroy_mapAttrToIndexStruct(&pumiInstance[iIndex].attrMap);
-    if (status != CAPS_SUCCESS) printf("Status = %d, pumi4AIM instance %d, attributeMap cleanup!!!\n", status, iIndex);
+    status = destroy_mapAttrToIndexStruct(&pumiInstance->attrMap);
+    if (status != CAPS_SUCCESS)
+        printf("Status = %d, pumi4AIM, attributeMap cleanup!!!\n", status);
 
     return CAPS_SUCCESS;
 }
@@ -219,11 +231,9 @@ static int destroy_aimStorage(int iIndex) {
 /* ********************** Exposed AIM Functions ***************************** */
 
 extern "C" int
-// aimInitialize( int inst, /*@null@*/ const char *unitSys,
-//                void **instStore, int *maj, int *min, int *nIn, int *nOut,
-//                int *nFields, char ***fnames, int **ranks )
-aimInitialize(int ngIn, capsValue *gIn, int *qeFlag, const char *unitSys,
-              int *nIn, int *nOut, int *nFields, char ***fnames, int **ranks)
+aimInitialize(int inst, /*@unused@*/ const char *unitSys,
+              void **instStore, int *maj, int *min, int *nIn, int *nOut,
+              int *nFields, char ***fnames, int **ranks)
 {   
     int mpi_flag;
     MPI_Initialized(&mpi_flag);
@@ -233,21 +243,17 @@ aimInitialize(int ngIn, capsValue *gIn, int *qeFlag, const char *unitSys,
     }
 
     int status; // Function status return
-    int flag;   // query/execute flag
 
-    aimStorage *tmp;
+    aimStorage *pumiInstance;
 
 #ifdef DEBUG
     printf("\n pumiAIM/aimInitialize   ngIn = %d!\n", ngIn);
 #endif
-    flag    = *qeFlag;
-    // Set that the AIM executes itself
-    *qeFlag = 1;
 
     /* specify the number of analysis input and out "parameters" */
     *nIn     = NUMINPUT;
     *nOut    = NUMOUT;
-    if (flag == 1) return CAPS_SUCCESS;
+    if (inst == -1) return CAPS_SUCCESS;
 
     /* specify the field variables this analysis can generate */
     *nFields = 0;
@@ -255,56 +261,56 @@ aimInitialize(int ngIn, capsValue *gIn, int *qeFlag, const char *unitSys,
     *fnames  = NULL;
 
     // Allocate pumiInstance
-    if (pumiInstance == NULL) {
-        pumiInstance = (aimStorage *) EG_alloc(sizeof(aimStorage));
-        if (pumiInstance == NULL) return EGADS_MALLOC;
-    } else {
-        tmp = (aimStorage *) EG_reall(pumiInstance, (numInstance+1)*sizeof(aimStorage));
-        if (tmp == NULL) return EGADS_MALLOC;
-        pumiInstance = tmp;
-    }
+    pumiInstance = (aimStorage *) EG_alloc(sizeof(aimStorage));
+    if (pumiInstance == NULL) return EGADS_MALLOC;
 
     // Set initial values for pumiInstance //
 
     // Container for mesh
-    pumiInstance[numInstance].meshInherited = (int) false;
+    pumiInstance->meshInherited = (int) false;
 
-    pumiInstance[numInstance].numMesh = 0;
-    pumiInstance[numInstance].mesh = NULL;
+    pumiInstance->numMesh = 0;
+    pumiInstance->mesh = NULL;
 
-    pumiInstance[numInstance].numPUMIMesh = 0;
-    pumiInstance[numInstance].pumiMesh = NULL;
+    pumiInstance->numPUMIMesh = 0;
+    pumiInstance->pumiMesh = NULL;
 
     // Container for attribute to index map
-    status = initiate_mapAttrToIndexStruct(&pumiInstance[numInstance].attrMap);
-    if (status != CAPS_SUCCESS) return status;
+    status = initiate_mapAttrToIndexStruct(&pumiInstance->attrMap);
+    if (status != CAPS_SUCCESS) {
+        EG_free(pumiInstance);
+        return status;
+    }
 
     // Container for mesh input
-    status = initiate_meshInputStruct(&pumiInstance[numInstance].meshInput);
+    status = initiate_meshInputStruct(&pumiInstance->meshInput);
+    if (status != CAPS_SUCCESS) {
+        (void) destroy_mapAttrToIndexStruct(&pumiInstance->attrMap);
+        EG_free(pumiInstance);
+        return status;
+    }
 
-    // Increment number of instances
-    numInstance += 1;
-
-    return (numInstance-1);
+    *instStore = pumiInstance;
+    return CAPS_SUCCESS;
 }
 
 
 extern "C" int
-// aimInputs( /*@null@*/ void *instStore, void *aimInfo, int index, char **ainame,
-//            capsValue *defval )
-aimInputs(int iIndex, void *aimInfo, int index, char **ainame, capsValue *defval)
+aimInputs(/*@unused@*/ void *instStore, void *aimInfo, int index, char **ainame,
+           capsValue *defval)
 {
     /*! \page aimInputsPUMI AIM Inputs
      * The following list outlines the PUMI options along with their default value available
      * through the AIM interface.
      */
+    int status = CAPS_SUCCESS;
 
 #ifdef DEBUG
-    printf(" pumiAIM/aimInputs instance = %d  index = %d!\n", iIndex, index);
+    printf(" pumiAIM/aimInputs index = %d!\n", index);
 #endif
 
     // Meshing Inputs
-    if (index == 1) {
+    if (index == Proj_Name) {
         *ainame              = EG_strdup("Proj_Name"); // If NULL a mesh won't be written by the AIM
         defval->type         = String;
         defval->nullVal      = IsNull;
@@ -317,7 +323,7 @@ aimInputs(int iIndex, void *aimInfo, int index, char **ainame, capsValue *defval
          * This corresponds to the output name of the mesh. If left NULL, the mesh is not written to a file.
          */
 
-    } else if (index == 2) {
+    } else if (index == Mesh_Format) {
         *ainame               = EG_strdup("Mesh_Format");
         defval->type          = String;
         defval->vals.string   = EG_strdup("PUMI"); // PUMI, VTK
@@ -328,7 +334,21 @@ aimInputs(int iIndex, void *aimInfo, int index, char **ainame, capsValue *defval
          * Mesh output format. Available format names include: "PUMI", "VTK".
          */
 
-    } else if (index == 3) {
+    } else if (index == Mesh) {
+        *ainame             = AIM_NAME(Mesh);
+        defval->type        = Pointer;
+        defval->nrow        = 1;
+        defval->lfixed      = Fixed;
+        defval->vals.AIMptr = NULL;
+        defval->nullVal     = IsNull;
+        AIM_STRDUP(defval->units, "meshStruct", aimInfo, status);
+
+        /*! \page aimInputsPUMI
+         * - <B>Mesh = NULL</B> <br>
+         * A Surface_Mesh or Volume_Mesh link for 2D and 3D geometries respectively.
+         */
+
+    } else if (index == Mesh_Order) {
         *ainame               = EG_strdup("Mesh_Order");
         defval->type          = Integer;
         defval->dim           = Scalar;
@@ -342,92 +362,95 @@ aimInputs(int iIndex, void *aimInfo, int index, char **ainame, capsValue *defval
 
     }
 
-    return CAPS_SUCCESS;
+    AIM_NOTNULL(*ainame, aimInfo, status);
+
+cleanup:
+    if (status != CAPS_SUCCESS) AIM_FREE(*ainame);
+    return status;
 }
 
+// extern "C" int
+// aimData(int iIndex, const char *name, enum capsvType *vtype, int *rank, int *nrow,
+//         int *ncol, void **data, char **units)
+// {
+
+//     /*! \page sharableDataPUMI AIM Shareable Data
+//      * The PUMI AIM has the following shareable data types/values with its children AIMs if they are so inclined.
+//      * - <B> Mesh</B> <br>
+//      * The mesh in meshStruct (see meshTypes.h) format.
+//      * - <B> PUMI_Mesh</B> <br>
+//      * The returned mesh after curving is complete in apf::Mesh2 (see <a href="https://www.scorec.rpi.edu/pumi/doxygen/apfMDS_8h.html">apfMDS.h</a>) format.
+//      * - <B> Attribute_Map</B> <br>
+//      * An index mapping between capsGroups found on the geometry in mapAttrToIndexStruct (see miscTypes.h) format.
+//      */
+
+// #ifdef DEBUG
+//     printf(" pumiAIM/aimData instance = %d  name = %s!\n", iIndex, name);
+// #endif
+
+//     // The mesh input
+//     if (strcasecmp(name, "Mesh") == 0){
+//         *vtype = Value;
+//         *rank  = *ncol = 1;
+//         *nrow = pumiInstance->numMesh;
+//         if (pumiInstance->numMesh == 1) {
+//             *data  = &pumiInstance->mesh[0];
+//         } else {
+//             *data  = pumiInstance->mesh;
+//         }
+
+//         *units = NULL;
+
+//         return CAPS_SUCCESS;
+//     }
+
+//     // The returned mesh from PUMI
+//     if (strcasecmp(name, "PUMI_Mesh") == 0){
+//         *vtype = Value;
+//         *rank  = *ncol = 1;
+//         *nrow = pumiInstance->numPUMIMesh;
+//         if (pumiInstance->numPUMIMesh == 1) {
+//             *data  = &(pumiInstance->pumiMesh[0]);
+//         } else {
+//             *data  = pumiInstance->pumiMesh;
+//         }
+
+//         *units = NULL;
+
+//         return CAPS_SUCCESS;
+//     }
+
+//     // Share the attribute map
+//     if (strcasecmp(name, "Attribute_Map") == 0){
+//         *vtype = Value;
+//         *rank  = *nrow = *ncol = 1;
+//         *data  = &pumiInstance->attrMap;
+//         *units = NULL;
+
+//         return CAPS_SUCCESS;
+//     }
+
+//     return CAPS_NOTFOUND;
+// }
+
 extern "C" int
-aimData(int iIndex, const char *name, enum capsvType *vtype, int *rank, int *nrow,
-        int *ncol, void **data, char **units)
+aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
 {
+    int status; // Return status
 
-    /*! \page sharableDataPUMI AIM Shareable Data
-     * The PUMI AIM has the following shareable data types/values with its children AIMs if they are so inclined.
-     * - <B> Mesh</B> <br>
-     * The mesh in meshStruct (see meshTypes.h) format.
-     * - <B> PUMI_Mesh</B> <br>
-     * The returned mesh after curving is complete in apf::Mesh2 (see <a href="https://www.scorec.rpi.edu/pumi/doxygen/apfMDS_8h.html">apfMDS.h</a>) format.
-     * - <B> Attribute_Map</B> <br>
-     * An index mapping between capsGroups found on the geometry in mapAttrToIndexStruct (see miscTypes.h) format.
-     */
-
-#ifdef DEBUG
-    printf(" pumiAIM/aimData instance = %d  name = %s!\n", iIndex, name);
-#endif
-
-    // The mesh input
-    if (strcasecmp(name, "Mesh") == 0){
-        *vtype = Value;
-        *rank  = *ncol = 1;
-        *nrow = pumiInstance[iIndex].numMesh;
-        if (pumiInstance[iIndex].numMesh == 1) {
-            *data  = &pumiInstance[iIndex].mesh[0];
-        } else {
-            *data  = pumiInstance[iIndex].mesh;
-        }
-
-        *units = NULL;
-
-        return CAPS_SUCCESS;
-    }
-
-    // The returned mesh from PUMI
-    if (strcasecmp(name, "PUMI_Mesh") == 0){
-        *vtype = Value;
-        *rank  = *ncol = 1;
-        *nrow = pumiInstance[iIndex].numPUMIMesh;
-        if (pumiInstance[iIndex].numPUMIMesh == 1) {
-            *data  = &(pumiInstance[iIndex].pumiMesh[0]);
-        } else {
-            *data  = pumiInstance[iIndex].pumiMesh;
-        }
-
-        *units = NULL;
-
-        return CAPS_SUCCESS;
-    }
-
-    // Share the attribute map
-    if (strcasecmp(name, "Attribute_Map") == 0){
-        *vtype = Value;
-        *rank  = *nrow = *ncol = 1;
-        *data  = &pumiInstance[iIndex].attrMap;
-        *units = NULL;
-
-        return CAPS_SUCCESS;
-    }
-
-    return CAPS_NOTFOUND;
-}
-
-extern "C" int
-// aimPreAnalysis( void *instStore, void *aimInfo, /*@null@*/ capsValue *inputs )
-aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValue *aimInputs,
-        capsErrs **errs)
-{
-    printf("pumi aim preanalysis!\n");
-    int status;
+    aimStorage *pumiInstance;
 
     // Incoming bodies
     const char *intents;
-    ego *bodies = NULL;
+    ego *bodies = nullptr;
     int numBody = 0;
+
     // Get AIM bodies
     status = aim_getBodies(aimInfo, &intents, &numBody, &bodies);
     if (status != CAPS_SUCCESS) return status;
 
 #ifdef DEBUG
-    printf(" pumiAIM/aimPreAnalysis instance = %d  numBody = %d!\n", iIndex,
-            numBody);
+    printf(" pumiAIM/aimPreAnalysis numBody = %d!\n", numBody);
 #endif
 
     if (1 != numBody) {
@@ -437,135 +460,122 @@ aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValue *a
         return CAPS_SOURCEERR;
     }
 
+    pumiInstance = (aimStorage *) instStore;
+
     // Cleanup previous aimStorage for the instance in case this is the second time through preAnalysis for the same instance
-    status = destroy_aimStorage(iIndex);
+    status = destroy_aimStorage(pumiInstance);
     if (status != CAPS_SUCCESS) {
-        if (status != CAPS_SUCCESS) printf("Status = %d, pumiAIM instance %d, aimStorage cleanup!!!\n", status, iIndex);
+        printf("Status = %d, pumiAIM aimStorage cleanup!!!\n", status);
         return status;
     }
 
-    // Data transfer related variables
-    int            nrow, ncol, rank;
-    void           *dataTransfer;
-    char           *units;
-    enum capsvType vtype;
     // Get capsGroup name and index mapping
-    status = aim_getData(aimInfo, "Attribute_Map", &vtype, &rank, &nrow, &ncol, &dataTransfer, &units);
-    if (status == CAPS_SUCCESS) {
-
-        printf("Found link for attrMap (Attribute_Map) from parent\n");
-
-        status = copy_mapAttrToIndexStruct( (mapAttrToIndexStruct *) dataTransfer, &pumiInstance[iIndex].attrMap);
-        if (status != CAPS_SUCCESS) return status;
-
-    } else {
-
-        if (status == CAPS_DIRTY) printf("Parent AIMS are dirty\n");
-        else printf("Linking status during attrMap (Attribute_Map) = %d\n",status);
-
-        printf("Didn't find a link to attrMap from parent - getting it ourselves\n");
-
-        // Get capsGroup name and index mapping
-        status = create_CAPSGroupAttrToIndexMap(numBody,
-                                                bodies,
-                                                2, // Only search down to the edge level of the EGADS body
-                                                &pumiInstance[iIndex].attrMap);
-        if (status != CAPS_SUCCESS) return status;
-    }
+    status = create_CAPSGroupAttrToIndexMap(numBody,
+                                            bodies,
+                                            2, // Only search down to the edge level of the EGADS body
+                                            &pumiInstance->attrMap);
+    if (status != CAPS_SUCCESS) return status;
 
     // Get mesh
-    status = aim_getData(aimInfo, "Surface_Mesh", &vtype, &rank, &nrow, &ncol, &dataTransfer, &units);
-    if (status == CAPS_SUCCESS) {
-
-        printf("Found link for a surface mesh (Surface_Mesh) from parent\n");
-
-        int numMesh = 0;
-        if      (nrow == 1 && ncol != 1) numMesh = ncol;
-        else if (nrow != 1 && ncol == 1) numMesh = nrow;
-        else if (nrow == 1 && ncol == 1) numMesh = nrow;
-        else {
-
-            printf("Can not except 2D matrix of surface meshes\n");
-            return  CAPS_BADVALUE;
-        }
-
-        if (numMesh != numBody) {
-            printf("Number of inherited surface meshes does not match the number of bodies\n");
-            return CAPS_SOURCEERR;
-        }
-        pumiInstance[iIndex].numMesh =  numMesh;
-        pumiInstance[iIndex].mesh = (meshStruct * ) dataTransfer;
-        pumiInstance[iIndex].meshInherited = (int) true;
-
-    } else {
-        status = aim_getData(aimInfo, "Volume_Mesh", &vtype, &rank, &nrow, &ncol, &dataTransfer, &units);
-        if (status == CAPS_SUCCESS) {
-
-            printf("Found link for a volume mesh (Volume_Mesh) from parent\n");
-
-            int numMesh = 0;
-            if      (nrow == 1 && ncol != 1) numMesh = ncol;
-            else if (nrow != 1 && ncol == 1) numMesh = nrow;
-            else if (nrow == 1 && ncol == 1) numMesh = nrow;
-            else {
-
-                printf("Can not except 2D matrix of surface meshes\n");
-                return  CAPS_BADVALUE;
-            }
-
-            if (numMesh != numBody) {
-                printf("Number of inherited surface meshes does not match the number of bodies\n");
-                return CAPS_SOURCEERR;
-            }
-            pumiInstance[iIndex].numMesh =  numMesh;
-            pumiInstance[iIndex].mesh = (meshStruct * ) dataTransfer;
-            pumiInstance[iIndex].meshInherited = (int) true;
-        } else {
-            return status;
-        }
+    pumiInstance->numMesh = aimInputs[Mesh-1].length;
+    pumiInstance->mesh = (meshStruct *)aimInputs[Mesh-1].vals.AIMptr;
+    pumiInstance->meshInherited = (int) true;
+    if (pumiInstance->mesh == NULL) {
+        status = CAPS_NULLVALUE;
+        return status;
     }
 
+    // status = aim_getData(aimInfo, "Surface_Mesh", &vtype, &rank, &nrow, &ncol, &dataTransfer, &units);
+    // if (status == CAPS_SUCCESS) {
+
+    //     printf("Found link for a surface mesh (Surface_Mesh) from parent\n");
+
+    //     int numMesh = 0;
+    //     if      (nrow == 1 && ncol != 1) numMesh = ncol;
+    //     else if (nrow != 1 && ncol == 1) numMesh = nrow;
+    //     else if (nrow == 1 && ncol == 1) numMesh = nrow;
+    //     else {
+
+    //         printf("Can not except 2D matrix of surface meshes\n");
+    //         return  CAPS_BADVALUE;
+    //     }
+
+    //     if (numMesh != numBody) {
+    //         printf("Number of inherited surface meshes does not match the number of bodies\n");
+    //         return CAPS_SOURCEERR;
+    //     }
+    //     pumiInstance->numMesh =  numMesh;
+    //     pumiInstance->mesh = (meshStruct * ) dataTransfer;
+    //     pumiInstance->meshInherited = (int) true;
+
+    // } else {
+    //     status = aim_getData(aimInfo, "Volume_Mesh", &vtype, &rank, &nrow, &ncol, &dataTransfer, &units);
+    //     if (status == CAPS_SUCCESS) {
+
+    //         printf("Found link for a volume mesh (Volume_Mesh) from parent\n");
+
+    //         int numMesh = 0;
+    //         if      (nrow == 1 && ncol != 1) numMesh = ncol;
+    //         else if (nrow != 1 && ncol == 1) numMesh = nrow;
+    //         else if (nrow == 1 && ncol == 1) numMesh = nrow;
+    //         else {
+
+    //             printf("Can not except 2D matrix of surface meshes\n");
+    //             return  CAPS_BADVALUE;
+    //         }
+
+    //         if (numMesh != numBody) {
+    //             printf("Number of inherited surface meshes does not match the number of bodies\n");
+    //             return CAPS_SOURCEERR;
+    //         }
+    //         pumiInstance->numMesh =  numMesh;
+    //         pumiInstance->mesh = (meshStruct * ) dataTransfer;
+    //         pumiInstance->meshInherited = (int) true;
+    //     } else {
+    //         return status;
+    //     }
+    // }
 
 
-    // if (0 != pumiInstance[iIndex].numMesh) {
+
+    // if (0 != pumiInstance->numMesh) {
     //     printf(" PUMI AIM currently only supports one mesh!!\n");
     //     /// TODO: better return?
     //     return EGADS_INDEXERR;
     // }
 
     // Mesh Format
-    pumiInstance[iIndex].meshInput.outputFormat = EG_strdup(aimInputs[aim_getIndex(aimInfo, "Mesh_Format", ANALYSISIN)-1].vals.string);
-    if (pumiInstance[iIndex].meshInput.outputFormat == NULL) return EGADS_MALLOC;
+    pumiInstance->meshInput.outputFormat = EG_strdup(aimInputs[Mesh_Format-1].vals.string);
+    if (pumiInstance->meshInput.outputFormat == NULL) return EGADS_MALLOC;
 
     // Project Name
-    if (aimInputs[aim_getIndex(aimInfo, "Proj_Name", ANALYSISIN)-1].nullVal != IsNull) {
+    if (aimInputs[Proj_Name-1].nullVal != IsNull) {
 
-        pumiInstance[iIndex].meshInput.outputFileName = EG_strdup(aimInputs[aim_getIndex(aimInfo, "Proj_Name", ANALYSISIN)-1].vals.string);
-        if (pumiInstance[iIndex].meshInput.outputFileName == NULL) return EGADS_MALLOC;
+        pumiInstance->meshInput.outputFileName = EG_strdup(aimInputs[Proj_Name-1].vals.string);
+        if (pumiInstance->meshInput.outputFileName == NULL) return EGADS_MALLOC;
     }
 
-    // Output directory
-    pumiInstance[iIndex].meshInput.outputDirectory = EG_strdup(analysisPath);
-    if (pumiInstance[iIndex].meshInput.outputDirectory == NULL) return EGADS_MALLOC;
+    // // Output directory
+    // pumiInstance->meshInput.outputDirectory = EG_strdup(analysisPath);
+    // if (pumiInstance->meshInput.outputDirectory == NULL) return EGADS_MALLOC;
 
     // Set PUMI specific mesh inputs -1 because aim_getIndex is 1 bias
-    if (aimInputs[aim_getIndex(aimInfo, "Mesh_Order", ANALYSISIN)-1].nullVal != IsNull) {
-        pumiInstance[iIndex].meshInput.pumiInput.elementOrder = aimInputs[aim_getIndex(aimInfo, "Mesh_Order", ANALYSISIN)-1].vals.integer;
+    if (aimInputs[Mesh_Order-1].nullVal != IsNull) {
+        pumiInstance->meshInput.pumiInput.elementOrder = aimInputs[Mesh_Order-1].vals.integer;
     }
     printf("got inputs\n");
 
     // useful shorthands
-    meshStruct *mesh = pumiInstance[iIndex].mesh;
-    // meshStruct drMesh = mesh[0] // this is null (segfaults);
+    meshStruct *mesh = pumiInstance->mesh;
     printf("got mesh ptr\n");
-    apf::Mesh2 *pumiMesh = pumiInstance[iIndex].pumiMesh;
+    apf::Mesh2 *pumiMesh = pumiInstance->pumiMesh;
     printf("got pumi mesh ptr\n");
     
     ego tess;
     if (mesh->meshType == SurfaceMesh)
-        tess = pumiInstance[iIndex].mesh[0].bodyTessMap.egadsTess;
+        tess = pumiInstance->mesh[0].bodyTessMap.egadsTess;
     else if (mesh->meshType == VolumeMesh)
-        tess = pumiInstance[iIndex].mesh[0].referenceMesh[0].bodyTessMap.egadsTess;
+        tess = pumiInstance->mesh[0].referenceMesh[0].bodyTessMap.egadsTess;
     else {
         printf(" Unknown mesh dimension, error!\n");
         return EGADS_WRITERR;
@@ -888,28 +898,20 @@ aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValue *a
 
     pumiMesh->verify();
 
-    int elementOrder = pumiInstance[iIndex].meshInput.pumiInput.elementOrder;
+    int elementOrder = pumiInstance->meshInput.pumiInput.elementOrder;
     if (elementOrder > 1) {
         crv::BezierCurver bc(pumiMesh, elementOrder, 2);
         bc.run();
     }
 
-    if (pumiInstance[iIndex].meshInput.outputFileName != NULL) {
+    if (pumiInstance->meshInput.outputFileName != NULL) {
 
-        char *filename = (char *) EG_alloc((strlen(pumiInstance[iIndex].meshInput.outputFileName) +
-                                            strlen(pumiInstance[iIndex].meshInput.outputDirectory)+2)*sizeof(char));
-        
-        strcpy(filename, pumiInstance[iIndex].meshInput.outputDirectory);
+        char *filename = (char *) EG_alloc((strlen(pumiInstance->meshInput.outputFileName)+2)*sizeof(char));
+        if (filename == NULL) return EGADS_MALLOC;
 
-        // I'm pretty sure PUMI doesn't work on Windows
-        #ifdef WIN32
-            strcat(filename, "\\");
-        #else
-            strcat(filename, "/");
-        #endif
-        strcat(filename, pumiInstance[iIndex].meshInput.outputFileName);
+        strcpy(filename, pumiInstance->meshInput.outputFileName);
 
-        if (strcasecmp(pumiInstance[iIndex].meshInput.outputFormat, "PUMI") == 0) {
+        if (strcasecmp(pumiInstance->meshInput.outputFormat, "PUMI") == 0) {
             /// write .smb mesh file
             std::string smb_filename(filename);
             smb_filename += ".smb";
@@ -1066,7 +1068,7 @@ aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValue *a
             adj_file.close();
 
 
-        } else if (strcasecmp(pumiInstance[iIndex].meshInput.outputFormat, "VTK") == 0) {
+        } else if (strcasecmp(pumiInstance->meshInput.outputFormat, "VTK") == 0) {
             if (elementOrder > 1) {
                 if (mesh->meshType == VolumeMesh)
                     crv::writeCurvedVtuFiles(pumiMesh, apf::Mesh::TET, 10, filename);
@@ -1085,113 +1087,125 @@ aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValue *a
 }
 
 extern "C" int
-// aimOutputs( /*@null@*/ void *instStore, void *aimInfo, int index, char **aoname,
-//             capsValue *form )
-aimOutputs(/*@unused@*/ int iIndex, void *aimInfo,  int index, char **aoname, capsValue *form)
+aimOutputs(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo, int index,
+           char **aoname, capsValue *form)
 {
     /*! \page aimOutputsPUMI AIM Outputs
      * The following list outlines the PUMI AIM outputs available through the AIM interface.
      *
      * - <B>Done</B> = True if a PUMI mesh(es) was created, False if not.
      */
+    int status = CAPS_SUCCESS;
 
 #ifdef DEBUG
-    printf(" pumiAIM/aimOutputs instance = %d  index = %d!\n", iIndex, index);
+    printf(" pumiAIM/aimOutputs index = %d!\n", index);
 #endif
 
-    *aoname = EG_strdup("Done");
-    form->type = Boolean;
-    form->vals.integer = (int) false;
+    if (index == Done) {
 
-    return CAPS_SUCCESS;
+        *aoname = EG_strdup("Done");
+        form->type = Boolean;
+        form->vals.integer = (int) false;
+
+    } else {
+        status = CAPS_BADINDEX;
+        AIM_STATUS(aimInfo, status, "Unknown output index %d!", index);
+    }
+
+cleanup:
+    if (status != CAPS_SUCCESS) AIM_FREE(*aoname);
+    return status;
 }
 
 extern "C" int
-// aimCalcOutput( void *instStore, void *aimInfo, int index, capsValue *val )
-aimCalcOutput(int iIndex, void *aimInfo, const char *analysisPath, int index, capsValue *val,
-        capsErrs **errors)
+aimCalcOutput(void *instStore, void *aimInfo, int index, capsValue *val)
 {
+    int status = CAPS_SUCCESS;
+    aimStorage *pumiInstance;
 
 #ifdef DEBUG
-    printf(" pumiAIM/aimCalcOutput instance = %d  index = %d!\n", iIndex, index);
+    printf(" pumiAIM/aimCalcOutput index = %d!\n", index);
 #endif
+    pumiInstance = (aimStorage *) instStore;
 
-    *errors           = NULL;
-    val->vals.integer = (int) false;
+    if (Done == index) {
+        val->vals.integer = (int) false;
 
-    // Check to see if a PUMI mesh was generated - maybe a file was written, maybe not
-    for (int i = 0; i < pumiInstance[iIndex].numPUMIMesh; i++) {
-        // Check to see if the mesh was generated with the same number of entities
-        if (pumiInstance[iIndex].pumiMesh[i].count(3) == pumiInstance[iIndex].mesh->meshQuickRef.numTetrahedral)
-            if (pumiInstance[iIndex].pumiMesh[i].count(2) == pumiInstance[iIndex].mesh->meshQuickRef.numTriangle)
-                if (pumiInstance[iIndex].pumiMesh[i].count(1) == pumiInstance[iIndex].mesh->meshQuickRef.numLine)
-                    if (pumiInstance[iIndex].pumiMesh[i].count(0) == pumiInstance[iIndex].mesh->meshQuickRef.numNode) {
-                        val->vals.integer = (int) true;
-                    }
+        // Check to see if a PUMI mesh was generated - maybe a file was written, maybe not
+        for (int i = 0; i < pumiInstance->numPUMIMesh; i++) {
+            // Check to see if the mesh was generated with the same number of entities
+            if (pumiInstance->pumiMesh[i].count(3) == pumiInstance->mesh->meshQuickRef.numTetrahedral)
+                if (pumiInstance->pumiMesh[i].count(2) == pumiInstance->mesh->meshQuickRef.numTriangle)
+                    if (pumiInstance->pumiMesh[i].count(1) == pumiInstance->mesh->meshQuickRef.numLine)
+                        if (pumiInstance->pumiMesh[i].count(0) == pumiInstance->mesh->meshQuickRef.numNode) {
+                            val->vals.integer = (int) true;
+                        }
+                        else {
+                            val->vals.integer = (int) false;
+                            if (pumiInstance->numPUMIMesh > 1) {
+                                printf("Inconsistent vertex elements were constructed for PUMI mesh %d\n", i+1);
+                            } else {
+                                printf("Inconsistent vertex elements were constructed for PUMI mesh\n");
+                            }
+                            return CAPS_SUCCESS;
+                        }
                     else {
                         val->vals.integer = (int) false;
-                        if (pumiInstance[iIndex].numPUMIMesh > 1) {
-                            printf("Inconsistent vertex elements were constructed for PUMI mesh %d\n", i+1);
+                        if (pumiInstance->numPUMIMesh > 1) {
+                            printf("Inconsistent edge elements were constructed for PUMI mesh %d\n", i+1);
                         } else {
-                            printf("Inconsistent vertex elements were constructed for PUMI mesh\n");
+                            printf("Inconsistent edge elements were constructed for PUMI mesh\n");
                         }
                         return CAPS_SUCCESS;
                     }
                 else {
                     val->vals.integer = (int) false;
-                    if (pumiInstance[iIndex].numPUMIMesh > 1) {
-                        printf("Inconsistent edge elements were constructed for PUMI mesh %d\n", i+1);
+                    if (pumiInstance->numPUMIMesh > 1) {
+                        printf("Inconsistent triangle elements were constructed for PUMI mesh %d\n", i+1);
                     } else {
-                        printf("Inconsistent edge elements were constructed for PUMI mesh\n");
+                        printf("Inconsistent triangle elements were constructed for PUMI mesh\n");
                     }
                     return CAPS_SUCCESS;
                 }
             else {
                 val->vals.integer = (int) false;
-                if (pumiInstance[iIndex].numPUMIMesh > 1) {
-                    printf("Inconsistent triangle elements were constructed for PUMI mesh %d\n", i+1);
+                if (pumiInstance->numPUMIMesh > 1) {
+                    printf("Inconsistent tet elements were constructed for PUMI mesh %d\n", i+1);
                 } else {
-                    printf("Inconsistent triangle elements were constructed for PUMI mesh\n");
+                    printf("Inconsistent tet elements were constructed for PUMI mesh\n");
                 }
                 return CAPS_SUCCESS;
             }
-        else {
-            val->vals.integer = (int) false;
-            if (pumiInstance[iIndex].numPUMIMesh > 1) {
-                printf("Inconsistent tet elements were constructed for PUMI mesh %d\n", i+1);
-            } else {
-                printf("Inconsistent tet elements were constructed for PUMI mesh\n");
-            }
-            return CAPS_SUCCESS;
         }
+    } else {
+
+        status = CAPS_BADINDEX;
+        AIM_STATUS(aimInfo, status, "Unknown output index %d!", index);
+
     }
 
-    return CAPS_SUCCESS;
+cleanup:
+
+    return status;
 }
 
 extern "C" void
-// aimCleanup( void *instStore )
-aimCleanup()
+aimCleanup( void *instStore )
 {
-    int iIndex; //Indexing
-
     int status; // Function return status
-
+    aimStorage *pumiInstance;
 #ifdef DEBUG
     printf(" pumiAIM/aimCleanup!\n");
 #endif
+    pumiInstance = (aimStorage *) instStore;
 
     // Clean up pumiInstance data
-    for ( iIndex = 0; iIndex < numInstance; iIndex++) {
-        printf(" Cleaning up pumiInstance - %d\n", iIndex);
-
-        status = destroy_aimStorage(iIndex);
-        if (status != CAPS_SUCCESS) printf("Status = %d, pumiAIM instance %d, aimStorage cleanup!!!\n", status, iIndex);
-    }
+    status = destroy_aimStorage(pumiInstance);
+    if (status != CAPS_SUCCESS)
+        printf("Status = %d, pumiAIM aimStorage cleanup!!!\n", status);
 
     if (pumiInstance != NULL) EG_free(pumiInstance);
     pumiInstance = NULL;
-    numInstance = 0;
 
     int mpi_flag;
     MPI_Finalized(&mpi_flag);
@@ -1200,139 +1214,3 @@ aimCleanup()
         MPI_Finalize();
     }
 }
-
-/************************************************************************/
-
-/// below copied from Tetgen AIM
-/*
- * since this AIM does not support field variables or CAPS bounds, the
- * following functions are not required to be filled in except for aimDiscr
- * which just stores away our bodies and aimFreeDiscr that does some cleanup
- * when CAPS terminates
- */
-
-extern "C" int
-aimFreeDiscr(capsDiscr *discr)
-{
-#ifdef DEBUG
-    printf(" pumiAIM/aimFreeDiscr instance = %d!\n", discr->instance);
-#endif
-
-    return CAPS_SUCCESS;
-}
-
-extern "C" int
-aimDiscr(char *transferName, capsDiscr *discr)
-{
-    int stat, inst;
-
-    inst = discr->instance;
-
-#ifdef DEBUG
-    printf(" pumiAIM/aimDiscr: transferName = %s, instance = %d!\n", transferName, inst);
-#endif
-
-    if ((inst < 0) || (inst >= numInstance)) return CAPS_BADINDEX;
-
-    stat = aimFreeDiscr(discr);
-    if (stat != CAPS_SUCCESS) return stat;
-
-    return CAPS_SUCCESS;
-}
-
-
-extern "C" int
-// aimLocateElement( capsDiscr *discr, double *params, double *param,
-//                   int *bIndex, int *eIndex, double *bary )
-aimLocateElement(/*@unused@*/ capsDiscr *discr, /*@unused@*/ double *params,
-        /*@unused@*/ double *param,    /*@unused@*/ int *eIndex,
-        /*@unused@*/ double *bary)
-{
-#ifdef DEBUG
-    printf(" pumiAIM/aimLocateElement instance = %d!\n", discr->instance);
-#endif
-
-    return CAPS_SUCCESS;
-}
-
-extern "C" int
-aimTransfer(/*@unused@*/ capsDiscr *discr, /*@unused@*/ const char *name,
-        /*@unused@*/ int npts, /*@unused@*/ int rank,
-        /*@unused@*/ double *data, /*@unused@*/ char **units)
-{
-#ifdef DEBUG
-    printf(" pumiAIM/aimTransfer name = %s  instance = %d  npts = %d/%d!\n",
-            name, discr->instance, npts, rank);
-#endif
-
-    return CAPS_SUCCESS;
-}
-
-extern "C" int
-// aimInterpolation( capsDiscr *discr, const char *name, int bIndex, int eIndex,
-//                   double *bary, int rank, double *data, double *result )
-aimInterpolation(/*@unused@*/ capsDiscr *discr, /*@unused@*/ const char *name,
-        /*@unused@*/ int eIndex, /*@unused@*/ double *bary,
-        /*@unused@*/ int rank, /*@unused@*/ double *data,
-        /*@unused@*/ double *result)
-{
-#ifdef DEBUG
-    printf(" pumiAIM/aimInterpolation  %s  instance = %d!\n",
-            name, discr->instance);
-#endif
-
-    return CAPS_SUCCESS;
-}
-
-
-extern "C" int
-// aimInterpolateBar( capsDiscr *discr, const char *name, int bIndex, int eIndex,
-                  //  double *bary, int rank, double *r_bar, double *d_bar )
-aimInterpolateBar(/*@unused@*/ capsDiscr *discr, /*@unused@*/ const char *name,
-        /*@unused@*/ int eIndex, /*@unused@*/ double *bary,
-        /*@unused@*/ int rank, /*@unused@*/ double *r_bar,
-        /*@unused@*/ double *d_bar)
-{
-#ifdef DEBUG
-    printf(" pumiAIM/aimInterpolateBar  %s  instance = %d!\n",
-            name, discr->instance);
-#endif
-
-    return CAPS_SUCCESS;
-}
-
-
-extern "C" int
-// aimIntegration( capsDiscr *discr, const char *name, int bIndex, int eIndex,
-//                int rank, double *data, double *result )
-aimIntegration(/*@unused@*/ capsDiscr *discr, /*@unused@*/ const char *name,
-        /*@unused@*/ int eIndex, /*@unused@*/ int rank,
-        /*@unused@*/ /*@null@*/ double *data, /*@unused@*/ double *result)
-{
-#ifdef DEBUG
-    printf(" pumiAIM/aimIntegration  %s  instance = %d!\n",
-            name, discr->instance);
-#endif
-
-    return CAPS_SUCCESS;
-}
-
-
-extern "C" int
-// aimIntegrateBar( capsDiscr *discr, const char *name, int bIndex, int eIndex,
-//                  int rank, double *r_bar, double *d_bar )
-aimIntegrateBar(/*@unused@*/ capsDiscr *discr, /*@unused@*/ const char *name,
-        /*@unused@*/ int eIndex, /*@unused@*/ int rank,
-        /*@unused@*/ double *r_bar, /*@unused@*/ double *d_bar)
-{
-#ifdef DEBUG
-    printf(" pumiAIM/aimIntegrateBar  %s  instance = %d!\n",
-            name, discr->instance);
-#endif
-
-    return CAPS_SUCCESS;
-}
-
-// extern "C" int
-// aimBackdoor( void *instStore, void *aimInfo, const char *JSONin,
-//              char **JSONout )
