@@ -40,67 +40,60 @@
 #include "vlmUtils.h"
 
 #ifdef WIN32
-#define getcwd     _getcwd
 #define snprintf   _snprintf
 #define strcasecmp stricmp
-#define PATH_MAX   _MAX_PATH
-#else
-#include <unistd.h>
-#include <limits.h>
 #endif
-
-#define NUMINPUT   3
-
-#define NUMOUTPUT  5
 
 #define MXCHAR  255
 
-//typedef struct {
-//
-//	// Flag to see if we need to get a CFD mesh
-//	int data;
-//
-//} aimStorage;
 
-//static aimStorage *tsfoilInstance = NULL;
-static int         numInstance  = 0;
+enum aimInputs
+{
+  inMach = 1,                  /* index is 1-based */
+  inRe,
+  inAlpha,
+  NUMINPUT = inAlpha           /* Total number of inputs */
+};
 
+enum aimOutputs
+{
+  outCL = 1,                   /* index is 1-based */
+  outCD,
+  outCD_Wave,
+  outCM,
+  outCp_Critical,
+  NUMOUTPUT = outCp_Critical   /* Total number of outputs */
+};
 
 
 /* ********************** Exposed AIM Functions ***************************** */
-int aimInitialize(/*@unused@*/ int ngIn, /*@unused@*/ /*@null@*/ capsValue *gIn,
-                  int *qeFlag, /*@null@*/ const char *unitSys,
-                  int *nIn, int *nOut, int *nFields, char ***fnames, int **ranks)
+int aimInitialize(int inst, /*@unused@*/ /*@null@*/ const char *unitSys,
+                  /*@unused@*/ void **aimStore, /*@unused@*/ int *major,
+                  /*@unused@*/ int *minor, int *nIn, int *nOut, int *nFields,
+                  char ***fnames, int **ranks)
 {
 
-    int flag;
-
 #ifdef DEBUG
-    printf("\n tsfoilAIM/aimInitialize   ngIn = %d!\n", ngIn);
+    printf("\n tsfoilAIM/aimInitialize   inst = %d!\n", inst);
 #endif
-
-    flag     = *qeFlag;
-    *qeFlag  = 0;
 
     // Specify the number of analysis input and out "parameters"
     *nIn     = NUMINPUT;
     *nOut    = NUMOUTPUT;
 
-    if (flag == 1) return CAPS_SUCCESS;
+    if (inst == -1) return CAPS_SUCCESS;
 
     /* specify the field variables this analysis can generate */
     *nFields = 0;
     *ranks   = NULL;
     *fnames  = NULL;
 
-    // Increment number of instances
-    numInstance += 1;
-
-    return (numInstance -1);
+    return CAPS_SUCCESS;
 }
 
 
-int aimInputs( int iIndex, void *aimInfo, int index, char **ainame, capsValue *defval)
+int aimInputs(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
+              int index, char **ainame, capsValue *defval)
 {
     /*! \page aimInputsTSFOIL AIM Inputs
      * The following list outlines the TSFOIL inputs along with their default values available
@@ -108,10 +101,10 @@ int aimInputs( int iIndex, void *aimInfo, int index, char **ainame, capsValue *d
      */
 
 #ifdef DEBUG
-    printf(" tsfoilAIM/aimInputs instance = %d  index = %d!\n", iIndex, index);
+    printf(" tsfoilAIM/aimInputs  index = %d!\n", index);
 #endif
 
-    if (index == 1) {
+    if (index == inMach) {
         *ainame           = EG_strdup("Mach");
         defval->type      = Double;
         defval->vals.real = 0.75;
@@ -124,7 +117,7 @@ int aimInputs( int iIndex, void *aimInfo, int index, char **ainame, capsValue *d
          *  Mach number. Valid range for TSFOIL is 0.5 to 2.0 .
          */
 
-    } else if (index == 2) {
+    } else if (index == inRe) {
         *ainame              = EG_strdup("Re");
         defval->type      = Double;
         defval->vals.real = 0.0;
@@ -134,7 +127,7 @@ int aimInputs( int iIndex, void *aimInfo, int index, char **ainame, capsValue *d
          * - <B> Re = 0.0 </B> <br>
          *  Reynolds number based on chord length.
          */
-    } else if (index == 3) {
+    } else if (index == inAlpha) {
         *ainame           = EG_strdup("Alpha");
         defval->type      = Double;
         defval->lfixed    = Fixed;
@@ -151,7 +144,8 @@ int aimInputs( int iIndex, void *aimInfo, int index, char **ainame, capsValue *d
 }
 
 
-int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValue *aimInputs, capsErrs **errs)
+int aimPreAnalysis(/*@unused@*/ void *instStore, void *aimInfo,
+                   capsValue *aimInputs)
 {
     int status; // Function return status
 
@@ -191,16 +185,10 @@ int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValu
     char outputFilename[] = "tsfoilOutput.txt";
     char tsfoilFilename[] = "caps.tsfoil";
 
-    char currentPath[PATH_MAX];
-
-    // NULL out errs
-    *errs = NULL;
-
     if (aimInputs == NULL) {
 #ifdef DEBUG
         printf("\ttsfoilAIM/aimPreAnalysis aimInputs == NULL!\n");
 #endif
-
         return CAPS_NULLVALUE;
     }
 
@@ -234,16 +222,17 @@ int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValu
         status = EG_getBodyTopos(bodies[bodyIndex], NULL, EDGE, &numEdge, &edges);
         if (status != EGADS_SUCCESS) goto cleanup;
 
-        if (numEdge != 2) {
+        if ((numEdge != 2) || (edges == NULL)) {
             if (edges != NULL) EG_free(edges);
             edges = NULL;
-            printf("\tError: The airfoil cross-section (of body %d) should consist of two edges!\n", bodyIndex+1);
+            printf("\tError: The airfoil cross-section (of body %d) should consist of two edges!\n",
+                   bodyIndex+1);
             goto cleanup;
         }
 
         for (i = 0; i < numEdge; i++) {
-            status = EG_attributeAdd(edges[i],
-                    ".rPos", ATTRREAL, numEdgePoint-2, NULL, rPos, NULL);
+            status = EG_attributeAdd(edges[i], ".rPos", ATTRREAL,
+                                     numEdgePoint-2, NULL, rPos, NULL);
         }
 
         if (edges != NULL) EG_free(edges);
@@ -252,16 +241,8 @@ int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValu
         if (status != EGADS_SUCCESS) goto cleanup;
     }
 
-    // Get where we are and set the path to our input
-    (void) getcwd(currentPath, PATH_MAX);
-    if (chdir(analysisPath) != 0) {
-        status = CAPS_DIRERR;
-        goto cleanup;
-    }
-
     // Open and write the input to control the TSFOIL session
     fp = fopen(tsfoilFilename, "w");
-    chdir(currentPath);
     if (fp == NULL) {
         printf("\tUnable to open file %s\n!", tsfoilFilename);
         status = CAPS_IOERR;
@@ -271,11 +252,11 @@ int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValu
     fprintf(fp,"CAPS generated TSFOIL input\n");
     fprintf(fp,"$INP\n"); // Start input namelist
 
-    fprintf(fp, "EMACH=%f\n", aimInputs[aim_getIndex(aimInfo, "Mach", ANALYSISIN)-1].vals.real);
+    fprintf(fp, "EMACH=%f\n", aimInputs[inMach-1].vals.real);
 
     fprintf(fp, "DELTA=0.115\n");
 
-    fprintf(fp, "ALPHA=%f\n", aimInputs[aim_getIndex(aimInfo, "Alpha", ANALYSISIN)-1].vals.real);
+    fprintf(fp, "ALPHA=%f\n", aimInputs[inAlpha-1].vals.real);
 
     fprintf(fp, "GAM=1.4\n");
 
@@ -289,8 +270,8 @@ int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValu
     fprintf(fp, "BCFOIL=4\n");
     fprintf(fp, "MAXIT=800\n");
 
-    if (aimInputs[aim_getIndex(aimInfo, "Re", ANALYSISIN)-1].vals.real > 0) {
-        fprintf(fp, "REYNLD=%e\n", aimInputs[aim_getIndex(aimInfo, "Re", ANALYSISIN)-1].vals.real);
+    if (aimInputs[inRe-1].vals.real > 0) {
+        fprintf(fp, "REYNLD=%e\n", aimInputs[inRe-1].vals.real);
     }
 
     fprintf(fp, "$END\n"); // End input namelist
@@ -310,7 +291,8 @@ int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValu
         swapZY = (int) false;
 
         fprintf(fp,"capsBody_%d\n",bodyIndex+1);
-        fprintf(fp,"%10.5f%10.5f%10.5f\n", 0.0, (float) numEdgePoint, (float) numEdgePoint);
+        fprintf(fp,"%10.5f%10.5f%10.5f\n", 0.0, (float) numEdgePoint,
+                (float) numEdgePoint);
 
         // Check for x-y plane data
         status = EG_getBoundingBox(bodies[bodyIndex], box);
@@ -328,7 +310,8 @@ int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValu
         //for (i = 0; i < 6; i++) printf("Box[%d] = %f\n", i, box[i]);
 
         if (zMeshConstant != (int) true) {
-            printf("TSFOIL expects airfoil cross sections to be in the x-y plane... attempting to rotate body %d!\n", bodyIndex);
+            printf("TSFOIL expects airfoil cross sections to be in the x-y plane... attempting to rotate body %d!\n",
+                   bodyIndex);
 
             if (xMeshConstant == (int) true && yMeshConstant == (int) false) {
                 printf("\tSwapping z and x coordinates!\n");
@@ -365,8 +348,9 @@ int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValu
         status = EG_getBodyTopos(bodies[bodyIndex], NULL, LOOP, &numLoop, &loops);
         if (status != EGADS_SUCCESS) goto cleanup;
 
-        if (numLoop != 1) {
-            printf("\tError: The number of loops on body %d is more than 1!\n", bodyIndex+1);
+        if ((numLoop != 1) || (loops == NULL)) {
+            printf("\tError: The number of loops on body %d is more than 1!\n",
+                   bodyIndex+1);
             goto cleanup;
         }
 
@@ -380,8 +364,9 @@ int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValu
                 goto cleanup;
             }
 
-            if (numEdge != 2) {
-                printf("\tError: The airfoil cross-section (of body %d) should consist of two edges!\n", bodyIndex+1);
+            if ((numEdge != 2) || (edges == NULL)) {
+                printf("\tError: The airfoil cross-section (of body %d) should consist of two edges!\n",
+                       bodyIndex+1);
                 goto cleanup;
             }
 
@@ -401,7 +386,7 @@ int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValu
                 // Get the edge tessellation
                 //printf("EdgeBodyIndex = %d %d\n", i, edgeSense[edgeIndex]);
                 status = EG_getTessEdge(egadsTess, i, &numPoints, &points, &uv);
-                if (status != EGADS_SUCCESS) {
+                if ((status != EGADS_SUCCESS) || (points == NULL)) {
                     printf("\tEG_getTessEdge status = %d\n",status);
                     goto cleanup;
                 }
@@ -458,19 +443,11 @@ int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValu
 
     } // End body loop
 
-    // Get where we are and set the path to our input
-    (void) getcwd(currentPath, PATH_MAX);
-    if (chdir(analysisPath) != 0) {
-        status = CAPS_DIRERR;
-        goto cleanup;
-    }
-
     // Open and write the input to control the TSFOIL session
     fp = fopen(inputFilename, "w");
     if (fp == NULL) {
         printf("Unable to open file %s\n!", inputFilename);
         status = CAPS_IOERR;
-        chdir(currentPath);
         goto cleanup;
     }
 
@@ -484,13 +461,13 @@ int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValu
 
     fclose(fp);
     fp = NULL;
-    chdir(currentPath);
 
     status = CAPS_SUCCESS;
     goto cleanup;
 
     cleanup:
-        if (status != CAPS_SUCCESS) printf("tsfoil/preAnalysis status = %d", status);
+        if (status != CAPS_SUCCESS)
+            printf("tsfoil/preAnalysis status = %d", status);
         if (fp != NULL) fclose(fp);
 
         if (loops != NULL) EG_free(loops);
@@ -499,7 +476,8 @@ int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValu
 }
 
 
-int aimOutputs(int iIndex, void *aimStruc, int index, char **aoname, capsValue *form)
+int aimOutputs(/*@unused@*/ void *instStore, /*@unused@*/ void *aimStruc,
+               int index, char **aoname, capsValue *form)
 {
 
     /*! \page aimOutputsTSFOIL AIM Outputs
@@ -507,39 +485,39 @@ int aimOutputs(int iIndex, void *aimStruc, int index, char **aoname, capsValue *
      */
 
 #ifdef DEBUG
-    printf(" tsfoilAIM/aimOutputs instance = %d  index = %d!\n", iIndex, index);
+    printf(" tsfoilAIM/aimOutputs  index = %d!\n", index);
 #endif
 
 
-    if (index == 1) {
+    if (index == outCL) {
         *aoname = EG_strdup("CL");
 
         /*! \page aimOutputsTSFOIL
          * - <B> CL = </B> Coefficient of lift value.
          */
 
-    } else if (index == 2) {
+    } else if (index == outCD) {
         *aoname = EG_strdup("CD");
 
         /*! \page aimOutputsTSFOIL
          * - <B> CD = </B> Coefficient of drag value. (Calculated from momentum integral)
          */
 
-    } else if (index == 3) {
+    } else if (index == outCD_Wave) {
         *aoname = EG_strdup("CD_Wave");
 
         /*! \page aimOutputsTSFOIL
          * - <B> CD_Wave = </B> Wave drag coefficient value.
          */
 
-    }  else if (index == 4) {
+    }  else if (index == outCM) {
         *aoname = EG_strdup("CM");
 
         /*! \page aimOutputsTSFOIL
          * - <B> CM = </B> Moment coefficient value.
          */
 
-    } else if (index == 5) {
+    } else if (index == outCp_Critical) {
         *aoname = EG_strdup("Cp_Critical");
 
         /*! \page aimOutputsTSFOIL
@@ -562,34 +540,29 @@ int aimOutputs(int iIndex, void *aimStruc, int index, char **aoname, capsValue *
 }
 
 
-int aimCalcOutput(int iIndex, void *aimInfo, const char *analysisPath, int index, capsValue *val, capsErrs **errors)
+/* no longer optional and needed for restart */
+int aimPostAnalysis(/*@unused@*/ void *instStore, /*@unused@*/ void *aimStruc,
+                    /*@unused@*/ int restart, /*@unused@*/ capsValue *inputs)
+{
+  return CAPS_SUCCESS;
+}
+
+
+int aimCalcOutput(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
+                  int index, capsValue *val)
 {
     int status; // Function return status
 
     size_t     linecap = 0;
-    char       currentPath[PATH_MAX], *line = NULL;
+    char       *line = NULL;
     FILE       *fp;
 
     //char beginData[] = "                     FINAL MESH";
 
     char *valstr = NULL;
 
-    *errors        = NULL;
-
-    // Get where we are and set the path to our output
-    (void) getcwd(currentPath, PATH_MAX);
-    if (chdir(analysisPath) != 0) {
-
-#ifdef DEBUG
-        printf(" tsfoilAIM/aimCalcOutput Cannot chdir to %s!\n", analysisPath);
-#endif
-
-        return CAPS_DIRERR;
-    }
-
     // open the TSFOIL output file
     fp = fopen("tsfoilOutput.txt", "r");
-    chdir(currentPath);
     if (fp == NULL) return CAPS_DIRERR;
 
     status = CAPS_NOTFOUND;
@@ -597,10 +570,12 @@ int aimCalcOutput(int iIndex, void *aimInfo, const char *analysisPath, int index
 
         valstr = NULL;
 
-        if (index == aim_getIndex(aimInfo, "CL", ANALYSISOUT) ||
-            index == aim_getIndex(aimInfo, "CM", ANALYSISOUT) ||
-            index == aim_getIndex(aimInfo, "Cp_Critical", ANALYSISOUT)) {
+        if (index == outCL || index == outCM || index == outCp_Critical) {
 
+            if (line == NULL) {
+                status = CAPS_NOTFOUND;
+                goto cleanup;
+            }
             valstr = strstr(line, "FINAL MESH"); // Look for final mesh values
             if (valstr != NULL) {
 
@@ -611,7 +586,7 @@ int aimCalcOutput(int iIndex, void *aimInfo, const char *analysisPath, int index
                 }
 
 
-                if (index == aim_getIndex(aimInfo, "CL", ANALYSISOUT)) { // Get CL variable
+                if (index == outCL) { // Get CL variable
 
                     valstr = strstr(line, "CL =");
 
@@ -626,7 +601,7 @@ int aimCalcOutput(int iIndex, void *aimInfo, const char *analysisPath, int index
                     goto cleanup;
                 }
 
-                if (index == aim_getIndex(aimInfo, "CM", ANALYSISOUT)) { // Get CM variable
+                if (index == outCM) { // Get CM variable
 
                     valstr = strstr(line, "CM =");
 
@@ -641,7 +616,7 @@ int aimCalcOutput(int iIndex, void *aimInfo, const char *analysisPath, int index
                     goto cleanup;
                 }
 
-                if (index == aim_getIndex(aimInfo, "Cp_Critical", ANALYSISOUT)) { // Get Cp critical
+                if (index == outCp_Critical) { // Get Cp critical
 
                     valstr = strstr(line, "CP* =");
                     sscanf(&valstr[5], "%lf", &val->vals.real);
@@ -652,7 +627,11 @@ int aimCalcOutput(int iIndex, void *aimInfo, const char *analysisPath, int index
             }
         }
 
-        if (index == aim_getIndex(aimInfo, "CD_Wave", ANALYSISOUT)) { // Get wave drag
+        if (index == outCD_Wave) { // Get wave drag
+            if (line == NULL) {
+                status = CAPS_NOTFOUND;
+                goto cleanup;
+            }
             valstr = strstr(line, "TOTAL CDWAVE =");
 
             if (valstr != NULL) {
@@ -662,7 +641,11 @@ int aimCalcOutput(int iIndex, void *aimInfo, const char *analysisPath, int index
             }
         }
 
-        if (index == aim_getIndex(aimInfo, "CD", ANALYSISOUT)) { //Get drag value
+        if (index == outCD) { //Get drag value
+            if (line == NULL) {
+                status = CAPS_NOTFOUND;
+                goto cleanup;
+            }
             valstr = strstr(line, "CD     =");
 
             if (valstr != NULL) {
@@ -677,19 +660,18 @@ int aimCalcOutput(int iIndex, void *aimInfo, const char *analysisPath, int index
     goto cleanup;
 
     cleanup:
-        if (fp != NULL) fclose(fp);
+        if (fp   != NULL) fclose(fp);
         if (line != NULL) EG_free(line);
 
         return status;
 }
 
-void aimCleanup()
+
+void aimCleanup(/*@unused@*/ void *instStore)
 {
 
 #ifdef DEBUG
     printf(" tsfoilAIM/aimCleanup!\n");
 #endif
-
-    numInstance = 0;
 
 }

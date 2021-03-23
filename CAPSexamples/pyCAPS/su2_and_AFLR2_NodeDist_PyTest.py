@@ -69,6 +69,9 @@ su2 = myProblem.loadAIM(aim = "su2AIM",
 # Set project name
 su2.setAnalysisVal("Proj_Name", projectName)
 
+# Set SU2 Version
+su2.setAnalysisVal("SU2_Version","Falcon")
+
 # Set AoA number
 su2.setAnalysisVal("Alpha", 0.0)
 

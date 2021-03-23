@@ -33,7 +33,7 @@ geometryScript = os.path.join("..","csmData","cfd2D.csm")
 myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 
 # Load aflr2 aim
-myMesh = myProblem.loadAIM(aim = "aflr2AIM", analysisDir = workDir, capsIntent="CFD")
+myMesh = myProblem.loadAIM(aim = "aflr2AIM", analysisDir = workDir)
 
 # Set project name
 myMesh.setAnalysisVal("Proj_Name", projectName)

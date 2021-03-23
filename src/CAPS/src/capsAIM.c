@@ -3,7 +3,7 @@
  *
  *             AIM Dynamic Subsystem
  *
- *      Copyright 2014-2020, Massachusetts Institute of Technology
+ *      Copyright 2014-2021, Massachusetts Institute of Technology
  *      Licensed under The GNU Lesser General Public License, version 2.1
  *      See http://www.opensource.org/licenses/lgpl-2.1.php
  *
@@ -21,9 +21,12 @@
 
 #else
 
+#include <dlfcn.h>
 #include <dirent.h>
 #include <limits.h>
 #endif
+
+extern void caps_freeDiscr(capsDiscr *discr);
 
 
 typedef int (*DLLFunc) (void);
@@ -164,7 +167,7 @@ static void aimDLclose(/*@unused@*/ /*@only@*/ DLL dll)
 }
 
 
-static DLLFunc aimDLget(DLL dll, const char *symname, const char *name)
+static DLLFunc aimDLget(DLL dll, const char *symname)
 {
   DLLFunc data;
   
@@ -175,8 +178,7 @@ static DLLFunc aimDLget(DLL dll, const char *symname, const char *name)
   data = (DLLFunc) dlsym(dll, symname);
 /*@+castfcnptr@*/
 #endif
-  if ((data == NULL) && (name != NULL))
-    printf(" CAPS Info: No symbol for %s in %s\n", symname, name);
+  
   return data;
 }
 
@@ -205,28 +207,45 @@ static int aimDYNload(aimContext *cntxt, const char *name)
   if (dll == NULL) return EGADS_NULLOBJ;
   
   ret                     = cntxt->aim_nAnal;
-  cntxt->aimInit[ret]     = (aimI)  aimDLget(dll, "aimInitialize",     name);
-  cntxt->aimDiscr[ret]    = (aimD)  aimDLget(dll, "aimDiscr",          name);
-  cntxt->aimFreeD[ret]    = (aimF)  aimDLget(dll, "aimFreeDiscr",      name);
-  cntxt->aimLoc[ret]      = (aimL)  aimDLget(dll, "aimLocateElement",  name);
-  cntxt->aimInput[ret]    = (aimIn) aimDLget(dll, "aimInputs",         name);
-  cntxt->aimUsesDS[ret]   = (aimU)  aimDLget(dll, "aimUsesDataSet",    name);
-  cntxt->aimPAnal[ret]    = (aimA)  aimDLget(dll, "aimPreAnalysis",    name);
-  cntxt->aimPost[ret]     = (aimPo) aimDLget(dll, "aimPostAnalysis",   name);
-  cntxt->aimOutput[ret]   = (aimO)  aimDLget(dll, "aimOutputs",        name);
-  cntxt->aimCalc[ret]     = (aimC)  aimDLget(dll, "aimCalcOutput",     name);
-  cntxt->aimXfer[ret]     = (aimT)  aimDLget(dll, "aimTransfer",       name);
-  cntxt->aimIntrp[ret]    = (aimP)  aimDLget(dll, "aimInterpolation",  name);
-  cntxt->aimIntrpBar[ret] = (aimP)  aimDLget(dll, "aimInterpolateBar", name);
-  cntxt->aimIntgr[ret]    = (aimG)  aimDLget(dll, "aimIntegration",    name);
-  cntxt->aimIntgrBar[ret] = (aimG)  aimDLget(dll, "aimIntegrateBar",   name);
-  cntxt->aimData[ret]     = (aimDa) aimDLget(dll, "aimData",           name);
-  cntxt->aimBdoor[ret]    = (aimBd) aimDLget(dll, "aimBackdoor",       name);
-  cntxt->aimClean[ret]    = (aimCU) aimDLget(dll, "aimCleanup",        name);
-  if ((cntxt->aimInit[ret]     == NULL) || (cntxt->aimClean[ret] == NULL) ||
-      (cntxt->aimInput[ret]    == NULL) || (cntxt->aimPAnal[ret] == NULL) ||
-      (cntxt->aimOutput[ret]   == NULL) || (cntxt->aimCalc[ret]  == NULL)) {
+  cntxt->aimInit[ret]     = (aimI)  aimDLget(dll, "aimInitialize"    );
+  cntxt->aimDiscr[ret]    = (aimD)  aimDLget(dll, "aimDiscr"         );
+  cntxt->aimFreeD[ret]    = (aimF)  aimDLget(dll, "aimFreeDiscrPtr"  );
+  cntxt->aimLoc[ret]      = (aimL)  aimDLget(dll, "aimLocateElement" );
+  cntxt->aimInput[ret]    = (aimIn) aimDLget(dll, "aimInputs"        );
+  cntxt->aimUsesDS[ret]   = (aimU)  aimDLget(dll, "aimUsesDataSet"   );
+  cntxt->aimPAnal[ret]    = (aimA)  aimDLget(dll, "aimPreAnalysis"   );
+  cntxt->aimExec[ret]     = (aimEx) aimDLget(dll, "aimExecute"       );
+  cntxt->aimCheck[ret]    = (aimEx) aimDLget(dll, "aimCheck"         );
+  cntxt->aimPost[ret]     = (aimPo) aimDLget(dll, "aimPostAnalysis"  );
+  cntxt->aimOutput[ret]   = (aimO)  aimDLget(dll, "aimOutputs"       );
+  cntxt->aimCalc[ret]     = (aimC)  aimDLget(dll, "aimCalcOutput"    );
+  cntxt->aimXfer[ret]     = (aimT)  aimDLget(dll, "aimTransfer"      );
+  cntxt->aimIntrp[ret]    = (aimP)  aimDLget(dll, "aimInterpolation" );
+  cntxt->aimIntrpBar[ret] = (aimP)  aimDLget(dll, "aimInterpolateBar");
+  cntxt->aimIntgr[ret]    = (aimG)  aimDLget(dll, "aimIntegration"   );
+  cntxt->aimIntgrBar[ret] = (aimG)  aimDLget(dll, "aimIntegrateBar"  );
+  cntxt->aimSensit[ret]   = (aimS)  aimDLget(dll, "aimSensitivity"   );
+  cntxt->aimBdoor[ret]    = (aimBd) aimDLget(dll, "aimBackdoor"      );
+  cntxt->aimClean[ret]    = (aimCU) aimDLget(dll, "aimCleanup"       );
+  if ((cntxt->aimInit[ret]   == NULL) || (cntxt->aimClean[ret] == NULL) ||
+      (cntxt->aimInput[ret]  == NULL) || (cntxt->aimPAnal[ret] == NULL) ||
+      (cntxt->aimOutput[ret] == NULL) || (cntxt->aimCalc[ret]  == NULL) ||
+      (cntxt->aimPost[ret]   == NULL)) {
     aimDLclose(dll);
+    if (cntxt->aimInit[ret]   == NULL)
+      printf(" Error: Missing non-optional symbol 'aimInitialize' in %s\n", name);
+    if (cntxt->aimInput[ret]   == NULL)
+      printf(" Error: Missing non-optional symbol 'aimInputs' in %s\n", name);
+    if (cntxt->aimOutput[ret]   == NULL)
+      printf(" Error: Missing non-optional symbol 'aimOutputs' in %s\n", name);
+    if (cntxt->aimPAnal[ret]   == NULL)
+      printf(" Error: Missing non-optional symbol 'aimPreAnalysis' in %s\n", name);
+    if (cntxt->aimPost[ret]   == NULL)
+      printf(" Error: Missing non-optional symbol 'aimPostAnalysis' in %s\n", name);
+    if (cntxt->aimCalc[ret]   == NULL)
+      printf(" Error: Missing non-optional symbol 'aimCalcOutput' in %s\n", name);
+    if (cntxt->aimClean[ret]   == NULL)
+      printf(" Error: Missing non-optional symbol 'aimCleanup' in %s\n", name);
     return EGADS_EMPTY;
   }
   
@@ -237,7 +256,8 @@ static int aimDYNload(aimContext *cntxt, const char *name)
     return EGADS_MALLOC;
   }
   for (i = 0; i < len; i++) cntxt->aimName[ret][i] = name[i];
-  cntxt->aimDLL[ret] = dll;
+  cntxt->aimDLL[ret]    = dll;
+  cntxt->aim_nInst[ret] = 0;
   cntxt->aim_nAnal++;
   
   return ret;
@@ -249,18 +269,18 @@ static int aimDYNload(aimContext *cntxt, const char *name)
 int
 aim_Initialize(aimContext *cntxt,
                const char *analysisName,
-               int        ngeomIn,      /* number of GeometryIn Values */
-               /*@null@*/
-               capsValue  *geomIn,      /* pointer to GeometryIn structures */
-               int        *qeFlag,      /* query/execute Flag (input/output) */
-               char       *unitSys,     /* Unit System requested */
+               int        *qeFlag,      /* query/execute flag */
+    /*@null@*/ const char *unitSys,     /* Unit System requested */
+               int        *major,       /* the returned major version */
+               int        *minor,       /* the returned minor version */
                int        *nIn,         /* returned number of inputs */
                int        *nOut,        /* returned number of outputs */
                int        *nField,      /* returned number of DataSet fields */
                char       ***fnames,    /* returned pointer to field strings */
-               int        **ranks)      /* returned pointer to field ranks */
+               int        **ranks,      /* returned pointer to field ranks */
+               void       **instStore)  /* returned instance storage */
 {
-  int i;
+  int i, ninst, stat, qFlag;
   
   i = aimDLoaded(*cntxt, analysisName);
   
@@ -268,9 +288,22 @@ aim_Initialize(aimContext *cntxt,
     i = aimDYNload(cntxt, analysisName);
     if (i < 0) return i;
   }
+  qFlag   = *qeFlag;
+  *qeFlag = 1;
+  if (cntxt->aimExec[i] == NULL) *qeFlag = 0;
+
+  if (qFlag != 0) {
+    ninst = -1;
+  } else {
+    ninst = cntxt->aim_nInst[i];
+  }
   
-  return cntxt->aimInit[i](ngeomIn, geomIn, qeFlag, unitSys, nIn, nOut,
+  stat = cntxt->aimInit[i](ninst, unitSys, instStore, major, minor, nIn, nOut,
                            nField, fnames, ranks);
+  if ((qFlag != 0) || (stat != CAPS_SUCCESS)) return stat;
+
+  cntxt->aim_nInst[i]++;
+  return ninst;
 }
 
 
@@ -308,13 +341,16 @@ aim_FreeDiscr(aimContext cntxt,
   int i;
   
   i = aimDLoaded(cntxt, analysisName);
-  if (i                 == -1)   return CAPS_NOTFOUND;
-  if (cntxt.aimDiscr[i] == NULL) {
-    printf("aimFreeDiscr not implemented in AIM %s\n", analysisName);
-    return CAPS_NOTIMPLEMENT;
-  }
+  if (i == -1) return CAPS_NOTFOUND;
   
-  return cntxt.aimFreeD[i](discr);
+  if (cntxt.aimDiscr[i] != NULL)
+    if (discr->ptrm != NULL) {
+      cntxt.aimFreeD[i](discr->ptrm);
+      discr->ptrm = NULL;
+    }
+  caps_freeDiscr(discr);
+  
+  return CAPS_SUCCESS;
 }
 
 
@@ -324,6 +360,7 @@ aim_LocateElement(aimContext cntxt,
                   capsDiscr  *discr,    /* the input discrete structure */
                   double     *params,   /* the input global parametric space */
                   double     *param,    /* the requested position */
+                  int        *bIndex,   /* the returned body index */
                   int        *eIndex,   /* the returned element index */
                   double     *bary)     /* the barycentric coordinates */
 {
@@ -336,7 +373,7 @@ aim_LocateElement(aimContext cntxt,
     return CAPS_NOTIMPLEMENT;
   }
   
-  return cntxt.aimLoc[i](discr, params, param, eIndex, bary);
+  return cntxt.aimLoc[i](discr, params, param, bIndex, eIndex, bary);
 }
 
 
@@ -346,6 +383,7 @@ aim_LocateElIndex(aimContext cntxt,
                   capsDiscr  *discr,    /* the input discrete structure */
                   double     *params,   /* the input global parametric space */
                   double     *param,    /* the requested position */
+                  int        *bIndex,   /* the returned body index */
                   int        *eIndex,   /* the returned element index */
                   double     *bary)     /* the barycentric coordinates */
 {
@@ -355,14 +393,14 @@ aim_LocateElIndex(aimContext cntxt,
     return CAPS_NOTIMPLEMENT;
   }
   
-  return cntxt.aimLoc[i](discr, params, param, eIndex, bary);
+  return cntxt.aimLoc[i](discr, params, param, bIndex, eIndex, bary);
 }
 
 
 int
 aim_Inputs(aimContext cntxt,
            const char *analysisName,
-           int        instance,         /* instance index */
+/*@null@*/ void       *instStore,       /* instance storage */
            void       *aimStruc,        /* the AIM context */
            int        index,            /* the input index [1-nIn] */
            char       **ainame,         /* pointer to the returned name */
@@ -373,14 +411,14 @@ aim_Inputs(aimContext cntxt,
   i = aimDLoaded(cntxt, analysisName);
   if (i == -1) return CAPS_NOTFOUND;
   
-  return cntxt.aimInput[i](instance, aimStruc, index, ainame, defaultVal);
+  return cntxt.aimInput[i](instStore, aimStruc, index, ainame, defaultVal);
 }
 
 
 int
 aim_UsesDataSet(aimContext cntxt,
                 const char *analysisName,
-                int        instance,    /* instance index */
+     /*@null@*/ void       *instStore,  /* instance storage */
                 void       *aimStruc,   /* the AIM context */
                 const char *bname,      /* the Bound name */
                 const char *dname,      /* the DataSet name */
@@ -391,37 +429,131 @@ aim_UsesDataSet(aimContext cntxt,
   i = aimDLoaded(cntxt, analysisName);
   if (i                  == -1)   return CAPS_NOTFOUND;
   if (cntxt.aimUsesDS[i] == NULL) {
-/*  printf("aimUsesDataSet not implemented in AIM %s\n", analysisName);  */
+    printf("aimUsesDataSet not implemented in AIM %s\n", analysisName);
     return CAPS_NOTIMPLEMENT;
   }
   
-  return cntxt.aimUsesDS[i](instance, aimStruc, bname, dname, method);
+  return cntxt.aimUsesDS[i](instStore, aimStruc, bname, dname, method);
 }
 
 
 int
 aim_PreAnalysis(aimContext cntxt,
                 const char *analysisName,
-                int        instance,    /* instance index */
+     /*@null@*/ void       *instStore,  /* instance storage */
                 void       *aimStruc,   /* the AIM context */
-                const char *apath,      /* filesystem path to write file(s) */
-                /*@null@*/
-                capsValue  *inputs,     /* complete suite of analysis inputs */
+     /*@null@*/ capsValue  *inputs,     /* complete suite of analysis inputs */
                 capsErrs   **errors)    /* returned pointer to error info */
 {
-  int i;
+  int      i, stat;
+  aimInfo  *aInfo;
+  capsErrs *err;
   
-  i = aimDLoaded(cntxt, analysisName);
+  *errors = NULL;
+  aInfo   = (aimInfo *) aimStruc;
+  i       = aimDLoaded(cntxt, analysisName);
   if (i == -1) return CAPS_NOTFOUND;
   
-  return cntxt.aimPAnal[i](instance, aimStruc, apath, inputs, errors);
+  stat = cntxt.aimPAnal[i](instStore, aimStruc, inputs);
+  if (aInfo->errs.nError == 0) return stat;
+  
+  err = (capsErrs *) EG_alloc(sizeof(capsErrs));
+  if (err == NULL) {
+    printf(" CAPS Memory problem for Errors in aim_PreAnalysis!\n");
+    return stat;
+  }
+  err->nError = aInfo->errs.nError;
+  err->errors = aInfo->errs.errors;
+  *errors     = err;
+  aInfo->errs.nError = 0;
+  aInfo->errs.errors = NULL;
+
+  return stat;
+}
+
+
+int
+aim_Execute(aimContext cntxt,
+            const char *analysisName,
+ /*@null@*/ void       *instStore,  /* instance storage */
+            void       *aimStruc,   /* the AIM context */
+            int        *state,      /* the returned state of the execution */
+            capsErrs   **errors)    /* returned pointer to error info */
+{
+  int      i, stat;
+  aimInfo  *aInfo;
+  capsErrs *err;
+  
+  *errors = NULL;
+  aInfo   = (aimInfo *) aimStruc;
+  i       = aimDLoaded(cntxt, analysisName);
+  if (i == -1) return CAPS_NOTFOUND;
+  if (cntxt.aimExec[i] == NULL) {
+    printf("aimExecute not implemented in AIM %s\n", analysisName);
+    return CAPS_NOTIMPLEMENT;
+  }
+  
+  stat = cntxt.aimExec[i](instStore, aimStruc, state);
+  if (aInfo->errs.nError == 0) return stat;
+  
+  err = (capsErrs *) EG_alloc(sizeof(capsErrs));
+  if (err == NULL) {
+    printf(" CAPS Memory problem for Errors in aim_Execute!\n");
+    return stat;
+  }
+  err->nError = aInfo->errs.nError;
+  err->errors = aInfo->errs.errors;
+  *errors     = err;
+  aInfo->errs.nError = 0;
+  aInfo->errs.errors = NULL;
+
+  return stat;
+}
+
+
+int
+aim_Check(aimContext cntxt,
+          const char *analysisName,
+/*@null@*/void       *instStore,    /* instance storage */
+          void       *aimStruc,     /* the AIM context */
+          int        *state,        /* the returned state of the execution */
+          capsErrs   **errors)      /* returned pointer to error info */
+{
+  int      i, stat;
+  aimInfo  *aInfo;
+  capsErrs *err;
+  
+  *errors = NULL;
+  aInfo   = (aimInfo *) aimStruc;
+  i       = aimDLoaded(cntxt, analysisName);
+  if (i == -1) return CAPS_NOTFOUND;
+  if (cntxt.aimCheck[i] == NULL) {
+    printf("aimCheck not implemented in AIM %s\n", analysisName);
+    return CAPS_NOTIMPLEMENT;
+  }
+  
+  stat = cntxt.aimCheck[i](instStore, aimStruc, state);
+  if (aInfo->errs.nError == 0) return stat;
+  
+  err = (capsErrs *) EG_alloc(sizeof(capsErrs));
+  if (err == NULL) {
+    printf(" CAPS Memory problem for Errors in aim_Check!\n");
+    return stat;
+  }
+  err->nError = aInfo->errs.nError;
+  err->errors = aInfo->errs.errors;
+  *errors     = err;
+  aInfo->errs.nError = 0;
+  aInfo->errs.errors = NULL;
+
+  return stat;
 }
 
 
 int
 aim_Outputs(aimContext cntxt,
             const char *analysisName,
-            int        instance,        /* instance index */
+ /*@null@*/ void       *instStore,      /* instance storage */
             void       *aimStruc,       /* the AIM context */
             int        index,           /* the output index [1-nOut] */
             char       **aoname,        /* pointer to the returned name */
@@ -432,44 +564,79 @@ aim_Outputs(aimContext cntxt,
   i = aimDLoaded(cntxt, analysisName);
   if (i == -1) return CAPS_NOTFOUND;
   
-  return cntxt.aimOutput[i](instance, aimStruc, index, aoname, formVal);
+  return cntxt.aimOutput[i](instStore, aimStruc, index, aoname, formVal);
 }
 
 
 int
 aim_PostAnalysis(aimContext cntxt,
                  const char *analysisName,
-                 int        instance,   /* instance index */
-                 void       *aimStruc,  /* the AIM context */
-                 const char *apath,     /* filesystem path to write file(s) */
-                 capsErrs   **errors)   /* returned pointer to error info */
+      /*@null@*/ void       *instStore,  /* instance storage */
+                 void       *aimStruc,   /* the AIM context */
+                 int        restart,     /* 0 - normal, 1 - restart */
+      /*@null@*/ capsValue  *inputs,     /* complete suite of analysis inputs */
+                 capsErrs   **errors)    /* returned pointer to error info */
 {
-  int i;
+  int      i, stat;
+  aimInfo  *aInfo;
+  capsErrs *err;
   
+  *errors = NULL;
+  aInfo   = (aimInfo *) aimStruc;
   i = aimDLoaded(cntxt, analysisName);
   if (i == -1) return CAPS_NOTFOUND;
   
-  if (cntxt.aimPost[i] == NULL) return CAPS_SUCCESS;    /* no post */
-  return cntxt.aimPost[i](instance, aimStruc, apath, errors);
+  stat = cntxt.aimPost[i](instStore, aimStruc, restart, inputs);
+  if (aInfo->errs.nError == 0) return stat;
+  
+  err = (capsErrs *) EG_alloc(sizeof(capsErrs));
+  if (err == NULL) {
+    printf(" CAPS Memory problem for Errors in aim_PostAnalysis!\n");
+    return stat;
+  }
+  err->nError = aInfo->errs.nError;
+  err->errors = aInfo->errs.errors;
+  *errors     = err;
+  aInfo->errs.nError = 0;
+  aInfo->errs.errors = NULL;
+
+  return stat;
 }
 
 
 int
 aim_CalcOutput(aimContext cntxt,
                const char *analysisName,
-               int        instance,     /* instance index */
+    /*@null@*/ void       *instStore,   /* instance storage */
                void       *aimStruc,    /* the AIM context */
-               const char *apath,       /* filesystem path to write file(s) */
                int        index,        /* the output index [1-nOut] */
                capsValue  *value,       /* pointer to value struct to fill */
                capsErrs   **errors)     /* returned pointer to error info */
 {
-  int i;
+  int      i, stat;
+  aimInfo  *aInfo;
+  capsErrs *err;
   
+  *errors = NULL;
+  aInfo   = (aimInfo *) aimStruc;
   i = aimDLoaded(cntxt, analysisName);
   if (i == -1) return CAPS_NOTFOUND;
   
-  return cntxt.aimCalc[i](instance, aimStruc, apath, index, value, errors);
+  stat = cntxt.aimCalc[i](instStore, aimStruc, index, value);
+  if (aInfo->errs.nError == 0) return stat;
+  
+  err = (capsErrs *) EG_alloc(sizeof(capsErrs));
+  if (err == NULL) {
+    printf(" CAPS Memory problem for Errors in aim_CalcOutput!\n");
+    return stat;
+  }
+  err->nError = aInfo->errs.nError;
+  err->errors = aInfo->errs.errors;
+  *errors     = err;
+  aInfo->errs.nError = 0;
+  aInfo->errs.errors = NULL;
+
+  return stat;
 }
 
 
@@ -501,6 +668,7 @@ aim_Interpolation(aimContext cntxt,
                   const char *analysisName,
                   capsDiscr  *discr,    /* the input discrete structure */
                   const char *name,     /* the dataset name */
+                  int        bIndex,   /* the input discretized body (1-bias) */
                   int        eIndex,    /* the input element (1-bias) */
                   double     *bary,     /* the barycentric coordinates */
                   int        rank,      /* the rank of the data */
@@ -516,7 +684,7 @@ aim_Interpolation(aimContext cntxt,
     return CAPS_NOTIMPLEMENT;
   }
   
-  return cntxt.aimIntrp[i](discr, name, eIndex, bary, rank, data, result);
+  return cntxt.aimIntrp[i](discr, name, bIndex, eIndex, bary, rank, data, result);
 }
 
 
@@ -525,6 +693,7 @@ aim_InterpolIndex(aimContext cntxt,
                   int        i,
                   capsDiscr  *discr,    /* the input discrete structure */
                   const char *name,     /* the dataset name */
+                  int        bIndex,    /* the input discretized body (1-bias) */
                   int        eIndex,    /* the input element (1-bias) */
                   double     *bary,     /* the barycentric coordinates */
                   int        rank,      /* the rank of the data */
@@ -537,7 +706,7 @@ aim_InterpolIndex(aimContext cntxt,
     return CAPS_NOTIMPLEMENT;
   }
   
-  return cntxt.aimIntrp[i](discr, name, eIndex, bary, rank, data, result);
+  return cntxt.aimIntrp[i](discr, name, bIndex, eIndex, bary, rank, data, result);
 }
 
 
@@ -546,6 +715,7 @@ aim_InterpolateBar(aimContext cntxt,
                    const char *analysisName,
                    capsDiscr  *discr,   /* the input discrete structure */
                    const char *name,    /* the dataset name */
+                   int        bIndex,   /* the input discretized body (1-bias) */
                    int        eIndex,   /* the input element (1-bias) */
                    double     *bary,    /* the barycentric coordinates */
                    int        rank,     /* the rank of the data */
@@ -561,7 +731,8 @@ aim_InterpolateBar(aimContext cntxt,
     return CAPS_NOTIMPLEMENT;
   }
   
-  return cntxt.aimIntrpBar[i](discr, name, eIndex, bary, rank, r_bar, d_bar);
+  return cntxt.aimIntrpBar[i](discr, name, bIndex, eIndex, bary, rank, r_bar,
+                              d_bar);
 }
 
 
@@ -570,6 +741,7 @@ aim_InterpolIndBar(aimContext cntxt,
                    int        i,
                    capsDiscr  *discr,   /* the input discrete structure */
                    const char *name,    /* the dataset name */
+                   int        bIndex,   /* the input discretized body (1-bias) */
                    int        eIndex,   /* the input element (1-bias) */
                    double     *bary,    /* the barycentric coordinates */
                    int        rank,     /* the rank of the data */
@@ -582,7 +754,8 @@ aim_InterpolIndBar(aimContext cntxt,
     return CAPS_NOTIMPLEMENT;
   }
   
-  return cntxt.aimIntrpBar[i](discr, name, eIndex, bary, rank, r_bar, d_bar);
+  return cntxt.aimIntrpBar[i](discr, name, bIndex, eIndex, bary, rank, r_bar,
+                              d_bar);
 }
 
 
@@ -591,10 +764,10 @@ aim_Integration(aimContext cntxt,
                 const char *analysisName,
                 capsDiscr  *discr,      /* the input discrete structure */
                 const char  *name,      /* the dataset name */
+                int        bIndex,      /* the input discretized body (1-bias) */
                 int        eIndex,      /* the input element (1-bias) */
                 int        rank,        /* the rank of the data */
-                /*@null@*/
-                double     *data,       /* global discrete support */
+     /*@null@*/ double     *data,       /* global discrete support */
                 double     *result)     /* the result (rank in length) */
 {
   int i;
@@ -606,7 +779,7 @@ aim_Integration(aimContext cntxt,
     return CAPS_NOTIMPLEMENT;
   }
   
-  return cntxt.aimIntgr[i](discr, name, eIndex, rank, data, result);
+  return cntxt.aimIntgr[i](discr, name, bIndex, eIndex, rank, data, result);
 }
 
 
@@ -615,10 +788,10 @@ aim_IntegrIndex(aimContext cntxt,
                 int        i,
                 capsDiscr  *discr,      /* the input discrete structure */
                 const char *name,       /* the dataset name */
+                int        bIndex,      /* the input discretized body (1-bias) */
                 int        eIndex,      /* the input element (1-bias) */
                 int        rank,        /* the rank of the data */
-                /*@null@*/
-                double     *data,       /* global discrete support */
+     /*@null@*/ double     *data,       /* global discrete support */
                 double     *result)     /* the result (rank in length) */
 {
   if ((i < 0) || (i >= cntxt.aim_nAnal)) return EGADS_RANGERR;
@@ -627,7 +800,7 @@ aim_IntegrIndex(aimContext cntxt,
     return CAPS_NOTIMPLEMENT;
   }
   
-  return cntxt.aimIntgr[i](discr, name, eIndex, rank, data, result);
+  return cntxt.aimIntgr[i](discr, name, bIndex, eIndex, rank, data, result);
 }
 
 
@@ -636,6 +809,7 @@ aim_IntegrateBar(aimContext cntxt,
                  const char *analysisName,
                  capsDiscr  *discr,     /* the input discrete structure */
                  const char *name,      /* the dataset name */
+                 int        bIndex,     /* the input discretized body (1-bias) */
                  int        eIndex,     /* the input element (1-bias) */
                  int        rank,       /* the rank of the data */
                  double     *r_bar,     /* input d(objective)/d(result) */
@@ -650,7 +824,7 @@ aim_IntegrateBar(aimContext cntxt,
     return CAPS_NOTIMPLEMENT;
   }
   
-  return cntxt.aimIntgrBar[i](discr, name, eIndex, rank, r_bar, d_bar);
+  return cntxt.aimIntgrBar[i](discr, name, bIndex, eIndex, rank, r_bar, d_bar);
 }
 
 
@@ -659,6 +833,7 @@ aim_IntegrIndBar(aimContext cntxt,
                  int        i,
                  capsDiscr  *discr,     /* the input discrete structure */
                  const char *name,      /* the dataset name */
+                 int        bIndex,     /* the input discretized body (1-bias) */
                  int        eIndex,     /* the input element (1-bias) */
                  int        rank,       /* the rank of the data */
                  double     *r_bar,     /* input d(objective)/d(result) */
@@ -670,14 +845,55 @@ aim_IntegrIndBar(aimContext cntxt,
     return CAPS_NOTIMPLEMENT;
   }
   
-  return cntxt.aimIntgrBar[i](discr, name, eIndex, rank, r_bar, d_bar);
+  return cntxt.aimIntgrBar[i](discr, name, bIndex, eIndex, rank, r_bar, d_bar);
+}
+
+
+int
+aim_Sensitivity(aimContext cntxt,
+                const char *analysisName,
+     /*@null@*/ void       *instStore,  /* instance storage */
+                void       *aimStruc,   /* the AIM context */
+                const char *GIname,     /* Geometry In name */
+                int        irow,        /* the row */
+                int        icol,        /* the column */
+                capsErrs   **errors)    /* returned pointer to error info */
+{
+  int      i, stat;
+  aimInfo  *aInfo;
+  capsErrs *err;
+  
+  *errors = NULL;
+  aInfo   = (aimInfo *) aimStruc;
+  i = aimDLoaded(cntxt, analysisName);
+  if (i == -1) return CAPS_NOTFOUND;
+  if (cntxt.aimSensit[i] == NULL) {
+    printf("aimSensitivity not implemented in AIM %s\n", cntxt.aimName[i]);
+    return CAPS_NOTIMPLEMENT;
+  }
+  
+  stat = cntxt.aimSensit[i](instStore, aimStruc, GIname, irow, icol);
+  if (aInfo->errs.nError == 0) return stat;
+  
+  err = (capsErrs *) EG_alloc(sizeof(capsErrs));
+  if (err == NULL) {
+    printf(" CAPS Memory problem for Errors in aim_Sensitivity!\n");
+    return stat;
+  }
+  err->nError = aInfo->errs.nError;
+  err->errors = aInfo->errs.errors;
+  *errors     = err;
+  aInfo->errs.nError = 0;
+  aInfo->errs.errors = NULL;
+
+  return stat;
 }
 
 
 int
 aim_Backdoor(aimContext cntxt,
              const char *analysisName,
-             int        instance,       /* instance index */
+  /*@null@*/ void       *instStore,     /* instance storage */
              void       *aimStruc,      /* the AIM context */
              const char *JSONin,        /* the input(s) */
              char       **JSONout)      /* the output(s) */
@@ -691,7 +907,20 @@ aim_Backdoor(aimContext cntxt,
     return CAPS_NOTIMPLEMENT;
   }
   
-  return cntxt.aimBdoor[i](instance, aimStruc, JSONin, JSONout);
+  return cntxt.aimBdoor[i](instStore, aimStruc, JSONin, JSONout);
+}
+
+
+void
+aim_cleanup(aimContext cntxt,
+            const char *analysisName,
+            void       *instStore)      /* instance data */
+{
+  int i;
+  
+  i = aimDLoaded(cntxt, analysisName);
+  if (i == -1) return;
+  cntxt.aimClean[i](instStore);
 }
 
 
@@ -702,7 +931,6 @@ void aim_cleanupAll(aimContext *cntxt)
   if (cntxt->aim_nAnal == 0) return;
 
   for (i = 0; i < cntxt->aim_nAnal; i++) {
-    cntxt->aimClean[i]();
     free(cntxt->aimName[i]);
     aimDLclose(cntxt->aimDLL[i]);
   }

@@ -15,7 +15,7 @@ ODIR  = .
 TDIR  = $(ESP_ROOT)/bin
 endif
 
-default: $(LDIR)/masstranAIM.so $(BDIR)/Masstran
+default: $(LDIR)/masstranAIM.so #$(BDIR)/Masstran
 
 $(LDIR)/masstranAIM.so:	$(ODIR)/masstranAIM.o $(LDIR)/libutils.a \
 		$(LDIR)/libaimUtil.a
@@ -26,8 +26,11 @@ $(ODIR)/masstranAIM.o:	masstranAIM.c $(IDIR)/capsTypes.h
 	$(CC) -c $(COPTS) $(DEFINE) -I$(IDIR) -I../utils masstranAIM.c \
 		-o $(ODIR)/masstranAIM.o
 
-$(BDIR)/Masstran: Masstran.c
-	$(CC) $(COPTS) Masstran.c -o $(BDIR)/Masstran -lm
+#$(BDIR)/Masstran: Masstran.c
+#	$(CC) $(COPTS) Masstran.c -o $(BDIR)/Masstran -lm
+
+lint:
+	$(LINT) -I../../include -I$(IDIR) -I../utils $(wildcard *.c) -exportlocal -nestcomment -evalorder -retvalother -boolops
 
 clean:
 	-rm -f $(ODIR)/masstranAIM.o 

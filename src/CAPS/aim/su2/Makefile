@@ -46,6 +46,9 @@ $(ODIR)/su2_7_Blackbird.o:	su2_7_Blackbird.c su2Utils.h
 	$(CC) -c $(COPTS) $(DEFINE) -I$(IDIR) -I../utils su2_7_Blackbird.c \
 		-o $(ODIR)/su2_7_Blackbird.o
 
+lint:
+	$(LINT) -I../../include -I$(IDIR) -I../utils $(wildcard *.c) -exportlocal -uniondef -nestcomment -boolops
+
 clean:
 	-rm $(OBJS)
 

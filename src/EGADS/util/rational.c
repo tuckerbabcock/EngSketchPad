@@ -531,7 +531,7 @@ bool EG_Bezier1DRat(int dim,              // dimension
 #ifndef __clang_analyzer__
           *cv0 = *cv0 * alpha0 + *cv1 * alpha1;
 #else
-          *cv0 =        alpha0 + *cv1 * alpha1;
+          *cv0 =        alpha0 +        alpha1;
 #endif
           cv0++;
           cv1++;
@@ -566,7 +566,7 @@ bool EG_Bezier1DRat(int dim,              // dimension
 #ifndef __clang_analyzer__
           *cv1 = alpha1*(*cv1 - *cv0);
 #else
-          *cv1 = *cv0*alpha1;
+          *cv1 = alpha1;
 #endif
         }
       }

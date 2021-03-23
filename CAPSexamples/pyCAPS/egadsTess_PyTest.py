@@ -29,7 +29,7 @@ myProblem = capsProblem()
 geometryScript = os.path.join("..","csmData","feaWingBEMAero.csm")
 myGeometry = myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 
-# Load AFLR4 aim
+# Load EGADS Tess aim
 myAnalysis = myProblem.loadAIM(aim = "egadsTessAIM",
                                analysisDir = workDir)
 

@@ -4,7 +4,7 @@
  */
 
 /*
- * Copyright (C) 2010/2020  John F. Dannenhoffer, III (Syracuse University)
+ * Copyright (C) 2010/2021  John F. Dannenhoffer, III (Syracuse University)
  *
  * This library is free software; you can redistribute it and/or
  *    modify it under the terms of the GNU Lesser General Public
@@ -54,7 +54,7 @@ udp_setArgument(char primName[],
                 char name[],
                 void *value,
                 int  nvalue,
-                char message[]);
+      /*@null@*/char message[]);
 
 /* execute */
 extern int
@@ -97,7 +97,7 @@ udp_sensitivity(char   primName[],
                 int    npts,
                 int    entType,
                 int    entIndex,
-                double uvs[],
+      /*@null@*/double uvs[],
                 double vels[]);
 
 /* unload and cleanup for all */

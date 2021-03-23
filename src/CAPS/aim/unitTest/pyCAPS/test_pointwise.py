@@ -71,7 +71,7 @@ class TestPointwise(unittest.TestCase):
         for i in range(30):
             if platform.system() == "Windows":
                 PW_HOME = os.environ["PW_HOME"]
-                os.system(PW_HOME + "\win64\bin\tclsh.exe " + CAPS_GLYPH + "\\GeomToMesh.glf caps.egads capsUserDefaults.glf")
+                os.system(PW_HOME + r"\win64\bin\tclsh.exe " + CAPS_GLYPH + r"\GeomToMesh.glf caps.egads capsUserDefaults.glf")
             else:
                 os.system("pointwise -b " + CAPS_GLYPH + "/GeomToMesh.glf caps.egads capsUserDefaults.glf")
 

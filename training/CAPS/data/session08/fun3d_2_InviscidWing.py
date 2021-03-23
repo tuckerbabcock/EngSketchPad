@@ -81,6 +81,8 @@ fun3d.setAnalysisVal("Alpha", 1.0)                   # AoA
 fun3d.setAnalysisVal("Mach", 0.5)                    # Mach number
 fun3d.setAnalysisVal("Equation_Type","Compressible") # Equation type
 fun3d.setAnalysisVal("Num_Iter",5)                   # Number of iterations
+fun3d.setAnalysisVal("Restart_Read", 'off')          # Do not read restart
+fun3d.setAnalysisVal("Viscous", "inviscid")          # Inviscid calculation
 
 # Set boundary conditions via capsGroup
 inviscidBC = {"bcType" : "Inviscid"}

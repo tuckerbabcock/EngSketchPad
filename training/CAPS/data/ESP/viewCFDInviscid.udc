@@ -51,6 +51,7 @@ IFTHEN    makeFuseOml EQ 1
     STORE     .
     RESTORE   FuseOml
         ATTRIBUTE capsGroup    $Fuselage
+        ATTRIBUTE capsMesh     $Fuselage
         ATTRIBUTE AFLR4_Cmp_ID AFLR4_Cmp_Fuse
     SELECT body
         ATTRIBUTE capsAIM      cfdAIMs
@@ -172,6 +173,7 @@ IFTHEN    makeWingOml EQ 1
             # put capsGroup and AFR4_Cmp_ID on the new faces
             SELECT face
                 ATTRIBUTE capsGroup    $Wing
+                ATTRIBUTE capsMesh     $Wing
                 ATTRIBUTE AFLR4_Cmp_ID AFLR4_Cmp_Wing
                 
             STORE     WingOml_CFD  0  1
@@ -181,6 +183,7 @@ IFTHEN    makeWingOml EQ 1
     # put capsGroup and AFR4_Cmp_ID on the faces
     SELECT face
         ATTRIBUTE capsGroup    $Wing
+        ATTRIBUTE capsMesh     $Wing
         ATTRIBUTE AFLR4_Cmp_ID AFLR4_Cmp_Wing
     
     IFTHEN    makeFuseOml EQ 1
@@ -292,6 +295,7 @@ IFTHEN    makeHtailOml EQ 1
     # put capsGroup and AFR4_Cmp_ID on the faces
     SELECT face
         ATTRIBUTE capsGroup    $Htail
+        ATTRIBUTE capsMesh     $Htail
         ATTRIBUTE AFLR4_Cmp_ID AFLR4_Cmp_Htail
        
     IFTHEN    makeFuseOml EQ 1
@@ -403,6 +407,7 @@ IFTHEN    makeVtailOml EQ 1
     # put capsGroup and AFR4_Cmp_ID on the faces
     SELECT face
         ATTRIBUTE capsGroup    $Vtail
+        ATTRIBUTE capsMesh     $Vtail
         ATTRIBUTE AFLR4_Cmp_ID AFLR4_Cmp_Vtail
 
     IFTHEN    makeFuseOml EQ 1
@@ -447,6 +452,7 @@ ENDIF
 IFTHEN    makePodOml EQ 1
     RESTORE   PodLeftOml
         ATTRIBUTE capsGroup          $Pod
+        ATTRIBUTE capsMesh           $Pod
         ATTRIBUTE AFLR4_Cmp_ID       AFLR4_Cmp_Pod
         ATTRIBUTE _color             $red
     SELECT body
@@ -454,6 +460,7 @@ IFTHEN    makePodOml EQ 1
 
     RESTORE   PodRiteOml
         ATTRIBUTE capsGroup          $Pod
+        ATTRIBUTE capsMesh           $Pod
         ATTRIBUTE AFLR4_Cmp_ID       AFLR4_Cmp_Pod
         ATTRIBUTE _color             $red
     SELECT body
@@ -464,6 +471,7 @@ ENDIF
 SET       size  20*max(ffxmax-ffxmin,ffymax-ffymin)
 BOX       (ffxmin+ffxmax-size)/2  (ffymin+ffymax-size)/2  (ffzmin+ffzmax-size)/2  size  size  size
     ATTRIBUTE capsGroup          $Farfield
+    ATTRIBUTE capsMesh           $Farfield
     ATTRIBUTE AFLR4_Cmp_ID       AFLR4_Cmp_Farfield
     ATTRIBUTE capsReferenceArea  wing:area
     ATTRIBUTE capsReferenceSpan  wing:span

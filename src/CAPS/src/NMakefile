@@ -10,7 +10,7 @@ ODIR  = .
 !ENDIF
 
 OBJS  = capsBase.obj  capsAnalysis.obj capsApprox.obj capsAttr.obj capsAIM.obj \
-	capsBound.obj capsProblem.obj  capsValue.obj  conjGrad.obj \
+	capsBound.obj capsProblem.obj  capsValue.obj  capsUnits.obj  conjGrad.obj \
 	printObject.obj
 
 !IFDEF ESP_BLOC

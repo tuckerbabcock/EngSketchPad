@@ -5,7 +5,7 @@
  * This module creates and manages grid fits                                  *
  * Written by John Dannenhoffer @ Syracuse University                         *
  *                                                                            *
- * Copyright 2011-2020, Massachusetts Institute of Technology                 *
+ * Copyright 2011-2021, Massachusetts Institute of Technology                 *
  * Licensed under The GNU Lesser General Public License, version 2.1          *
  * See http://www.opensource.org/licenses/lgpl-2.1.php                        *
  ******************************************************************************
@@ -3672,6 +3672,19 @@ prm_BestGrid(int      nvrt,                  /* (in)   number of Vertices */
     char        tag[2];
 
     ROUTINE(prm_BestGrid);
+  
+    /*
+     * initialize the pointers in the Trees
+     */
+    tree0.cell = NULL;
+    tree0.knot = NULL;
+
+    tree1.cell = NULL;
+    tree1.knot = NULL;
+
+    tree2.cell = NULL;
+    tree2.knot = NULL;
+
     DPRINT7("%s(nvrt=%d, nvar=%d, tol=%f, periodic=%d, nu=%d, nv=%d) {",
             routine, nvrt, nvar, tol, periodic, *nu, *nv);
     for (ivrt = 0; ivrt < nvrt; ivrt++) {
@@ -3747,18 +3760,6 @@ prm_BestGrid(int      nvrt,                  /* (in)   number of Vertices */
         }
         nuvmax = numax * nvmax;
     }
-
-    /*
-     * initialize the pointers in the Trees
-     */
-    tree0.cell = NULL;
-    tree0.knot = NULL;
-
-    tree1.cell = NULL;
-    tree1.knot = NULL;
-
-    tree2.cell = NULL;
-    tree2.knot = NULL;
 
     /*
      * the initial residual is just the original data

@@ -39,6 +39,12 @@ else
 	$(FCOMP) -c $(FOPTS) -std=legacy $(AWAVE) -o $(ODIR)/awave.o
 endif
 
+lint:
+	$(LINT) -I../../include -I$(IDIR) -I../utils $(wildcard *.c) -uniondef -exportlocal -nullpass -evalorder
+
+cppcheck:
+	cppcheck -I../../include -I$(ESP_ROOT)/include -I../utils .
+
 clean:
 	-rm -f $(ODIR)/awave.o $(ODIR)/awaveAIM.o
 

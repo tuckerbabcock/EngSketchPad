@@ -1699,7 +1699,7 @@ proc connectorSourceSpacing { decay { useCachedBgSpacing 0 } } {
 # Merge connectors that have the same two endpoints and dimension and if the
 # middle points are the same within a tolerance.
 # ----------------------------------------------
-proc connectorMergeUsingEndpoints { conList } {
+proc connectorMergeUsingEndpoints { conList tol } {
 
     puts "Performing merge on connectors with equal dimensions and common end points."
 
@@ -1710,7 +1710,6 @@ proc connectorMergeUsingEndpoints { conList } {
         set n0 [$con getNode Begin]
         set n1 [$con getNode End]
         set len [$con getLength -parameter 1.0]
-        set tol [expr $len / ($condim-1.0) * 0.25]
 
         set n0cons [$n0 getConnectors]
         set n1cons [$n1 getConnectors]
@@ -3384,12 +3383,14 @@ proc increaseConnectorDimensionFromAngleDeviation { conList conMaxDim conTurnAng
                         set j [lsearch $nodeList $node]
                         if { -1 != $j } {
                             set sp [expr [lindex $nodeSpacing $j] * $fac]
+                            set sp [expr max($sp, $conData($con,minAllowedSpacing))]
                             set nodeSpacing [lreplace $nodeSpacing $j $j $sp]
                         }
                         set node [$con getNode End]
                         set j [lsearch $nodeList $node]
                         if { -1 != $j } {
                             set sp [expr [lindex $nodeSpacing $j] * $fac]
+                            set sp [expr max($sp, $conData($con,minAllowedSpacing))]
                             set nodeSpacing [lreplace $nodeSpacing $j $j $sp]
                         }
                     }
@@ -3533,7 +3534,7 @@ proc setConMinMaxDimFromMinEdge { } {
         #   Local model edge assemble tolerance
         #   User-defined domain MinEdge setting
 
-        set minAllowedSpacing $conData($con,assembleTol)
+        set minAllowedSpacing [expr $genParams(assembleTolMult)*$conData($con,assembleTol)]
 
         if { ![HaveConAssembleTolerance] || 
              $domParams(MinEdge) > $genParams(modelEdgeTol) } {
@@ -3744,7 +3745,7 @@ proc adjustNodeSpacingFromGeometry { conMinDim conMaxDim conMaxDSVar nodeListVar
         # look for dimension in connector geometry
         set condim [conAttributeFromGeometry $con "PW:ConnectorDimension"]
         if { [string is double -strict $condim] } {
-            puts "Input connector dimension is a double = $condim"
+            puts "[mkEntLink $con] Input connector dimension is a double = $condim"
             set condim [expr round($condim)]
             puts "Rounding to integer = $condim"
         }
@@ -4438,7 +4439,7 @@ proc connectorDimensionFromEndSpacing { edgeMaxGrowthRate conMinDim conMaxDim co
         set s1 [lindex $nodeSpacing [lsearch $nodeList $node1]]
 
         puts "Connector [$con getName] current dim = $dim"
-        #puts "  s0 = $s0, s1 = $s1, sp = $sp"
+        # puts "  s0 = $s0, s1 = $s1, sp = $sp"
 
         # Set connector distribution type and synchronize end spacing
         $con setDistribution 1 [pw::DistributionTanh create]

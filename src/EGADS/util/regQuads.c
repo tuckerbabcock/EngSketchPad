@@ -330,8 +330,8 @@ __HOST_AND_DEVICE__ static void printQuad (meshMap *qm, int id)
       }
   }
   i = EG_invEvaluate(qm->face, uv, uva, xyz);
-  printf("\n\n\n %lf %lf %lf %d %lf %lf \n",
-         xyz[0], xyz[1], xyz[2], id + 1, uv[0], uv[1]);
+  printf("\n\n\n %d  %lf %lf %lf %d %lf %lf \n",
+         i, xyz[0], xyz[1], xyz[2], id + 1, uv[0], uv[1]);
   printf(" \n\n---------------------------------------\n");
 }
 
@@ -815,16 +815,16 @@ EG_centroid(meshMap *qm, int n, int *list, double *uvOUT, int usequv)
 #ifdef DEBUG
       printf(" FACE %d OUT OF RANGE %lf %lf %lf %lf\n", qm->fID, qm->range[0],
              qm->range[1], qm->range[2], qm->range[3]);
-      printf("%lf  %lf  %lf  %lf   %lf  GUESS\n",uvOUT[0], uvOUT[1], xyz0[0],
+      printf("  %lf  %lf  %lf  %lf   %lf  GUESS\n", uvOUT[0], uvOUT[1], xyz0[0],
              xyz1[1], xyz0[2]);
-      printf("%lf  %lf  %lf  %lf   %lf  RES1  \n",uv[0], uv[1], xyz1[0],
+      printf("  %lf  %lf  %lf  %lf   %lf  RES1  \n", uv[0], uv[1], xyz1[0],
              xyz1[1], xyz1[2]);
-      printf("%lf  %lf  %lf  %lf   %lf  RES1  \n",uv[0], uv[1], xyz1[0],
+      printf("  %lf  %lf  %lf  %lf   %lf  RES1  \n", uv[0], uv[1], xyz1[0],
              xyz1[1], xyz1[2]);
       xyz1[0] = xyz1[1] = xyz1[2];
       i       = EG_invEvaluate(qm->face, xyz0, uv, xyz1);
-      printf("%lf  %lf  %lf  %lf   %lf  RES2  \n",uv[0], uv[1], xyz1[0],
-             xyz1[1], xyz1[2]);
+      printf("  %d  %lf  %lf  %lf  %lf   %lf  RES2  \n", i, uv[0], uv[1],
+             xyz1[0], xyz1[1], xyz1[2]);
 #endif
   }
   uvOUT[0] = uv[0];
@@ -4540,7 +4540,8 @@ __HOST_AND_DEVICE__ static void meshProperties(meshMap *qm, int sweep)
   for (k = 0 ; k < qm->totQ; k++) {
       minT = 2.0 * PI; maxT = 0.0;
       minR = 1.0;      maxR = 0.0;
-      for ( i = 0 ; i < 4; i++) {
+      v[0] = v[1] = v[2] = v[3] = 0;
+      for (i = 0 ; i < 4; i++) {
           v[i] = qm->qIdx[4 * k + i] -1;
           if (qm->vType[v[i]] == -2) break;
           for (j = 0 ; j < qm->star[v[i]]->nQ; j++)
@@ -4612,11 +4613,12 @@ __HOST_AND_DEVICE__ static void meshProperties(meshMap *qm, int sweep)
   minT *= 180.0 / PI;
   maxT *= 180.0 / PI;
   printf("AT THE BOUNDARY \nVertices by angles : \n"
-      " [0, 15] = %d [15,40] = %d [40, 155] %d [155,180] = %d \n",
-      quarts[0] ,quarts[1] ,quarts[2], quarts[3]);
+         " [0, 15] = %d [15,40] = %d [40, 155] %d [155,180] = %d \n",
+         quarts[0], quarts[1], quarts[2], quarts[3]);
   printf("Vertices by triangle aspect ratio : \n"
-      " [0, 0.1] = %d [0.1, 0.25] = %d [0.26,0.6] %d [0.6,1] = %d\n",
-      quarts[5] ,quarts[5] ,quarts[6],  quarts[7]);
+         " [0, 0.1] = %d [0.1, 0.25] = %d [0.26,0.6] %d [0.6,1] = %d\n",
+         quarts[5], quarts[5], quarts[6], quarts[7]);
+  printf("minT = %lf  maxT = %lf\n", minT, maxT);
 }
 #endif
 
@@ -4667,10 +4669,8 @@ __HOST_AND_DEVICE__ int EG_meshRegularization(meshMap *qm)
   qm->pp = 1;
   minArea0 = 10000000.00;
   maxArea0 = avArea0 = 0.0;
-#ifndef __clang_analyzer__
   minArea  = 10000000.00;
   maxArea  = avArea = 0.0;
-#endif
   for (n0 = sq = loopact = it = 0 ; it < ITMAX; it++) {
       minArea = 10000000.00;
       maxArea = 0.0;
@@ -4794,9 +4794,9 @@ break;
 #ifdef REPORT
 #ifndef __CUDA_ARCH__
   fprintf(stderr, "RATIO MIN MAX AREA %lf %lf  av %lf \n",
-          minArea ,maxArea , avArea);
+          minArea, maxArea, avArea);
 #else
-  printf("RATIO MIN MAX AREA %lf %lf  av %lf \n", minArea ,maxArea , avArea);
+  printf("RATIO MIN MAX AREA %lf %lf  av %lf \n", minArea, maxArea, avArea);
 #endif
 #endif
   qm->minArea = minArea0;
@@ -4808,7 +4808,7 @@ break;
 #else
   printf(" MIN MAX AREA %lf %lf AVERAGE %lf RATIO MIN / AV %lf \n",
 #endif
-  qm ->minArea ,qm -> maxArea ,qm ->avArea, qm->minArea/qm->avArea);
+         qm ->minArea, qm -> maxArea, qm ->avArea, qm->minArea/qm->avArea);
 #endif
   if ( qm ->minArea / qm -> avArea > 0.5 ) {
 #ifdef REPORT
@@ -4904,7 +4904,7 @@ break;
       if (totActivity == 0 || iV <= 2) break;
   }
 #ifdef REPORT
-  stat       = resizeQm(qm );
+  (void) resizeQm(qm);
   printf(" TRANSFER VALENCES  IV %d vQ %d totV %d \n ", iV ,vQ, totV);
   snprintf(buffer,100, "notransfer_%d.txt", qm->fID);
   gnuData(qm, buffer);
@@ -5149,8 +5149,11 @@ __HOST_AND_DEVICE__ int EG_makeQuadTess(bodyQuad bodydata, ego *quadTess)
       return stat;
   }
   ntess = (egTessel *) newTess->blind;
-
-  stat  = EG_getBodyTopos(btess->src, NULL, EDGE, &nedges, &edges);
+  if (btess->src->oclass == EBODY) {
+    stat  = EG_getBodyTopos(btess->src, NULL, EEDGE, &nedges, &edges);
+  } else {
+    stat  = EG_getBodyTopos(btess->src, NULL,  EDGE, &nedges, &edges);
+  }
   if (stat != EGADS_SUCCESS) {
       if (outLevel > 0)
         printf(" EGADS Error: EG_getBodyTopos E = %d (EG_makeQuadTess)!\n",

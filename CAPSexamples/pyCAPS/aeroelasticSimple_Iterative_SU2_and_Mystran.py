@@ -45,11 +45,16 @@ geometryScript = os.path.join("..","csmData","aeroelasticDataTransferSimple.csm"
 myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 
 # Load AIMs
-myProblem.loadAIM(aim = "tetgenAIM",
-                  altName= "tetgen",
+myProblem.loadAIM(aim = "egadsTessAIM",
+                  altName= "egads",
                   analysisDir = workDir + "_SU2",
                   capsIntent = "CFD")
 
+myProblem.loadAIM(aim = "tetgenAIM",
+                  altName= "tetgen",
+                  analysisDir = workDir + "_SU2",
+                  parents = "egads",
+                  capsIntent = "CFD")
 
 myProblem.loadAIM(aim = "su2AIM",
                   altName = "su2",
@@ -71,8 +76,10 @@ for i in transfers:
                                  initValueDest  = [None, (0,0,0)],
                                  capsBound      = i )
 
+# Set inputs for EGADS
+myProblem.analysis["egads"].setAnalysisVal("Tess_Params", [.3, 0.01, 20.0])
+
 # Set inputs for tetgen
-myProblem.analysis["tetgen"].setAnalysisVal("Tess_Params", [.05, 0.01, 20.0])
 myProblem.analysis["tetgen"].setAnalysisVal("Preserve_Surf_Mesh", True)
 
 # Set inputs for su2
@@ -133,6 +140,14 @@ constraint = {"groupName" : "Rib_Root",
               "dofConstraint" : 123456}
 myProblem.analysis["mystran"].setAnalysisVal("Constraint", ("edgeConstraint", constraint))
 
+####### EGADS ########################
+# Run pre/post-analysis for tetgen
+print ("\nRunning PreAnalysis ......", "egads")
+myProblem.analysis["egads"].preAnalysis()
+
+print ("\nRunning PostAnalysis ......", "egads")
+myProblem.analysis["egads"].postAnalysis()
+#######################################
 
 ####### Tetgen ########################
 # Run pre/post-analysis for tetgen

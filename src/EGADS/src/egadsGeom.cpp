@@ -3,7 +3,7 @@
  *
  *             Geometry Functions
  *
- *      Copyright 2011-2020, Massachusetts Institute of Technology
+ *      Copyright 2011-2021, Massachusetts Institute of Technology
  *      Licensed under The GNU Lesser General Public License, version 2.1
  *      See http://www.opensource.org/licenses/lgpl-2.1.php
  *
@@ -17,9 +17,9 @@
 #include "egadsClasses.h"
 #define TEMPLATE template<class TT>
 #define DOUBLE TT
-#define CROSS(a,b,c)       a[0] = (b[1]*c[2]) - (b[2]*c[1]);\
-                           a[1] = (b[2]*c[0]) - (b[0]*c[2]);\
-                           a[2] = (b[0]*c[1]) - (b[1]*c[0])
+#define CROSS(a,b,c)       (a)[0] = ((b)[1]*(c)[2]) - ((b)[2]*(c)[1]);\
+                           (a)[1] = ((b)[2]*(c)[0]) - ((b)[0]*(c)[2]);\
+                           (a)[2] = ((b)[0]*(c)[1]) - ((b)[1]*(c)[0])
 #define DOT(a,b)          (a[0]*b[0] + a[1]*b[1] + a[2]*b[2])
 
 
@@ -50,6 +50,8 @@
                                 double *result );
   extern "C" int  EG_invEEvaluate( const egObject *object, double *xyz,
                                    double *param, double *result);
+  extern "C" int  EG_eCurvature( const egObject *geom, const double *param,
+                                 double *result );
   template<class T>
   int EG_spline1dFit(int endx, int imaxx, const T *xyz,
                      const T *kn, double tol, int *ivec,
@@ -86,6 +88,7 @@
   extern "C" int  EG_inFaceX( const egObject *face, const double *uva,
                               /*@null@*/ double *pt, /*@null@*/ double *uvx );
 
+  extern "C" void EG_getGeometryLen(const egObject *geom, int *nivec, int *nrvec);
   extern "C" int  EG_getGeometry( const egObject *geom, int *oclass, int *type,
                                   egObject **rGeom, /*@null@*/ int **ivec,
                                   /*@null@*/ double **rvec );
@@ -100,23 +103,34 @@
   extern "C" int  EG_makeGeometry( egObject *context, int oclass, int mtype,
                                    /*@null@*/ egObject *refGeo, const int *ivec,
                                    const double *rvec, egObject **geom );
-  extern "C"  int EG_copyGeometry_dot(const egObject *obj,
+  extern "C" int  EG_makeGeometry_dot( egObject *context, int oclass, int mtype,
+                                      /*@null@*/ egObject *refGeo, const int *ivec,
+                                      const double *rvec, const double *rvec_dot, egObject **geom );
+             int  EG_makeGeometry( egObject *context, int oclass, int mtype,
+                                   /*@null@*/ egObject *refGeo, const int *ivec,
+                                   const SurrealS<1> *rvec, egObject **geom );
+  extern "C" int  EG_copyGeometry_dot(const egObject *obj,
                                       /*@null@*/ const double *xform,
                                       /*@null@*/ const double *xform_dot,
                                       egObject *copy);
   extern "C" int  EG_hasGeometry_dot(const egObject *obj);
   extern "C" int  EG_getRangX( const egObject *geom, double *range, int *pflg );
   extern "C" int  EG_getRange( const egObject *geom, double *range, int *pflg );
+             int  EG_getRange( const egObject *geom, SurrealS<1> *range, int *pflg );
   extern "C" int  EG_getRange_dot( const egObject *geom, double *range,
                                    double *range_dot, int *pflg );
   extern "C" int  EG_setRange_dot( egObject *geom, int oclass, const double *range,
                                    const double *range_dot );
+  extern "C" int  EG_curvaturX( const egObject *geom, const double *param,
+                                double *result );
   extern "C" int  EG_curvature( const egObject *geom, const double *param,
                                 double *result );
   extern "C" int  EG_evaluatX( const egObject *geom, const double *param,
                                double *result );
   extern "C" int  EG_evaluate( const egObject *geom, const double *param,
                                double *result );
+             int  EG_evaluate(const egObject *geom, const SurrealS<1> *param,
+                              SurrealS<1> *result);
   extern "C" int  EG_evaluate_dot( const egObject *geom,
                                    const double *param, const double *param_dot,
                                    double *result, double *result_dot );
@@ -1407,7 +1421,7 @@ void EG_ortho_dot(SurrealS<1>* dirx, SurrealS<1>* diry)
   EG_normalizeDir_dot(3, diry);
 }
 
-  
+
 /* taken from gp_Ax3::gp_Ax3(const gp_Pnt& P, const gp_Dir& N, const gp_Dir& Vx)
  * and gp_XYZ::CrossCross (const gp_XYZ& Coord1, const gp_XYZ& Coord2)
  */
@@ -1454,11 +1468,11 @@ EG_setGeometry_dot(egObject *obj, int oclass, int mtype,
 //  const char *edgeType[6] = {"", "ONENODE", "TWONODE",
 //                             "", "", "DEGENERATE"};
   static
-  const char *curvType[9] = {"LINE", "CIRCLE", "ELLIPSE", "PARABOLA",
-                             "HYPERBOLA", "TRIMMED", "BEZIER", "BSPLINE",
-                             "OFFSET"};
+  const char *curvType[10] = {"", "LINE", "CIRCLE", "ELLIPSE", "PARABOLA",
+                              "HYPERBOLA", "TRIMMED", "BEZIER", "BSPLINE",
+                              "OFFSET"};
   static
-  const char *surfType[11] = {"PLANE", "SPHERICAL", "CYLINDER", "REVOLUTION",
+  const char *surfType[12] = {"", "PLANE", "SPHERICAL", "CYLINDER", "REVOLUTION",
                               "TOROIDAL", "TRIMMED" , "BEZIER", "BSPLINE",
                               "OFFSET", "CONICAL", "EXTRUSION"};
   const char  **geomType, **eType;
@@ -1523,7 +1537,7 @@ EG_setGeometry_dot(egObject *obj, int oclass, int mtype,
         }
       if (stat != EGADS_SUCCESS) {
         if (outLevel > 0) {
-          printf(" EGADS Error: Inconsistent Node geometry data! (EG_setGeometry_dot)\n");
+          printf(" EGADS Error: Inconsistent NODE geometry data! (EG_setGeometry_dot)\n");
           for (i = 0; i < 3; i++)
             printf("     data[%d] %lf : %lf\n", i, pnode->xyz[i], rvec[i]);
         }
@@ -1734,7 +1748,7 @@ EG_setGeometry_dot(egObject *obj, int oclass, int mtype,
   if ((rvec_dot != NULL) || (oclass != 0)) {
     if ((oclass != geom->oclass) || (mtype != geom->mtype)) {
       if (outLevel > 0) {
-        int emtype = mtype-1;
+        int emtype = mtype;
         if (oclass == SURFACE) {
           eType = surfType;
         } else if ((oclass == CURVE) || (oclass == PCURVE)) {
@@ -2167,11 +2181,21 @@ EG_setGeometry_dot(egObject *obj, int oclass, int mtype,
     }
   if (stat != EGADS_SUCCESS) {
     if (outLevel > 0) {
-      printf(" EGADS Error: Inconsistent geometry data! (EG_setGeometry_dot)\n");
-      if (outLevel > 1) {
-        for (i = 0; i < len; i++)
-          printf("     data[%d] %lf : %lf\n", i, data[i], (*data_dot)[i].value());
+
+      int gmtype = geom->mtype;
+      if (geom->oclass == SURFACE) {
+        geomType = surfType;
+      } else if ((geom->oclass == CURVE) || (geom->oclass == PCURVE)) {
+        geomType = curvType;
+      } else {
+        printf(" EGADS Error: Unexpected geom oclass %s (EG_setGeometry_dot)!\n",
+               classType[geom->oclass]);
+        return EGADS_GEOMERR;
       }
+      printf(" EGADS Error: Inconsistent %s %s geometry data! (EG_setGeometry_dot)\n",
+             classType[geom->oclass], geomType[gmtype]);
+      for (i = 0; i < len; i++)
+        printf("     data[%d] %lf : %lf\n", i, data[i], (*data_dot)[i].value());
     }
     return EGADS_GEOMERR;
   }
@@ -2404,13 +2428,11 @@ EG_getGeometry_dot(const egObject *obj, double **rvec, double **rvec_dot)
 {
   int            i, len;
   SurrealS<1>    *rdata_dot;
-  const egObject *geom;
 
   if  (obj == NULL)               return EGADS_NULLOBJ;
   if  (obj->magicnumber != MAGIC) return EGADS_NOTOBJ;
   if ((obj->oclass != PCURVE)  && (obj->oclass != CURVE) &&
-      (obj->oclass != SURFACE) && (obj->oclass != EDGE)  &&
-      (obj->oclass != FACE)    && (obj->oclass != NODE))
+      (obj->oclass != SURFACE) && (obj->oclass != NODE))
                                   return EGADS_NOTGEOM;
   if  (obj->blind == NULL)        return EGADS_NODATA;
   if  (EG_sameThread(obj))        return EGADS_CNTXTHRD;
@@ -2420,8 +2442,6 @@ EG_getGeometry_dot(const egObject *obj, double **rvec, double **rvec_dot)
   *rvec     = NULL;
   *rvec_dot = NULL;
 
-  /* Node section */
-
   if (obj->oclass == NODE) {
 
     egadsNode *pnode = (egadsNode *) obj->blind;
@@ -2429,43 +2449,27 @@ EG_getGeometry_dot(const egObject *obj, double **rvec, double **rvec_dot)
     rdata_dot = pnode->xyz_dot;
     len = 3;
 
+  } else if (obj->oclass == PCURVE) {
+
+    egadsPCurve *lgeom = (egadsPCurve *) obj->blind;
+    if (lgeom->data_dot == NULL) return EGADS_NODATA;
+    len                = lgeom->dataLen;
+    rdata_dot          = lgeom->data_dot;
+
+  } else if (obj->oclass == CURVE) {
+
+    egadsCurve *lgeom = (egadsCurve *) obj->blind;
+    if (lgeom->data_dot == NULL) return EGADS_NODATA;
+    len               = lgeom->dataLen;
+    rdata_dot         = lgeom->data_dot;
+
   } else {
 
-    /* Geometry section */
+    egadsSurface *lgeom = (egadsSurface *) obj->blind;
+    if (lgeom->data_dot == NULL) return EGADS_NODATA;
+    len                 = lgeom->dataLen;
+    rdata_dot           = lgeom->data_dot;
 
-    geom = obj;
-    if (obj->oclass == EDGE) {
-      egadsEdge *pedge = (egadsEdge *) obj->blind;
-      geom = pedge->curve;
-      if (geom->blind == NULL) return EGADS_NODATA;
-    } else if (obj->oclass == FACE) {
-      egadsFace *pface = (egadsFace *) obj->blind;
-      geom = pface->surface;
-      if (geom->blind == NULL) return EGADS_NODATA;
-    }
-
-    if (geom->oclass == PCURVE) {
-
-      egadsPCurve *lgeom = (egadsPCurve *) geom->blind;
-      if (lgeom->data_dot == NULL) return EGADS_NODATA;
-      len                = lgeom->dataLen;
-      rdata_dot          = lgeom->data_dot;
-
-    } else if (geom->oclass == CURVE) {
-
-      egadsCurve *lgeom = (egadsCurve *) geom->blind;
-      if (lgeom->data_dot == NULL) return EGADS_NODATA;
-      len               = lgeom->dataLen;
-      rdata_dot         = lgeom->data_dot;
-
-    } else {
-
-      egadsSurface *lgeom = (egadsSurface *) geom->blind;
-      if (lgeom->data_dot == NULL) return EGADS_NODATA;
-      len                 = lgeom->dataLen;
-      rdata_dot           = lgeom->data_dot;
-
-    }
   }
 
   if (len == 0) return EGADS_GEOMERR;
@@ -2546,12 +2550,15 @@ public:
   egXYZ(const T& X, const T& Y, const T& Z) : x(X), y(Y), z(Z) { }
 
   //! Returns the X coordinate
+        T& X()       { return x; }
   const T& X() const { return x; }
 
   //! Returns the Y coordinate
+        T& Y()       { return y; }
   const T& Y() const { return y; }
 
   //! Returns the Z coordinate
+        T& Z()       { return z; }
   const T& Z() const { return z; }
 
   //! computes sqrt(X*X + Y*Y + Z*Z) where X, Y and Z are the three coordinates of this XYZ object.
@@ -2653,6 +2660,55 @@ public:
     x = x / D;  y = y / D;  z = z / D;
   }
 
+  //! <me>.X() = <me>.Y() * Other.Z() - <me>.Z() * Other.Y()
+  //! <me>.Y() = <me>.Z() * Other.X() - <me>.X() * Other.Z()
+  //! <me>.Z() = <me>.X() * Other.Y() - <me>.Y() * Other.X()
+  void Cross (const egXYZ& Right)
+  {
+    T Xresult = y * Right.z - z * Right.y;
+    T Yresult = z * Right.x - x * Right.z;
+    z         = x * Right.y - y * Right.x;
+    x = Xresult;
+    y = Yresult;
+  }
+
+  //! new.X() = <me>.Y() * Other.Z() - <me>.Z() * Other.Y()
+  //! new.Y() = <me>.Z() * Other.X() - <me>.X() * Other.Z()
+  //! new.Z() = <me>.X() * Other.Y() - <me>.Y() * Other.X()
+  egXYZ Crossed (const egXYZ& Right) const
+  {
+    return egXYZ (y * Right.z - z * Right.y,
+                  z * Right.x - x * Right.z,
+                  x * Right.y - y * Right.x);
+  }
+
+  //! Triple vector product
+  //! Computes <me> = <me>.Cross(Coord1.Cross(Coord2))
+  void CrossCross (const egXYZ& Coord1, const egXYZ& Coord2)
+  {
+    T Xresult =
+        y * (Coord1.x * Coord2.y - Coord1.y * Coord2.x) -
+        z * (Coord1.z * Coord2.x - Coord1.x * Coord2.z);
+    T Yresult  =
+        z * (Coord1.y * Coord2.z - Coord1.z * Coord2.y) -
+        x * (Coord1.x * Coord2.y - Coord1.y * Coord2.x);
+    z =
+        x * (Coord1.z * Coord2.x - Coord1.x * Coord2.z) -
+        y * (Coord1.y * Coord2.z - Coord1.z * Coord2.y);
+    x = Xresult;
+    y = Yresult;
+  }
+
+  //! Triple vector product
+  //! computes New = <me>.Cross(Coord1.Cross(Coord2))
+  egXYZ CrossCrossed (const egXYZ& Coord1,
+              const egXYZ& Coord2) const
+  {
+    egXYZ Coord0 = *this;
+    Coord0.CrossCross (Coord1, Coord2);
+    return Coord0;
+  }
+
 private:
   T x;
   T y;
@@ -2720,6 +2776,18 @@ public:
     TT.Transforms(x, y, z);
   }
 
+  T Dot (const egPnt<T>& Other) const
+  {
+    return(x * Other.x + y * Other.y + z * Other.z);
+  }
+
+  egXYZ<T> Crossed (const egPnt<T>& Right) const
+  {
+    return egXYZ<T> (y * Right.z - z * Right.y,
+                     z * Right.x - x * Right.z,
+                     x * Right.y - y * Right.x);
+  }
+
 private:
   T& x;
   T& y;
@@ -2742,12 +2810,39 @@ public:
   //! exception ConstructionError.
   egDir(T& X, T& Y, T& Z) : coord(X,Y,Z) {}
 
+  egDir(egXYZ<T>& X) : coord(X.X(),X.Y(),X.Z()) {}
+
   void Transform (const egTrsf<T>& TT)
   {
     coord.Multiply (TT.HVectorialPart());
     T D = coord.Modulus();
     coord.Divide(D);
     if (TT.ScaleFactor() < 0.0) { coord.Reverse(); }
+  }
+
+  Standard_Boolean
+  IsParallel(const egDir& Other,
+   const Standard_Real AngularTolerance) const
+  {
+    T Ang = Angle (Other);
+    return Ang <= AngularTolerance || M_PI - Ang <= AngularTolerance;
+  }
+
+  T Angle (const egDir& Other) const
+  {
+    T Cosinus = coord.Dot (Other.coord);
+    if (Cosinus > -0.70710678118655 && Cosinus < 0.70710678118655)
+      return acos (Cosinus);
+    else {
+      T Sinus = (coord.Crossed (Other.coord)).Modulus ();
+      if(Cosinus < 0.0)  return M_PI - asin (Sinus);
+      else               return        asin (Sinus);
+    }
+  }
+
+  void Divide (const T& Scalar)
+  {
+    coord.Divide(Scalar);
   }
 
 private:
@@ -3007,7 +3102,7 @@ EG_copyGeometry_dot(const egObject *obj, /*@null@*/ const double *xform,
                     const egTrsf< SurrealS<1> >& form, egObject *copy)
 {
   typedef SurrealS<1> T;
-  int            stat, *ints = NULL, i, j, len, outLevel;
+  int            stat, *ints = NULL, i, len, outLevel;
   double         *cdata, scale;
   const egObject *geom1;
   ego            geom2;
@@ -3017,6 +3112,23 @@ EG_copyGeometry_dot(const egObject *obj, /*@null@*/ const double *xform,
   ego            object2;
 #endif
   SurrealS<1>    *rdata_dot, *cdata_dot;
+
+  static
+  const char *classType[27] = {"CONTEXT", "TRANSFORM", "TESSELLATION",
+                               "NIL", "EMPTY", "REFERENCE", "", "",
+                               "", "", "PCURVE", "CURVE", "SURFACE", "",
+                               "", "", "", "", "", "", "NODE",
+                               "EGDE", "LOOP", "FACE", "SHELL",
+                               "BODY", "MODEL"};
+  static
+  const char *curvType[10] = {"", "LINE", "CIRCLE", "ELLIPSE", "PARABOLA",
+                              "HYPERBOLA", "TRIMMED", "BEZIER", "BSPLINE",
+                              "OFFSET"};
+  static
+  const char *surfType[12] = {"", "PLANE", "SPHERICAL", "CYLINDER", "REVOLUTION",
+                              "TOROIDAL", "TRIMMED" , "BEZIER", "BSPLINE",
+                              "OFFSET", "CONICAL", "EXTRUSION"};
+  const char  **geomType;
 
   if (obj == NULL)                 return EGADS_NULLOBJ;
   if (obj->magicnumber != MAGIC)   return EGADS_NOTOBJ;
@@ -3076,70 +3188,21 @@ EG_copyGeometry_dot(const egObject *obj, /*@null@*/ const double *xform,
     for (i = 0; i < pbody1->nodes.map.Extent(); i++) {
       stat = EG_copyGeometry_dot( pbody1->nodes.objs[i], xform, form,
                                   pbody2->nodes.objs[i] );
-      if (stat != EGADS_SUCCESS) return stat;
+      if (stat != EGADS_SUCCESS) {
+        if (outLevel > 0)
+          printf(" EGADS Error: Body Node %d (EG_copyGeometry_dot)!\n", i+1);
+        return stat;
+      }
     }
 
     /* Curves through Edges */
     for (i = 0; i < pbody1->edges.map.Extent(); i++) {
-      /* make sure both edges are the same mtype */
-      if (pbody1->edges.objs[i]->mtype != pbody2->edges.objs[i]->mtype) {
-        if (outLevel > 0)
-          printf(" EGADS Error: Edge %d mtype mismatch (EG_copyGeometry_dot)!\n", i+1);
-        return EGADS_TOPOERR;
-      }
-
-      egadsEdge *pedge1 = (egadsEdge *) pbody1->edges.objs[i]->blind;
-      egadsEdge *pedge2 = (egadsEdge *) pbody2->edges.objs[i]->blind;
-
-      /* copy curve if the the edge is not degenerate */
-      if (pbody1->edges.objs[i]->mtype != DEGENERATE) {
-        stat = EG_copyGeometry_dot( pedge1->curve, xform, form, pedge2->curve );
-        if (stat != EGADS_SUCCESS) return stat;
-      }
-
-      if (pedge1->filled == 0) {
-        if (outLevel > 0)
-          printf(" EGADS Error: Edge without data_dot (EG_copyGeometry_dot)!\n");
-        return EGADS_NODATA;
-      }
-      pedge2->filled = 1;
-      for (j = 0; j < 2; j++)
-        pedge2->trange_dot[j] = pedge1->trange_dot[j];
-      if (pedge2->curve->mtype == LINE ||
-          pedge2->curve->mtype == PARABOLA)
-        for (j = 0; j < 2; j++)
-          pedge2->trange_dot[j] *= fabs(form.ScaleFactor());
-
-      if (pedge2->curve->mtype == OFFSET) {
-        egadsCurve *pcurve = (egadsCurve *) pedge2->curve->blind;
-        if (pcurve->ref->mtype == LINE ||
-            pcurve->ref->mtype == PARABOLA)
-          for (j = 0; j < 2; j++)
-            pedge2->trange_dot[j] *= fabs(form.ScaleFactor());
-      }
-
-
-      /* check consistency in the data */
-      stat = EGADS_SUCCESS;
-      scale = 0.0;
-      for (j = 0; j < 2; j++)
-        if (fabs(pedge2->trange[j]) > scale) scale = fabs(pedge2->trange[j]);
-      if (scale == 0.0) scale = 1.0;
-      for (j = 0; j < 2; j++)
-        if (fabs(pedge2->trange[j] - pedge2->trange_dot[j].value()) > 1.e-14*scale) {
-          stat++;
-          break;
-        }
+      stat = EG_copyGeometry_dot( pbody1->edges.objs[i], xform, form,
+                                  pbody2->edges.objs[i] );
       if (stat != EGADS_SUCCESS) {
-        if (outLevel > 0) {
-          printf(" EGADS Error: Inconsistent t-range data! (EG_copyGeometry_dot)\n");
-          if (outLevel > 1) {
-            for (j = 0; j < 2; j++)
-              printf("     data[%d] %lf : %lf\n",
-                     j, pedge2->trange[j], pedge2->trange_dot[j].value());
-          }
-        }
-        return EGADS_GEOMERR;
+        if (outLevel > 0)
+          printf(" EGADS Error: Body Edge %d (EG_copyGeometry_dot)!\n", i+1);
+        return stat;
       }
     }
 
@@ -3185,8 +3248,13 @@ EG_copyGeometry_dot(const egObject *obj, /*@null@*/ const double *xform,
       egadsFace *pface1 = (egadsFace *) pbody1->faces.objs[i]->blind;
       egadsFace *pface2 = (egadsFace *) pbody2->faces.objs[i]->blind;
 
-      stat = EG_copyGeometry_dot(pface1->surface, xform, form, pface2->surface);
-      if (stat != EGADS_SUCCESS) return stat;
+      stat = EG_copyGeometry_dot(pface1->surface, xform, form,
+                                 pface2->surface);
+      if (stat != EGADS_SUCCESS) {
+        if (outLevel > 0)
+          printf(" EGADS Error: Body Face %d (EG_copyGeometry_dot)!\n", i+1);
+        return stat;
+      }
     }
 
     return EGADS_SUCCESS;
@@ -3200,7 +3268,8 @@ EG_copyGeometry_dot(const egObject *obj, /*@null@*/ const double *xform,
     egadsNode *pnode2 = (egadsNode *) copy->blind;
     if (pnode1->filled == 0) {
       if (outLevel > 0)
-        printf(" EGADS Error: Node without data_dot (EG_copyGeometry_dot)!\n");
+        printf(" EGADS Error: Node (%lf, %lf, %lf) without data_dot (EG_copyGeometry_dot)!\n",
+               pnode1->xyz[0], pnode1->xyz[1], pnode1->xyz[2]);
       return EGADS_NODATA;
     }
     for (i = 0; i < 3; i++)
@@ -3226,12 +3295,10 @@ EG_copyGeometry_dot(const egObject *obj, /*@null@*/ const double *xform,
       }
     if (stat != EGADS_SUCCESS) {
       if (outLevel > 0) {
-        printf(" EGADS Error: Inconsistent geometry data! (EG_copyGeometry_dot)\n");
-        if (outLevel > 1) {
-          for (i = 0; i < 3; i++)
-            printf("     data[%d] %lf : %lf\n",
-                   i, pnode2->xyz[i], pnode2->xyz_dot[i].value());
-        }
+        printf(" EGADS Error: Inconsistent NODE geometry data! (EG_copyGeometry_dot)\n");
+        for (i = 0; i < 3; i++)
+          printf("     data[%d] %lf : %lf\n",
+                 i, pnode2->xyz[i], pnode2->xyz_dot[i].value());
       }
       return EGADS_GEOMERR;
     }
@@ -3287,12 +3354,10 @@ EG_copyGeometry_dot(const egObject *obj, /*@null@*/ const double *xform,
       }
     if (stat != EGADS_SUCCESS) {
       if (outLevel > 0) {
-        printf(" EGADS Error: Inconsistent t-range data! (EG_copyGeometry_dot)\n");
-        if (outLevel > 1) {
-          for (i = 0; i < 2; i++)
-            printf("     data[%d] %lf : %lf\n",
-                   i, pedge2->trange[i], pedge2->trange_dot[i].value());
-        }
+        printf(" EGADS Error: Inconsistent Edge t-range data! (EG_copyGeometry_dot)\n");
+        for (i = 0; i < 2; i++)
+          printf("     data[%d] %lf : %lf\n",
+                 i, pedge2->trange[i], pedge2->trange_dot[i].value());
       }
       return EGADS_GEOMERR;
     }
@@ -3315,7 +3380,6 @@ EG_copyGeometry_dot(const egObject *obj, /*@null@*/ const double *xform,
       if (stat != EGADS_SUCCESS) return stat;
 
       if (obj->mtype == TWONODE) {
-
         stat = EG_copyGeometry_dot(pedge1->nodes[1], xform, form, pedge2->nodes[1]);
         if (stat != EGADS_SUCCESS) return stat;
       }
@@ -3339,8 +3403,13 @@ EG_copyGeometry_dot(const egObject *obj, /*@null@*/ const double *xform,
 
     for (i = 0; i < ploop1->nedges; i++) {
       /* Edges */
-      stat = EG_copyGeometry_dot(ploop1->edges[i], xform, form, ploop2->edges[i]);
-      if (stat != EGADS_SUCCESS) return stat;
+      stat = EG_copyGeometry_dot(ploop1->edges[i], xform, form,
+                                 ploop2->edges[i]);
+      if (stat != EGADS_SUCCESS) {
+        if (outLevel > 0)
+          printf(" EGADS Error: Loop edge %d (EG_copyGeometry_dot)!\n", i+1);
+       return stat;
+      }
     }
 
     /* surface if it exists */
@@ -3796,11 +3865,16 @@ EG_copyGeometry_dot(const egObject *obj, /*@null@*/ const double *xform,
     }
   if (stat != EGADS_SUCCESS) {
     if (outLevel > 0) {
-      printf(" EGADS Error: Inconsistent geometry data! (EG_copyGeometry_dot)\n");
-      if (outLevel > 1) {
-        for (i = 0; i < len; i++)
-          printf("     data[%d] %lf : %lf\n", i, cdata[i], cdata_dot[i].value());
+      int gmtype = geom1->mtype;
+      if ((geom1->oclass == CURVE) || (geom1->oclass == PCURVE)) {
+        geomType = curvType;
+      } else {
+        geomType = surfType;
       }
+      printf(" EGADS Error: Inconsistent %s %s geometry data! (EG_copyGeometry_dot)\n",
+             classType[geom1->oclass], geomType[gmtype]);
+      for (i = 0; i < len; i++)
+        printf("     data[%d] %lf : %lf\n", i, cdata[i], cdata_dot[i].value());
     }
     return EGADS_GEOMERR;
   }
@@ -4453,6 +4527,261 @@ EG_flipGeometry(const egObject *geom, egObject **copy)
   EG_referenceObject(obj, context);
   *copy = obj;
   return EGADS_SUCCESS;
+}
+
+
+template<class T>
+int
+EG_findPlaneX(const egObject *object,
+              const double    Tol,
+              egObject **plane)
+{
+  /* modeled after BRepBuilderAPI_FindPlane::Init */
+  int      stat, outLevel, oclass, mtype, per, *iinfo=NULL, npts = 0, nbPnts;
+  egObject *context, *ref, *geom = NULL;
+  T planeData[9], *rinfo=NULL, eval[18], range[2], *points = NULL;
+  bool found = false;
+
+  *plane = NULL;
+  if (object == NULL)               return EGADS_NULLOBJ;
+  if (object->magicnumber != MAGIC) return EGADS_NOTOBJ;
+  if (object->oclass != LOOP)       return EGADS_GEOMERR;
+  if (object->blind == NULL)        return EGADS_NODATA;
+  if (EG_sameThread(object))        return EGADS_CNTXTHRD;
+  outLevel = EG_outLevel(object);
+  context  = EG_context(object);
+
+  double tolerance = Tol;
+
+  egadsLoop *ploop = (egadsLoop *) object->blind;
+
+  // compute the tolerance
+  for (int i = 0; i < ploop->nedges; i++) {
+    egadsEdge *pedge = (egadsEdge *) ploop->edges[i]->blind;
+    double t = BRep_Tool::Tolerance(pedge->edge);
+    if (t > tolerance) tolerance = t;
+  }
+
+  // square tolerance
+  double tol2 = tolerance*tolerance;
+
+  // try to find an analytical curve and calculate points
+  for (int i = 0; i < ploop->nedges; i++) {
+    egadsEdge *pedge = (egadsEdge *) ploop->edges[i]->blind;
+
+    if (pedge->curve->mtype == LINE) {
+      nbPnts = 3;
+
+    } else if ((pedge->curve->mtype == CIRCLE) ||
+               (pedge->curve->mtype == ELLIPSE) ||
+               (pedge->curve->mtype == PARABOLA) ||
+               (pedge->curve->mtype == HYPERBOLA)) {
+      nbPnts = 4;
+
+      if (!found) {
+        found = Standard_True;
+        stat = EG_getGeometry(pedge->curve, &oclass, &mtype, &ref, &iinfo, &rinfo);
+        if (stat != EGADS_SUCCESS) {
+          if (outLevel > 0)
+            printf(" EGADS Error: Edge %d getGeom = %d (EG_findPlane)!\n",
+                   i+1, stat);
+          goto cleanup;
+        }
+
+        // Use the position and axis of the curve
+        for (int j = 0; j < 9; j++) {
+          planeData[j] = rinfo[j];
+        }
+
+        EG_free(iinfo);
+        EG_free(rinfo);
+      }
+
+    } else if ((pedge->curve->mtype == BEZIER) ||
+        (pedge->curve->mtype == BSPLINE)) {
+
+      stat = EG_getGeometry(pedge->curve, &oclass, &mtype, &ref, &iinfo, &rinfo);
+      if (stat != EGADS_SUCCESS) {
+        if (outLevel > 0)
+          printf(" EGADS Error: Edge %d getGeom = %d (EG_findPlane)!\n",
+                 i+1, stat);
+        goto cleanup;
+      }
+      nbPnts = iinfo[2];
+      EG_free(iinfo);
+      EG_free(rinfo);
+
+    } else {
+      nbPnts = 10;
+    }
+
+    stat = EG_getRange(ploop->edges[i], range, &per);
+    if (stat != EGADS_SUCCESS) {
+      if (outLevel > 0)
+        printf(" EGADS Error: Edge %d getRange = %d (EG_findPlane)!\n",
+               i+1, stat);
+      goto cleanup;
+    }
+
+    points = (T*)EG_reall(points, sizeof(T)*3*(npts+nbPnts));
+
+    for (int j = 0; j < nbPnts; j++) {
+      if (j == 0) {
+        stat = EG_evaluate(ploop->edges[i], &range[0], eval);
+      }
+      else if (j == nbPnts-1) {
+        stat = EG_evaluate(ploop->edges[i], &range[1], eval);
+      }
+      else {
+        T t = range[0]+(range[1]-range[0])/(nbPnts-1)*j;
+        stat = EG_evaluate(ploop->edges[i], &t, eval);
+      }
+      if (stat != EGADS_SUCCESS) {
+        if (outLevel > 0)
+          printf(" EGADS Error: Edge %d evaluate = %d (EG_findPlane)!\n",
+                 i+1, stat);
+        goto cleanup;
+      }
+
+      points[3*(npts + j)  ] = eval[0];
+      points[3*(npts + j)+1] = eval[1];
+      points[3*(npts + j)+2] = eval[2];
+    }
+
+    npts += nbPnts;
+  }
+
+  if (!found) {
+    // try to find a plane with the points
+    if (npts > 2) {
+
+      planeData[0] = points[0];
+      planeData[1] = points[1];
+      planeData[2] = points[2];
+
+      T disMax = 0.0;
+      int p1 = 0, p2 = 0;
+      T V[3];
+      for (int i = 1; i < npts; i++) {
+        V[0] = points[3*i+0] - points[0];
+        V[1] = points[3*i+1] - points[1];
+        V[2] = points[3*i+2] - points[2];
+        T dist2 = DOT(V,V);
+        if (dist2 > disMax) {
+          disMax = dist2;
+          p1 = i;
+        }
+      }
+
+      T V2[3];
+      if (disMax > tol2) {
+        T V1[3], V3[3];
+        V1[0] = points[3*p1  ] - points[0];
+        V1[1] = points[3*p1+1] - points[1];
+        V1[2] = points[3*p1+2] - points[2];
+
+        T proMax = 0.0;
+        for (int j = 1; j < npts; j++) {
+          V2[0] = points[3*j+0] - points[0];
+          V2[1] = points[3*j+1] - points[1];
+          V2[2] = points[3*j+2] - points[2];
+
+          CROSS(V3, V1, V2);
+          T pro = DOT(V3,V3);
+          if (pro > proMax) {
+            proMax = pro;
+            p2 = j;
+          }
+        }
+
+        V2[0] = points[3*p2  ] - points[0];
+        V2[1] = points[3*p2+1] - points[1];
+        V2[2] = points[3*p2+2] - points[2];
+        T dist2 = DOT(V2,V2);
+
+        if (dist2 > tol2) {
+          egXYZ<T> v1(V1[0], V1[1], V1[2]), v2(V2[0], V2[1], V2[2]);
+
+          v1.Normalize();
+          v2.Normalize();
+
+          egDir<T> D1(v1), D2(v2);
+          if (!D1.IsParallel(D2, Precision::Angular())) {
+
+            egXYZ<T> N = v1.Crossed(v2);
+            N.Normalize();
+
+            egXYZ<T> vxdir(N);
+            egXYZ<T> vydir(N);
+
+            vxdir.CrossCross(v1, N);
+            vydir.Cross(vxdir);
+            vxdir.Normalize();
+            vydir.Normalize();
+
+            planeData[3] = vxdir.X();
+            planeData[4] = vxdir.Y();
+            planeData[5] = vxdir.Z();
+
+            planeData[6] = vydir.X();
+            planeData[7] = vydir.Y();
+            planeData[8] = vydir.Z();
+
+            found = true;
+          }
+        }
+      }
+    }
+  }
+
+  if (found) {
+    stat = EG_makeGeometry(context, SURFACE, PLANE, NULL, NULL, planeData, &geom);
+    if (stat != EGADS_SUCCESS) {
+      if (outLevel > 0)
+        printf(" EGADS Error: makeGeometry = %d (EG_findPlane)!\n",
+               stat);
+      goto cleanup;
+    }
+
+    // test if all points are on the plane
+
+    T dir[3];
+    CROSS(dir, planeData+3, planeData+6);
+    for (int i = 0; i < npts; i++) {
+      T dist = (dir[0] * (points[3*i+0] - planeData[0]) +
+                dir[1] * (points[3*i+1] - planeData[1]) +
+                dir[2] * (points[3*i+2] - planeData[2]));
+      if (dist*dist > tol2) {
+        stat = EGADS_GEOMERR;
+        if (outLevel > 0)
+          printf(" EGADS Error: Loop is not planar! (EG_findPlane)!\n");
+        goto cleanup;
+      }
+    }
+
+    *plane = geom;
+  } else {
+    if (outLevel > 0)
+      printf(" EGADS Error: Cannot make plane! (EG_findPlane)!\n");
+    stat = EGADS_GEOMERR;
+  }
+
+cleanup:
+  EG_free(points);
+
+  return stat;
+}
+
+
+int
+EG_findPlane(const egObject *object,
+             const double    Tol,
+             egObject **plane)
+{
+  if (EG_hasGeometry_dot(object) == EGADS_SUCCESS)
+    return EG_findPlaneX<SurrealS<1>>(object, Tol, plane);
+  else
+    return EG_findPlaneX<double     >(object, Tol, plane);
 }
 
 
@@ -5162,6 +5491,202 @@ EG_makeGeometry(egObject *context, int oclass, int mtype,
 
 
 int
+EG_makeGeometry_dot(egObject *context, int oclass, int mtype,
+                    /*@null@*/ egObject *refGeom, /*@null@*/ const int *ints,
+                    const double *data, const double *data_dot, egObject **geom)
+{
+  int stat;
+
+  stat = EG_makeGeometry(context, oclass, mtype, refGeom, ints, data, geom);
+  if (stat != EGADS_SUCCESS) return stat;
+
+  stat = EG_setGeometry_dot(*geom, oclass, mtype, ints, data, data_dot);
+  if (stat != EGADS_SUCCESS) return stat;
+
+  return EGADS_SUCCESS;
+}
+
+
+int
+EG_makeGeometry(egObject *context, int oclass, int mtype,
+                /*@null@*/ egObject *refGeom, /*@null@*/ const int *ints,
+                const SurrealS<1> *data_dot, egObject **geom)
+{
+  int stat, nreal=0;
+  double *rvec=NULL, *rvec_dot=NULL;
+
+  if (data_dot == NULL) return EGADS_NODATA;
+  if ((mtype == BEZIER || mtype == BSPLINE) && ints == NULL) return EGADS_NODATA;
+
+  if (oclass == PCURVE) {
+    switch (mtype) {
+
+      case LINE:
+        nreal = 4;
+        break;
+
+      case CIRCLE:
+        nreal = 7;
+        break;
+
+      case ELLIPSE:
+        nreal = 8;
+        break;
+
+      case PARABOLA:
+        nreal = 7;
+        break;
+
+      case HYPERBOLA:
+        nreal = 8;
+        break;
+
+      case TRIMMED:
+        nreal = 2;
+        break;
+
+      case BEZIER:
+        nreal = 2*ints[2];
+        if ((ints[0]&2) != 0) nreal += ints[2];
+        break;
+
+      case BSPLINE:
+        nreal = ints[3] + 2*ints[2];
+        if ((ints[0]&2) != 0) nreal += ints[2];
+        break;
+
+      case OFFSET:
+        nreal = 1;
+        break;
+    }
+
+  } else if (oclass == CURVE) {
+
+    switch (mtype) {
+
+      case LINE:
+        nreal = 6;
+        break;
+
+      case CIRCLE:
+        nreal = 10;
+        break;
+
+      case ELLIPSE:
+        nreal = 11;
+        break;
+
+      case PARABOLA:
+        nreal = 10;
+        break;
+
+      case HYPERBOLA:
+        nreal = 11;
+        break;
+
+      case TRIMMED:
+        nreal = 2;
+        break;
+
+      case BEZIER:
+        nreal = 3*ints[2];
+        if ((ints[0]&2) != 0) nreal += ints[2];
+        break;
+
+      case BSPLINE:
+        nreal = ints[3] + 3*ints[2];
+        if ((ints[0]&2) != 0) nreal += ints[2];
+        break;
+
+      case OFFSET:
+        nreal = 4;
+        break;
+    }
+
+  } else {
+
+    /* surface */
+    switch (mtype) {
+
+      case PLANE:
+        nreal = 9;
+        break;
+
+      case SPHERICAL:
+        nreal = 10;
+        break;
+
+      case CONICAL:
+        nreal = 14;
+        break;
+
+      case CYLINDRICAL:
+        nreal = 13;
+        break;
+
+      case TOROIDAL:
+        nreal = 14;
+        break;
+
+      case REVOLUTION:
+        nreal = 6;
+        break;
+
+      case EXTRUSION:
+        nreal = 3;
+        break;
+
+      case TRIMMED:
+        nreal = 4;
+        break;
+
+      case BEZIER:
+        nreal = 3*ints[2]*ints[4];
+        if ((ints[0]&2) != 0)
+          nreal += ints[2]*ints[4];
+        break;
+
+      case BSPLINE:
+        nreal = ints[3] + ints[6] +
+                3*ints[2]*ints[5];
+        if ((ints[0]&2) != 0)
+          nreal += ints[2]*ints[5];
+        break;
+
+      case OFFSET:
+        nreal = 1;
+        break;
+    }
+  }
+
+  rvec     = (double*)EG_alloc(nreal*sizeof(double));
+  rvec_dot = (double*)EG_alloc(nreal*sizeof(double));
+
+  if (rvec == NULL || rvec_dot == NULL) {
+    stat = EGADS_MALLOC;
+    goto cleanup;
+  }
+
+  for (int i = 0; i < nreal; i++) {
+    rvec[i]     = data_dot[i].value();
+    rvec_dot[i] = data_dot[i].deriv();
+  }
+
+  stat = EG_makeGeometry(context, oclass, mtype, refGeom, ints, rvec, geom);
+  if (stat != EGADS_SUCCESS) goto cleanup;
+
+  stat = EG_setGeometry_dot(*geom, oclass, mtype, ints, rvec, rvec_dot);
+  if (stat != EGADS_SUCCESS) goto cleanup;
+
+cleanup:
+  EG_free(rvec);
+  EG_free(rvec_dot);
+
+  return stat;
+}
+
+
+int
 EG_getRangX(const egObject *geom, double *range, int *periodic)
 {
   int per;
@@ -5240,7 +5765,7 @@ EG_getRangX(const egObject *geom, double *range, int *periodic)
 int
 EG_getRange(const egObject *geom, double *range, int *periodic)
 {
-  
+
   *periodic = 0;
   if  (geom == NULL)               return EGADS_NULLOBJ;
   if  (geom->magicnumber != MAGIC) return EGADS_NOTOBJ;
@@ -5460,6 +5985,7 @@ EG_setRange_dot(egObject *geom, int oclass,
   return EGADS_NOTGEOM;
 }
 
+
 int
 EG_setRange_dot(egObject *geom, int oclass,
                 const SurrealS<1> *rangeS)
@@ -5477,11 +6003,10 @@ EG_setRange_dot(egObject *geom, int oclass,
   return EG_setRange_dot(geom, oclass, range, range_dot);
 }
 
+
 int
-EG_curvature(const egObject *geom, const double *param, double *result)
+EG_curvaturX(const egObject *geom, const double *param, double *result)
 {
-  if  (geom == NULL)               return EGADS_NULLOBJ;
-  if  (geom->magicnumber != MAGIC) return EGADS_NOTOBJ;
   if ((geom->oclass != PCURVE) &&
       (geom->oclass != CURVE)  && (geom->oclass != SURFACE) &&
       (geom->oclass != EDGE)   && (geom->oclass != FACE))
@@ -5592,6 +6117,18 @@ EG_curvature(const egObject *geom, const double *param, double *result)
   }
 
   return EGADS_SUCCESS;
+}
+
+
+int
+EG_curvature(const egObject *geom, const double *param, double *result)
+{
+  if  (geom == NULL)               return EGADS_NULLOBJ;
+  if  (geom->magicnumber != MAGIC) return EGADS_NOTOBJ;
+  if ((geom->oclass == EEDGE)|| (geom->oclass == EFACE))
+    return EG_eCurvature(geom, param, result);
+  
+  return EG_curvaturX(geom, param, result);
 }
 
 
@@ -5764,7 +6301,7 @@ EG_evaluate(const egObject *geom, /*@null@*/ const double *param,
       (geom->oclass != CURVE) && (geom->oclass != SURFACE) &&
       (geom->oclass != EDGE)  && (geom->oclass != FACE))
                                    return EGADS_NOTGEOM;
-  
+
   return EG_evaluatX(geom, param, result);
 }
 
@@ -6893,7 +7430,7 @@ EG_approximate(egObject *context, int maxdeg, double tol, const int *sizes,
     pcurve->trange[1]  = hCurve->LastParameter();
     EG_referenceObject(obj, context);
 
-  } else if ((sizes[0] <= 2) || (sizes[1] < 1)) {
+  } else if ((sizes[0] < 2) || (sizes[1] < 2)) {
 
     if (outLevel > 0)
       printf(" EGADS Error: Sizes = %d %d (EG_approximate)!\n",
@@ -7206,6 +7743,12 @@ EG_otherCurve(const egObject *surface, const egObject *curve,
         newcrv = BRep_Tool::CurveOnSurface(pedge->edge, pface->face, t1, t2);
       }
       if (newcrv.IsNull()) {
+        if (curve->mtype == DEGENERATE) {
+          if (outLevel > 0)
+            printf(" EGADS Error: Cannot compute PCurve with Degenerate Edge (EG_otherCurve)!\n");
+          return EGADS_DEGEN;
+        }
+
         double toler     = BRep_Tool::Tolerance(pedge->edge);
         if (prec < toler) prec = toler;
         egObject *geom   = pedge->curve;

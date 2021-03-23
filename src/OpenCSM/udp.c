@@ -4,7 +4,7 @@
  */
 
 /*
- * Copyright (C) 2010/2020  John F. Dannenhoffer, III (Syracuse University)
+ * Copyright (C) 2010/2021  John F. Dannenhoffer, III (Syracuse University)
  *
  * This library is free software; you can redistribute it and/or
  *    modify it under the terms of the GNU Lesser General Public
@@ -50,12 +50,12 @@ typedef int (*udpI)    (int *, char ***, int **, int **, double **);
 typedef int (*udpN)    (int *);
 typedef int (*udpR)    (int);
 typedef int (*udpC)    (ego);
-typedef int (*udpS)    (char *, void *, int, char *);
+typedef int (*udpS)    (char *, void *, int, /*@null@*/char *);
 typedef int (*udpE)    (ego, ego *, int *, char **);
 typedef int (*udpG)    (ego, char *, char **, char *);
 typedef int (*udpM)    (ego, int, int *, int *, int *, double **);
 typedef int (*udpV)    (ego, char *, double *, int);
-typedef int (*udpP)    (ego, int, int, int, double *, double *);
+typedef int (*udpP)    (ego, int, int, int, /*@null@*/double *, double *);
 
 static char *udpName[ MAXPRIM];
 static DLL   udpDLL[  MAXPRIM];
@@ -97,7 +97,7 @@ static /*@null@*/ DLL udpDLopen(const char *name)
         printf(" Information: Could not find $ESP_ROOT\n");
         return NULL;
     }
-  
+
     if (name == NULL) {
         printf(" Information: Dynamic Loader invoked with NULL name!\n");
         return NULL;
@@ -132,7 +132,7 @@ static /*@null@*/ DLL udpDLopen(const char *name)
         free(full);
         return NULL;
     }
-  
+
     if (i == 1) {
         hFind = FindFirstFile(dir, &ffd);
         do {
@@ -143,9 +143,9 @@ static /*@null@*/ DLL udpDLopen(const char *name)
     } else {
         dll = LoadLibrary(full);
     }
-  
+
 #else
-  
+
     full[len+1] = 's';
     full[len+2] = 'o';
     full[len+3] =  0;
@@ -318,7 +318,7 @@ int udp_numBodys(const char primName[])
 
     i = udpDLoaded(primName);
     if (i == -1) return EGADS_NOTFOUND;
-  
+
 /*@-nullpass@*/
     return udpNumB[i](0);
 /*@+nullpass@*/
@@ -352,7 +352,7 @@ int udp_setArgument(const char primName[],
                     char       name[],
                     void       *value,
                     int        nvalue,
-                    char       message[])
+          /*@null@*/char       message[])
 {
     int i;
 

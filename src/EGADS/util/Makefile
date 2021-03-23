@@ -10,6 +10,14 @@ ODIR  = .
 TDIR  = .
 endif
 
+# allow for clang static analyzer
+ifneq (,$(findstring analyzer,$(CC)))
+DEFINE += -DDEBUG
+endif
+ifneq (,$(findstring intercept,$(CC)))
+DEFINE += -DDEBUG
+endif
+
 VPATH = $(ODIR)
 
 $(TDIR)/uvmap.exe:	$(ODIR)/uvmap.o $(LDIR)/libuvmap.a

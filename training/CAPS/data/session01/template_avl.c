@@ -55,18 +55,17 @@ static int
 setValueD(capsObj probObj,              /* (in)  problem object */
           int     type,                 /* (in)  variable type */
           char    name[],               /* (in)  variable name */
-          double  value)                /* (in)  value to set */
+          double  value,                /* (in)  value to set */
+          const char *units)            /* (in)  units of value */
 {
     int  status = CAPS_SUCCESS;
 
-    capsObj valObj;
-    const double     *data;
-    int              vlen;
-    const char       *units;
-    enum capsvType   vtype;
+    capsObj    valObj;
+    int        i;
+    int        *partial=NULL;
 
-    int       nErr;
-    capsErrs  *errors;
+    int       nErr=0;
+    capsErrs  *errors=NULL;
 
     /* --------------------------------------------------------------- */
 
@@ -76,23 +75,17 @@ setValueD(capsObj probObj,              /* (in)  problem object */
         goto cleanup;
     }
 
-    status = caps_getValue(valObj, &vtype, &vlen, (const void**)(&data), &units, &nErr, &errors);
-    if (status != CAPS_SUCCESS) {
-        printf("caps_getValue(%s) -> status=%d\n", name, status);
-        goto cleanup;
-    } else if (vtype != Double) {
-        printf("caps_setValue(%s) is a expecting a Double: vtype = %d\n", name, vtype);
-        status = CAPS_BADTYPE;
-        goto cleanup;
-    }
-
-    status = caps_setValue(valObj, 1, 1, (void *)(&value));
+    status = caps_setValue(valObj, Double, 1, 1, (void *)(&value), partial, units, &nErr, &errors);
     if (status != CAPS_SUCCESS) {
         printf("caps_setValue(%s) -> status=%d\n", name, status);
         goto cleanup;
     }
 
 cleanup:
+    for (i = 0; i < nErr; i++)
+      caps_freeError(errors+i);
+    EG_free(errors);
+
     return status;
 }
 
@@ -108,7 +101,8 @@ getValueD(capsObj   analObj,            /* (in)  analysis object */
 
     capsObj          valObj;
     const double     *data;
-    int              vlen;
+    int              nrow, ncol;
+    const int        *partial;
     const char       *units;
     enum capsvType   vtype;
 
@@ -121,11 +115,11 @@ getValueD(capsObj   analObj,            /* (in)  analysis object */
         goto cleanup;
     }
 
-    status = caps_getValue(valObj, &vtype, &vlen, (const void**)(&data), &units, nErr, errors);
+    status = caps_getValue(valObj, &vtype, &nrow, &ncol, (const void**)(&data), &partial, &units, nErr, errors);
     if (status != CAPS_SUCCESS) {
         printf("caps_getValue -> status=%d\n", status);
         goto cleanup;
-    } else if (vtype != Double || vlen != 1) {
+    } else if (vtype != Double || nrow*ncol != 1) {
         printf("caps_getValue(%s) was a expecting a single Double\n", name);
         status = CAPS_BADTYPE;
         goto cleanup;
@@ -134,6 +128,7 @@ getValueD(capsObj   analObj,            /* (in)  analysis object */
     *value = data[0];
 
 cleanup:
+
     return status;
 }
 
@@ -166,9 +161,10 @@ run_avl(char   filename[],              /* (in)  name of .csm or .cdc file */
     capsOwn          current;
 
     // CAPS return values
-    int              nErr, vlenWing=0, vlenHtail=0, ihinge, jhinge, nsurface=0, nhinge=0;
+    int              nErr, nrowWing=0, ncolWing=0, nrowHtail=0, ncolHtail=0, ihinge, jhinge, nsurface=0, nhinge=0;
     double           *wHinge, *htHinge, temp;
     char             *name, *stringVal=NULL, workDir[PATH_MAX], currentPath[PATH_MAX], tempStr[1024];
+    const int        *partial;
     const char       *units;
     enum capsvType   vtype;
     enum capsoType   type;
@@ -210,10 +206,10 @@ run_avl(char   filename[],              /* (in)  name of .csm or .cdc file */
     /* Set geometry variables to enable Avl mode */
     printf("\n==> Setting Build Variables and Geometry Values...\n");
 
-    status = setValueD(myGeometry, GEOMETRYIN, "VIEW:Concept", 0);
+    status = setValueD(myGeometry, GEOMETRYIN, "VIEW:Concept", 0, NULL);
     if (status != CAPS_SUCCESS) {printf("setValueD(VIEW:Concept) -> status=%d\n", status); goto cleanup;}
 
-    status = setValueD(myGeometry, GEOMETRYIN, "VIEW:VLM", 1);
+    status = setValueD(myGeometry, GEOMETRYIN, "VIEW:VLM", 1, NULL);
     if (status != CAPS_SUCCESS) {printf("setValueD(VIEW:VLM) -> status=%d\n", status); goto cleanup; }
 
     /* Set other geometry specific variables */
@@ -222,17 +218,17 @@ run_avl(char   filename[],              /* (in)  name of .csm or .cdc file */
 
     /* Load AVL AIM */
     printf("\n==> Loading AVL aim...\n");
-    status = caps_load(myGeometry, "avlAIM", workDir, NULL, NULL, 0, NULL, &avlObj);
-    if (status != CAPS_SUCCESS) {printf("caps_load -> status=%d\n", status); goto cleanup;}
+    status = caps_makeAnalysis(myGeometry, "avlAIM", workDir, NULL, NULL, 0, NULL, &avlObj);
+    if (status != CAPS_SUCCESS) {printf("caps_makeAnalysis -> status=%d\n", status); goto cleanup;}
 
     /* Set analysis specific variables */
-    status = setValueD(avlObj, ANALYSISIN, "Mach", 0.5);
+    status = setValueD(avlObj, ANALYSISIN, "Mach", 0.5, NULL);
     if (status != CAPS_SUCCESS) {printf("setValueD(Mach) -> status=%d\n", status); goto cleanup;}
 
-    status = setValueD(avlObj, ANALYSISIN, "Alpha", 10.0);
+    status = setValueD(avlObj, ANALYSISIN, "Alpha", 10.0, "degree");
     if (status != CAPS_SUCCESS) {printf("setValueD(Alpha) -> status=%d\n", status); goto cleanup;}
 
-    status = setValueD(avlObj, ANALYSISIN, "Beta", 0.0);
+    status = setValueD(avlObj, ANALYSISIN, "Beta", 0.0, "degree");
     if (status != CAPS_SUCCESS) {printf("setValueD(Beta) -> status=%d\n", status); goto cleanup;}
 
     /* Tuple that will accumulate AVL_Surface info */
@@ -259,7 +255,7 @@ run_avl(char   filename[],              /* (in)  name of .csm or .cdc file */
     status = caps_childByName(avlObj, VALUE, ANALYSISIN, "AVL_Surface", &valObj);
     if (status != CAPS_SUCCESS) {printf("caps_childByName -> status=%d\n", status); goto cleanup;}
 
-    status = caps_setValue(valObj, nsurface, 1, (void **) surfaceTuple);
+    status = caps_setValue(valObj, Tuple, nsurface, 1, (void **) surfaceTuple, NULL, NULL, &nErr, &errors);
     if (status != CAPS_SUCCESS) {printf("caps_setValue(AVL_Surface) -> status=%d\n", status); goto cleanup;}
 
     /* Set up control surface deflections */
@@ -267,32 +263,32 @@ run_avl(char   filename[],              /* (in)  name of .csm or .cdc file */
     if (status != CAPS_SUCCESS) {printf("caps_childByName(wing:hinge) -> status=%d\n", status);}
 
     if (status == CAPS_SUCCESS) {
-        status = caps_getValue(valObj, &vtype, &vlenWing, (const void**)(&wHinge), &units, &nErr, &errors);
+        status = caps_getValue(valObj, &vtype, &nrowWing, &ncolWing, (const void**)(&wHinge), &partial, &units, &nErr, &errors);
         if (status != CAPS_SUCCESS) {printf("caps_getValue(wing:hinge) -> status=%d\n", status); goto cleanup;}
 
-        if (vtype != Double || vlenWing%9 != 0) {
+        if (vtype != Double || nrowWing*ncolWing%9 != 0) {
             printf("vlen must be multiple of 9 Doubles\n");
             status = CAPS_BADTYPE;
             goto cleanup;
         }
 
-        nhinge += vlenWing / 9;
+        nhinge += nrowWing*ncolWing / 9;
     }
 
     status = caps_childByName(myGeometry, VALUE, GEOMETRYIN, "htail:hinge", &valObj);
     if (status != CAPS_SUCCESS) {printf("caps_childByName(htail:hinge) -> status=%d\n", status);}
 
     if (status == CAPS_SUCCESS) {
-        status = caps_getValue(valObj, &vtype, &vlenHtail, (const void**)(&htHinge), &units, &nErr, &errors);
+        status = caps_getValue(valObj, &vtype, &nrowHtail, &ncolHtail, (const void**)(&htHinge), &partial, &units, &nErr, &errors);
         if (status != CAPS_SUCCESS) {printf("caps_getValue(hting:hinge) -> status=%d\n", status); goto cleanup;}
 
-        if (vtype != Double || vlenHtail%9 != 0) {
+        if (vtype != Double || nrowHtail*ncolHtail%9 != 0) {
             printf("vlen must be multiple of 9 Doubles\n");
             status = CAPS_BADTYPE;
             goto cleanup;
         }
 
-        nhinge += vlenHtail / 9;
+        nhinge += nrowHtail*ncolHtail / 9;
     }
 
     if (nhinge > 0) {
@@ -305,7 +301,7 @@ run_avl(char   filename[],              /* (in)  name of .csm or .cdc file */
         if (hingeTuple == NULL) {status = CAPS_NULLVALUE; goto cleanup;}
 
         /* make entry for each wing control surface */
-        for (jhinge = 0; jhinge < vlenWing/9; jhinge++) {
+        for (jhinge = 0; jhinge < nrowWing*ncolWing/9; jhinge++) {
             snprintf(tempStr, 1023, "WingHinge%d", jhinge+1);
             hingeTuple[ihinge].name  = EG_strdup(tempStr);
 
@@ -315,7 +311,7 @@ run_avl(char   filename[],              /* (in)  name of .csm or .cdc file */
             ihinge++;
         }
 
-        for (jhinge = 0; jhinge < vlenHtail/9; jhinge++) {
+        for (jhinge = 0; jhinge < nrowHtail*ncolHtail/9; jhinge++) {
             snprintf(tempStr, 1023, "HtailHinge%d", jhinge+1);
             hingeTuple[ihinge].name  = EG_strdup(tempStr);
 
@@ -325,7 +321,7 @@ run_avl(char   filename[],              /* (in)  name of .csm or .cdc file */
             ihinge++;
         }
 
-        status = caps_setValue(valObj, nhinge, 1, (void **)hingeTuple);
+        status = caps_setValue(valObj, Tuple, nhinge, 1, (void **)hingeTuple, NULL, NULL, &nErr, &errors);
         if (status != CAPS_SUCCESS) {printf("caps_setValue(AVL_Control) -> status=%d\n", status); goto cleanup;}
     }
 

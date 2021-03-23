@@ -7,6 +7,7 @@ ocsmCopy
 ocsmDelBrch
 ocsmDelPmtr
 ocsmEvalExpr
+ocsmFindEnt
 ocsmFindPmtr
 ocsmFree
 ocsmGetArg
@@ -16,7 +17,7 @@ ocsmGetBody
 ocsmGetBrch
 ocsmGetCode
 ocsmGetCsys
-ocsmGetEnt
+ocsmGetEgo
 ocsmGetFilelist
 ocsmGetName
 ocsmGetNorm
@@ -33,6 +34,7 @@ ocsmGetXYZ
 ocsmInfo
 ocsmLoad
 ocsmLoadDict
+ocsmMakeEBody
 ocsmNewBrch
 ocsmNewPmtr
 ocsmPerturb
@@ -51,6 +53,7 @@ ocsmSaveDespmtrs
 ocsmSaveSketch
 ocsmSetArg
 ocsmSetAttr
+ocsmSetBnds
 ocsmSetBrch
 ocsmSetCsys
 ocsmSetDtime

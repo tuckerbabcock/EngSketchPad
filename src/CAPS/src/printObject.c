@@ -3,7 +3,7 @@
  *
  *             Object Output Utility
  *
- *      Copyright 2014-2020, Massachusetts Institute of Technology
+ *      Copyright 2014-2021, Massachusetts Institute of Technology
  *      Licensed under The GNU Lesser General Public License, version 2.1
  *      See http://www.opensource.org/licenses/lgpl-2.1.php
  *
@@ -18,16 +18,18 @@ extern void printObjects(capsObj object, int indent);
 static int
 printValues(capsObj object, int indent)
 {
-  int            i, j, status, len, nerr, dim, nrow, ncol, range, rank, *ints;
+  int            i, j, status, len, nerr, dim, nrow, ncol, range, rank, pmtr;
+  int            *ints;
   char           *str, *pname, *pID, *uID, **dotnames;
   const char     *units;
+  const int      *partial;
   double         *reals;
   const void     *data;
   short          datetime[6];
   CAPSLONG       sNum;
   enum capsoType otype;
   enum capssType stype;
-  enum capsvType type;
+  enum capsvType vtype;
   enum capsFixed lfixed, sfixed;
   enum capsNull  nval;
   capsTuple      *tuple;
@@ -44,18 +46,18 @@ printValues(capsObj object, int indent)
     printf(" value = UNITITIALIZED\n");
     return CAPS_SUCCESS;
   }
-  status = caps_getValue(object, &type, &len, &data, &units, &nerr, &errors);
+  status = caps_getValue(object, &vtype, &nrow, &ncol, &data, &partial, &units,
+                         &nerr, &errors);
   if (status != CAPS_SUCCESS) {
     if (errors != NULL) caps_freeError(errors);
     return status;
   }
-  status = caps_getValueShape(object, &dim, &lfixed, &sfixed, &nval,
-                              &nrow, &ncol);
+  status = caps_getValueProps(object, &dim, &pmtr, &lfixed, &sfixed, &nval);
   if (status != CAPS_SUCCESS) {
     if (errors != NULL) caps_freeError(errors);
     return status;
   }
-  
+  len = nrow*ncol;
   range = 0;
   for (i = 0; i < indent; i++) printf(" ");
   if (len == 1) {
@@ -66,40 +68,46 @@ printValues(capsObj object, int indent)
   if (data == NULL) {
     printf(" NULL with len = %d", len);
   } else {
-    if ((type == Boolean) || (type == Integer)) {
+    if ((vtype == Boolean) || (vtype == Integer)) {
       ints = (int *) data;
       for (i = 0; i < len; i++) printf(" %d", ints[i]);
-      if (type == Integer) {
+      if (vtype == Integer) {
         data   = NULL;
-        status = caps_getLimits(object, &data);
+        status = caps_getLimits(object, &vtype, &data, &units);
         if ((data != NULL) && (status == CAPS_SUCCESS)) range = 1;
       }
-    } else if ((type == Double) || (type == DoubleDot)) {
+    } else if ((vtype == Double) || (vtype == DoubleDot)) {
       reals = (double *) data;
       for (i = 0; i < len; i++) printf(" %lf", reals[i]);
       data   = NULL;
-      status = caps_getLimits(object, &data);
+      status = caps_getLimits(object, &vtype, &data, &units);
       if ((data != NULL) && (status == CAPS_SUCCESS)) range = 2;
-    } else if (type == String) {
+    } else if (vtype == String) {
       str = (char *) data;
       printf(" %s", str);
-    } else if (type == Tuple) {
+    } else if (vtype == Tuple) {
       printf("\n");
       tuple = (capsTuple *) data;
       for (j = 0; j < len; j++) {
         for (i = 0; i < indent+2; i++) printf(" ");
         printf("%d: %s -> %s\n", j+1, tuple[j].name, tuple[j].value);
       }
-    } else if (type == Value) {
+    } else if (vtype == Value) {
       objs = (capsObj *) data;
       for (i = 0; i < len; i++) printObjects(objs[i], indent+2);
+    } else if (vtype == Pointer) {
+#if defined(WIN32) && defined(_OCC64)
+      printf(" %llx", (long long) data);
+#else
+      printf(" %lx", (long) data);
+#endif
     } else {
       return CAPS_BADTYPE;
     }
   }
-  if (type == Tuple) return CAPS_SUCCESS;
+  if (vtype == Tuple) return CAPS_SUCCESS;
   
-  if (type != Value) printf(" %s", units);
+  if (vtype != Value) printf(" %s", units);
   if (range == 1) {
     ints = (int *) data;
     if (ints  != NULL) printf(" lims=[%d-%d]", ints[0], ints[1]);
@@ -108,13 +116,13 @@ printValues(capsObj object, int indent)
     if (reals != NULL) printf(" lims=[%lf-%lf]", reals[0], reals[1]);
   }
   printf("\n");
-  if (type != DoubleDot) return CAPS_SUCCESS;
+  if (vtype != DoubleDot) return CAPS_SUCCESS;
 
   status = caps_hasDot(object, &dim, &dotnames);
   if (status != CAPS_SUCCESS) return status;
   
   for (i = 0; i < dim; i++) {
-    status = caps_getDot(object, dotnames[i], &len, &rank, &reals);
+    status = caps_getDot(object, dotnames[i], &len, &rank, &reals, &nerr, &errors);
     if (status != CAPS_SUCCESS) continue;
     for (j = 0; j < indent; j++) printf(" ");
     printf(" dot %2d: %s  rank = %d\n  ", i+1, dotnames[i], rank);
@@ -135,13 +143,14 @@ printObjects(capsObj object, int indent)
 {
   int            i, j, status, nAttr, nBody, nParam, nGeomIn, nGeomOut, nBranch;
   int            nAnalysis, nBound, nAnalIn, nAnalOut, nConnect, nUnConnect;
-  int            nDataSet, npts, rank;
+  int            nDataSet, npts, rank, nErr;
   char           *name, *units, *pname, *pID, *userID, *oname;
   double         *data;
   short          datetime[6];
   CAPSLONG       sn, lsn;
   capsObj        link, parent, obj, attr;
   capsOwn        own;
+  capsErrs       *errors;
   enum capsoType type, otype;
   enum capssType subtype, osubtype;
   static char    *oType[9]  = { "BODIES", "ATTRIBUTES", "UNUSED", "PROBLEM",
@@ -163,7 +172,7 @@ printObjects(capsObj object, int indent)
 #endif
     return;
   }
-  status = caps_size(object, ATTRIBUTES, NONE, &nAttr);
+  status = caps_size(object, ATTRIBUTES, NONE, &nAttr, &nErr, &errors);
   if (status != CAPS_SUCCESS) {
     printf(" CAPS Error: Object %s returns %d from caps_size(Attribute)!\n",
            name, status);
@@ -209,43 +218,43 @@ printObjects(capsObj object, int indent)
   }
   
   if (type == PROBLEM) {
-    status = caps_size(object, BODIES, NONE, &nBody);
+    status = caps_size(object, BODIES, NONE, &nBody, &nErr, &errors);
     if (status != CAPS_SUCCESS) {
       printf(" CAPS Error: Object %s returns %d from caps_size(Body)!\n",
              name, status);
       return;
     }
-    status = caps_size(object, VALUE, PARAMETER, &nParam);
+    status = caps_size(object, VALUE, PARAMETER, &nParam, &nErr, &errors);
     if (status != CAPS_SUCCESS) {
       printf(" CAPS Error: Object %s returns %d from caps_size(Parameter)!\n",
              name, status);
       return;
     }
-    status = caps_size(object, VALUE, GEOMETRYIN, &nGeomIn);
+    status = caps_size(object, VALUE, GEOMETRYIN, &nGeomIn, &nErr, &errors);
     if (status != CAPS_SUCCESS) {
       printf(" CAPS Error: Object %s returns %d from caps_size(GeomIn)!\n",
              name, status);
       return;
     }
-    status = caps_size(object, VALUE, GEOMETRYOUT, &nGeomOut);
+    status = caps_size(object, VALUE, GEOMETRYOUT, &nGeomOut, &nErr, &errors);
     if (status != CAPS_SUCCESS) {
       printf(" CAPS Error: Object %s returns %d from caps_size(GeomOut)!\n",
              name, status);
       return;
     }
-    status = caps_size(object, VALUE, BRANCH, &nBranch);
+    status = caps_size(object, VALUE, BRANCH, &nBranch, &nErr, &errors);
     if (status != CAPS_SUCCESS) {
       printf(" CAPS Error: Object %s returns %d from caps_size(Branch)!\n",
              name, status);
       return;
     }
-    status = caps_size(object, ANALYSIS, NONE, &nAnalysis);
+    status = caps_size(object, ANALYSIS, NONE, &nAnalysis, &nErr, &errors);
     if (status != CAPS_SUCCESS) {
       printf(" CAPS Error: Object %s returns %d from caps_size(Analysis)!\n",
              name, status);
       return;
     }
-    status = caps_size(object, BOUND, NONE, &nBound);
+    status = caps_size(object, BOUND, NONE, &nBound, &nErr, &errors);
     if (status != CAPS_SUCCESS) {
       printf(" CAPS Error: Object %s returns %d from caps_size(Bound)!\n",
              name, status);
@@ -346,13 +355,13 @@ printObjects(capsObj object, int indent)
     }
     
   } else if (type == ANALYSIS) {
-    status = caps_size(object, VALUE, ANALYSISIN, &nAnalIn);
+    status = caps_size(object, VALUE, ANALYSISIN, &nAnalIn, &nErr, &errors);
     if (status != CAPS_SUCCESS) {
       printf(" CAPS Error: Object %s returns %d from caps_size(AnalysisIn)!\n",
              name, status);
       return;
     }
-    status = caps_size(object, VALUE, ANALYSISOUT, &nAnalOut);
+    status = caps_size(object, VALUE, ANALYSISOUT, &nAnalOut, &nErr, &errors);
     if (status != CAPS_SUCCESS) {
       printf(" CAPS Error: Object %s returns %d from caps_size(AnalysisIn)!\n",
              name, status);
@@ -412,13 +421,13 @@ printObjects(capsObj object, int indent)
     }
     
   } else if (type == BOUND) {
-    status = caps_size(object, VERTEXSET, CONNECTED, &nConnect);
+    status = caps_size(object, VERTEXSET, CONNECTED, &nConnect, &nErr, &errors);
     if (status != CAPS_SUCCESS) {
       printf(" CAPS Error: Object %s returns %d from caps_size(VSconnected)!\n",
              name, status);
       return;
     }
-    status = caps_size(object, VERTEXSET, UNCONNECTED, &nUnConnect);
+    status = caps_size(object, VERTEXSET, UNCONNECTED, &nUnConnect, &nErr, &errors);
     if (status != CAPS_SUCCESS) {
       printf(" CAPS Error: Object %s returns %d from caps_size(VSconnected)!\n",
              name, status);
@@ -454,7 +463,7 @@ printObjects(capsObj object, int indent)
     }
   
   } else if (type == VERTEXSET) {
-    status = caps_size(object, DATASET, NONE, &nDataSet);
+    status = caps_size(object, DATASET, NONE, &nDataSet, &nErr, &errors);
     if (status != CAPS_SUCCESS) {
       printf(" CAPS Error: Object %s returns %d from caps_size(DataSet)!\n",
              name, status);
@@ -488,4 +497,6 @@ printObjects(capsObj object, int indent)
     
   }
   
+  for (i = 0; i < nErr; i++)
+    caps_freeError(errors+i);
 }

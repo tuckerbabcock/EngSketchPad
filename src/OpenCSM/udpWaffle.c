@@ -10,7 +10,7 @@
  */
 
 /*
- * Copyright (C) 2011/2020  John F. Dannenhoffer, III (Syracuse University)
+ * Copyright (C) 2011/2021  John F. Dannenhoffer, III (Syracuse University)
  *
  * This library is free software; you can redistribute it and/or
  *    modify it under the terms of the GNU Lesser General Public
@@ -85,6 +85,8 @@ static int     plotWaffle(int npnt, pnt_T pnt[], int nseg, seg_T seg[]);
 
 #define           MAX(A,B)        (((A) < (B)) ? (B) : (A))
 
+static void *realloc_temp=NULL;              /* used by RALLOC macro */
+
 
 /*
  ************************************************************************
@@ -107,12 +109,13 @@ udpExecute(ego  context,                /* (in)  EGADS context */
     double  xyz[20], data[6], xyz_out[20], D, s, t, xx, yy, frac, dist;
     pnt_T   *pnt=NULL;
     seg_T   *seg=NULL;
-    void    *temp;
-    char    *message;
+    char    *message=NULL;
     ego     *enodes=NULL, *eedges=NULL, *efaces=NULL, ecurve, echild[4], eloop, eshell;
 
     double  EPS06 = 1.0e-6;
 
+    ROUTINE(udpExecute);
+    
 #ifdef DEBUG
     printf("udpExecute(context=%llx)\n", (long long)context);
     printf("depth(   0) = %f\n", DEPTH(     0));
@@ -130,7 +133,7 @@ udpExecute(ego  context,                /* (in)  EGADS context */
     *nMesh  = 0;
     *string = NULL;
 
-    message = (char *) EG_alloc(100*sizeof(char));
+    MALLOC(message, char, 100);
     message[0] = '\0';
 
     /* check arguments */
@@ -162,10 +165,7 @@ udpExecute(ego  context,                /* (in)  EGADS context */
 
     /* cache copy of arguments for future use */
     status = cacheUdp();
-    if (status < 0) {
-        printf(" udpExecute: problem caching arguments\n");
-        goto cleanup;
-    }
+    CHECK_STATUS(cacheUdp);
 
 #ifdef DEBUG
     printf("depth(   %d) = %f\n", numUdp, DEPTH(   numUdp));
@@ -181,16 +181,19 @@ udpExecute(ego  context,                /* (in)  EGADS context */
     /* if filename is given, process the file */
     if (STRLEN(FILENAME(numUdp)) > 0) {
         status = processFile(context, message, &npnt, &pnt, &nseg, &seg);
-        if (status != EGADS_SUCCESS) goto cleanup;
+        CHECK_STATUS(processFile);
 
     /* otherwise, process the Segments */
     } else {
         status = processSegments(&npnt, &pnt, &nseg, &seg);
-        if (status != EGADS_SUCCESS) goto cleanup;
+        CHECK_STATUS(processSegments);
     }
 
     mpnt = npnt;
     mseg = nseg;
+
+    if (pnt == NULL) goto cleanup;      // needed for splint
+    if (seg == NULL) goto cleanup;      // needed for splint
 
     /* check for intersections of Lines only */
     for (jseg = 0; jseg < nseg; jseg++) {
@@ -227,13 +230,7 @@ udpExecute(ego  context,                /* (in)  EGADS context */
                         if (npnt+1 >= mpnt) {
                             mpnt += 10;
 
-                            temp = EG_reall(pnt, mpnt*sizeof(pnt_T));
-                            if (temp != NULL) {
-                                pnt = (pnt_T *) temp;
-                            } else {
-                                status = EGADS_MALLOC;
-                                goto cleanup;
-                            }
+                            RALLOC(pnt, pnt_T, mpnt);
                         }
 
                         ipnt = npnt;
@@ -249,13 +246,7 @@ udpExecute(ego  context,                /* (in)  EGADS context */
                         if (nseg+2 >= mseg) {
                             mseg += 10;
 
-                            temp = EG_reall(seg, mseg*sizeof(seg_T));
-                            if (temp != NULL) {
-                                seg = (seg_T *) temp;
-                            } else {
-                                status = EGADS_MALLOC;
-                                goto cleanup;
-                            }
+                            RALLOC(seg, seg_T, mseg);
                         }
                     }
 
@@ -268,25 +259,20 @@ udpExecute(ego  context,                /* (in)  EGADS context */
                         seg[nseg].name[0] = '\0';
 
                         seg[nseg].nattr = seg[iseg].nattr;
-                        if (seg[nseg].nattr == 0) {
-                            seg[nseg].aname = NULL;
-                            seg[nseg].avalu = NULL;
-                        } else {
-                            seg[nseg].aname = (char **) EG_alloc(seg[nseg].nattr*sizeof(char *));
-                            seg[nseg].avalu = (char **) EG_alloc(seg[nseg].nattr*sizeof(char *));
-                            if (seg[nseg].aname == NULL || seg[nseg].avalu == NULL) {
-                                status = EGADS_MALLOC;
-                                goto cleanup;
-                            }
+                        seg[nseg].aname = NULL;
+                        seg[nseg].avalu = NULL;
+                        
+                        if (seg[nseg].nattr > 0) {
+                            MALLOC(seg[nseg].aname, char*, seg[nseg].nattr);
+                            MALLOC(seg[nseg].avalu, char*, seg[nseg].nattr);
                         }
 
                         for (iattr = 0; iattr < seg[nseg].nattr; iattr++) {
-                            seg[nseg].aname[iattr] = (char *) EG_alloc(80*sizeof(char));
-                            seg[nseg].avalu[iattr] = (char *) EG_alloc(80*sizeof(char));
-                            if (seg[nseg].aname[iattr] == NULL || seg[nseg].avalu[iattr] == NULL) {
-                                status = EGADS_MALLOC;
-                                goto cleanup;
-                            }
+                            seg[nseg].aname[iattr] = NULL;
+                            seg[nseg].avalu[iattr] = NULL;
+                            
+                            MALLOC(seg[nseg].aname[iattr], char, 80);
+                            MALLOC(seg[nseg].avalu[iattr], char, 80);
 
                             strncpy(seg[nseg].aname[iattr], seg[iseg].aname[iattr], 80);
                             strncpy(seg[nseg].avalu[iattr], seg[iseg].avalu[iattr], 80);
@@ -306,25 +292,20 @@ udpExecute(ego  context,                /* (in)  EGADS context */
                         seg[nseg].name[0] = '\0';
 
                         seg[nseg].nattr = seg[jseg].nattr;
-                        if (seg[nseg].nattr == 0) {
-                            seg[nseg].aname = NULL;
-                            seg[nseg].avalu = NULL;
-                        } else {
-                            seg[nseg].aname = (char **) EG_alloc(seg[nseg].nattr*sizeof(char *));
-                            seg[nseg].avalu = (char **) EG_alloc(seg[nseg].nattr*sizeof(char *));
-                            if (seg[nseg].aname == NULL || seg[nseg].avalu == NULL) {
-                                status = EGADS_MALLOC;
-                                goto cleanup;
-                            }
+                        seg[nseg].aname = NULL;
+                        seg[nseg].avalu = NULL;
+                        
+                        if (seg[nseg].nattr > 0) {
+                            MALLOC(seg[nseg].aname, char*, seg[nseg].nattr);
+                            MALLOC(seg[nseg].avalu, char*, seg[nseg].nattr);
                         }
 
                         for (iattr = 0; iattr < seg[nseg].nattr; iattr++) {
-                            seg[nseg].aname[iattr] = (char *) EG_alloc(80*sizeof(char));
-                            seg[nseg].avalu[iattr] = (char *) EG_alloc(80*sizeof(char));
-                            if (seg[nseg].aname[iattr] == NULL || seg[nseg].avalu[iattr] == NULL) {
-                                status = EGADS_MALLOC;
-                                goto cleanup;
-                            }
+                            seg[nseg].aname[iattr] = NULL;
+                            seg[nseg].avalu[iattr] = NULL;
+                            
+                            MALLOC(seg[nseg].aname[iattr], char, 80);
+                            MALLOC(seg[nseg].avalu[iattr], char, 80);
 
                             strncpy(seg[nseg].aname[iattr], seg[jseg].aname[iattr], 80);
                             strncpy(seg[nseg].avalu[iattr], seg[jseg].avalu[iattr], 80);
@@ -370,13 +351,7 @@ udpExecute(ego  context,                /* (in)  EGADS context */
                 if (nseg+1 >= mseg) {
                     mseg += 10;
 
-                    temp = EG_reall(seg, mseg*sizeof(seg_T));
-                    if (temp != NULL) {
-                        seg = (seg_T *) temp;
-                    } else {
-                        status = EGADS_MALLOC;
-                        goto cleanup;
-                    }
+                    RALLOC(seg, seg_T, mseg);
                 }
 
                 /* make second half */
@@ -388,25 +363,17 @@ udpExecute(ego  context,                /* (in)  EGADS context */
                 seg[nseg].name[0] = '\0';
 
                 seg[nseg].nattr = seg[iseg].nattr;
-                if (seg[nseg].nattr == 0) {
-                    seg[nseg].aname = NULL;
-                    seg[nseg].avalu = NULL;
-                } else {
-                    seg[nseg].aname = (char **) EG_alloc(seg[nseg].nattr*sizeof(char *));
-                    seg[nseg].avalu = (char **) EG_alloc(seg[nseg].nattr*sizeof(char *));
-                    if (seg[nseg].aname == NULL || seg[nseg].avalu == NULL) {
-                        status = EGADS_MALLOC;
-                        goto cleanup;
-                    }
+                seg[nseg].aname = NULL;
+                seg[nseg].avalu = NULL;
+                
+                if (seg[nseg].nattr > 0) {
+                    MALLOC(seg[nseg].aname, char*, seg[nseg].nattr);
+                    MALLOC(seg[nseg].avalu, char*, seg[nseg].nattr);
                 }
 
                 for (iattr = 0; iattr < seg[nseg].nattr; iattr++) {
-                    seg[nseg].aname[iattr] = (char *) EG_alloc(80*sizeof(char));
-                    seg[nseg].avalu[iattr] = (char *) EG_alloc(80*sizeof(char));
-                    if (seg[nseg].aname[iattr] == NULL || seg[nseg].avalu[iattr] == NULL) {
-                                status = EGADS_MALLOC;
-                                goto cleanup;
-                    }
+                    MALLOC(seg[nseg].aname[iattr], char, 80);
+                    MALLOC(seg[nseg].avalu[iattr], char, 80);
 
                     strncpy(seg[nseg].aname[iattr], seg[iseg].aname[iattr], 80);
                     strncpy(seg[nseg].avalu[iattr], seg[iseg].avalu[iattr], 80);
@@ -426,8 +393,8 @@ udpExecute(ego  context,                /* (in)  EGADS context */
     /* remove the "cline" Segments */
     for (iseg = 0; iseg < nseg; iseg++) {
         if (seg[iseg].type == 0) {
-            if (seg[iseg].aname != NULL) EG_free(seg[iseg].aname);
-            if (seg[iseg].avalu != NULL) EG_free(seg[iseg].avalu);
+            FREE(seg[iseg].aname);
+            FREE(seg[iseg].avalu);
 
             for (jseg = iseg; jseg < nseg-1; jseg++) {
                 seg[jseg].type  = seg[jseg+1].type;
@@ -492,14 +459,9 @@ udpExecute(ego  context,                /* (in)  EGADS context */
     }
 
     /* allocate space for the egos */
-    enodes = (ego *) EG_alloc((2*npnt       )*sizeof(ego));
-    eedges = (ego *) EG_alloc((  npnt+2*nseg)*sizeof(ego));
-    efaces = (ego *) EG_alloc((         nseg)*sizeof(ego));
-
-    if (enodes == NULL || eedges == NULL || efaces == NULL) {
-        status = EGADS_MALLOC;
-        goto cleanup;
-    }
+    MALLOC(enodes, ego, (2*npnt       ));
+    MALLOC(eedges, ego, (  npnt+2*nseg));
+    MALLOC(efaces, ego, (         nseg));
 
     /* set up enodes at Z=0 and at Z=Depth */
     nnode = 0;
@@ -511,7 +473,7 @@ udpExecute(ego  context,                /* (in)  EGADS context */
 
         status = EG_makeTopology(context, NULL, NODE, 0,
                                  xyz, 0, NULL, NULL, &(enodes[nnode]));
-        if (status != EGADS_SUCCESS) goto cleanup;
+        CHECK_STATUS(EG_makeTopology);
 
         nnode++;
     }
@@ -523,7 +485,7 @@ udpExecute(ego  context,                /* (in)  EGADS context */
 
         status = EG_makeTopology(context, NULL, NODE, 0, xyz, 0,
                                  NULL, NULL, &(enodes[nnode]));
-        if (status != EGADS_SUCCESS) goto cleanup;
+        CHECK_STATUS(EG_makeTopology);
 
         nnode++;
     }
@@ -541,24 +503,24 @@ udpExecute(ego  context,                /* (in)  EGADS context */
 
         status = EG_makeGeometry(context, CURVE, LINE, NULL,
                                  NULL, xyz, &ecurve);
-        if (status != EGADS_SUCCESS) goto cleanup;
+        CHECK_STATUS(EG_makeGeometry);
 
         echild[0] = enodes[seg[iseg].ibeg];
         echild[1] = enodes[seg[iseg].iend];
 
         status = EG_invEvaluate(ecurve, xyz, &(data[0]), xyz_out);
-        if (status != EGADS_SUCCESS) goto cleanup;
+        CHECK_STATUS(EG_invEvaluate);
 
         xyz[0] = pnt[seg[iseg].iend].x;
         xyz[1] = pnt[seg[iseg].iend].y;
         xyz[2] = 0;
 
         status = EG_invEvaluate(ecurve, xyz, &(data[1]), xyz_out);
-        if (status != EGADS_SUCCESS) goto cleanup;
+        CHECK_STATUS(EG_invEvaluate);
 
         status = EG_makeTopology(context, ecurve, EDGE, TWONODE,
                                  data, 2, echild, NULL, &(eedges[jedge]));
-        if (status != EGADS_SUCCESS) goto cleanup;
+        CHECK_STATUS(EG_makeTopology);
 
         jedge++;
     }
@@ -574,24 +536,24 @@ udpExecute(ego  context,                /* (in)  EGADS context */
 
         status = EG_makeGeometry(context, CURVE, LINE, NULL,
                                  NULL, xyz, &ecurve);
-        if (status != EGADS_SUCCESS) goto cleanup;
+        CHECK_STATUS(EG_makeGeometry);
 
         echild[0] = enodes[seg[iseg].ibeg+nnode/2];
         echild[1] = enodes[seg[iseg].iend+nnode/2];
 
         status = EG_invEvaluate(ecurve, xyz, &(data[0]), xyz_out);
-        if (status != EGADS_SUCCESS) goto cleanup;
+        CHECK_STATUS(EG_invEvaluate);
 
         xyz[0] = pnt[seg[iseg].iend].x;
         xyz[1] = pnt[seg[iseg].iend].y;
         xyz[2] = DEPTH(0);
 
         status = EG_invEvaluate(ecurve, xyz, &(data[1]), xyz_out);
-        if (status != EGADS_SUCCESS) goto cleanup;
+        CHECK_STATUS(EG_invEvaluate);
 
         status = EG_makeTopology(context, ecurve, EDGE, TWONODE,
                                  data, 2, echild, NULL, &(eedges[jedge]));
-        if (status != EGADS_SUCCESS) goto cleanup;
+        CHECK_STATUS(EG_makeTopology);
 
         jedge++;
     }
@@ -607,24 +569,24 @@ udpExecute(ego  context,                /* (in)  EGADS context */
 
         status = EG_makeGeometry(context, CURVE, LINE, NULL,
                                  NULL, xyz, &ecurve);
-        if (status != EGADS_SUCCESS) goto cleanup;
+        CHECK_STATUS(EG_makeGeometry);
 
         echild[0] = enodes[inode        ];
         echild[1] = enodes[inode+nnode/2];
 
         status = EG_invEvaluate(ecurve, xyz, &(data[0]), xyz_out);
-        if (status != EGADS_SUCCESS) goto cleanup;
+        CHECK_STATUS(EG_invEvaluate);
 
         xyz[0] = pnt[inode].x;
         xyz[1] = pnt[inode].y;
         xyz[2] = DEPTH(0);
 
         status = EG_invEvaluate(ecurve, xyz, &(data[1]), xyz_out);
-        if (status != EGADS_SUCCESS) goto cleanup;
+        CHECK_STATUS(EG_invEvaluate);
 
         status = EG_makeTopology(context, ecurve, EDGE, TWONODE,
                                  data, 2, echild, NULL, &(eedges[jedge]));
-        if (status != EGADS_SUCCESS) goto cleanup;
+        CHECK_STATUS(EG_makeTopology);
 
         jedge++;
     }
@@ -645,26 +607,26 @@ udpExecute(ego  context,                /* (in)  EGADS context */
 
         status = EG_makeTopology(context, NULL, LOOP, CLOSED,
                                  NULL, 4, echild, senses, &eloop);
-        if (status != EGADS_SUCCESS) goto cleanup;
+        CHECK_STATUS(EG_makeTopology);
 
         status = EG_makeFace(eloop, SFORWARD, NULL, &(efaces[jface]));
-        if (status != EGADS_SUCCESS) goto cleanup;
+        CHECK_STATUS(EG_makeFace);
 
         jseg = iseg + 1;
         status = EG_attributeAdd(efaces[jface], "segment", ATTRINT,
                                  1, &jseg, NULL, NULL);
-        if (status != EGADS_SUCCESS) goto cleanup;
+        CHECK_STATUS(EG_attributeAdd);
 
         seginfo[0] = seg[iseg].num;
         seginfo[1] = seg[iseg].idx;
         status = EG_attributeAdd(efaces[jface], "waffleseg", ATTRINT,
                                  2, seginfo, NULL, NULL);
-        if (status != EGADS_SUCCESS) goto cleanup;
+        CHECK_STATUS(EG_attributeAdd);
 
         for (iattr = 0; iattr < seg[iseg].nattr; iattr++) {
             status = EG_attributeAdd(efaces[jface], seg[iseg].aname[iattr], ATTRSTRING,
                                      1, NULL, NULL, seg[iseg].avalu[iattr]);
-            if (status != EGADS_SUCCESS) goto cleanup;
+            CHECK_STATUS(EG_attributeAdd);
         }
 
         jface++;
@@ -673,11 +635,11 @@ udpExecute(ego  context,                /* (in)  EGADS context */
     /* make the sheet body */
     status = EG_makeTopology(context, NULL, SHELL, OPEN,
                              NULL, jface, efaces, NULL, &eshell);
-    if (status != EGADS_SUCCESS) goto cleanup;
+    CHECK_STATUS(EG_makeTopology);
 
     status = EG_makeTopology(context, NULL, BODY, SHEETBODY,
                              NULL, 1, &eshell, NULL, ebody);
-    if (status != EGADS_SUCCESS) goto cleanup;
+    CHECK_STATUS(EG_makeTopology);
 
     /* set the output value(s) */
 
@@ -685,38 +647,38 @@ udpExecute(ego  context,                /* (in)  EGADS context */
     udps[numUdp].ebody = *ebody;
 
 cleanup:
-    if (efaces != NULL) EG_free(efaces);
-    if (eedges != NULL) EG_free(eedges);
-    if (enodes != NULL) EG_free(enodes);
+    FREE(efaces);
+    FREE(eedges);
+    FREE(enodes);
 
-    if (pnt != NULL) EG_free(pnt);
+    FREE(pnt);
 
     if (seg != NULL) {
         for (iseg = 0; iseg < nseg; iseg++) {
             if (seg[iseg].aname != NULL) {
                 for (iattr = 0; iattr < seg[iseg].nattr; iattr++) {
-                    if (seg[iseg].aname[iattr] != NULL) EG_free(seg[iseg].aname[iattr]);
+                    FREE(seg[iseg].aname[iattr]);
                 }
-                EG_free(seg[iseg].aname);
+                FREE(seg[iseg].aname);
             }
             if (seg[iseg].avalu != NULL) {
                 for (iattr = 0; iattr < seg[iseg].nattr; iattr++) {
-                    if (seg[iseg].avalu[iattr] != NULL) EG_free(seg[iseg].avalu[iattr]);
+                    FREE(seg[iseg].avalu[iattr]);
                 }
-                EG_free(seg[iseg].avalu);
+                FREE(seg[iseg].avalu);
             }
         }
-        EG_free(seg);
+        FREE(seg);
     }
 
     if (strlen(message) > 0) {
         *string = message;
         printf("%s\n", message);
     } else if (status != EGADS_SUCCESS) {
-        EG_free(message);
+        FREE(message);
         *string = udpErrorStr(status);
     } else {
-        EG_free(message);
+        FREE(message);
     }
 
     return status;
@@ -745,6 +707,8 @@ processSegments(int    *npnt,           /* (out) number of Points */
 
     double  EPS06 = 1.0e-6;
 
+    ROUTINE(processSegments);
+    
     /* get number of Segments from size of SEGMENTS() */
     *npnt = 0;
     *nseg = udps[0].arg[1].size / 4;
@@ -753,13 +717,8 @@ processSegments(int    *npnt,           /* (out) number of Points */
     mpnt = *nseg * 2;   /* perhaps too big */
     mseg = *nseg;
 
-    pnt = (pnt_T *) EG_alloc(mpnt*sizeof(pnt_T));
-    seg = (seg_T *) EG_alloc(mseg*sizeof(seg_T ));
-
-    if (pnt == NULL || seg == NULL) {
-        status = EGADS_MALLOC;
-        goto cleanup;
-    }
+    MALLOC(pnt, pnt_T, mpnt);
+    MALLOC(seg, seg_T, mseg);
 
     /* create Segments and unique Points */
     for (iseg = 0; iseg < *nseg; iseg++) {
@@ -873,7 +832,7 @@ processFile(ego    context,             /* (in)  EGADS context */
     seg_T  *seg=NULL;
     char   templine[256], token[256], pname1[256], pname2[256], lname1[256], lname2[256];
     char   name[MAX_NAME_LEN], str[256];
-    void   *modl, *temp;
+    void   *modl;
     FILE   *fp=NULL;
 
     double  EPS06 = 1.0e-6;
@@ -888,10 +847,7 @@ processFile(ego    context,             /* (in)  EGADS context */
 
     /* get pointer to model */
     status = EG_getUserPointer(context, (void**)(&(modl)));
-    if (status != EGADS_SUCCESS) {
-        printf(" udpExecute: bad return from getUserPointer\n");
-        goto cleanup;
-    }
+    CHECK_STATUS(EG_getUserPointer);
 
     /* get the outLevel from OpenCSM */
     outLevel = ocsmSetOutLevel(       0);
@@ -900,11 +856,11 @@ processFile(ego    context,             /* (in)  EGADS context */
     /* make sure that there are no Parameters whose names start with
        x@ or y@ */
     status = ocsmInfo(modl, &nbrch, &npmtr_save, &nbody);
-    if (status != EGADS_SUCCESS) goto cleanup;
+    CHECK_STATUS(ocsmInfo);
 
     for (ipmtr = 1; ipmtr <= npmtr_save; ipmtr++) {
         status = ocsmGetPmtr(modl, ipmtr, &type, &nrow, &ncol, name);
-        if (status != EGADS_SUCCESS) goto cleanup;
+        CHECK_STATUS(ocsmGetPmtr);
 
         if (strncmp(name, "x@", 2) == 0 ||
             strncmp(name, "y@", 2) == 0   ) {
@@ -926,19 +882,14 @@ processFile(ego    context,             /* (in)  EGADS context */
     mpnt = 10;
     mseg = 10;
 
-    pnt = (pnt_T  *) EG_alloc(mpnt*sizeof(pnt_T ));
-    seg = (seg_T  *) EG_alloc(mseg*sizeof(seg_T ));
-
-    if (pnt == NULL || seg == NULL) {
-        status = EGADS_MALLOC;
-        goto cleanup;
-    }
+    MALLOC(pnt, pnt_T, mpnt);
+    MALLOC(seg, seg_T, mseg);
 
     /* by default, we are not skipping */
     iskip = 0;
 
     /* read the file */
-    while (!feof(fp)) {
+    while (feof(fp) == 0) {
  
         /* read the next line */
         (void) fgets(templine, 255, fp);
@@ -957,7 +908,7 @@ processFile(ego    context,             /* (in)  EGADS context */
 
         /* get and process the first token */
         status = getToken(templine, 0, ' ', 255, token);
-        if (status < EGADS_SUCCESS) goto cleanup;
+        CHECK_STATUS(getToken);
 
         /* skip blank line */
         if (strcmp(token, "") == 0) {
@@ -987,10 +938,10 @@ processFile(ego    context,             /* (in)  EGADS context */
 
             /* pname1 */
             status = getToken(templine, 1, ' ', 255, pname1);
-            if (status < EGADS_SUCCESS) goto cleanup;
+            CHECK_STATUS(getToken);
 
             status = getToken(templine, 2, ' ', 255, token);
-            if (status < EGADS_SUCCESS) goto cleanup;
+            CHECK_STATUS(getToken);
 
             /* POINT pname1 AT xloc yloc */
             if        (strcmp(token, "at") == 0 ||
@@ -998,10 +949,10 @@ processFile(ego    context,             /* (in)  EGADS context */
 
                 /* get xloc */
                 status = getToken(templine, 3, ' ', 255, token);
-                if (status < EGADS_SUCCESS) goto cleanup;
+                CHECK_STATUS(getToken);
 
                 status = ocsmEvalExpr(modl, token, &xloc, &dot, str);
-                if (status < EGADS_SUCCESS) goto cleanup;
+                CHECK_STATUS(ocsmEvalExpr);
 
                 if (STRLEN(str) > 0) {
                     snprintf(message, 100, "xvalue must be a number");
@@ -1011,10 +962,10 @@ processFile(ego    context,             /* (in)  EGADS context */
 
                 /* get yloc */
                 status = getToken(templine, 4, ' ', 255, token);
-                if (status < EGADS_SUCCESS) goto cleanup;
+                CHECK_STATUS(getToken);
 
                 status = ocsmEvalExpr(modl, token, &yloc, &dot, str);
-                if (status < EGADS_SUCCESS) goto cleanup;
+                             CHECK_STATUS(ocsmEvalExpr);
 
                 if (STRLEN(str) > 0) {
                     snprintf(message, 100, "yvalue must be a number");
@@ -1032,7 +983,7 @@ processFile(ego    context,             /* (in)  EGADS context */
 
                 /* find lname1 */
                 status = getToken(templine, 3, ' ', 255, lname1);
-                if (status < EGADS_SUCCESS) goto cleanup;
+                CHECK_STATUS(getToken);
 
                 iseg = -1;
                 for (jseg = 0; jseg < *nseg; jseg++) {
@@ -1051,7 +1002,7 @@ processFile(ego    context,             /* (in)  EGADS context */
 
                 /* determine the sub-operator */
                 status = getToken(templine, 4, ' ', 255, token);
-                if (status < EGADS_SUCCESS) goto cleanup;
+                CHECK_STATUS(getToken);
 
                 /* POINT pname1 ON lname1 FRAC fracDist */
                 if        (strcmp(token, "frac") == 0 ||
@@ -1059,10 +1010,10 @@ processFile(ego    context,             /* (in)  EGADS context */
 
                     /* get fracDist */
                     status = getToken(templine, 5, ' ', 255, token);
-                    if (status < EGADS_SUCCESS) goto cleanup;
+                    CHECK_STATUS(getToken);
 
                     status = ocsmEvalExpr(modl, token, &frac, &dot, str);
-                    if (status < EGADS_SUCCESS) goto cleanup;
+                    CHECK_STATUS(ocsmEvalExpr);
 
                     /* compute (xvalue,yvalue) */
                     xvalue = (1-frac) * pnt[ibeg].x + frac * pnt[iend].x;
@@ -1080,10 +1031,10 @@ processFile(ego    context,             /* (in)  EGADS context */
 
                     /* get xloc */
                     status = getToken(templine, 5, ' ', 255, token);
-                    if (status < EGADS_SUCCESS) goto cleanup;
+                    CHECK_STATUS(getToken);
 
                     status = ocsmEvalExpr(modl, token, &xloc, &dot, str);
-                    if (status < EGADS_SUCCESS) goto cleanup;
+                                 CHECK_STATUS(ocsmEvalExpr);
 
                     /* compute (xvalue,yvalue) */
                     frac   = (xloc - pnt[ibeg].x) / (pnt[iend].x - pnt[ibeg].x);
@@ -1102,10 +1053,10 @@ processFile(ego    context,             /* (in)  EGADS context */
 
                     /* get yloc */
                     status = getToken(templine, 5, ' ', 255, token);
-                    if (status < EGADS_SUCCESS) goto cleanup;
+                    CHECK_STATUS(getToken);
 
                     status = ocsmEvalExpr(modl, token, &yloc, &dot, str);
-                    if (status < EGADS_SUCCESS) goto cleanup;
+                    CHECK_STATUS(ocsmEvalExpr);
 
                     /* compute (xvalue,yvalue) */
                     frac   = (yloc - pnt[ibeg].y) / (pnt[iend].y - pnt[ibeg].y);
@@ -1118,7 +1069,7 @@ processFile(ego    context,             /* (in)  EGADS context */
 
                     /* get pname2 */
                     status = getToken(templine, 5, ' ', 255, pname2);
-                    if (status < EGADS_SUCCESS) goto cleanup;
+                    CHECK_STATUS(getToken);
 
                     ipnt = -1;
                     for (jpnt = 0; jpnt < *npnt; jpnt++) {
@@ -1146,7 +1097,7 @@ processFile(ego    context,             /* (in)  EGADS context */
 
                     /* find lname2 */
                     status = getToken(templine, 5, ' ', 255, lname2);
-                    if (status < EGADS_SUCCESS) goto cleanup;
+                    CHECK_STATUS(getToken);
 
                     iseg = -1;
                     for (jseg = 0; jseg < *nseg; jseg++) {
@@ -1189,7 +1140,7 @@ processFile(ego    context,             /* (in)  EGADS context */
 
                 /* find lname1 */
                 status = getToken(templine, 3, ' ', 255, lname1);
-                if (status < EGADS_SUCCESS) goto cleanup;
+                CHECK_STATUS(getToken);
 
                 iseg = -1;
                 for (jseg = 0; jseg < *nseg; jseg++) {
@@ -1208,14 +1159,14 @@ processFile(ego    context,             /* (in)  EGADS context */
 
                 /* get dist */
                 status = getToken(templine, 4, ' ', 255, token);
-                if (status < EGADS_SUCCESS) goto cleanup;
+                CHECK_STATUS(getToken);
 
                 status = ocsmEvalExpr(modl, token, &dist, &dot, str);
-                if (status < EGADS_SUCCESS) goto cleanup;
+                CHECK_STATUS(ocsmEvalExpr);
 
                 /* get pname2 */
                 status = getToken(templine, 5, ' ', 255, pname2);
-                if (status < EGADS_SUCCESS) goto cleanup;
+                CHECK_STATUS(getToken);
 
                 ipnt = -1;
                 for (jpnt = 0; jpnt < *npnt; jpnt++) {
@@ -1247,13 +1198,7 @@ processFile(ego    context,             /* (in)  EGADS context */
             if (*npnt+1 >= mpnt) {
                 mpnt += 10;
 
-                temp = EG_reall(pnt, mpnt*sizeof(pnt_T));
-                if (temp != NULL) {
-                    pnt = (pnt_T *) temp;
-                } else {
-                    status = EGADS_MALLOC;
-                    goto cleanup;
-                }
+                RALLOC(pnt, pnt_T, mpnt);
             }
 
             /* if another Point has same name, remove the name */
@@ -1294,19 +1239,19 @@ processFile(ego    context,             /* (in)  EGADS context */
             (void) strcat(str, pname1);
 
             status = ocsmFindPmtr(modl, str, OCSM_LOCALVAR, 1, 1, &ipmtr);
-            if (status < EGADS_SUCCESS) goto cleanup;
+            CHECK_STATUS(ocsm_localvar);
 
             status = ocsmSetValuD(modl, ipmtr, 1, 1, xvalue);
-            if (status < EGADS_SUCCESS) goto cleanup;
+            CHECK_STATUS(ocsmSetValuD);
 
             (void) strcpy(str, "y@");
             (void) strcat(str, pname1);
 
             status = ocsmFindPmtr(modl, str, OCSM_LOCALVAR, 1, 1, &ipmtr);
-            if (status < EGADS_SUCCESS) goto cleanup;
+            CHECK_STATUS(ocsm_localvar);
 
             status = ocsmSetValuD(modl, ipmtr, 1, 1, yvalue);
-            if (status < EGADS_SUCCESS) goto cleanup;
+            CHECK_STATUS(ocsmSetValuD);
 
         } else if (strcmp(token,  "line") == 0 ||
                    strcmp(token,  "LINE") == 0 ||
@@ -1318,25 +1263,19 @@ processFile(ego    context,             /* (in)  EGADS context */
             if (iskip > 0) continue;
 
             status = getToken(templine, 1, ' ', 255, lname1);
-            if (status < EGADS_SUCCESS) goto cleanup;
+            CHECK_STATUS(getToken);
 
             status = getToken(templine, 2, ' ', 255, pname1);
-            if (status < EGADS_SUCCESS) goto cleanup;
+            CHECK_STATUS(get);
 
             status = getToken(templine, 3, ' ', 255, pname2);
-            if (status < EGADS_SUCCESS) goto cleanup;
+            CHECK_STATUS(getToken);
 
             /* make room in the Segment table */
             if (*nseg+1 >= mseg) {
                 mseg += 10;
 
-                temp = EG_reall(seg, mseg*sizeof(seg_T));
-                if (temp != NULL) {
-                    seg = (seg_T *) temp;
-                } else {
-                    status = EGADS_MALLOC;
-                    goto cleanup;
-                }
+                RALLOC(seg, seg_T, mseg);
             }
 
             /* set the Segment type (0  for cline, 1 for line) */
@@ -1388,7 +1327,7 @@ processFile(ego    context,             /* (in)  EGADS context */
             /* process Attribute pairs */
             for (itoken = 4; itoken < 100; itoken++) {
                 status = getToken(templine, itoken, ' ', 255, token);
-                if (status < EGADS_SUCCESS) goto cleanup;
+                CHECK_STATUS(getToken);
 
                 if (STRLEN(token) == 0) break;
 
@@ -1398,39 +1337,18 @@ processFile(ego    context,             /* (in)  EGADS context */
                     goto cleanup;
                 } else {
                     if (seg[*nseg].nattr == 0) {
-                        seg[*nseg].aname = (char **) EG_alloc(sizeof(char*));
-                        seg[*nseg].avalu = (char **) EG_alloc(sizeof(char*));
-
-                        if (seg[*nseg].aname == NULL || seg[*nseg].avalu == NULL) {
-                            status = EGADS_MALLOC;
-                            goto cleanup;
-                        }
+                        MALLOC(seg[*nseg].aname, char*, 1);
+                        MALLOC(seg[*nseg].avalu, char*, 1);
                     } else {
-                        temp = (char **) EG_reall(seg[*nseg].aname, (seg[*nseg].nattr+1)*sizeof(char*));
-                        if (temp != NULL) {
-                            seg[*nseg].aname = (char **) temp;
-                        } else {
-                            status = EGADS_MALLOC;
-                            goto cleanup;
-                        }
-
-                        temp = (char **) EG_reall(seg[*nseg].avalu, (seg[*nseg].nattr+1)*sizeof(char*));
-                        if (temp != NULL) {
-                            seg[*nseg].avalu = (char **) temp;
-                        } else {
-                            status = EGADS_MALLOC;
-                            goto cleanup;
-                        }
+                        RALLOC(seg[*nseg].aname, char*, (seg[*nseg].nattr+1));
+                        RALLOC(seg[*nseg].avalu, char*, (seg[*nseg].nattr+1));
                     }
 
-                    seg[*nseg].aname[seg[*nseg].nattr] = EG_alloc(80*sizeof(char));
-                    seg[*nseg].avalu[seg[*nseg].nattr] = EG_alloc(80*sizeof(char));
-
-                    if (seg[*nseg].aname[seg[*nseg].nattr] == NULL ||
-                        seg[*nseg].avalu[seg[*nseg].nattr] == NULL   ) {
-                        status = EGADS_MALLOC;
-                        goto cleanup;
-                    }
+                    seg[*nseg].aname[seg[*nseg].nattr] = NULL;
+                    seg[*nseg].avalu[seg[*nseg].nattr] = NULL;
+                    
+                    MALLOC(seg[*nseg].aname[seg[*nseg].nattr], char, 80);
+                    MALLOC(seg[*nseg].avalu[seg[*nseg].nattr], char, 80);
 
                     for (ichar = 0; ichar < STRLEN(token); ichar++) {
                         if (token[ichar] == '=') {
@@ -1443,7 +1361,7 @@ processFile(ego    context,             /* (in)  EGADS context */
 
                     token[ichar] = '$';
                     status = ocsmEvalExpr(modl, &(token[ichar]), &value, &dot, str);
-                    if (status < EGADS_SUCCESS) goto cleanup;
+                    CHECK_STATUS(ocsmEvalExpr);
 
                     if (STRLEN(str) == 0) {
                         snprintf(message, 100, "attribute value must be a string");
@@ -1480,10 +1398,10 @@ processFile(ego    context,             /* (in)  EGADS context */
 
             /* get the number of replicates */
             status = getToken(templine, 2, ' ', 255, token);
-            if (status < EGADS_SUCCESS) goto cleanup;
+            CHECK_STATUS(getToken);
 
             status = ocsmEvalExpr(modl, token, &value, &dot, str);
-            if (status < EGADS_SUCCESS) goto cleanup;
+            CHECK_STATUS(ocsmEvalExpr);
 
             pat_end[npat] = NINT(value);
 
@@ -1496,10 +1414,10 @@ processFile(ego    context,             /* (in)  EGADS context */
 
             /* set up Parameter to hold pattern index */
             status = getToken(templine, 1, ' ', 255, token);
-            if (status < EGADS_SUCCESS) goto cleanup;
+            CHECK_STATUS(getToken);
 
             status = ocsmFindPmtr(modl, token, OCSM_LOCALVAR, 1, 1, &pat_pmtr[npat]);
-            if (status < EGADS_SUCCESS) goto cleanup;
+            CHECK_STATUS(ocsm_localvar);
 
             if (pat_pmtr[npat] <= npmtr_save) {
                 snprintf(message, 100, "cannot use \"%s\" as pattern variable since it was previously defined", token);
@@ -1508,7 +1426,7 @@ processFile(ego    context,             /* (in)  EGADS context */
             }
             
             status = ocsmSetValuD(modl, pat_pmtr[npat], 1, 1, (double)pat_value[npat]);
-            if (status < EGADS_SUCCESS) goto cleanup;
+            CHECK_STATUS(ocsmSetValuD);
 
         } else if (strcmp(token, "patend") == 0 ||
                    strcmp(token, "PATEND") == 0   ) {
@@ -1530,7 +1448,7 @@ processFile(ego    context,             /* (in)  EGADS context */
                 (pat_value[npat])++;
 
                 status = ocsmSetValuD(modl, pat_pmtr[npat], 1, 1, (double)pat_value[npat]);
-                if (status < EGADS_SUCCESS) goto cleanup;
+                CHECK_STATUS(ocsm);
 
                 if (pat_seek[npat] != 0) {
                     fseek(fp, pat_seek[npat], SEEK_SET);
@@ -1565,17 +1483,17 @@ processFile(ego    context,             /* (in)  EGADS context */
 
 #ifdef GRAFIC
         status = plotWaffle(*npnt, pnt, *nseg, seg);
-        if (status != EGADS_SUCCESS) goto cleanup;
+        CHECK_STATUS(plotWaffle);
 #endif
     }
 
     /* delete any Parameters that were added */
     status = ocsmInfo(modl, &nbrch, &npmtr, &nbody);
-    if (status < EGADS_SUCCESS) goto cleanup;
+    CHECK_STATUS(ocsmInfo);
 
     for (ipmtr = npmtr; ipmtr > npmtr_save; ipmtr--) {
         status = ocsmDelPmtr(modl, ipmtr);
-        if (status < EGADS_SUCCESS) goto cleanup;
+        CHECK_STATUS(ocsmDelPmtr);
     }
 
 cleanup:
@@ -1724,21 +1642,17 @@ plotWaffle(int    npnt,                 /* (in)  number of Points */
     int    *ilin=NULL, *isym=NULL, *nper=NULL;
     float  *xplot=NULL, *yplot=NULL;
 
+    ROUTINE(plotWaffle);
+
     /* --------------------------------------------------------------- */
 
     if (npnt == 0 && nseg == 0) return status;
 
-    xplot = (float *) EG_alloc((2*nseg+npnt)*sizeof(float));
-    yplot = (float *) EG_alloc((2*nseg+npnt)*sizeof(float));
-    ilin  = (int   *) EG_alloc((  nseg+npnt)*sizeof(int  ));
-    isym  = (int   *) EG_alloc((  nseg+npnt)*sizeof(int  ));
-    nper  = (int   *) EG_alloc((  nseg+npnt)*sizeof(int  ));
-
-    if (xplot == NULL || yplot == NULL ||
-        ilin  == NULL || isym  == NULL || nper == NULL) {
-        status = EGADS_MALLOC;
-        goto cleanup;
-    }
+    MALLOC(xplot, float, (2*nseg+npnt));
+    MALLOC(yplot, float, (2*nseg+npnt));
+    MALLOC(ilin,  int,   (  nseg+npnt));
+    MALLOC(isym,  int,   (  nseg+npnt));
+    MALLOC(nper,  int,   (  nseg+npnt));
 
     nplot = 0;
     nline = 0;
@@ -1790,11 +1704,11 @@ plotWaffle(int    npnt,                 /* (in)  number of Points */
             &indgr, xplot, yplot, nper, strlen("~x~y~ "));
 
 cleanup:
-    if (xplot != NULL) EG_free(xplot);
-    if (yplot != NULL) EG_free(yplot);
-    if (ilin  != NULL) EG_free(ilin );
-    if (isym  != NULL) EG_free(isym );
-    if (nper  != NULL) EG_free(nper );
+    FREE(xplot);
+    FREE(yplot);
+    FREE(ilin );
+    FREE(isym );
+    FREE(nper );
 
     return status;
 }

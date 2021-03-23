@@ -3,7 +3,7 @@
  *
  *             masstran AIM
  *
- *      Copyright 2014-2020, Massachusetts Institute of Technology
+ *      Copyright 2014-2021, Massachusetts Institute of Technology
  *      Licensed under The GNU Lesser General Public License, version 2.1
  *      See http://www.opensource.org/licenses/lgpl-2.1.php
  *
@@ -95,9 +95,6 @@
 
 //#define DEBUG
 
-#define NUMINPUT   6
-#define NUMOUTPUT  14
-
 #define NINT(A)   (((A) < 0)   ? (int)(A-0.5) : (int)(A+0.5))
 #define MIN(A,B)  (((A) < (B)) ? (A) : (B))
 #define MAX(A,B)  (((A) < (B)) ? (B) : (A))
@@ -106,6 +103,22 @@
                           a[1] = (b[2]*c[0]) - (b[0]*c[2]);\
                           a[2] = (b[0]*c[1]) - (b[1]*c[0])
 #define DOT(a,b)         (a[0]*b[0] + a[1]*b[1] + a[2]*b[2])
+
+
+enum aimInputs
+{
+  Tess_Params = 1,               /* index is 1-based */
+  Edge_Point_Min,
+  Edge_Point_Max,
+  Quad_Mesh,
+  Property,
+  Material,
+  Surface_Mesh,
+  NUMINPUT = Surface_Mesh        /* Total number of inputs */
+};
+
+#define NUMOUTPUT  14
+
 
 typedef struct {
 
@@ -125,9 +138,6 @@ typedef struct {
   // Project name
   char *projectName; // Project name
 
-  // Analysis file path/directory
-  const char *analysisPath;
-
   feaProblemStruct feaProblem;
 
   // Attribute to index map
@@ -143,71 +153,70 @@ typedef struct {
 } aimStorage;
 
 
-/* AIM instance counter & storage */
-static int        nInstance = 0;
-static aimStorage *masstranInstance = NULL;
 
-
-static int initiate_aimStorage(int iIndex) {
+static int initiate_aimStorage(aimStorage *masstranInstance)
+{
 
     int status;
 
     // Container for attribute to index map
-    status = initiate_mapAttrToIndexStruct(&masstranInstance[iIndex].attrMap);
+    status = initiate_mapAttrToIndexStruct(&masstranInstance->attrMap);
     if (status != CAPS_SUCCESS) return status;
 
-    status = initiate_feaProblemStruct(&masstranInstance[iIndex].feaProblem);
+    status = initiate_feaProblemStruct(&masstranInstance->feaProblem);
     if (status != CAPS_SUCCESS) return status;
 
     // Mesh holders
-    masstranInstance[iIndex].numMesh = 0;
-    masstranInstance[iIndex].feaMesh = NULL;
+    masstranInstance->numMesh = 0;
+    masstranInstance->feaMesh = NULL;
 
     return CAPS_SUCCESS;
 }
 
-static int destroy_aimStorage(int iIndex) {
+
+static int destroy_aimStorage(aimStorage *masstranInstance)
+{
 
     int status;
     int i;
+  
     // Attribute to index map
-    status = destroy_mapAttrToIndexStruct(&masstranInstance[iIndex].attrMap);
-    if (status != CAPS_SUCCESS) printf("Error: Status %d during destroy_mapAttrToIndexStruct!\n", status);
+    status = destroy_mapAttrToIndexStruct(&masstranInstance->attrMap);
+    if (status != CAPS_SUCCESS)
+      printf("Error: Status %d during destroy_mapAttrToIndexStruct!\n", status);
 
     // Cleanup meshes
-    if (masstranInstance[iIndex].feaMesh != NULL) {
+    if (masstranInstance->feaMesh != NULL) {
 
-        for (i = 0; i < masstranInstance[iIndex].numMesh; i++) {
-            status = destroy_meshStruct(&masstranInstance[iIndex].feaMesh[i]);
-            if (status != CAPS_SUCCESS) printf("Error: Status %d during destroy_meshStruct!\n", status);
+        for (i = 0; i < masstranInstance->numMesh; i++) {
+            status = destroy_meshStruct(&masstranInstance->feaMesh[i]);
+            if (status != CAPS_SUCCESS)
+              printf("Error: Status %d during destroy_meshStruct!\n", status);
         }
 
-        EG_free(masstranInstance[iIndex].feaMesh);
+        EG_free(masstranInstance->feaMesh);
     }
 
-    masstranInstance[iIndex].feaMesh = NULL;
-    masstranInstance[iIndex].numMesh = 0;
+    masstranInstance->feaMesh = NULL;
+    masstranInstance->numMesh = 0;
 
     // Destroy FEA problem structure
-    status = destroy_feaProblemStruct(&masstranInstance[iIndex].feaProblem);
-    if (status != CAPS_SUCCESS)  printf("Error: Status %d during destroy_feaProblemStruct!\n", status);
+    status = destroy_feaProblemStruct(&masstranInstance->feaProblem);
+    if (status != CAPS_SUCCESS)
+      printf("Error: Status %d during destroy_feaProblemStruct!\n", status);
 
     return CAPS_SUCCESS;
 }
 
-static int checkAndCreateMesh(int iIndex, void* aimInfo)
+
+static int checkAndCreateMesh(void *aimInfo, aimStorage *masstranInstance)
 {
   // Function return flag
-  int status;
-
-  int  numBody;
-  ego *bodies = NULL;
-  const char   *intents;
-
-  int i, needMesh = (int) true;
+  int status = CAPS_SUCCESS;
+  int i, remesh = (int)true;
 
   // Meshing related variables
-  double  tessParam[3];
+  double tessParam[3] = {0.025, 0.001, 15};
   int edgePointMin = 2;
   int edgePointMax = 50;
   int quadMesh = (int) false;
@@ -219,138 +228,119 @@ static int checkAndCreateMesh(int iIndex, void* aimInfo)
   mapAttrToIndexStruct connectMap;
 
   // analysis input values
-  capsValue *Tess_Params = NULL;
-  capsValue *Edge_Point_Min = NULL;
-  capsValue *Edge_Point_Max = NULL;
-  capsValue *Quad_Mesh = NULL;
+  capsValue *TessParams = NULL;
+  capsValue *EdgePoint_Min = NULL;
+  capsValue *EdgePoint_Max = NULL;
+  capsValue *QuadMesh = NULL;
 
-  // Get AIM bodies
-  status = aim_getBodies(aimInfo, &intents, &numBody, &bodies);
-  if (status != CAPS_SUCCESS) printf("aim_getBodies status = %d!!\n", status);
-
-  // Don't generate if any tess object is not null
-  for (i = 0; i < numBody; i++) {
-      needMesh = (int) (needMesh && (bodies[numBody+i] == NULL));
+  for (i = 0; i < masstranInstance->numMesh; i++) {
+      remesh = remesh && (masstranInstance->feaMesh[i].bodyTessMap.egadsTess->oclass == EMPTY);
   }
-
-  // the mesh has already been generated
-  if (needMesh == (int)false) return CAPS_SUCCESS;
-
+  if (remesh == (int) false) return CAPS_SUCCESS;
 
   // retrieve or create the mesh from fea_createMesh
-  aim_getValue(aimInfo, aim_getIndex(aimInfo, "Tess_Params", ANALYSISIN), ANALYSISIN, &Tess_Params);
-  if (status != CAPS_SUCCESS) return status;
+  status = aim_getValue(aimInfo, Tess_Params, ANALYSISIN, &TessParams);
+  AIM_STATUS(aimInfo, status);
 
-  aim_getValue(aimInfo, aim_getIndex(aimInfo, "Edge_Point_Min", ANALYSISIN), ANALYSISIN, &Edge_Point_Min);
-  if (status != CAPS_SUCCESS) return status;
+  status = aim_getValue(aimInfo, Edge_Point_Min, ANALYSISIN, &EdgePoint_Min);
+  AIM_STATUS(aimInfo, status);
 
-  aim_getValue(aimInfo, aim_getIndex(aimInfo, "Edge_Point_Max", ANALYSISIN), ANALYSISIN, &Edge_Point_Max);
-  if (status != CAPS_SUCCESS) return status;
+  status = aim_getValue(aimInfo, Edge_Point_Max, ANALYSISIN, &EdgePoint_Max);
+  AIM_STATUS(aimInfo, status);
 
-  aim_getValue(aimInfo, aim_getIndex(aimInfo, "Quad_Mesh", ANALYSISIN), ANALYSISIN, &Quad_Mesh);
-  if (status != CAPS_SUCCESS) return status;
+  status = aim_getValue(aimInfo, Quad_Mesh, ANALYSISIN, &QuadMesh);
+  AIM_STATUS(aimInfo, status);
 
-  // Get FEA mesh if we don't already have one
-  tessParam[0] = Tess_Params->vals.reals[0]; // Gets multiplied by bounding box size
-  tessParam[1] = Tess_Params->vals.reals[1]; // Gets multiplied by bounding box size
-  tessParam[2] = Tess_Params->vals.reals[2];
+  if (TessParams != NULL) {
+      tessParam[0] = TessParams->vals.reals[0];
+      tessParam[1] = TessParams->vals.reals[1];
+      tessParam[2] = TessParams->vals.reals[2];
+  }
 
   // Max and min number of points
-  if (Edge_Point_Min->nullVal != IsNull) {
-      edgePointMin = Edge_Point_Min->vals.integer;
+  if (EdgePoint_Min != NULL && EdgePoint_Min->nullVal != IsNull) {
+      edgePointMin = EdgePoint_Min->vals.integer;
       if (edgePointMin < 2) {
-        printf("**********************************************************\n");
-        printf("Edge_Point_Min = %d must be greater or equal to 2\n", edgePointMin);
-        printf("**********************************************************\n");
+        AIM_ANALYSISIN_ERROR(aimInfo, Edge_Point_Min, "Edge_Point_Min = %d must be greater or equal to 2\n", edgePointMin);
         return CAPS_BADVALUE;
       }
   }
 
-  if (Edge_Point_Max->nullVal != IsNull) {
-      edgePointMax = Edge_Point_Max->vals.integer;
+  if (EdgePoint_Max != NULL && EdgePoint_Max->nullVal != IsNull) {
+      edgePointMax = EdgePoint_Max->vals.integer;
       if (edgePointMax < 2) {
-        printf("**********************************************************\n");
-        printf("Edge_Point_Max = %d must be greater or equal to 2\n", edgePointMax);
-        printf("**********************************************************\n");
+        AIM_ANALYSISIN_ERROR(aimInfo, Edge_Point_Max, "Edge_Point_Max = %d must be greater or equal to 2\n", edgePointMax);
         return CAPS_BADVALUE;
       }
   }
 
   if (edgePointMin >= 2 && edgePointMax >= 2 && edgePointMin > edgePointMax) {
-    printf("**********************************************************\n");
-    printf("Edge_Point_Max must be greater or equal Edge_Point_Min\n");
-    printf("Edge_Point_Max = %d, Edge_Point_Min = %d\n",edgePointMax,edgePointMin);
-    printf("**********************************************************\n");
+    AIM_ERROR  (aimInfo, "Edge_Point_Max must be greater or equal Edge_Point_Min");
+    AIM_ADDLINE(aimInfo, "Edge_Point_Max = %d, Edge_Point_Min = %d\n",edgePointMax,edgePointMin);
     return CAPS_BADVALUE;
   }
 
-  quadMesh     = Quad_Mesh->vals.integer;
-
+  if (QuadMesh != NULL) quadMesh = QuadMesh->vals.integer;
+  
   status = initiate_mapAttrToIndexStruct(&constraintMap);
-  if (status != CAPS_SUCCESS) return status;
+  AIM_STATUS(aimInfo, status);
 
   status = initiate_mapAttrToIndexStruct(&loadMap);
-  if (status != CAPS_SUCCESS) return status;
+  AIM_STATUS(aimInfo, status);
 
   status = initiate_mapAttrToIndexStruct(&transferMap);
-  if (status != CAPS_SUCCESS) return status;
+  AIM_STATUS(aimInfo, status);
 
   status = initiate_mapAttrToIndexStruct(&connectMap);
-  if (status != CAPS_SUCCESS) return status;
+  AIM_STATUS(aimInfo, status);
 
+/*@-nullpass@*/
   status = fea_createMesh(aimInfo,
                           tessParam,
                           edgePointMin,
                           edgePointMax,
                           quadMesh,
-                          &masstranInstance[iIndex].attrMap,
+                          &masstranInstance->attrMap,
                           &constraintMap,
                           &loadMap,
                           &transferMap,
                           &connectMap,
-                          &masstranInstance[iIndex].numMesh,
-                          &masstranInstance[iIndex].feaMesh,
-                          &masstranInstance[iIndex].feaProblem );
-  if (status != CAPS_SUCCESS) return status;
+                          NULL,
+                          &masstranInstance->numMesh,
+                          &masstranInstance->feaMesh,
+                          &masstranInstance->feaProblem);
+/*@-nullpass@*/
+  AIM_STATUS(aimInfo, status);
 
   status = destroy_mapAttrToIndexStruct(&constraintMap);
-  if (status != CAPS_SUCCESS) return status;
+  AIM_STATUS(aimInfo, status);
 
   status = destroy_mapAttrToIndexStruct(&loadMap);
-  if (status != CAPS_SUCCESS) return status;
+  AIM_STATUS(aimInfo, status);
 
   status = destroy_mapAttrToIndexStruct(&transferMap);
-  if (status != CAPS_SUCCESS) return status;
+  AIM_STATUS(aimInfo, status);
 
   status = destroy_mapAttrToIndexStruct(&connectMap);
-  if (status != CAPS_SUCCESS) return status;
+  AIM_STATUS(aimInfo, status);
 
-  return CAPS_SUCCESS;
+cleanup:
+  return status;
 }
+
 
 /****************** exposed AIM entry points -- Analysis **********************/
 
 /* aimInitialize: Initialization Information for the AIM */
-int
-aimInitialize(int ngIn, /*@null@*/ capsValue *gIn, int *qeFlag,
-              /*@unused@*/ const char *unitSys, int *nIn, int *nOut,
-              int *nFields, char ***fnames, int **ranks)
+int aimInitialize(int inst, /*@unused@*/ const char *uSys, void **aimStore,
+                  /*@unused@*/ int *maj, /*@unused@*/ int *min, int *nIn,
+                  int *nOut, int *nFields, char ***fnames, int **ranks)
 {
-  int        ret, flag, status, i;
-  char       **strs = NULL;
+  aimStorage *masstranInstance;
 
 #ifdef DEBUG
-  printf("\n masstranAIM/aimInitialize  ngIn = %d  qeFlag = %d!\n",
-         ngIn, *qeFlag);
+  printf("\n masstranAIM/aimInitialize  Instance!\n", inst);
 #endif
-
-  /* on Input: 1 indicates a query and not an analysis instance */
-  flag = *qeFlag;
-
-  /* on Output: 1 specifies that the AIM executes the analysis
-   *              (i.e. no external executable is called)
-   *            0 relies on external execution */
-  *qeFlag = 1;
 
   /* specify the number of analysis inputs  defined in aimInputs
    *     and the number of analysis outputs defined in aimOutputs */
@@ -358,7 +348,7 @@ aimInitialize(int ngIn, /*@null@*/ capsValue *gIn, int *qeFlag,
   *nOut   = NUMOUTPUT;
 
   /* return if "query" only */
-  if (flag == 1) return CAPS_SUCCESS;
+  if (inst == -1) return CAPS_SUCCESS;
 
   /* specify the field variables this analysis can generate */
   *nFields = 0;
@@ -369,57 +359,36 @@ aimInitialize(int ngIn, /*@null@*/ capsValue *gIn, int *qeFlag,
   /* specify the name of each field variable */
   *fnames  = NULL;
 
-  /* create our "local" storage for anything that needs to be persistent
-     remember there can be multiple instances of the AIM */
-  masstranInstance = (aimStorage *) EG_reall(masstranInstance, (nInstance+1)*sizeof(aimStorage));
+  /* create our "local" storage for anything that needs to be persistent */
+  masstranInstance = (aimStorage *) EG_alloc((inst+1)*sizeof(aimStorage));
+  if (masstranInstance == NULL) return EGADS_MALLOC;
 
-  if (masstranInstance == NULL) {
-    status = EGADS_MALLOC;
-    goto cleanup;
-  }
+  initiate_aimStorage(masstranInstance);
+  *aimStore = masstranInstance;
 
-  /* return the index for the instance generated & store our local data */
-  ret = nInstance;
-  initiate_aimStorage(nInstance);
-  nInstance++; /* increment the instance count */
-  return ret;
-
-cleanup:
-  /* release all possibly allocated memory on error */
-  printf("masstranAIM/aimInitialize: failed to allocate memory\n");
-  *nFields = 0;
-
-  EG_free(*ranks);
-  *ranks = NULL;
-  if (*fnames != NULL)
-    for (i = 0; i < *nFields; i++) EG_free(strs[i]);
-  EG_free(*fnames);
-  *fnames = NULL;
-
-  return status;
+  return CAPS_SUCCESS;
 }
 
 
 /* aimInputs: Input Information for the AIM */
-int
-aimInputs(int iIndex, /*@unused@*/ void *aimInfo, int index, char **ainame,
-          capsValue *defval)
+int aimInputs(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
+              int index, char **ainame, capsValue *defval)
 {
 
   /*! \page aimInputsMasstran AIM Inputs
    * The following list outlines the Masstran inputs along with their default value available
    * through the AIM interface.
    */
+  int status = CAPS_SUCCESS;
 
 #ifdef DEBUG
-  printf(" nastranAIM/aimInputs instance = %d  index = %d!\n", inst, index);
+  printf(" nastranAIM/aimInputs  index = %d!\n", index);
 #endif
-  if ((iIndex < 0) || (iIndex >= nInstance)) return CAPS_BADINDEX;
 
   *ainame = NULL;
 
   // Masstran Inputs
-  if (index == 1) {
+  if (index == Tess_Params) {
     *ainame               = EG_strdup("Tess_Params");
     defval->type          = Double;
     defval->dim           = Vector;
@@ -449,7 +418,7 @@ aimInputs(int iIndex, /*@unused@*/ void *aimInfo, int index, char **ainame,
      * zero ignores this phase
      */
 
-  } else if (index == 2) {
+  } else if (index == Edge_Point_Min) {
     *ainame               = EG_strdup("Edge_Point_Min");
     defval->type          = Integer;
     defval->vals.integer  = 2;
@@ -463,7 +432,7 @@ aimInputs(int iIndex, /*@unused@*/ void *aimInfo, int index, char **ainame,
      * Minimum number of points on an edge including end points to use when creating a surface mesh (min 2).
      */
 
-  } else if (index == 3) {
+  } else if (index == Edge_Point_Max) {
     *ainame               = EG_strdup("Edge_Point_Max");
     defval->type          = Integer;
     defval->vals.integer  = 50;
@@ -478,7 +447,7 @@ aimInputs(int iIndex, /*@unused@*/ void *aimInfo, int index, char **ainame,
      * Maximum number of points on an edge including end points to use when creating a surface mesh (min 2).
      */
 
-  } else if (index == 4) {
+  } else if (index == Quad_Mesh) {
     *ainame               = EG_strdup("Quad_Mesh");
     defval->type          = Boolean;
     defval->vals.integer  = (int) false;
@@ -488,11 +457,10 @@ aimInputs(int iIndex, /*@unused@*/ void *aimInfo, int index, char **ainame,
      * Create a quadratic mesh on four edge faces when creating the boundary element model.
      */
 
-  } else if (index == 5) {
+  } else if (index == Property) {
     *ainame              = EG_strdup("Property");
     defval->type         = Tuple;
     defval->nullVal      = IsNull;
-    //defval->units        = NULL;
     defval->lfixed       = Change;
     defval->vals.tuple   = NULL;
     defval->dim          = Vector;
@@ -501,11 +469,10 @@ aimInputs(int iIndex, /*@unused@*/ void *aimInfo, int index, char **ainame,
      * - <B> Property = NULL</B> <br>
      * Property tuple used to input property information for the model, see \ref feaProperty for additional details.
      */
-  } else if (index == 6) {
+  } else if (index == Material) {
     *ainame              = EG_strdup("Material");
     defval->type         = Tuple;
     defval->nullVal      = IsNull;
-    //defval->units        = NULL;
     defval->lfixed       = Change;
     defval->vals.tuple   = NULL;
     defval->dim          = Vector;
@@ -515,28 +482,34 @@ aimInputs(int iIndex, /*@unused@*/ void *aimInfo, int index, char **ainame,
      * Material tuple used to input material information for the model, see \ref feaMaterial for additional details.
      */
 
-  } else {
-    printf(" nastranAIM/aimInputs: unknown input index = %d for instance = %d!\n",
-           index, iIndex);
-    return CAPS_BADINDEX;
+  } else if (index == Surface_Mesh) {
+      *ainame             = AIM_NAME(Surface_Mesh);
+      defval->type        = Pointer;
+      defval->dim         = Vector;
+      defval->lfixed      = Change;
+      defval->sfixed      = Change;
+      defval->vals.AIMptr = NULL;
+      AIM_STRDUP(defval->units, "meshStruct", aimInfo, status);
+
+      /*! \page aimInputsMasstran
+       * - <B>Surface_Mesh = NULL</B> <br>
+       * A Surface_Mesh link.
+       */
   }
 
-#if NUMINPUT != 6
-#error "NUMINPUT is inconsistent with the list of inputs"
-#endif
+  AIM_NOTNULL(*ainame, aimInfo, status);
 
-  return CAPS_SUCCESS;
+cleanup:
+  if (status != CAPS_SUCCESS) AIM_FREE(*ainame);
+  return status;
 }
 
 /* aimPreAnalysis: Parse Inputs, Generate Input File(s) & Possibly Tessellate */
 int
-aimPreAnalysis(int iIndex, void *aimInfo, /*@unused@*/ const char *apath,
-               capsValue *aimInputs, capsErrs **errs)
+aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
 {
-  int i, j; // Indexing
-
+  int i, j;   // Indexing
   int status; // Status return
-
   int found;
 
   double area   = 0;
@@ -567,20 +540,18 @@ aimPreAnalysis(int iIndex, void *aimInfo, /*@unused@*/ const char *apath,
   feaPropertyStruct *feaProperty;
   feaMaterialStruct *feaMaterial;
 
-  meshStruct *nasMesh;
+  meshStruct     *nasMesh;
   massProperties *massProp;
-
-  // NULL out errors
-  *errs = NULL;
-
-  if ((iIndex < 0) || (iIndex >= nInstance)) return CAPS_BADINDEX;
+  aimStorage     *masstranInstance;
+  
+  masstranInstance = (aimStorage *) instStore;
+  
+  if (aimInputs == NULL) return CAPS_NULLVALUE;
 
   // Get FEA mesh if we don't already have one
   if (aim_newGeometry(aimInfo) == CAPS_SUCCESS) {
-
-      status = checkAndCreateMesh(iIndex, aimInfo);
+      status = checkAndCreateMesh(aimInfo, masstranInstance);
       if (status != CAPS_SUCCESS) goto cleanup;
-
   }
 
   // Note: Setting order is important here.
@@ -589,36 +560,41 @@ aimPreAnalysis(int iIndex, void *aimInfo, /*@unused@*/ const char *apath,
   // 3. Mesh should be set before loads, constraints, supports, and connections
 
   // Set material properties
-  if (aimInputs[aim_getIndex(aimInfo, "Material", ANALYSISIN)-1].nullVal == NotNull) {
-      status = fea_getMaterial(aimInputs[aim_getIndex(aimInfo, "Material", ANALYSISIN)-1].length,
-                               aimInputs[aim_getIndex(aimInfo, "Material", ANALYSISIN)-1].vals.tuple,
-                               &masstranInstance[iIndex].feaProblem.numMaterial,
-                               &masstranInstance[iIndex].feaProblem.feaMaterial);
+  if (aimInputs[Material-1].nullVal == NotNull) {
+      status = fea_getMaterial(aimInputs[Material-1].length,
+                               aimInputs[Material-1].vals.tuple,
+                               &masstranInstance->feaProblem.numMaterial,
+                               &masstranInstance->feaProblem.feaMaterial);
       if (status != CAPS_SUCCESS) return status;
   } else printf("Material tuple is NULL - No materials set\n");
 
   // Set property properties
-  if (aimInputs[aim_getIndex(aimInfo, "Property", ANALYSISIN)-1].nullVal == NotNull) {
-      status = fea_getProperty(aimInputs[aim_getIndex(aimInfo, "Property", ANALYSISIN)-1].length,
-                               aimInputs[aim_getIndex(aimInfo, "Property", ANALYSISIN)-1].vals.tuple,
-                               &masstranInstance[iIndex].attrMap,
-                               &masstranInstance[iIndex].feaProblem);
+  if (aimInputs[Property-1].nullVal == NotNull) {
+      status = fea_getProperty(aimInputs[Property-1].length,
+                               aimInputs[Property-1].vals.tuple,
+                               &masstranInstance->attrMap,
+                               &masstranInstance->feaProblem);
       if (status != CAPS_SUCCESS) return status;
 
 
       // Assign element "subtypes" based on properties set
-      status = fea_assignElementSubType(masstranInstance[iIndex].feaProblem.numProperty,
-                                        masstranInstance[iIndex].feaProblem.feaProperty,
-                                        &masstranInstance[iIndex].feaProblem.feaMesh);
+      status = fea_assignElementSubType(masstranInstance->feaProblem.numProperty,
+                                        masstranInstance->feaProblem.feaProperty,
+                                        &masstranInstance->feaProblem.feaMesh);
       if (status != CAPS_SUCCESS) return status;
 
   } else printf("Property tuple is NULL - No properties set\n");
 
-  nasMesh = &masstranInstance[iIndex].feaProblem.feaMesh;
-  massProp = &masstranInstance[iIndex].massProp;
+  nasMesh = &masstranInstance->feaProblem.feaMesh;
+  massProp = &masstranInstance->massProp;
 
   // maps from nodeID to mesh->node index
   mesh_nodeID2Array(nasMesh, &n2a);
+  if (n2a == NULL) {
+    printf(" Error: n2a = NULL!\n");
+    status = CAPS_NULLOBJ;
+    goto cleanup;
+  }
 
   for (i = 0; i < nasMesh->numElement; i++) {
 
@@ -637,19 +613,20 @@ aimPreAnalysis(int iIndex, void *aimInfo, /*@unused@*/ const char *apath,
     elemWeight = 0;
 
     found = (int) false;
-    for (j = 0; j < masstranInstance[iIndex].feaProblem.numProperty; j++) {
-        if (propertyID == masstranInstance[iIndex].feaProblem.feaProperty[j].propertyID) {
+    for (j = 0; j < masstranInstance->feaProblem.numProperty; j++) {
+        if (propertyID == masstranInstance->feaProblem.feaProperty[j].propertyID) {
             found = (int) true;
             break;
         }
     }
 
     if (found == (int) false) {
-        printf("No property information found for element %d!\n", nasMesh->element[i].elementID);
+        printf("No property information found for element %d!\n",
+               nasMesh->element[i].elementID);
         continue;
     }
 
-    feaProperty = masstranInstance[iIndex].feaProblem.feaProperty + j;
+    feaProperty = masstranInstance->feaProblem.feaProperty + j;
 
     if (nasMesh->element[i].elementType == Node ) {
 
@@ -751,8 +728,8 @@ aimPreAnalysis(int iIndex, void *aimInfo, /*@unused@*/ const char *apath,
 
       materialID = feaProperty->materialID;
 
-      for (j = 0; j < masstranInstance[iIndex].feaProblem.numMaterial; j++) {
-        if (materialID == masstranInstance[iIndex].feaProblem.feaMaterial[j].materialID) {
+      for (j = 0; j < masstranInstance->feaProblem.numMaterial; j++) {
+        if (materialID == masstranInstance->feaProblem.feaMaterial[j].materialID) {
           break;
         }
       }
@@ -762,7 +739,7 @@ aimPreAnalysis(int iIndex, void *aimInfo, /*@unused@*/ const char *apath,
         continue;
       }
 
-      feaMaterial = masstranInstance[iIndex].feaProblem.feaMaterial + j;
+      feaMaterial = masstranInstance->feaProblem.feaMaterial + j;
 
       density = 1;
       if (feaMaterial->density > 0)
@@ -838,23 +815,42 @@ aimPreAnalysis(int iIndex, void *aimInfo, /*@unused@*/ const char *apath,
 
   status = CAPS_SUCCESS;
 
-  cleanup:
-      EG_free(n2a);
+cleanup:
+  EG_free(n2a);
 
-      if (status != CAPS_SUCCESS) printf("Error: Status %d during masstranAIM preAnalysis\n", status);
+  if (status != CAPS_SUCCESS)
+      printf("Error: Status %d during masstranAIM preAnalysis\n", status);
 
-      return status;
+  return status;
 }
 
-/* aimOutputs: Output Information for the AIM */
-int
-aimOutputs(int iIndex, /*@unused@*/ void *aimInfo, /*@unused@*/ int index,
-           char **aoname, capsValue *form)
+
+/* the execution code from above should be moved here */
+int aimExecute(/*@unused@*/ void *instStore, /*@unused@*/ void *aimStruc,
+               int *state)
 {
+  *state = 0;
+  return CAPS_SUCCESS;
+}
+
+
+/* no longer optional and needed for restart */
+int aimPostAnalysis(/*@unused@*/ void *instStore, /*@unused@*/ void *aimStruc,
+                    /*@unused@*/ int restart, /*@unused@*/ capsValue *inputs)
+{
+  return CAPS_SUCCESS;
+}
+
+
+/* aimOutputs: Output Information for the AIM */
+int aimOutputs(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
+               /*@unused@*/ int index, char **aoname, capsValue *form)
+{
+  int status = CAPS_SUCCESS;
+
 #ifdef DEBUG
-  printf(" masstranAIM/aimOutputs instance = %d  index  = %d!\n", iIndex, index);
+  printf(" masstranAIM/aimOutputs  index  = %d!\n", index);
 #endif
-  if ((iIndex < 0) || (iIndex >= nInstance)) return CAPS_BADINDEX;
 
   /*! \page aimOutputsMasstran AIM Outputs
    * The following list outlines the Masstran outputs available through the AIM interface.
@@ -979,19 +975,26 @@ aimOutputs(int iIndex, /*@unused@*/ void *aimInfo, /*@unused@*/ int index,
   form->vals.reals = NULL;
   form->vals.real  = 0;
 
+  if (form->length > 1) {
+    AIM_ALLOC(form->vals.reals, form->length, double, aimInfo, status);
+    memset(form->vals.reals, 0, form->length*sizeof(double));
+  }
+
   if (index == 14) {
       form->nrow     = 3;
       form->ncol     = 3;
   }
 
-  return CAPS_SUCCESS;
+cleanup:
+  return status;
 }
 
+
 /* aimCalcOutput: Calculate/Retrieve Output Information */
-int
-aimCalcOutput(int iIndex, /*@unused@*/ void *aimInfo, /*@unused@*/ const char *ap,
-              /*@unused@*/ int index, capsValue *val, capsErrs **errors)
+int aimCalcOutput(void *instStore, /*@unused@*/ void *aimInfo,
+                  /*@unused@*/ int index, capsValue *val)
 {
+  int status = CAPS_SUCCESS;
   double Ixx = 0;
   double Ixy = 0;
   double Izz = 0;
@@ -999,90 +1002,88 @@ aimCalcOutput(int iIndex, /*@unused@*/ void *aimInfo, /*@unused@*/ const char *a
   double Iyy = 0;
   double Iyz = 0;
   double *I;
+  aimStorage *masstranInstance;
 
 #ifdef DEBUG
-  int        status;
   const char *name;
 
   status = aim_getName(aimInfo, index, ANALYSISOUT, &name);
   printf(" masstranAIM/aimCalcOutput instance = %d  index = %d %s %d!\n",
-         iIndex, index, name, status);
+         aim_getInstance(aimInfo), index, name, status);
 #endif
-
-  *errors = NULL;
-  if ((iIndex < 0) || (iIndex >= nInstance)) return CAPS_BADINDEX;
+  
+  masstranInstance = (aimStorage *) instStore;
 
   if (val->length > 1) {
-    val->vals.reals = (double*)EG_alloc(val->length*sizeof(double));
-    if (val->vals.reals == NULL) return EGADS_MALLOC;
+    AIM_ALLOC(val->vals.reals, val->length, double, aimInfo, status);
   }
 
   if (index == 1) {
-    val->vals.real = masstranInstance[iIndex].massProp.area;
+    val->vals.real = masstranInstance->massProp.area;
 
   } else if (index == 2) {
-    val->vals.real = masstranInstance[iIndex].massProp.mass;
+    val->vals.real = masstranInstance->massProp.mass;
 
   } else if (index == 3) {
-    val->vals.reals[0] = masstranInstance[iIndex].massProp.Cx;
-    val->vals.reals[1] = masstranInstance[iIndex].massProp.Cy;
-    val->vals.reals[2] = masstranInstance[iIndex].massProp.Cz;
+    val->vals.reals[0] = masstranInstance->massProp.Cx;
+    val->vals.reals[1] = masstranInstance->massProp.Cy;
+    val->vals.reals[2] = masstranInstance->massProp.Cz;
 
   } else if (index == 4) {
-    val->vals.reals[0] = masstranInstance[iIndex].massProp.CGx;
-    val->vals.reals[1] = masstranInstance[iIndex].massProp.CGy;
-    val->vals.reals[2] = masstranInstance[iIndex].massProp.CGz;
+    val->vals.reals[0] = masstranInstance->massProp.CGx;
+    val->vals.reals[1] = masstranInstance->massProp.CGy;
+    val->vals.reals[2] = masstranInstance->massProp.CGz;
 
   } else if (index == 5) {
-    val->vals.real = masstranInstance[iIndex].massProp.Ixx;
+    val->vals.real = masstranInstance->massProp.Ixx;
 
   } else if (index == 6) {
-    val->vals.real = masstranInstance[iIndex].massProp.Iyy;
+    val->vals.real = masstranInstance->massProp.Iyy;
 
   } else if (index == 7) {
-    val->vals.real = masstranInstance[iIndex].massProp.Izz;
+    val->vals.real = masstranInstance->massProp.Izz;
 
   } else if (index == 8) {
-    val->vals.real = masstranInstance[iIndex].massProp.Ixy;
+    val->vals.real = masstranInstance->massProp.Ixy;
 
   } else if (index == 9) {
-    val->vals.real = masstranInstance[iIndex].massProp.Ixz;
+    val->vals.real = masstranInstance->massProp.Ixz;
 
   } else if (index == 10) {
-    val->vals.real = masstranInstance[iIndex].massProp.Iyz;
+    val->vals.real = masstranInstance->massProp.Iyz;
 
   } else if (index == 11) {
-    val->vals.reals[0] = masstranInstance[iIndex].massProp.Ixx;
-    val->vals.reals[1] = masstranInstance[iIndex].massProp.Iyy;
-    val->vals.reals[2] = masstranInstance[iIndex].massProp.Izz;
-    val->vals.reals[3] = masstranInstance[iIndex].massProp.Ixy;
-    val->vals.reals[4] = masstranInstance[iIndex].massProp.Ixz;
-    val->vals.reals[5] = masstranInstance[iIndex].massProp.Iyz;
+    val->vals.reals[0] = masstranInstance->massProp.Ixx;
+    val->vals.reals[1] = masstranInstance->massProp.Iyy;
+    val->vals.reals[2] = masstranInstance->massProp.Izz;
+    val->vals.reals[3] = masstranInstance->massProp.Ixy;
+    val->vals.reals[4] = masstranInstance->massProp.Ixz;
+    val->vals.reals[5] = masstranInstance->massProp.Iyz;
 
   } else if (index == 12) {
-    val->vals.reals[0] =  masstranInstance[iIndex].massProp.Ixx;
-    val->vals.reals[1] = -masstranInstance[iIndex].massProp.Ixy;
-    val->vals.reals[2] =  masstranInstance[iIndex].massProp.Iyy;
-    val->vals.reals[3] = -masstranInstance[iIndex].massProp.Ixz;
-    val->vals.reals[4] = -masstranInstance[iIndex].massProp.Iyz;
-    val->vals.reals[5] =  masstranInstance[iIndex].massProp.Izz;
+    val->vals.reals[0] =  masstranInstance->massProp.Ixx;
+    val->vals.reals[1] = -masstranInstance->massProp.Ixy;
+    val->vals.reals[2] =  masstranInstance->massProp.Iyy;
+    val->vals.reals[3] = -masstranInstance->massProp.Ixz;
+    val->vals.reals[4] = -masstranInstance->massProp.Iyz;
+    val->vals.reals[5] =  masstranInstance->massProp.Izz;
 
   } else if (index == 13) {
-    val->vals.reals[0] =  masstranInstance[iIndex].massProp.Ixx;
-    val->vals.reals[1] = -masstranInstance[iIndex].massProp.Ixy;
-    val->vals.reals[2] = -masstranInstance[iIndex].massProp.Ixz;
-    val->vals.reals[3] =  masstranInstance[iIndex].massProp.Iyy;
-    val->vals.reals[4] = -masstranInstance[iIndex].massProp.Iyz;
-    val->vals.reals[5] =  masstranInstance[iIndex].massProp.Izz;
+    val->vals.reals[0] =  masstranInstance->massProp.Ixx;
+    val->vals.reals[1] = -masstranInstance->massProp.Ixy;
+    val->vals.reals[2] = -masstranInstance->massProp.Ixz;
+    val->vals.reals[3] =  masstranInstance->massProp.Iyy;
+    val->vals.reals[4] = -masstranInstance->massProp.Iyz;
+    val->vals.reals[5] =  masstranInstance->massProp.Izz;
 
   } else if (index == 14) {
 
-    Ixx = masstranInstance[iIndex].massProp.Ixx;
-    Iyy = masstranInstance[iIndex].massProp.Iyy;
-    Iyz = masstranInstance[iIndex].massProp.Iyz;
-    Ixy = masstranInstance[iIndex].massProp.Ixy;
-    Ixz = masstranInstance[iIndex].massProp.Ixz;
-    Izz = masstranInstance[iIndex].massProp.Izz;
+    Ixx = masstranInstance->massProp.Ixx;
+    Iyy = masstranInstance->massProp.Iyy;
+    Iyz = masstranInstance->massProp.Iyz;
+    Ixy = masstranInstance->massProp.Ixy;
+    Ixz = masstranInstance->massProp.Ixz;
+    Izz = masstranInstance->massProp.Izz;
     I = val->vals.reals;
 
     // populate the tensor
@@ -1091,27 +1092,20 @@ aimCalcOutput(int iIndex, /*@unused@*/ void *aimInfo, /*@unused@*/ const char *a
     I[6] = -Ixz; I[7] = -Iyz; I[8] =  Izz;
   }
 
-
-  return CAPS_SUCCESS;
+cleanup:
+  return status;
 }
 
 
 /* aimCleanup: Free up the AIMs storage */
-void aimCleanup()
+void aimCleanup(void *instStore)
 {
-  int iIndex;
+  aimStorage *masstranInstance;
 #ifdef DEBUG
   printf(" masstranAIM/aimCleanup!\n");
 #endif
-
-  if (nInstance != 0) {
-    /* clean up all allocated data
-     */
-    for (iIndex = 0; iIndex < nInstance; iIndex++)
-      destroy_aimStorage(iIndex);
-
-    EG_free(masstranInstance);
-  }
-  nInstance = 0;
-  masstranInstance  = NULL;
+  
+  masstranInstance = (aimStorage *) instStore;
+  destroy_aimStorage(masstranInstance);
+  EG_free(masstranInstance);
 }

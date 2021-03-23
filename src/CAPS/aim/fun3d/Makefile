@@ -54,7 +54,10 @@ $(ODIR)/fun3dNamelist.o: fun3dNamelist.c fun3dNamelist.h
 $(ODIR)/fun3dUtils.o: fun3dUtils.c fun3dUtils.h $(IDIR)/capsTypes.h
 	$(CC) -c $(COPTS) $(DEFINE) -I$(IDIR) -I../utils \
 		fun3dUtils.c -o $(ODIR)/fun3dUtils.o
-		
+
+lint:
+	$(LINT) -I../../include -I$(IDIR) -I../utils fun3dAIM.c fun3dUtils.c -exportlocal -uniondef -nestcomment -bufferoverflowhigh -boolops
+
 clean:
 	-rm $(ODIR)/fun3dAIM.o $(ODIR)/fun3dUtils.o
 ifdef PYTHONINC
@@ -66,7 +69,7 @@ cleanall:	clean
 
 # Run Cython - development only	
 cython:
-	(cython fun3dNamelist.pyx -I../../pyCAPS/src/ --capi-reexport-cincludes)
+	(cython -Wextra fun3dNamelist.pyx -I../../pyCAPS/src/ --capi-reexport-cincludes)
 
 dox:
 	(cd doc; doxygen fun3dAIM_dox.cfg; cd latex; make; mv refman.pdf FUN3DAIM.pdf)

@@ -12,7 +12,7 @@ written by John Dannenhoffer
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 
       <!--
-          Copyright (C) 2010/2020  John F. Dannenhoffer, III (Syracuse University)
+          Copyright (C) 2010/2021  John F. Dannenhoffer, III (Syracuse University)
 
           This library is free software; you can redistribute it and/or
           modify it under the terms of the GNU Lesser General Public
@@ -43,6 +43,7 @@ written by John Dannenhoffer
       var   main = {};            // object to store main mode
       var   sket = {};            // object to store "sketch"
       var   glov = {};            // object to store "gloves"
+      var   erep = {};            // object to store "ereped"
     </script>
 
     <script type="text/javascript" src="WebViewer/wv-draw.js">     </script>
@@ -55,6 +56,7 @@ written by John Dannenhoffer
     <script type="text/javascript" src="ESP-codemirror.js">        </script>
     <script type="text/javascript" src="ESP-sketch.js">            </script>
     <script type="text/javascript" src="ESP-gloves.js">            </script>
+    <script type="text/javascript" src="ESP-ereped.js">            </script>
     <script type="text/javascript" src="ESP.js">                   </script>
 
     <script>
@@ -100,6 +102,7 @@ written by John Dannenhoffer
     <link rel="stylesheet"    type="text/css"  href="ESP.css"        />
     <link rel="stylesheet"    type="text/css"  href="ESP-sketch.css" />
     <link rel="stylesheet"    type="text/css"  href="ESP-gloves.css" />
+    <link rel="stylesheet"    type="text/css"  href="ESP-ereped.css" />
     <link rel="shortcut icon" type="image/png" href="esp_logo.png"   />
   </head>
 
@@ -117,6 +120,7 @@ written by John Dannenhoffer
             <div id="myToolMenu"                 class="toolMenu-contents">
               <button title="Launch Sketcher"                                   onclick="sket.launch()"   >Sketch     </button>
               <button title="Launch Gloves"                                     onclick="glov.launch()"   >Gloves     </button>
+              <button title="Launch ErepEd"                                     onclick="erep.launch()"   >ErepEd     </button>
             </div>
           </div>
           <div class="doneMenu" id="doneMenu">
@@ -466,13 +470,14 @@ written by John Dannenhoffer
         <div id="editPmtrHeader" hidden>
           <h3>Either select one of these options ...</h3>
           <center>
-            <input type="button" value="Compute sensitivity"     onclick="compSens()">
-            <input type="button" value="Set Design Velocity"     onclick="setVel()">
-            <input type="button" value="Clear Design Velocities" onclick="clrVels()">
-            <input type="button" value="Delete Parameter"        onclick="delPmtr()">
+            <input type="button" value="Compute config sensitivity"     onclick="compConfigSens()">
+            <input type="button" value="Compute tessel sensitivity"     onclick="compTesselSens()">
+            <input type="button" value="Set Design Velocity"            onclick="setVel()">
+            <input type="button" value="Clear Design Velocities"        onclick="clrVels()">
+            <input type="button" value="Delete Parameter"               onclick="delPmtr()">
               &nbsp;&nbsp;&nbsp;
-            <input type="button" value="Cancel"                  onclick="editPmtrCancel()">
-            <input type="button" value="OK"                      onclick="editPmtrOk()">
+            <input type="button" value="Cancel"                         onclick="editPmtrCancel()">
+            <input type="button" value="OK"                             onclick="editPmtrOk()">
           </center>
           <hr>
           <h3>... or edit a value for the current Parameter</h3>
@@ -549,6 +554,9 @@ written by John Dannenhoffer
       </div>
 
       <div id="glovesStatus", oncontextmenu="return false;" hidden>
+      </div>
+
+      <div id="erepedStatus", oncontextmenu="return false;" hidden>
       </div>
 
       <div id="ESPlogo", oncontextmenu="return false;">

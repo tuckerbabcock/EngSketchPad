@@ -1,7 +1,7 @@
 #
 # Written by Dr. Ryan Durscher AFRL/RQVC
 # 
-# This software has been cleared for public release on 25 Jul 2018, case number 88ABW-2018-3793.
+# This software has been cleared for public release on 27 Oct. 2020, case number 88ABW-2020-3328.
 
 cimport cEGADS
 cimport cCAPS
@@ -24,8 +24,6 @@ cdef extern from "aimUtil.h":
   
     int aim_link( void *aimInfo, const char *name, cCAPS.capssType stype,
                   cCAPS.capsValue *val )
-  
-    int aim_setTess( void *aimInfo, cEGADS.ego tess )
   
     int aim_getDiscr( void *aimInfo, const char *tname, cCAPS.capsDiscr **discr )
   

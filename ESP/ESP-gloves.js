@@ -1,7 +1,7 @@
 // ESP-gloves.js implements Gloves functions for the Engineering Sketch Pad (ESP)
 // written by John Dannenhoffer
 
-// Copyright (C) 2010/2020  John F. Dannenhoffer, III (Syracuse University)
+// Copyright (C) 2010/2021  John F. Dannenhoffer, III (Syracuse University)
 //
 // This library is free software; you can redistribute it and/or
 //    modify it under the terms of the GNU Lesser General Public
@@ -143,14 +143,14 @@ glov.launch = function () {
     document.getElementById("topButton" )["innerHTML"] = "T";
 
     // change mode here so that getCsmFile works properly
-    changeMode(8);
+    changeMode(9);
 
     // if there is an input file, load Gloves from it
     if (wv.filenames != "|") {
 
         // get the latest csm file
         try {
-            changeMode(8);
+            changeMode(9);
 
             var filelist = wv.filenames.split("|");
             browserToServer("getCsmFile|"+filelist[1]+"|");

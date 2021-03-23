@@ -12,7 +12,7 @@
 // the minimum version of AFLR3 API that aflr3AIM is designed for
 const int AFLR3_MIN_VERSION[3] = { 16,30,10 };
 
-int main  (int argc, char *argv[])
+int main(/*@unused@*/ int argc, /*@unused@*/ char *argv[])
 {
   CHAR_133 Compile_Date;
   CHAR_133 Compile_OS;

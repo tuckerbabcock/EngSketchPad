@@ -208,7 +208,7 @@ IFTHEN    COMP:Vtail EQ 1
             BOX       xmin  ymin  z  xmax-xmin  ymax-ymin  0
             RESTORE   VtailOml
             INTERSECT
-                #ATTRIBUTE capsAIM       vlmAIMs
+                ATTRIBUTE capsAIM       vlmAIMs
                 ATTRIBUTE capsGroup      $Vtail
                 ATTRIBUTE capsDiscipline $Aerodynamic
                 ATTRIBUTE _name         !$Vtail_+icut

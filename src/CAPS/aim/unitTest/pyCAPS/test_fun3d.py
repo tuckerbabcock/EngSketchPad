@@ -17,14 +17,31 @@ class TestFUN3D(unittest.TestCase):
 
         cls.file = os.path.join("..","csmData","cfdMultiBody.csm")
         cls.analysisDir = "workDir_fun3dTest"
+        cls.iDir = 1
 
         cls.configFile = "fun3d.nml"
         cls.myProblem = pyCAPS.capsProblem()
 
         cls.myGeometry = cls.myProblem.loadCAPS(cls.file)
 
+        aflr4 = cls.myProblem.loadAIM(aim = "aflr4AIM",
+                                      analysisDir = cls.analysisDir + str(cls.iDir)); cls.iDir += 1
+
+        aflr4.setAnalysisVal("Mesh_Length_Factor", 60.00)
+
+        aflr4.preAnalysis()
+        aflr4.postAnalysis()
+
+        cls.aflr3 = cls.myProblem.loadAIM(aim = "aflr3AIM",
+                                          analysisDir = cls.analysisDir + str(cls.iDir),
+                                          parents = aflr4); cls.iDir += 1
+
+        cls.aflr3.preAnalysis()
+        cls.aflr3.postAnalysis()
+
         cls.myAnalysis = cls.myProblem.loadAIM(aim = "fun3dAIM",
-                                               analysisDir = cls.analysisDir)
+                                               analysisDir = cls.analysisDir + str(cls.iDir),
+                                               parents = cls.aflr3); cls.iDir += 1
         
         cls.myAnalysis.setAnalysisVal("Overwrite_NML", True)
 
@@ -35,26 +52,9 @@ class TestFUN3D(unittest.TestCase):
         if os.path.exists(cls.analysisDir):
             shutil.rmtree(cls.analysisDir)
         
-        if os.path.exists(cls.analysisDir + '_1'):
-            shutil.rmtree(cls.analysisDir + '_1')
-            
-        if os.path.exists(cls.analysisDir + '_2'):
-            shutil.rmtree(cls.analysisDir + '_2')
-            
-        if os.path.exists(cls.analysisDir + '_3'):
-            shutil.rmtree(cls.analysisDir + '_3')
-
-        if os.path.exists(cls.analysisDir + '_4'):
-            shutil.rmtree(cls.analysisDir + '_4')
-            
-        if os.path.exists(cls.analysisDir + '_5'):
-            shutil.rmtree(cls.analysisDir + '_5')
-            
-        if os.path.exists(cls.analysisDir + '_6'):
-            shutil.rmtree(cls.analysisDir + '_6')
-            
-        if os.path.exists(cls.analysisDir + '_7'):
-            shutil.rmtree(cls.analysisDir + '_7')
+        for i in range(1,cls.iDir):
+            if os.path.exists(cls.analysisDir + '_' + str(i)):
+                shutil.rmtree(cls.analysisDir + '_' + str(i))
 
 #         # Remove created files
 #         if os.path.isfile("myGeometry.egads"):
@@ -66,7 +66,8 @@ class TestFUN3D(unittest.TestCase):
     def test_invalidBoundaryName(self):
         # Create a new instance
         myAnalysis = self.myProblem.loadAIM(aim = "fun3dAIM",
-                                            analysisDir = self.analysisDir + "_1")
+                                            analysisDir = self.analysisDir + str(self.iDir),
+                                            parents = self.aflr3); self.__class__.iDir += 1
         
         myAnalysis.setAnalysisVal("Boundary_Condition", [("Wing1", {"bcType" : "Inviscid"}), # No capsGroup 'X'
                                                          ("X", {"bcType" : "Inviscid"}),
@@ -80,7 +81,8 @@ class TestFUN3D(unittest.TestCase):
     def test_invalidBoundary(self):        
         # Create a new instance
         myAnalysis = self.myProblem.loadAIM(aim = "fun3dAIM",
-                                            analysisDir = self.analysisDir + "_2")
+                                            analysisDir = self.analysisDir + str(self.iDir),
+                                            parents = self.aflr3); self.__class__.iDir += 1
         
         myAnalysis.setAnalysisVal("Boundary_Condition", ("Wing1", {"bcType" : "X"}))
         
@@ -100,7 +102,7 @@ class TestFUN3D(unittest.TestCase):
         
         self.assertEqual(os.path.isfile(os.path.join(self.myAnalysis.analysisDir, self.configFile)), True)
         
-        os.remove(os.path.join(self.analysisDir, self.configFile))
+        os.remove(os.path.join(self.myAnalysis.analysisDir, self.configFile))
         
         self.myAnalysis.setAnalysisVal("Boundary_Condition", [("Wing1", {"bcType" : "Viscous"}),
                                                               ("Wing2", {"bcType" : "Inviscid"}),
@@ -115,10 +117,13 @@ class TestFUN3D(unittest.TestCase):
         
         # Create a new instance
         myAnalysis = self.myProblem.loadAIM(aim = "fun3dAIM",
-                                            analysisDir = self.analysisDir + "_3")
+                                            analysisDir = self.analysisDir + str(self.iDir),
+                                            parents = self.aflr3); self.__class__.iDir += 1
         myAnalysis.setAnalysisVal("Overwrite_NML", False)
         
-        myAnalysis.setAnalysisVal("Boundary_Condition", ("Wing1", {"bcType" : "Inviscid"}))
+        myAnalysis.setAnalysisVal("Boundary_Condition", [("Wing1", {"bcType" : "Viscous"}),
+                                                         ("Wing2", {"bcType" : "Inviscid"}),
+                                                         ("Farfield","farfield")])
         
         myAnalysis.preAnalysis() # Don't except a config file because Overwrite_NML = False
     
@@ -126,39 +131,22 @@ class TestFUN3D(unittest.TestCase):
 
     # Create sensitvities
     def test_sensitivity(self):
-        
-        aflr4 = self.myProblem.loadAIM(aim = "aflr4AIM",
-                                       analysisDir = self.analysisDir + "_4")
-
-        aflr4.setAnalysisVal("Mesh_Length_Factor", 20.00)
-
-        tetgen = self.myProblem.loadAIM(aim = "tetgenAIM",
-                                        analysisDir = self.analysisDir + "_4",
-                                        parents = aflr4.aimName)
-        # Set Tetgen: maximum radius-edge ratio
-        tetgen.setAnalysisVal("Quality_Rad_Edge", 1.5)
-
-        # Set surface mesh preservation
-        tetgen.setAnalysisVal("Preserve_Surf_Mesh", True)
 
         # Create a new instance
         myAnalysis = self.myProblem.loadAIM(aim = "fun3dAIM",
-                                            analysisDir = self.analysisDir + "_4",
-                                            parents = tetgen.aimName)
+                                            analysisDir = self.analysisDir + str(self.iDir),
+                                            parents = self.aflr3); self.__class__.iDir += 1
         
         myAnalysis.setAnalysisVal("Boundary_Condition", [("Wing1", {"bcType" : "Viscous"}),
                                                          ("Wing2", {"bcType" : "Inviscid"}),
                                                          ("Farfield","farfield")])
                 
-        # TODO: This needs more work...
-        myAnalysis.setAnalysisVal("Sensitivity", "something")
-
-        aflr4.preAnalysis()
-        aflr4.postAnalysis()
-
-        tetgen.preAnalysis()
-        tetgen.postAnalysis()
-
+        myAnalysis.setAnalysisVal("Design_Variable", ("Alpha", {"upperBound": 10.0}))
+        
+        myAnalysis.setAnalysisVal("Design_Objective", ("ClCd",{"weight": 1.0, "target": 2.7}))
+        
+        myAnalysis.setAnalysisVal("Alpha", 1)
+        
         myAnalysis.preAnalysis()
         myAnalysis.postAnalysis()
         
@@ -167,7 +155,8 @@ class TestFUN3D(unittest.TestCase):
         
         # Create a new instance
         myAnalysis = self.myProblem.loadAIM(aim = "fun3dAIM",
-                                            analysisDir = self.analysisDir + "_5")
+                                            analysisDir = self.analysisDir + str(self.iDir),
+                                            parents = self.aflr3); self.__class__.iDir += 1
         
         fun3dnml = f90nml.Namelist()
         fun3dnml['boundary_output_variables'] = f90nml.Namelist()
@@ -180,7 +169,9 @@ class TestFUN3D(unittest.TestCase):
         myAnalysis.setAnalysisVal("Use_Python_NML", True)
         myAnalysis.setAnalysisVal("Overwrite_NML", False) # append
         
-        myAnalysis.setAnalysisVal("Boundary_Condition", ("Wing1", {"bcType" : "Inviscid"}))
+        myAnalysis.setAnalysisVal("Boundary_Condition", [("Wing1", {"bcType" : "Viscous"}),
+                                                         ("Wing2", {"bcType" : "Inviscid"}),
+                                                         ("Farfield","farfield")])
         
         myAnalysis.preAnalysis()
     
@@ -191,12 +182,15 @@ class TestFUN3D(unittest.TestCase):
         
         # Create a new instance
         myAnalysis = self.myProblem.loadAIM(aim = "fun3dAIM",
-                                            analysisDir = self.analysisDir + "_6")
+                                            analysisDir = self.analysisDir + str(self.iDir),
+                                            parents = self.aflr3); self.__class__.iDir += 1
         
         myAnalysis.setAnalysisVal("Use_Python_NML", True)
         myAnalysis.setAnalysisVal("Overwrite_NML", False) # append
         
-        myAnalysis.setAnalysisVal("Boundary_Condition", ("Wing1", {"bcType" : "Inviscid"}))
+        myAnalysis.setAnalysisVal("Boundary_Condition", [("Wing1", {"bcType" : "Viscous"}),
+                                                         ("Wing2", {"bcType" : "Inviscid"}),
+                                                         ("Farfield","farfield")])
         
         myAnalysis.preAnalysis()
     
@@ -217,7 +211,8 @@ class TestFUN3D(unittest.TestCase):
     
         # Create a new instance
         myAnalysis = self.myProblem.loadAIM(aim = "fun3dAIM",
-                                            analysisDir = self.analysisDir + "_7")
+                                            analysisDir = self.analysisDir + str(self.iDir),
+                                            parents = self.aflr3); self.__class__.iDir += 1
         
         # Create a bad nml file 
         f = open(os.path.join(myAnalysis.analysisDir,self.configFile), "w")

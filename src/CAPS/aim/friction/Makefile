@@ -35,6 +35,9 @@ $(TDIR)/friction:	$(ODIR)/friction.o
 $(ODIR)/friction.o:	friction_eja_mod.f
 	$(FCOMP) -c $(FOPTS) friction_eja_mod.f -o $(ODIR)/friction.o
 
+lint:
+	$(LINT) -I../../include -I$(IDIR) -I../utils $(wildcard *.c) -exportlocal -evalorder -nestcomment -boolops -retvalother
+
 clean:
 	-rm $(ODIR)/frictionAIM.o $(ODIR)/friction.o
 

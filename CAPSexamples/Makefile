@@ -63,7 +63,8 @@ ifdef ESP_BLOC
 PYFILES=$(wildcard pyCAPS/*.py)
 PYTEST=$(patsubst pyCAPS/%.py,$(TDIR)/pyCAPS/%.py,$(PYFILES))
 
-CSMFILES=$(wildcard csmData/*.*)
+CSMFILES=$(wildcard csmData/*.csm)
+CSMFILES+=$(wildcard csmData/*.udc)
 CSMTEST=$(patsubst csmData/%,$(TDIR)/csmData/%,$(CSMFILES))
 
 REGFILES=$(wildcard regressionTest/*.*)

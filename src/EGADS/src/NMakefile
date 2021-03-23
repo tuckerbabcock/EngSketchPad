@@ -11,12 +11,12 @@ ODIR  = $(ESP_BLOC)\obj
 ODIR  = .
 !ENDIF
 
-OBJSP = egadsGeom.obj  egadsHLevel.obj egadsTopo.obj     egadsCopy.obj \
+OBJSP = egadsGeom.obj  egadsHLevel.obj    egadsTopo.obj  egadsCopy.obj \
 	egadsIO.obj    egadsSplineFit.obj egadsSpline.obj egadsTessSens.obj \
-	BRepLib_FuseEdges.obj
+	egadsSkinning.obj BRepLib_FuseEdges.obj
 OBJS  = egadsBase.obj  egadsMemory.obj egadsAttrs.obj    egadsTessInp.obj \
 	egadsTess.obj  egadsTris.obj   egadsQuads.obj    egadsRobust.obj \
-	egadsSBO.obj   egadsFit.obj    egadsSkinning.obj prmCfit.obj \
+	egadsSBO.obj   egadsFit.obj    prmCfit.obj \
 	prmGrid.obj    prmUV.obj       egadsExport.obj   egadsSolids.obj \
 	egadsEffect.obj
 FOBJS = fgadsBase.obj  fgadsMemory.obj fgadsAttrs.obj    fgadsTess.obj \

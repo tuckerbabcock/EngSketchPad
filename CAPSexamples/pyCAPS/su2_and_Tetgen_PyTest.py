@@ -52,9 +52,34 @@ myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 myProblem.geometry.setGeometryVal("area", 50)
 ## [capsDespmtrs]
 
+# Load EGADS Tess aim
+mySurfMesh = myProblem.loadAIM(aim = "egadsTessAIM",
+                               analysisDir = workDir)
+
+# Set project name so a mesh file is generated
+mySurfMesh.setAnalysisVal("Proj_Name", "egadsTessMesh")
+
+# Set new EGADS body tessellation parameters
+mySurfMesh.setAnalysisVal("Tess_Params", [0.5, 0.1, 20.0])
+
+# Set output grid format since a project name is being supplied - Tecplot file
+mySurfMesh.setAnalysisVal("Mesh_Format", "Tecplot")
+
+# Run AIM pre-analysis
+mySurfMesh.preAnalysis()
+
+##########################################
+## egadsTess was ran during preAnalysis ##
+##########################################
+
+# Run AIM post-analysis
+mySurfMesh.postAnalysis()
+
+
 # Load Tetgen aim
 ## [loadMeshAIM]
-myMesh = myProblem.loadAIM(aim = "tetgenAIM", analysisDir = workDir)
+myMesh = myProblem.loadAIM(aim = "tetgenAIM", analysisDir = workDir,
+                           parents = mySurfMesh.aimName)
 ## [loadMeshAIM]
 
 ## [setMeshpmtrs]
@@ -104,7 +129,7 @@ myAnalysis.setAnalysisVal("Mach", 0.5901)
 myAnalysis.setAnalysisVal("Equation_Type","Compressible")
 
 # Set number of iterations
-myAnalysis.setAnalysisVal("Num_Iter",10)
+myAnalysis.setAnalysisVal("Num_Iter",5)
 
 # Specifcy the boundares used to compute forces
 myAnalysis.setAnalysisVal("Surface_Monitor", ["Wing1", "Wing2"])

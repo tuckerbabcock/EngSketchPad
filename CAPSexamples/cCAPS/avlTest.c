@@ -3,7 +3,7 @@
  *
  *             avl AIM tester
  *
- *      Copyright 2014-2020, Massachusetts Institute of Technology
+ *      Copyright 2014-2021, Massachusetts Institute of Technology
  *      Licensed under The GNU Lesser General Public License, version 2.1
  *      See http://www.opensource.org/licenses/lgpl-2.1.php
  *
@@ -43,15 +43,16 @@ int main(int argc, char *argv[])
 
 
     // Input values
-    capsTuple        *surfaceTuple = NULL, *flapTuple = NULL;
-    int               surfaceSize = 2, flapSize = 3;
-    double            doubleVal;
-    int               integerVal;
+    capsTuple *surfaceTuple = NULL, *flapTuple = NULL;
+    int       surfaceSize = 2, flapSize = 3;
+    double    doubleVal;
     //enum capsBoolean  boolVal;
 
     // Output values
+    int nrow, ncol;
     const char *valunits;
     const void *data;
+    const int  *partial;
 
     char *stringVal = NULL;
 
@@ -92,9 +93,10 @@ int main(int argc, char *argv[])
     if (status != CAPS_SUCCESS) goto cleanup;
 
     status = caps_info(problemObj, &name, &type, &subtype, &link, &parent, &current);
+    if (status != CAPS_SUCCESS)  goto cleanup;
 
     // Now load the avlAIM
-    status = caps_load(problemObj, "avlAIM", analysisPath, NULL, NULL, 0, NULL, &avlObj);
+    status = caps_makeAnalysis(problemObj, "avlAIM", analysisPath, NULL, NULL, 0, NULL, &avlObj);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     // Find & set AVL_Surface
@@ -108,7 +110,7 @@ int main(int argc, char *argv[])
     surfaceTuple[1].name = EG_strdup("Vertical_Tail");
     surfaceTuple[1].value = EG_strdup("{\"numChord\": 5, \"spaceChord\": 1, \"numSpanTotal\": 10, \"spaceSpan\": 1}");
 
-    status = caps_setValue(tempObj, surfaceSize, 1,  (void **) surfaceTuple);
+    status = caps_setValue(tempObj, Tuple, surfaceSize, 1,  (void **) surfaceTuple, NULL, NULL, &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
 
 
@@ -126,7 +128,7 @@ int main(int argc, char *argv[])
     flapTuple[2].name = EG_strdup("Tail");
     flapTuple[2].value = EG_strdup("{\"controlGain\": 1.0, \"deflectionAngle\": 15}");
 
-    status = caps_setValue(tempObj, flapSize, 1,  (void **) flapTuple);
+    status = caps_setValue(tempObj, Tuple, flapSize, 1,  (void **) flapTuple, NULL, NULL, &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     // Find & set Mach number
@@ -134,7 +136,7 @@ int main(int argc, char *argv[])
     if (status != CAPS_SUCCESS) goto cleanup;
 
     doubleVal  = 0.5;
-    status = caps_setValue(tempObj, 1, 1, (void *) &doubleVal);
+    status = caps_setValue(tempObj, Double, 1, 1, (void *) &doubleVal, NULL, NULL, &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     // Find & set AoA
@@ -142,7 +144,7 @@ int main(int argc, char *argv[])
     if (status != CAPS_SUCCESS) goto cleanup;
 
     doubleVal  = 1.0;
-    status = caps_setValue(tempObj, 1, 1, (void *) &doubleVal);
+    status = caps_setValue(tempObj, Double, 1, 1, (void *) &doubleVal, NULL, "degree", &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     // Do the analysis setup for AVL;
@@ -178,7 +180,7 @@ int main(int argc, char *argv[])
     status = caps_childByName(avlObj, VALUE, ANALYSISOUT, "CLtot", &tempObj);
     if (status != CAPS_SUCCESS) goto cleanup;
 
-    status = caps_getValue(tempObj, &vtype, &integerVal, &data, &valunits, &nErr, &errors);
+    status = caps_getValue(tempObj, &vtype, &nrow, &ncol, &data, &partial, &valunits, &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     printf("\nValue of Cltot = %f\n", ((double *) data)[0]);
@@ -187,7 +189,7 @@ int main(int argc, char *argv[])
     status = caps_childByName(avlObj, VALUE, ANALYSISOUT, "StripForces", &tempObj);
     if (status != CAPS_SUCCESS) goto cleanup;
 
-    status = caps_getValue(tempObj, &vtype, &integerVal, &data, &valunits, &nErr, &errors);
+    status = caps_getValue(tempObj, &vtype, &nrow, &ncol, &data, &partial, &valunits, &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     printf("\nStripForces\n\n");

@@ -22,6 +22,9 @@ $(LDIR)/avlAIM.so:	$(ODIR)/avlAIM.o $(LDIR)/libaimUtil.a $(LDIR)/libutils.a
 $(ODIR)/avlAIM.o:	avlAIM.c $(IDIR)/capsTypes.h
 	$(CC) -c $(COPTS) $(DEFINE) -I$(IDIR) -I../utils avlAIM.c -o $(ODIR)/avlAIM.o
 
+lint:
+	$(LINT) -I../../include -I$(IDIR) -I../utils $(wildcard *.c) -exportlocal -nestcomment -bufferoverflowhigh -uniondef
+
 clean:
 	-rm $(ODIR)/avlAIM.o
 

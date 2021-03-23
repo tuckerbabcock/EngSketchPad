@@ -3,7 +3,7 @@
  *
  *             Base Object Functions
  *
- *      Copyright 2011-2020, Massachusetts Institute of Technology
+ *      Copyright 2011-2021, Massachusetts Institute of Technology
  *      Licensed under The GNU Lesser General Public License, version 2.1
  *      See http://www.opensource.org/licenses/lgpl-2.1.php
  *
@@ -34,7 +34,7 @@
 
 
   static char *EGADSprop[2] = {STR(EGADSPROP),
-                               "\nEGADSprop: Copyright 2011-2020 MIT. All Rights Reserved."};
+                               "\nEGADSprop: Copyright 2011-2021 MIT. All Rights Reserved."};
 
 
   extern void EG_initOCC( );
@@ -47,6 +47,7 @@
                                /*@null@*/ double *xform, egObject **copy );
   extern int  EG_copyTopology( /*@null@*/ egObject *cntxt, const egObject *topo,
                                /*@null@*/ double *xform, egObject **copy );
+  extern int  EG_copyEBody( const egObject *body, egObject **EBody );
   extern int  EG_flipGeometry( const egObject *geom, egObject **copy );
   extern int  EG_flipTopology( const egObject *topo, egObject **copy );
   extern int  EG_getTopology( const egObject *topo, egObject **geom, 
@@ -583,8 +584,21 @@ EG_derefObj(egObject *object, /*@null@*/ const egObject *refx, int flg)
     }
     if (object->topObj == context)
       if (i > 0) {
-        if (outLevel > 0)
-          printf(" EGADS Info: dereference with %d active objects!\n", i); 
+        if (outLevel > 0) {
+          printf(" EGADS Info: %d/%d dereference with %d active objects!\n",
+                 object->oclass, object->mtype, i);
+          if (outLevel > 1) {
+            nobj = object->tref;
+            pobj = NULL;
+            while (nobj != NULL) {
+              obj = (egObject *) nobj->attrs;
+              if (obj != ref)
+                printf("            obj = %d/%d\n", obj->oclass, obj->mtype);
+              pobj = nobj;
+              nobj = (egObject *) pobj->blind;          /* next reference */
+            }
+          }
+        }
         return i;
       }
   }
@@ -656,7 +670,11 @@ EG_derefObj(egObject *object, /*@null@*/ const egObject *refx, int flg)
 
     tess = (egTessel *) object->blind;
     if (tess != NULL) {
-      EG_dereferenceTopObj(tess->src, object);
+      if (object->topObj == context) {
+        EG_dereferenceTopObj(tess->src, object);
+      } else {
+        EG_derefObj(tess->src, object, 0);
+      }
       if (tess->xyzs != NULL) EG_free(tess->xyzs);
       if (tess->tess1d != NULL) {
         for (i = 0; i < tess->nEdge; i++) {
@@ -726,7 +744,7 @@ EG_derefObj(egObject *object, /*@null@*/ const egObject *refx, int flg)
   
     stat = EGADS_SUCCESS;
     EG_destroyEBody(object, 0);
-    
+  
   } else {
   
     if (flg == 0) stat = EG_destroyTopology(object);
@@ -802,10 +820,17 @@ EG_deleteObject(egObject *object)
       (object->oclass <= ESHELL))    return EGADS_EFFCTOBJ;
   if  (object->oclass != CONTXT) {
     /* normal dereference */
-    context = EG_context(object);
-    if (context == NULL)            return EGADS_NOTCNTX;
+    context  = EG_context(object);
     outLevel = EG_outLevel(object);
-    cntx     = (egCntxt *) context->blind;
+    if (context == NULL)             return EGADS_NOTCNTX;
+    if ((object->oclass == EBODY) || (object->oclass == TESSELLATION))
+      if (object->topObj != context) {
+        if (outLevel > 0)
+          printf(" EGADS Info: Object %d/%d owned by %d/%d!\n", object->oclass,
+                 object->mtype, object->topObj->oclass, object->topObj->mtype);
+        return EGADS_TOPOCNT;
+      }
+    cntx = (egCntxt *) context->blind;
     if (cntx->mutex != NULL) {
       if (!EMP_LockTest(cntx->mutex)) {
         locked = 1;
@@ -818,13 +843,19 @@ EG_deleteObject(egObject *object)
       stat = EG_getTopology(object, &next, &oclass, &mtype, NULL, 
                             &nbody, &bodies, &senses);
       if (stat != EGADS_SUCCESS) return stat;
+      if (mtype > nbody) nbody = mtype;
       for (cnt = i = 0; i < nbody; i++) {
         if (bodies[i]->tref == NULL) continue;
         next = bodies[i]->tref;
         pobj = NULL;
         while (next != NULL) {
           obj = (egObject *) next->attrs;
-          if (obj != object) cnt++;
+          if (obj != object)
+            if ((obj->oclass == TESSELLATION) || (obj->oclass == EBODY)) {
+              if (obj->topObj != object) cnt++;
+            } else {
+              cnt++;
+            }
           pobj = next;
           next = (egObject *) pobj->blind;      /* next reference */
         }
@@ -836,6 +867,10 @@ EG_deleteObject(egObject *object)
         if (cntx->mutex != NULL) EMP_LockRelease(cntx->mutex);
         return cnt;
       }
+      for (i = nbody-1; i >= 0; i--)
+        if ((bodies[i]->oclass == TESSELLATION) ||
+            (bodies[i]->oclass == EBODY))
+          EG_dereferenceObject(bodies[i], object);
     }
   
     stat = EG_dereferenceObject(object, context);
@@ -1068,11 +1103,13 @@ EG_getInfo(const egObject *object, int *oclass, int *mtype, egObject **top,
 int
 EG_copyObject(const egObject *object, /*@null@*/ void *ptr, egObject **copy)
 {
-  int          i, j, k, stat, outLevel, npts, ntri, nn, *inode;
-  double       *xform = NULL;
+  int          i, j, k, stat, outLevel, npts, ntri, nn, oclass, mtype;
+  int          *senses, *inode;
+  double       trange[2], x[6], *xform = NULL;
   const int    *ptype, *pindex, *tris, *tric;
   const double *xyz, *prms;
-  egObject     *context, *xcontext, *oform, *sobj, *obj = NULL;
+  egObject     *context, *xcontext, *oform, *sobj, *ref, *obj = NULL;
+  egObject     **nodes, **objs;
   egTessel     *btess, *ctess;
 
   *copy = NULL;
@@ -1113,27 +1150,40 @@ EG_copyObject(const egObject *object, /*@null@*/ void *ptr, egObject **copy)
     }
     if (btess->done == 0) return EGADS_TESSTATE;
 
-    xform = (double *) ptr;
-    if (xform != NULL) {
-      if (btess->globals == NULL) {
-        stat = EG_computeTessMap(btess, outLevel);
-        if (stat != EGADS_SUCCESS) {
-          if (outLevel > 0)
-            printf(" EGADS Error: EG_computeTessMap = %d (EG_copyObject)!\n",
-                   stat);
-          return stat;
+    oform = (egObject *) ptr;
+    if (oform != NULL) {
+      if (oform->magicnumber == MAGIC) {
+        if (oform->oclass != BODY) oform = NULL;
+      } else {
+        oform = NULL;
+      }
+    }
+    if (oform == NULL) {
+      xform = (double *) ptr;
+      if (xform != NULL) {
+        if (btess->globals == NULL) {
+          stat = EG_computeTessMap(btess, outLevel);
+          if (stat != EGADS_SUCCESS) {
+            if (outLevel > 0)
+              printf(" EGADS Error: EG_computeTessMap = %d (EG_copyObject)!\n",
+                     stat);
+            return stat;
+          }
         }
       }
     }
     
-    stat = EG_initTessBody(sobj, copy);
+    if (oform == NULL) {
+      stat = EG_initTessBody(sobj,  copy);
+    } else {
+      stat = EG_initTessBody(oform, copy);
+    }
     if ((stat != EGADS_SUCCESS) || (*copy == NULL)) {
       if (outLevel > 0)
         printf(" EGADS Error: EG_initTessBody = %d (EG_copyObject)!\n", stat);
       return stat;
     }
     for (i = 1; i <= btess->nEdge; i++) {
-      if (btess->tess1d[i-1].obj->mtype == DEGENERATE) continue;
       stat = EG_getTessEdge(object, i, &npts, &xyz, &prms);
       if (stat != EGADS_SUCCESS) {
         if (outLevel > 0)
@@ -1142,6 +1192,34 @@ EG_copyObject(const egObject *object, /*@null@*/ void *ptr, egObject **copy)
         EG_deleteObject(*copy);
         *copy = NULL;
         return stat;
+      }
+      if ((btess->tess1d[i-1].obj->mtype == DEGENERATE) && (npts == 0)) {
+        npts = 2;
+        stat = EG_getTopology(btess->tess1d[i-1].obj, &ref, &oclass, &mtype,
+                              trange, &j, &nodes, &senses);
+        if (stat != EGADS_SUCCESS) {
+          if (outLevel > 0)
+            printf(" EGADS Error: EG_getTopo Degen %d = %d (EG_copyObject)!\n",
+                   i, stat);
+          EG_deleteObject(*copy);
+          *copy = NULL;
+          return stat;
+        }
+        stat = EG_getTopology(nodes[0], &ref, &oclass, &mtype, x, &j, &objs,
+                              &senses);
+        if (stat != EGADS_SUCCESS) {
+          if (outLevel > 0)
+            printf(" EGADS Error: EG_getTopo Node %d = %d (EG_copyObject)!\n",
+                   i, stat);
+          EG_deleteObject(*copy);
+          *copy = NULL;
+          return stat;
+        }
+        x[3] = x[0];
+        x[4] = x[1];
+        x[5] = x[2];
+        prms = trange;
+        xyz  = x;
       }
       stat = EG_setTessEdge(*copy, i, npts, xyz, prms);
       if (stat != EGADS_SUCCESS) {
@@ -1330,14 +1408,25 @@ EG_copyObject(const egObject *object, /*@null@*/ void *ptr, egObject **copy)
   
     stat = EG_copyGeometry(context, object, xform, &obj);
   
-  } else {
+  } else if (object->oclass <= MODEL) {
   
     stat = EG_copyTopology(context, object, xform, &obj);
 
+  } else if (object->oclass == EBODY) {
+    
+    return EG_copyEBody(object, copy);
+    
+  } else {
+    
+    if (outLevel > 0)
+      printf(" EGADS Error: Object Type = %d (EG_copyObject)!\n",
+             object->oclass);
+    stat = EGADS_EFFCTOBJ;
+    
   }
 
   if (obj != NULL) {
-    stat  = EG_attributeXDup(object, xform, obj);
+    if (object->oclass != EBODY) stat = EG_attributeXDup(object, xform, obj);
     *copy = obj;
   }
   return stat;
@@ -1432,14 +1521,33 @@ EG_close(egObject *context)
   /* delete unattached geometry and topology objects */
   
   EG_deleteObject(context);
- 
-  /* delete Effective Bodies objects */
+  
+  /* delete tessellation objects not in models */
 
   obj  = context->next;
   last = NULL;
   while (obj != NULL) {
     next = obj->next;
-    if (obj->oclass == EBODY)
+    if ((obj->oclass == TESSELLATION) && (obj->topObj == context))
+      if (EG_deleteObject(obj) == EGADS_SUCCESS) {
+        obj = last;
+        if (obj == NULL) {
+          next = context->next;
+        } else {
+          next = obj->next;
+        }
+      }
+    last = obj;
+    obj  = next;
+  }
+
+  /* delete all models */
+
+  obj  = context->next;
+  last = NULL;
+  while (obj != NULL) {
+    next = obj->next;
+    if (obj->oclass == MODEL)
       if (EG_deleteObject(obj) == EGADS_SUCCESS) {
         obj = last;
         if (obj == NULL) {
@@ -1470,14 +1578,14 @@ EG_close(egObject *context)
     last = obj;
     obj  = next;
   }
-
-  /* delete all models */
+  
+  /* delete Effective Bodies objects */
 
   obj  = context->next;
   last = NULL;
   while (obj != NULL) {
     next = obj->next;
-    if (obj->oclass == MODEL)
+    if (obj->oclass == EBODY)
       if (EG_deleteObject(obj) == EGADS_SUCCESS) {
         obj = last;
         if (obj == NULL) {

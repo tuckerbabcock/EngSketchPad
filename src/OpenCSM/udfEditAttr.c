@@ -10,7 +10,7 @@
  */
 
 /*
- * Copyright (C) 2011/2020  John F. Dannenhoffer, III (Syracuse University)
+ * Copyright (C) 2011/2021  John F. Dannenhoffer, III (Syracuse University)
  *
  * This library is free software; you can redistribute it and/or
  *    modify it under the terms of the GNU Lesser General Public
@@ -87,7 +87,7 @@ udpExecute(ego  emodel,                 /* (in)  Model containing Body */
 
     int     oclass, mtype, nchild, *senses, nchange;
     double  data[4];
-    char    *message;
+    char    *message=NULL;
     ego     context, eref, *ebodys;
 
     ROUTINE(udpExecute);
@@ -109,13 +109,13 @@ udpExecute(ego  emodel,                 /* (in)  Model containing Body */
     *nMesh  = 0;
     *string = NULL;
 
-    message = (char *) EG_alloc(100*sizeof(char));
+    MALLOC(message, char, 100);
     message[0] = '\0';
 
     /* check that Model was input that contains one Body */
     status = EG_getTopology(emodel, &eref, &oclass, &mtype,
                             data, &nchild, &ebodys, &senses);
-    if (status < EGADS_SUCCESS) goto cleanup;
+    CHECK_STATUS(EG_getTopology);
 
     if (oclass != MODEL) {
         printf(" udpExecute: expecting a Model\n");
@@ -128,7 +128,7 @@ udpExecute(ego  emodel,                 /* (in)  Model containing Body */
     }
 
     status = EG_getContext(emodel, &context);
-    if (status < EGADS_SUCCESS) goto cleanup;
+    CHECK_STATUS(EG_getContext);
 
     /* if filename is specified, then process it and skip everything else */
     if (STRLEN(FILENAME(0)) > 0) {
@@ -158,10 +158,7 @@ udpExecute(ego  emodel,                 /* (in)  Model containing Body */
 
     /* cache copy of arguments for future use */
     status = cacheUdp();
-    if (status < 0) {
-        printf(" udpExecute: problem caching arguments\n");
-        goto cleanup;
-    }
+    CHECK_STATUS(cacheUdp);
 
 #ifdef DEBUG
     printf("attrname( %d) = %s\n", numUdp, ATTRNAME( numUdp));
@@ -175,21 +172,16 @@ udpExecute(ego  emodel,                 /* (in)  Model containing Body */
     /* make a copy of the Body (so that it does not get removed
      when OpenCSM deletes emodel) */
     status = EG_copyObject(ebodys[0], NULL, ebody);
-    if (status < EGADS_SUCCESS) goto cleanup;
+    CHECK_STATUS(EG_copyObject);
+    if (*ebody == NULL) goto cleanup;   // needed for splint
 
     /* edit the attributes */
     if (STRLEN(FILENAME(numUdp)) > 0) {
         status = processFile(context, *ebody, FILENAME(numUdp), message, &nchange);
-        if (status < 0) {
-            printf(" udpExecute: problem in processFile\n");
-            goto cleanup;
-        }
+        CHECK_STATUS(processFile);
     } else {
         status = editAttrs(*ebody, ATTRNAME(numUdp), INPUT(numUdp), OUTPUT(numUdp), OVERWRITE(numUdp), message, &nchange);
-        if (status < 0) {
-            printf(" udpExecute: problem in editAttrs\n");
-            goto cleanup;
-        }
+        CHECK_STATUS(editAttrs);
     }
 
     /* add a special Attribute to the Body to tell OpenCSM that there
@@ -197,10 +189,7 @@ udpExecute(ego  emodel,                 /* (in)  Model containing Body */
        Attributes on the Body in finishBody() */
     status = EG_attributeAdd(*ebody, "__noTopoChange__", ATTRSTRING,
                              0, NULL, NULL, "udfEditAttr");
-    if (status < 0) {
-        printf(" udpExecute: problem setting __noTopoChange__\n");
-        goto cleanup;
-    }
+    CHECK_STATUS(EG_attributeAdd);
 
     /* set the output value */
     NCHANGE(0) = (double)nchange;
@@ -213,10 +202,10 @@ cleanup:
         *string = message;
         printf("%s\n", message);
     } else if (status != EGADS_SUCCESS) {
-        EG_free(message);
+        FREE(message);
         *string = udpErrorStr(status);
     } else {
-        EG_free(message);
+        FREE(message);
     }
 
     return status;
@@ -302,13 +291,17 @@ editAttrs(ego    ebody,                 /* (in)  EGADS Body */
 
     /* get the list of Nodes, Edges, and Faces associated with ebody */
     status = EG_getBodyTopos(ebody, NULL, NODE, &nnode, &enodes);
-    if (status < EGADS_SUCCESS) goto cleanup;
+    CHECK_STATUS(EG_getBodyTopos);
 
     status = EG_getBodyTopos(ebody, NULL, EDGE, &nedge, &eedges);
-    if (status < EGADS_SUCCESS) goto cleanup;
+    CHECK_STATUS(EG_getBodyTopos);
 
     status = EG_getBodyTopos(ebody, NULL, FACE, &nface, &efaces);
-    if (status < EGADS_SUCCESS) goto cleanup;
+    CHECK_STATUS(EG_getBodyTopos);
+
+    if (enodes == NULL) goto cleanup;   // needed for splint
+    if (eedges == NULL) goto cleanup;   // needed for splint
+    if (efaces == NULL) goto cleanup;   // needed for splint
 
     /* determone number of edits */
     nedit = MAX(STRLEN(input), STRLEN(output));
@@ -490,6 +483,7 @@ editAttrs(ego    ebody,                 /* (in)  EGADS Body */
                         } else if (outtype == 'e' || outtype == 'E') {
                             status = EG_getBodyTopos(ebody, enodes[inode], EDGE, &nlist, &elist);
                             CHECK_STATUS(EG_getBodyTopos);
+                            if (elist == NULL) goto cleanup;     // needed for splint
 
                             for (ilist = 0; ilist < nlist; ilist++) {
                                 status = editEgo(aname, atype, alen, tempIlist, tempRlist, tempClist,
@@ -504,6 +498,7 @@ editAttrs(ego    ebody,                 /* (in)  EGADS Body */
                         } else if (outtype == 'f' || outtype == 'F') {
                             status = EG_getBodyTopos(ebody, enodes[inode], FACE, &nlist, &elist);
                             CHECK_STATUS(EG_getBodyTopos);
+                            if (elist == NULL) goto cleanup;     // needed for splint
 
                             for (ilist = 0; ilist < nlist; ilist++) {
                                 status = editEgo(aname, atype, alen, tempIlist, tempRlist, tempClist,
@@ -548,6 +543,7 @@ editAttrs(ego    ebody,                 /* (in)  EGADS Body */
                         } else if (outtype == 'n' || outtype == 'N') {
                             status = EG_getBodyTopos(ebody, eedges[iedge], NODE, &nlist, &elist);
                             CHECK_STATUS(EG_getBodyTopos);
+                            if (elist == NULL) goto cleanup;     // needed for splint
 
                             for (ilist = 0; ilist < nlist; ilist++) {
                                 status = editEgo(aname, atype, alen, tempIlist, tempRlist, tempClist,
@@ -565,6 +561,7 @@ editAttrs(ego    ebody,                 /* (in)  EGADS Body */
                         } else if (outtype == 'f' || outtype == 'F') {
                             status = EG_getBodyTopos(ebody, eedges[iedge], FACE, &nlist, &elist);
                             CHECK_STATUS(EG_getBodyTopos);
+                            if (elist == NULL) goto cleanup;     // needed for splint
 
                             for (ilist = 0; ilist < nlist; ilist++) {
                                 status = editEgo(aname, atype, alen, tempIlist, tempRlist, tempClist,
@@ -609,6 +606,7 @@ editAttrs(ego    ebody,                 /* (in)  EGADS Body */
                         } else if (outtype == 'n' || outtype == 'N') {
                             status = EG_getBodyTopos(ebody, efaces[iface], NODE, &nlist, &elist);
                             CHECK_STATUS(EG_getBodyTopos);
+                            if (elist == NULL) goto cleanup;     // needed for splint
 
                             for (ilist = 0; ilist < nlist; ilist++) {
                                 status = editEgo(aname, atype, alen, tempIlist, tempRlist, tempClist,
@@ -623,6 +621,7 @@ editAttrs(ego    ebody,                 /* (in)  EGADS Body */
                         } else if (outtype == 'e' || outtype == 'E') {
                             status = EG_getBodyTopos(ebody, efaces[iface], EDGE, &nlist, &elist);
                             CHECK_STATUS(EG_getBodyTopos);
+                            if (elist == NULL) goto cleanup;     // needed for splint
 
                             for (ilist = 0; ilist < nlist; ilist++) {
                                 status = editEgo(aname, atype, alen, tempIlist, tempRlist, tempClist,
@@ -706,10 +705,7 @@ processFile(ego    context,             /* (in)  EGADS context */
 
     /* get pointer to model */
     status = EG_getUserPointer(context, (void**)(&(modl)));
-    if (status != EGADS_SUCCESS) {
-        printf(" udpExecute: bad return from getUserPointer\n");
-        goto cleanup;
-    }
+    CHECK_STATUS(EG_getUserPointer);
 
     /* get the outLevel from OpenCSM */
     outLevel = ocsmSetOutLevel(       0);
@@ -718,17 +714,17 @@ processFile(ego    context,             /* (in)  EGADS context */
     /* remember how many Parameters there were (so that we can delete
        any that were created via a PATBEG statement) */
     status = ocsmInfo(modl, &nbrch, &npmtr_save, &nbody);
-    if (status < EGADS_SUCCESS) goto cleanup;
+    CHECK_STATUS(ocsmInfo);
 
     /* find number of Nodes, Edges, and Faces in ebody */
     status = EG_getBodyTopos(ebody, NULL, NODE, &nnode, NULL);
-    if (status < EGADS_SUCCESS) goto cleanup;
+    CHECK_STATUS(EG_getBodyTopos);
 
     status = EG_getBodyTopos(ebody, NULL, EDGE, &nedge, NULL);
-    if (status < EGADS_SUCCESS) goto cleanup;
+    CHECK_STATUS(EG_getBodyTopos);
 
     status = EG_getBodyTopos(ebody, NULL, FACE, &nface, NULL);
-    if (status < EGADS_SUCCESS) goto cleanup;
+    CHECK_STATUS(EG_getBodyTopos);
 
     /* allocate a list of EGOs that is big enough for all Nodes, Edges, or Faces */
     if (nnode > nedge && nnode > nface) {
@@ -739,7 +735,7 @@ processFile(ego    context,             /* (in)  EGADS context */
         nsel = nface;
     }
 
-    esel = (ego*) malloc(nsel*sizeof(ego));
+    MALLOC(esel, ego, nsel);
     nsel = 0;
 
     istype = 0;
@@ -757,7 +753,7 @@ processFile(ego    context,             /* (in)  EGADS context */
     iskip = 0;
 
     /* read until end of file */
-    while (!feof(fp)) {
+    while (feof(fp) == 0) {
 
         /* read the next line */
         (void) fgets(templine, 255, fp);
@@ -843,10 +839,10 @@ processFile(ego    context,             /* (in)  EGADS context */
 
             /* get the number of replicates */
             status = getToken(templine, 2, ' ', 255, token2);
-            if (status < EGADS_SUCCESS) goto cleanup;
+            CHECK_STATUS(getToken);
 
             status = ocsmEvalExpr(modl, token2, &value, &dot, str);
-            if (status < EGADS_SUCCESS) goto cleanup;
+            CHECK_STATUS(ocsmEvalExpr);
 
             pat_end[npat] = NINT(value);
 
@@ -860,10 +856,10 @@ processFile(ego    context,             /* (in)  EGADS context */
 
             /* set up Parameter to hold pattern index */
             status = getToken(templine, 1, ' ', 255, token2);
-            if (status < EGADS_SUCCESS) goto cleanup;
+            CHECK_STATUS(getToken);
 
             status = ocsmFindPmtr(modl, token2, OCSM_LOCALVAR, 1, 1, &pat_pmtr[npat]);
-            if (status < EGADS_SUCCESS) goto cleanup;
+            CHECK_STATUS(ocsmFindPmtr);
 
             if (pat_pmtr[npat] <= npmtr_save) {
                 snprintf(message, 100, "cannot use \"%s\" as pattern variable since it was previously defined in current scope", token2);
@@ -872,7 +868,7 @@ processFile(ego    context,             /* (in)  EGADS context */
             }
 
             status = ocsmSetValuD(modl, pat_pmtr[npat], 1, 1, (double)pat_value[npat]);
-            if (status < EGADS_SUCCESS) goto cleanup;
+            CHECK_STATUS(ocsmSetValuD);
 
         /* end a pattern */
         } else if (strcmp(token1, "PATEND") == 0 || strcmp(token1, "patend") == 0   ) {
@@ -894,7 +890,7 @@ processFile(ego    context,             /* (in)  EGADS context */
                 (pat_value[npat])++;
 
                 status = ocsmSetValuD(modl, pat_pmtr[npat], 1, 1, (double)pat_value[npat]);
-                if (status < EGADS_SUCCESS) goto cleanup;
+                CHECK_STATUS(ocsmSetValuD);
 
                 if (pat_seek[npat] != 0) {
                     fseek(fp, pat_seek[npat], SEEK_SET);
@@ -909,13 +905,14 @@ processFile(ego    context,             /* (in)  EGADS context */
                 npat--;
             }
 
-       /* esel will contain all Faces */
+        /* esel will contain all Faces */
         } else if (strcmp(token1, "FACE") == 0 || strcmp(token1, "face") == 0) {
             if (iskip > 0) continue;
 
             istype = OCSM_FACE;
             status = EG_getBodyTopos(ebody, NULL, FACE, &nlist, &elist);
-            if (status < EGADS_SUCCESS) goto cleanup;
+            CHECK_STATUS(EG_getBodyTopos);
+            if (elist == NULL) goto cleanup;      // needed for splint
 
             nsel = nlist;
             for (ilist = 0; ilist < nlist; ilist++) {
@@ -931,7 +928,8 @@ processFile(ego    context,             /* (in)  EGADS context */
 
             istype = OCSM_EDGE;
             status = EG_getBodyTopos(ebody, NULL, EDGE, &nlist, &elist);
-            if (status < EGADS_SUCCESS) goto cleanup;
+            CHECK_STATUS(EG_getBodyTopos);
+            if (elist == NULL) goto cleanup;     // needed for splint
 
             nsel = nlist;
             for (ilist = 0; ilist < nlist; ilist++) {
@@ -947,7 +945,8 @@ processFile(ego    context,             /* (in)  EGADS context */
 
             istype = OCSM_NODE;
             status = EG_getBodyTopos(ebody, NULL, NODE, &nlist, &elist);
-            if (status < EGADS_SUCCESS) goto cleanup;
+            CHECK_STATUS(EG_getBodyTopos);
+            if (elist == NULL) goto cleanup;     // needed for splint
 
             nsel = nlist;
             for (ilist = 0; ilist < nlist; ilist++) {
@@ -1020,7 +1019,7 @@ processFile(ego    context,             /* (in)  EGADS context */
                 if (status2 <= 0) {
                     for (isel = 0; isel < nsel; isel++) {
                         status = EG_attributeDel(esel[isel], attrName);
-                        if (status < EGADS_SUCCESS) goto cleanup;
+                        CHECK_STATUS(EG_attributeDel);
                         (*nchange)++;
                     }
 
@@ -1039,7 +1038,7 @@ processFile(ego    context,             /* (in)  EGADS context */
                         for (isel = 0; isel < nsel; isel++) {
                             status = EG_attributeAdd(esel[isel], attrName, ATTRSTRING, 0,
                                                      NULL, NULL, str);
-                            if (status < EGADS_SUCCESS) goto cleanup;
+                            CHECK_STATUS(EG_attributeAdd);
                             (*nchange)++;
                         }
 
@@ -1048,7 +1047,7 @@ processFile(ego    context,             /* (in)  EGADS context */
                         for (isel = 0; isel < nsel; isel++) {
                             status = EG_attributeAdd(esel[isel], attrName, ATTRREAL, 1,
                                                      NULL, &value, NULL);
-                            if (status < EGADS_SUCCESS) goto cleanup;
+                            CHECK_STATUS(EG_attributeAdd);
                             (*nchange)++;
                         }
                     }
@@ -1058,7 +1057,7 @@ processFile(ego    context,             /* (in)  EGADS context */
                     for (isel = 0; isel < nsel; isel++) {
                         status = EG_attributeAdd(esel[isel], attrName, ATTRSTRING, 0,
                                                  NULL, NULL, attrValu);
-                        if (status < EGADS_SUCCESS) goto cleanup;
+                        CHECK_STATUS(EG_attributeAdd);
                         (*nchange)++;
                     }
                 }
@@ -1130,7 +1129,7 @@ processFile(ego    context,             /* (in)  EGADS context */
 
                             status = EG_attributeAdd(esel[isel], attrName, ATTRSTRING, 0,
                                                      NULL, NULL, newValu);
-                            if (status < EGADS_SUCCESS) goto cleanup;
+                            CHECK_STATUS(EG_attributeAdd);
                             (*nchange)++;
                         }
 
@@ -1142,11 +1141,7 @@ processFile(ego    context,             /* (in)  EGADS context */
                                                      &tempIlist, &tempRlist, &tempClist);
 
                             if (status == EGADS_SUCCESS && atype == ATTRREAL) {
-                                newList = (double *) malloc((alen+1)*sizeof(double));
-                                if (newList == NULL) {
-                                    status = EGADS_MALLOC;
-                                    goto cleanup;
-                                }
+                                MALLOC(newList, double, (alen+1));
                                 for (i = 0; i < alen; i++) {
                                     newList[i] = tempRlist[i];
                                 }
@@ -1157,18 +1152,14 @@ processFile(ego    context,             /* (in)  EGADS context */
                                 status = OCSM_UDP_ERROR3;
                                 goto cleanup;
                             } else {
-                                newList = (double *) malloc(sizeof(double));
-                                if (newList == NULL) {
-                                    status = EGADS_MALLOC;
-                                    goto cleanup;
-                                }
+                                MALLOC(newList, double, 1);
                                 newList[0] = value;
                                 alen = 1;
                             }
 
                             status = EG_attributeAdd(esel[isel], attrName, ATTRREAL, alen,
                                                      NULL, newList, NULL);
-                            if (status < EGADS_SUCCESS) goto cleanup;
+                            CHECK_STATUS(EG_attributeAdd);
 
                             free(newList);
                             newList = NULL;
@@ -1194,7 +1185,7 @@ processFile(ego    context,             /* (in)  EGADS context */
 
                         status = EG_attributeAdd(esel[isel], attrName, ATTRSTRING, 0,
                                                  NULL, NULL, newValu);
-                        if (status < EGADS_SUCCESS) goto cleanup;
+                        CHECK_STATUS(EG_attributeAdd);
                         (*nchange)++;
                     }
                 }
@@ -1230,20 +1221,20 @@ processFile(ego    context,             /* (in)  EGADS context */
         if        (strcmp(token2, "ADJ2FACE") == 0 || strcmp(token2, "adj2face") == 0 ||
                    ((strcmp(token2, "HAS") == 0 || strcmp(token2, "has") == 0 || status == 0) && istype == OCSM_FACE)) {
             status = EG_getBodyTopos(ebody, NULL, FACE, &nlist, &elist);
-            if (status < EGADS_SUCCESS) goto cleanup;
+            CHECK_STATUS(EG_getBodyTopos);
 
         /* start elist with all the Edges */
         } else if (strcmp(token2, "ADJ2EDGE") == 0 || strcmp(token2, "adj2edge") == 0 ||
                    ((strcmp(token2, "HAS") == 0 || strcmp(token2, "has") == 0 || status == 0) && istype == OCSM_EDGE)) {
             status = EG_getBodyTopos(ebody, NULL, EDGE, &nlist, &elist);
-            if (status < EGADS_SUCCESS) goto cleanup;
+            CHECK_STATUS(EG_getBodyTopos);
 
 
         /* start elist with all the Nodes */
         } else if (strcmp(token2, "ADJ2NODE") == 0 || strcmp(token2, "adj2node") == 0 ||
                    ((strcmp(token2, "HAS") == 0 || strcmp(token2, "has") == 0 || status == 0) && istype == OCSM_NODE)) {
             status = EG_getBodyTopos(ebody, NULL, NODE, &nlist, &elist);
-            if (status < EGADS_SUCCESS) goto cleanup;
+            CHECK_STATUS(EG_getBodyTopos);
 
         /* there will be no list if there is not a specifier and this is either
            a FACE, EDGE, or NODE statement */
@@ -1259,6 +1250,8 @@ processFile(ego    context,             /* (in)  EGADS context */
             status = OCSM_UDP_ERROR4;
             goto cleanup;
         }
+
+        if (elist == NULL) goto cleanup;     // needed for splint
 
          /* remove entries from elist if they don't match all mentioned name/value pairs */
         for (itoken = 2; itoken < 10; itoken++) {
@@ -1372,7 +1365,8 @@ processFile(ego    context,             /* (in)  EGADS context */
             if        (strcmp(token2, "ADJ2FACE") == 0 || strcmp(token2, "adj2face") == 0) {
                 for (isel = nsel-1; isel >= 0; isel--) {
                     status = getBodyTopos(ebody, esel[isel], FACE, &nnbor, &enbor);
-                    if (status < EGADS_SUCCESS) goto cleanup;
+                    CHECK_STATUS(getBodyTopos);
+                    if (enbor == NULL) goto cleanup;   // needed for spline
 
                     iremove = 0;
                     for (ilist = 0;  ilist < nlist; ilist++) {
@@ -1395,7 +1389,8 @@ processFile(ego    context,             /* (in)  EGADS context */
             } else if (strcmp(token2, "ADJ2EDGE") == 0 || strcmp(token2, "adj2edge") == 0) {
                 for (isel = nsel-1; isel >= 0; isel--) {
                     status = getBodyTopos(ebody, esel[isel], EDGE, &nnbor, &enbor);
-                    if (status < EGADS_SUCCESS) goto cleanup;
+                    CHECK_STATUS(getBodyTopos);
+                    if (enbor == NULL) goto cleanup;   // needed for spline
 
                     iremove = 0;
                     for (ilist = 0;  ilist < nlist; ilist++) {
@@ -1418,7 +1413,8 @@ processFile(ego    context,             /* (in)  EGADS context */
             } else if (strcmp(token2, "ADJ2NODE") == 0 || strcmp(token2, "adj2node") == 0) {
                 for (isel = nsel-1; isel >= 0; isel--) {
                     status = getBodyTopos(ebody, esel[isel], NODE, &nnbor, &enbor);
-                    if (status < EGADS_SUCCESS) goto cleanup;
+                    CHECK_STATUS(getBodyTopos);
+                    if (enbor == NULL) goto cleanup;   // needed for spline
 
                     iremove = 0;
                     for (ilist = 0;  ilist < nlist; ilist++) {
@@ -1462,7 +1458,8 @@ processFile(ego    context,             /* (in)  EGADS context */
             if        (strcmp(token2, "ADJ2FACE") == 0 || strcmp(token2, "adj2face") == 0) {
                 for (isel = nsel-1; isel >= 0; isel--) {
                     status = getBodyTopos(ebody, esel[isel], FACE, &nnbor, &enbor);
-                    if (status < EGADS_SUCCESS) goto cleanup;
+                    CHECK_STATUS(getBodyTopos);
+                    if (enbor == NULL) goto cleanup;   // needed for spline
 
                     iremove = 1;
                     for (ilist = 0;  ilist < nlist; ilist++) {
@@ -1484,7 +1481,8 @@ processFile(ego    context,             /* (in)  EGADS context */
             } else if (strcmp(token2, "ADJ2EDGE") == 0 || strcmp(token2, "adj2edge") == 0) {
                 for (isel = nsel-1; isel >= 0; isel--) {
                     status = getBodyTopos(ebody, esel[isel], EDGE, &nnbor, &enbor);
-                    if (status < EGADS_SUCCESS) goto cleanup;
+                    CHECK_STATUS(getBodyTopos);
+                    if (enbor == NULL) goto cleanup;   // needed for spline
 
                     iremove = 1;
                     for (ilist = 0;  ilist < nlist; ilist++) {
@@ -1506,7 +1504,8 @@ processFile(ego    context,             /* (in)  EGADS context */
             } else if (strcmp(token2, "ADJ2NODE") == 0 || strcmp(token2, "adj2node") == 0) {
                 for (isel = nsel-1; isel >= 0; isel--) {
                     status = getBodyTopos(ebody, esel[isel], NODE, &nnbor, &enbor);
-                    if (status < EGADS_SUCCESS) goto cleanup;
+                    CHECK_STATUS(getBodyTopos);
+                    if (enbor == NULL) goto cleanup;   // needed for spline
 
                     iremove = 1;
                     for (ilist = 0;  ilist < nlist; ilist++) {
@@ -1551,11 +1550,11 @@ processFile(ego    context,             /* (in)  EGADS context */
 
     /* delete any Parameters that were added */
     status = ocsmInfo(modl, &nbrch, &npmtr, &nbody);
-    if (status < EGADS_SUCCESS) goto cleanup;
+    CHECK_STATUS(ocsmInfo);
 
     for (ipmtr = npmtr; ipmtr > npmtr_save; ipmtr--) {
         status = ocsmDelPmtr(modl, ipmtr);
-        if (status < EGADS_SUCCESS) goto cleanup;
+        CHECK_STATUS(ocsmDelPmtr);
     }
 
 cleanup:
@@ -1595,16 +1594,16 @@ matches(char pattern[],                /* (in)  pattern */
     */
 
     if        (*pattern == '*') {
-        return matches(pattern+1, string) || (*string && matches(pattern, string+1));
+        return (matches(pattern+1, string) != '\0') || ((*string != '\0') && (matches(pattern, string+1) != 0));
 
     } else if (*pattern == '+') {
-        return *string && (matches(pattern+1, ++string) || matches(pattern, string));
+        return (*string != '\0') && ((matches(pattern+1, ++string) != 0) || (matches(pattern, string) != 0));
 
     } else if (*pattern == '?') {
-        return *string && matches(pattern+1, string+1);
+        return (*string != '\0') && (matches(pattern+1, string+1) != 0);
 
     } else {
-        return *string == *pattern++ && (!*string++ || matches(pattern, string));
+        return (*string == *pattern++) && ((*string++ == '\0') || (matches(pattern, string) != 0));
 
     }
 }
@@ -1642,6 +1641,8 @@ editEgo(
     CDOUBLE *tmpRlist;
     char    *strnew=NULL;
     CCHAR   *tmpClist;
+
+    ROUTINE(editEgo);
 
     /* --------------------------------------------------------------- */
 
@@ -1774,22 +1775,20 @@ editEgo(
                 (*nchange)++;
             }
         } else if (atype == ATTRSTRING) {
-            strnew = (char*) malloc((STRLEN(tempClist)+STRLEN(tmpClist)+2)*sizeof(char));
-            if (strnew == NULL) {
-                status = EGADS_MALLOC;
-            } else {
-                strcpy(strnew, tmpClist );
-                strcat(strnew, tempClist);
+            MALLOC(strnew, char, (STRLEN(tempClist)+STRLEN(tmpClist)+2));
 
-                status = EG_attributeAdd(eobj, attrname, ATTRSTRING, 0,
-                                         NULL, NULL, strnew);
-                (*nchange)++;
+            strcpy(strnew, tmpClist );
+            strcat(strnew, tempClist);
 
-                free(strnew);
-            }
+            status = EG_attributeAdd(eobj, attrname, ATTRSTRING, 0,
+                                     NULL, NULL, strnew);
+            (*nchange)++;
+
+            FREE(strnew);
         }
     }
 
+cleanup:
     return status;
 }
 
@@ -1891,6 +1890,8 @@ getBodyTopos(ego    ebody,
     int    inode, nnode, iedge, nedge, iface, nface, ilist;
     ego    *enodes, *eedges, *efaces;
 
+    ROUTINE(getBodyTopos);
+
     /* --------------------------------------------------------------- */
 
     *nlist = 0;
@@ -1936,23 +1937,19 @@ getBodyTopos(ego    ebody,
             /* allocate the returned array (big enough for all Edges,
                which is probably a bit wasteful) */
             status = EG_getBodyTopos(ebody, NULL, FACE, &nedge, NULL);
-            if (status < EGADS_SUCCESS) goto cleanup;
+            CHECK_STATUS(EG_getBodyTopos);
 
-            *elist = EG_alloc(nedge*sizeof(ego));
-            if (*elist == NULL) {
-                status = EGADS_MALLOC;
-                goto cleanup;
-            }
+            MALLOC(*elist, ego, nedge);
 
             /* make a list of all Nodes that are adjacent to Edge */
             status = EG_getBodyTopos(ebody, esrc, NODE, &nnode, &enodes);
-            if (status < EGADS_SUCCESS) goto cleanup;
+            CHECK_STATUS(EG_getBodyTopos);
 
             /* loop through all Nodes (that are adjacent to esrc) and add
                its Edges to elist (if not esrc and if not already in list) */
             for (inode = 0; inode < nnode; inode++) {
                 status = EG_getBodyTopos(ebody, enodes[inode], EDGE, &nedge, &eedges);
-                if (status < EGADS_SUCCESS) goto cleanup;
+                CHECK_STATUS(EG_getBodyTopos);
 
                 for (iedge = 0; iedge < nedge; iedge++) {
                     if (eedges[iedge] == esrc) continue;
@@ -1985,23 +1982,19 @@ getBodyTopos(ego    ebody,
             /* allocate the returned array (big enough for all Faces,
                which is probably a bit wasteful) */
             status = EG_getBodyTopos(ebody, NULL, FACE, &nface, NULL);
-            if (status < EGADS_SUCCESS) goto cleanup;
+            CHECK_STATUS(EG_getBodyTopos);
 
-            *elist = EG_alloc(nface*sizeof(ego));
-            if (*elist == NULL) {
-                status = EGADS_MALLOC;
-                goto cleanup;
-            }
+            MALLOC(*elist, ego, nface);
 
             /* make a list of all Edges that are adjacent to Face */
             status = EG_getBodyTopos(ebody, esrc, EDGE, &nedge, &eedges);
-            if (status < EGADS_SUCCESS) goto cleanup;
+            CHECK_STATUS(EG_getBodyTopos);
 
             /* loop through all Edges (that are adjacent to esrc) and add
                its Faces to elist (if not esrc and if not already in list) */
             for (iedge = 0; iedge < nedge; iedge++) {
                 status = EG_getBodyTopos(ebody, eedges[iedge], FACE, &nface, &efaces);
-                if (status < EGADS_SUCCESS) goto cleanup;
+                CHECK_STATUS(EG_getBodyTopos);
 
                 for (iface = 0; iface < nface; iface++) {
                     if (efaces[iface] == esrc) continue;

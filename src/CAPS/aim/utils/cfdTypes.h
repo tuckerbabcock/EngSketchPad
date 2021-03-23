@@ -1,3 +1,5 @@
+// This software has been cleared for public release on 05 Nov 2020, case number 88ABW-2020-3462.
+
 // Structures for general CFD analysis - Written by Dr. Ryan Durscher AFRL/RQVC
 
 #ifndef CFDTYPES_H
@@ -6,6 +8,13 @@
 typedef enum {UnknownBoundary, Inviscid, Viscous, Farfield, Extrapolate, Freestream,
               BackPressure, Symmetry, SubsonicInflow, SubsonicOutflow,
               MassflowIn, MassflowOut, FixedInflow, FixedOutflow, MachOutflow} cfdSurfaceTypeEnum;
+
+typedef enum {ObjectiveUnknown, ObjectiveCl, ObjectiveCd,
+              ObjectiveCmx, ObjectiveCmy, ObjectiveCmz,
+              ObjectiveClCd,
+              ObjectiveCx, ObjectiveCy, ObjectiveCz} cfdObjectiveTypeEnum;
+
+typedef enum {DesignVariableUnknown, DesignVariableGeometry, DesignVariableAnalysis} cfdDesignVariableTypeEnum;
 
 // Structure to hold CFD surface information
 typedef struct {
@@ -44,14 +53,13 @@ typedef struct {
 
 } cfdSurfaceStruct;
 
-
 // Structure to hold CFD boundary condition information
 typedef struct {
     char             *name;   // Name of BCsStruct
-    cfdSurfaceStruct *surfaceProps;  // Surface properties for each bc - length of numBCID
-    int              numBCID;       // Number of unique BC ids
-} cfdBCsStruct;
+    int              numSurfaceProp;       // Number of unique BC ids
+    cfdSurfaceStruct *surfaceProp;  // Surface properties for each bc - length of numSurfaceProp
 
+} cfdBoundaryConditionStruct;
 
 // Structure to hold EigenValue information as used in CFD solvers
 typedef struct {
@@ -68,19 +76,57 @@ typedef struct {
 	double generalVelocity;
 	double generalForce;
 
-} eigenValueStruct;
+} cfdEigenValueStruct;
 
 // Structure to hold a collection of EigenValue information as used in CFD solvers
 typedef struct {
 	int surfaceID;
 
 	int numEigenValue;
-	eigenValueStruct *eigenValue;
+	cfdEigenValueStruct *eigenValue;
 
 	double freestreamVelocity;
 	double freestreamDynamicPressure;
 	double lengthScaling;
 
-} modalAeroelasticStruct;
+} cfdModalAeroelasticStruct;
+
+// Structure to hold design variable information as used in CFD solvers
+typedef struct {
+    char *name;
+
+    cfdDesignVariableTypeEnum type; // variable type
+
+    int length;
+
+    double *initialValue; // Initial value of design variable [length]
+    double *lowerBound;   // Lower bounds of variable [length]
+    double *upperBound;   // Upper bounds of variable [length]
+
+} cfdDesignVariableStruct;
+
+// Structure to hold objective information as used in CFD solvers
+typedef struct {
+
+    char *name;
+
+    cfdObjectiveTypeEnum objectiveType;
+
+    double target;
+    double weight;
+    double power;
+
+} cfdDesignObjectiveStruct;
+
+// Structure to hold a collection of optimization information as used in CFD solvers
+typedef struct {
+
+    int numDesignObjective;
+    cfdDesignObjectiveStruct *designObjective; // [numObjective]
+
+    int numDesignVariable;
+    cfdDesignVariableStruct *designVariable; // [numDesignVariable]
+
+} cfdDesignStruct;
 
 #endif

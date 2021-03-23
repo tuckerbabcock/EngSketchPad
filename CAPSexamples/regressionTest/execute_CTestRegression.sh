@@ -98,13 +98,13 @@ mkdir -p $cRegDir
 TYPE="ALL"
 testsRan=0
 
-if [ "$1" != "" ]; then
+if [[ "$1" != "" ]]; then
     TYPE="$1"
 else
     echo "No options provided...defaulting to ALL"
 fi
 
-if [ "$OS" == "Windows_NT" ]; then
+if [[ "$OS" == "Windows_NT" ]]; then
     EXT=dll
 else
     EXT=so
@@ -121,7 +121,7 @@ if [[ "$TYPE" == "LINEARAERO" || "$TYPE" == "ALL" ]]; then
     echo "Running.... LINEARAERO c-Tests"
     
     ###### AVL ###### 
-    if [ "`which avl`" != "" ]; then
+    if [[ "`which avl`" != "" ]]; then
         expectCSuccess "./avlTest" $cRegDir "1" 
     else
         cp $regTestDir/datafiles/capsTotalForce.txt ${cRegDir}/
@@ -130,7 +130,7 @@ if [[ "$TYPE" == "LINEARAERO" || "$TYPE" == "ALL" ]]; then
     fi
 
     ######  FRICTION ###### 
-    if [ "`which friction`" != "" ]; then
+    if [[ "`which friction`" != "" ]]; then
         expectCSuccess "./frictionTest" $cRegDir "1"
     else
         cp $regTestDir/datafiles/frictionOutput.txt ${cRegDir}/
@@ -144,16 +144,16 @@ fi
 if [[ "$TYPE" == "MESH" || "$TYPE" == "ALL" ]]; then
     echo "Running.... MESH c-Tests"
 
-   # if [ "$AFLR" != "" ]; then
+   # if [[ "$AFLR" != "" ]]; then
    #     
-   #     if [ "$TETGEN" != "" ]; then
+   #     if [[ "$TETGEN" != "" ]]; then
    #     fi
    # fi
     
-   # if [ "$TETGEN" != "" ]; then
+   # if [[ "$TETGEN" != "" ]]; then
    # fi
 
-    if [ "$OS" == "Windows_NT" ]; then
+    if [[ "$OS" == "Windows_NT" ]]; then
         POINTWISE_AIM=pointwiseAIM.dll
     else
         POINTWISE_AIM=pointwiseAIM.so
@@ -174,20 +174,17 @@ if [[ "$TYPE" == "CFD" || "$TYPE" == "ALL" ]]; then
     echo "Running.... CFD c-Tests"
     
     ###### FUN3D ######
-    expectCSuccess "./fun3dTest" $cRegDir
 
-    if [ "$AFLR" != "" ]; then
-
+    if [[  -f $ESP_ROOT/lib/aflr2AIM.$EXT ]]; then
         expectCSuccess "./fun3dAFLR2Test" $cRegDir 
-        expectCSuccess "./fun3dAFLR4Test" $cRegDir 
     else
-        notRun="$notRun\nAFLR"
+        notRun="$notRun\nfun3d AFLR"
     fi
 
-    if [ "$TETGEN" != "" ]; then
+    if [[ -f $ESP_ROOT/lib/tetgenAIM.$EXT ]]; then
         expectCSuccess "./fun3dTetgenTest" $cRegDir 
     else
-        notRun="$notRun\nTetGen"
+        notRun="$notRun\nfun3d TetGen"
     fi
 
     testsRan=1
@@ -198,14 +195,14 @@ if [[ "$TYPE" == "STRUCTURE" || "$TYPE" == "ALL" ]]; then
     echo "Running.... STRUCTURE c-Tests"
     
     ######  Mystran ###### 
-    if [ "`which mystran.exe`" != "" ] && [ "$OS" != "Windows_NT" ]; then
+    if [[ "`which mystran.exe`" != "" && "$OS" != "Windows_NT" ]]; then
         expectCSuccess "./mystranTest" $cRegDir "1" 
     else
         notRun="$notRun\nMystran"
     fi 
 
     ######  HSM ###### 
-    if [ -f $ESP_ROOT/lib/hsmAIM.$EXT  ]; then
+    if [[ -f $ESP_ROOT/lib/hsmAIM.$EXT  ]]; then
         expectCSuccess "./hsmCantileverPlateTest" $cRegDir 
         expectCSuccess "./hsmSimplePlateTest" $cRegDir 
         expectCSuccess "./hsmJoinedPlateTest" $cRegDir 
@@ -220,7 +217,7 @@ fi
 if [[ "$TYPE" == "AEROELASTIC" || "$TYPE" == "ALL" ]]; then
     echo "Running.... AEROELASTIC c-Tests"
     
-    if [ "$TETGEN" != "" ]; then
+    if [[ "$TETGEN" != "" ]]; then
     
         if [[ "`which mystran.exe`" != "" && "`which nodet_mpi`" != "" ]]; then
            expectCSuccess "./aeroelasticTest" $cRegDir "1" 

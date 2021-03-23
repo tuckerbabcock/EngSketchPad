@@ -59,68 +59,71 @@
 #include "vlmUtils.h"
 
 #ifdef WIN32
-#define getcwd     _getcwd
 #define snprintf   _snprintf
 #define strcasecmp stricmp
 #define strtok_r   strtok_s
-#define PATH_MAX   _MAX_PATH
-#else
-#include <unistd.h>
-#include <limits.h>
 #endif
-
-#define NUMINPUT   10
-
-#define NUMOUTPUT  8
 
 #define MAXPOINT  200
 
 #define MXCHAR  255
 
-//typedef struct {
-//
-//	// Flag to see if we need to get a CFD mesh
-//	int data;
-//
-//} aimStorage;
+enum aimInputs
+{
+  inMach = 1,                      /* index is 1-based */
+  inRe,
+  inAlpha,
+  inAlpha_Increment,
+  inCL,
+  inCL_Increment,
+  inCL_Inviscid,
+  inAppend_PolarFile,
+  inViscous_Iteration,
+  inWrite_Cp,
+  NUMINPUT = inWrite_Cp            /* Total number of inputs */
+};
 
-//static aimStorage *xfoilInstance = NULL;
-static int         numInstance  = 0;
-
+enum aimOutputs
+{
+  outAlpha = 1,                    /* index is 1-based */
+  outCL,
+  outCD,
+  outCD_p,
+  outCM,
+  outCp_Min,
+  outTransition_Top,
+  outTransition_Bottom,
+  NUMOUTPUT = outTransition_Bottom /* Total number of outputs */
+};
 
 
 /* ********************** Exposed AIM Functions ***************************** */
-int aimInitialize(/*@unused@*/ int ngIn, /*@unused@*/ /*@null@*/ capsValue *gIn,
-                  int *qeFlag, /*@null@*/ const char *unitSys,
-                  int *nIn, int *nOut, int *nFields, char ***fnames, int **ranks)
+int aimInitialize(int inst, /*@unused@*/ /*@null@*/ const char *unitSys,
+                  /*@unused@*/ void **aimStore, /*@unused@*/ int *major,
+                  /*@unused@*/ int *minor, int *nIn, int *nOut,
+                  int *nFields, char ***fnames, int **ranks)
 {
 
-    int flag;
-
 #ifdef DEBUG
-    printf("\n xfoilAIM/aimInitialize   ngIn = %d!\n", ngIn);
+    printf("\n xfoilAIM/aimInitialize   inst = %d!\n", inst);
 #endif
-    flag     = *qeFlag;
-    *qeFlag  = 0;
 
     /* specify the number of analysis input and out "parameters" */
     *nIn     = NUMINPUT;
     *nOut    = NUMOUTPUT;
-    if (flag == 1) return CAPS_SUCCESS;
+    if (inst == -1) return CAPS_SUCCESS;
 
     /* specify the field variables this analysis can generate */
     *nFields = 0;
     *ranks   = NULL;
     *fnames  = NULL;
 
-    // Increment number of instances
-    numInstance += 1;
-
-    return (numInstance -1);
+    return CAPS_SUCCESS;
 }
 
 
-int aimInputs( int iIndex, void *aimInfo, int index, char **ainame, capsValue *defval)
+int aimInputs(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
+              int index, char **ainame, capsValue *defval)
 {
     /*! \page aimInputsXFOIL AIM Inputs
      * The following list outlines the xFoil inputs along with their default values available
@@ -128,10 +131,10 @@ int aimInputs( int iIndex, void *aimInfo, int index, char **ainame, capsValue *d
      */
 
 #ifdef DEBUG
-    printf(" xfoilAIM/aimInputs instance = %d  index = %d!\n", iIndex, index);
+    printf(" xfoilAIM/aimInputs  index = %d!\n", index);
 #endif
 
-    if (index == 1) {
+    if (index == inMach) {
         *ainame           = EG_strdup("Mach");
         defval->type      = Double;
         defval->vals.real = 0.0;
@@ -142,7 +145,7 @@ int aimInputs( int iIndex, void *aimInfo, int index, char **ainame, capsValue *d
          *  Mach number.
          */
 
-    } else if (index == 2) {
+    } else if (index == inRe) {
         *ainame              = EG_strdup("Re");
         defval->type      = Double;
         defval->vals.real = 0.0;
@@ -152,7 +155,7 @@ int aimInputs( int iIndex, void *aimInfo, int index, char **ainame, capsValue *d
          * - <B> Re = 0.0 </B> <br>
          *  Reynolds number.
          */
-    } else if (index == 3) {
+    } else if (index == inAlpha) {
         *ainame           = EG_strdup("Alpha");
         defval->type      = Double;
         defval->dim       = Vector;
@@ -169,7 +172,7 @@ int aimInputs( int iIndex, void *aimInfo, int index, char **ainame, capsValue *d
          * - <B> Alpha = NULL </B> <br>
          *  Angle of attack, either a single value or an array of values ( [0.0, 4.0, ...] ) may be provided [degree].
          */
-    } else if (index == 4) {
+    } else if (index == inAlpha_Increment) {
         *ainame            = EG_strdup("Alpha_Increment");
         defval->type       = Double;
         defval->dim        = Vector;
@@ -190,7 +193,7 @@ int aimInputs( int iIndex, void *aimInfo, int index, char **ainame, capsValue *d
          * - <B> Alpha_Increment = NULL</B> <br>
          *  Angle of attack [degree] sequence - [first value, last value, increment].
          */
-    }else if (index == 5) {
+    }else if (index == inCL) {
         *ainame           = EG_strdup("CL");
         defval->type      = Double;
         defval->dim       = Vector;
@@ -206,7 +209,7 @@ int aimInputs( int iIndex, void *aimInfo, int index, char **ainame, capsValue *d
          * - <B> CL =  NULL</B> <br>
          *  Prescribed coefficient of lift, either a single value or an array of values ( [0.1, 0.5, ...] ) may be provided.
          */
-    } else if (index == 6) {
+    } else if (index == inCL_Increment) {
         *ainame            = EG_strdup("CL_Increment");
         defval->type       = Double;
         defval->dim        = Vector;
@@ -226,7 +229,7 @@ int aimInputs( int iIndex, void *aimInfo, int index, char **ainame, capsValue *d
          * - <B> CL_Increment = NULL</B> <br>
          *  Prescribed coefficient of lift sequence - [first value, last value, increment].
          */
-    } else if (index == 7) {
+    } else if (index == inCL_Inviscid) {
         *ainame           = EG_strdup("CL_Inviscid");
         defval->type      = Double;
         defval->dim       = Vector;
@@ -242,7 +245,7 @@ int aimInputs( int iIndex, void *aimInfo, int index, char **ainame, capsValue *d
          * - <B> CL_Inviscid =  NULL</B> <br>
          *  Prescribed inviscid coefficient of lift, either a single value or an array of values ( [0.1, 0.5, ...] ) may be provided.
          */
-    } else if (index == 8) {
+    } else if (index == inAppend_PolarFile) {
         *ainame           = EG_strdup("Append_PolarFile");
         defval->type      = Boolean;
         defval->dim       = Vector;
@@ -256,7 +259,7 @@ int aimInputs( int iIndex, void *aimInfo, int index, char **ainame, capsValue *d
          * - <B> Append_PolarFile =  False</B> <br>
          *  Append the file (xfoilPolar.dat) that polar data is written to.
          */
-    } else if (index == 9) {
+    } else if (index == inViscous_Iteration) {
         *ainame           = EG_strdup("Viscous_Iteration");
         defval->type      = Integer;
         defval->dim       = Vector;
@@ -271,7 +274,7 @@ int aimInputs( int iIndex, void *aimInfo, int index, char **ainame, capsValue *d
          * - <B> Viscous_Iteration =  20</B> <br>
          *  Viscous solution iteration limit. Only set if a Re isn't 0.0 .
          */
-    } else if (index == 10) {
+    } else if (index == inWrite_Cp) {
         *ainame           = EG_strdup("Write_Cp");
         defval->type      = Boolean;
         defval->dim       = Vector;
@@ -291,7 +294,9 @@ int aimInputs( int iIndex, void *aimInfo, int index, char **ainame, capsValue *d
     return CAPS_SUCCESS;
 }
 
-int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValue *aimInputs, capsErrs **errs)
+
+int aimPreAnalysis(/*@unused@*/ void *instStore, void *aimInfo,
+                   capsValue *aimInputs)
 {
     int status; // Function return status
 
@@ -309,17 +314,12 @@ int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValu
     char inputFilename[] = "xfoilInput.txt";
     char xfoilFilename[] = "caps.xfoil";
     char polarFilename[] = "xfoilPolar.dat";
-    char cpFilename[] = "xfoilCp.dat";
-    char currentPath[PATH_MAX];
-
-    // NULL out errs
-    *errs = NULL;
+    char cpFilename[]    = "xfoilCp.dat";
 
     if (aimInputs == NULL) {
 #ifdef DEBUG
         printf("\txfoilAIM/aimPreAnalysis aimInputs == NULL!\n");
 #endif
-
         return CAPS_NULLVALUE;
     }
 
@@ -347,16 +347,8 @@ int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValu
     // Accumulate cross coordinates of airfoil and write out data file
     for (bodyIndex = 0; bodyIndex < numBody; bodyIndex++) {
 
-        // Get where we are and set the path to our input
-        (void) getcwd(currentPath, PATH_MAX);
-        if (chdir(analysisPath) != 0) {
-            status = CAPS_DIRERR;
-            goto cleanup;
-        }
-
         // Open and write the input to control the XFOIL session
         fp = fopen(xfoilFilename, "w");
-        chdir(currentPath);
         if (fp == NULL) {
             printf("\tUnable to open file %s\n!", xfoilFilename);
             status = CAPS_IOERR;
@@ -389,19 +381,11 @@ int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValu
 
     } // End body loop
 
-    // Get where we are and set the path to our input
-    (void) getcwd(currentPath, PATH_MAX);
-    if (chdir(analysisPath) != 0) {
-        status = CAPS_DIRERR;
-        goto cleanup;
-    }
-
     // Open and write the input to control the XFOIL session
     fp = fopen(inputFilename, "w");
     if (fp == NULL) {
         printf("Unable to open file %s\n!", inputFilename);
         status = CAPS_IOERR;
-        chdir(currentPath);
         goto cleanup;
     }
 
@@ -417,14 +401,14 @@ int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValu
 
     fprintf(fp, "OPER\n"); // Enter OPER
 
-    fprintf(fp, "Mach %f\n", aimInputs[aim_getIndex(aimInfo, "Mach", ANALYSISIN)-1].vals.real); // Set Mach number
+    fprintf(fp, "Mach %f\n", aimInputs[inMach-1].vals.real);    // Set Mach number
 
-    if (aimInputs[aim_getIndex(aimInfo, "Re", ANALYSISIN)-1].vals.real > 0) {
+    if (aimInputs[inRe-1].vals.real > 0) {
         fprintf(fp, "Viscr\n");
-        fprintf(fp,	"%f\n", aimInputs[aim_getIndex(aimInfo, "Re", ANALYSISIN)-1].vals.real); // Set Reynolds number
+        fprintf(fp,	"%f\n", aimInputs[inRe-1].vals.real); // Set Reynolds number
 
         fprintf(fp, "ITER\n");
-        fprintf(fp,	"%d\n", aimInputs[aim_getIndex(aimInfo, "Viscous_Iteration", ANALYSISIN)-1].vals.integer); // Set iteration limit
+        fprintf(fp,	"%d\n", aimInputs[inViscous_Iteration-1].vals.integer); // Set iteration limit
     }
 
     fprintf(fp,"CINC\n"); // Turn of minimum Cp inclusion in polar data
@@ -438,11 +422,12 @@ int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValu
     if( fpTemp != NULL ) { // File does exists
         fclose(fpTemp); fpTemp = NULL;
 
-        if (aimInputs[aim_getIndex(aimInfo, "Append_PolarFile", ANALYSISIN)-1].vals.integer == (int) false) {
+        if (aimInputs[inAppend_PolarFile-1].vals.integer == (int) false) {
             status = remove(polarFilename); // Remove the file
 
             if(status != CAPS_SUCCESS) {
-                printf("\tError: unable to delete the file - %s\n", polarFilename);
+                printf("\tError: unable to delete the file - %s\n",
+                       polarFilename);
                 status = CAPS_IOERR;
                 goto cleanup;
             }
@@ -454,58 +439,59 @@ int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValu
     //fprintf(fp,"xfoilPolar.dump\n");
 
     // Alpha
-    if (aimInputs[aim_getIndex(aimInfo, "Alpha", ANALYSISIN)-1].nullVal ==  NotNull) {
-        if (aimInputs[aim_getIndex(aimInfo, "Alpha", ANALYSISIN)-1].length == 1) {
-            fprintf(fp, "Alfa %f\n", aimInputs[aim_getIndex(aimInfo, "Alpha", ANALYSISIN)-1].vals.real);
+    if (aimInputs[inAlpha-1].nullVal ==  NotNull) {
+        if (aimInputs[inAlpha-1].length == 1) {
+            fprintf(fp, "Alfa %f\n", aimInputs[inAlpha-1].vals.real);
         } else {
-            for (i = 0; i < aimInputs[aim_getIndex(aimInfo, "Alpha", ANALYSISIN)-1].length; i++) {
-                fprintf(fp, "Alfa %f\n", aimInputs[aim_getIndex(aimInfo, "Alpha", ANALYSISIN)-1].vals.reals[i]);
+            for (i = 0; i < aimInputs[inAlpha-1].length; i++) {
+                fprintf(fp, "Alfa %f\n", aimInputs[inAlpha-1].vals.reals[i]);
             }
         }
     }
 
     // Alpha sequence
-    if (aimInputs[aim_getIndex(aimInfo, "Alpha_Increment", ANALYSISIN)-1].nullVal ==  NotNull) {
+    if (aimInputs[inAlpha_Increment-1].nullVal ==  NotNull) {
 
-        fprintf(fp, "ASeq %f %f %f\n", aimInputs[aim_getIndex(aimInfo, "Alpha_Increment", ANALYSISIN)-1].vals.reals[0],
-                                       aimInputs[aim_getIndex(aimInfo, "Alpha_Increment", ANALYSISIN)-1].vals.reals[1],
-                                       aimInputs[aim_getIndex(aimInfo, "Alpha_Increment", ANALYSISIN)-1].vals.reals[2]);
+        fprintf(fp, "ASeq %f %f %f\n",
+                aimInputs[inAlpha_Increment-1].vals.reals[0],
+                aimInputs[inAlpha_Increment-1].vals.reals[1],
+                aimInputs[inAlpha_Increment-1].vals.reals[2]);
     }
 
     // CL
-    if (aimInputs[aim_getIndex(aimInfo, "CL", ANALYSISIN)-1].nullVal ==  NotNull) {
+    if (aimInputs[inCL-1].nullVal ==  NotNull) {
 
-        if (aimInputs[aim_getIndex(aimInfo, "CL", ANALYSISIN)-1].length == 1) {
-            fprintf(fp, "CL %f\n", aimInputs[aim_getIndex(aimInfo, "CL", ANALYSISIN)-1].vals.real);
+        if (aimInputs[inCL-1].length == 1) {
+            fprintf(fp, "CL %f\n", aimInputs[inCL-1].vals.real);
         } else {
-            for (i = 0; i < aimInputs[aim_getIndex(aimInfo, "CL", ANALYSISIN)-1].length; i++) {
-                fprintf(fp, "CL %f\n", aimInputs[aim_getIndex(aimInfo, "CL", ANALYSISIN)-1].vals.reals[i]);
+            for (i = 0; i < aimInputs[inCL-1].length; i++) {
+                fprintf(fp, "CL %f\n", aimInputs[inCL-1].vals.reals[i]);
             }
         }
     }
 
     // CL sequence
-    if (aimInputs[aim_getIndex(aimInfo, "CL_Increment", ANALYSISIN)-1].nullVal ==  NotNull) {
+    if (aimInputs[inCL_Increment-1].nullVal ==  NotNull) {
 
-        fprintf(fp, "CSeq %f %f %f\n", aimInputs[aim_getIndex(aimInfo, "CL_Increment", ANALYSISIN)-1].vals.reals[0],
-                                       aimInputs[aim_getIndex(aimInfo, "CL_Increment", ANALYSISIN)-1].vals.reals[1],
-                                       aimInputs[aim_getIndex(aimInfo, "CL_Increment", ANALYSISIN)-1].vals.reals[2]);
+        fprintf(fp, "CSeq %f %f %f\n", aimInputs[inCL_Increment-1].vals.reals[0],
+                                       aimInputs[inCL_Increment-1].vals.reals[1],
+                                       aimInputs[inCL_Increment-1].vals.reals[2]);
     }
 
     // CL Invicid
-    if (aimInputs[aim_getIndex(aimInfo, "CL_Inviscid", ANALYSISIN)-1].nullVal ==  NotNull) {
+    if (aimInputs[inCL_Inviscid-1].nullVal ==  NotNull) {
 
-        if (aimInputs[aim_getIndex(aimInfo, "CL_Inviscid", ANALYSISIN)-1].length == 1) {
-            fprintf(fp, "CLI %f\n", aimInputs[aim_getIndex(aimInfo, "CL_Inviscid", ANALYSISIN)-1].vals.real);
+        if (aimInputs[inCL_Inviscid-1].length == 1) {
+            fprintf(fp, "CLI %f\n", aimInputs[inCL_Inviscid-1].vals.real);
         } else {
-            for (i = 0; i < aimInputs[aim_getIndex(aimInfo, "CL_Inviscid", ANALYSISIN)-1].length; i++) {
-                fprintf(fp, "CLI %f\n", aimInputs[aim_getIndex(aimInfo, "CL_Inviscid", ANALYSISIN)-1].vals.reals[i]);
+            for (i = 0; i < aimInputs[inCL_Inviscid-1].length; i++) {
+                fprintf(fp, "CLI %f\n", aimInputs[inCL_Inviscid-1].vals.reals[i]);
             }
         }
     }
 
     // Write Cp distribution to a file
-    if (aimInputs[aim_getIndex(aimInfo, "Write_Cp", ANALYSISIN)-1].vals.integer == (int) true) {
+    if (aimInputs[inWrite_Cp-1].vals.integer == (int) true) {
 
         fprintf(fp, "CPWR\n");
         fprintf(fp, "%s\n", cpFilename);
@@ -517,20 +503,21 @@ int aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValu
 
     fclose(fp);
     fp = NULL;
-    chdir(currentPath);
 
     status = CAPS_SUCCESS;
     goto cleanup;
 
     cleanup:
-        if (status != CAPS_SUCCESS) printf("xfoil/preAnalysis status = %d", status);
+        if (status != CAPS_SUCCESS) printf("xfoil/preAnalysis status = %d",
+                                           status);
         if (fp != NULL) fclose(fp);
 
         return status;
 }
 
 
-int aimOutputs(int iIndex, void *aimStruc, int index, char **aoname, capsValue *form)
+int aimOutputs(/*@unused@*/ void *instStore, /*@unused@*/ void *aimStruc,
+               int index, char **aoname, capsValue *form)
 {
 
     /*! \page aimOutputsXFOIL AIM Outputs
@@ -538,7 +525,7 @@ int aimOutputs(int iIndex, void *aimStruc, int index, char **aoname, capsValue *
      */
 
 #ifdef DEBUG
-    printf(" xfoilAIM/aimOutputs instance = %d  index = %d!\n", iIndex, index);
+    printf(" xfoilAIM/aimOutputs index = %d!\n", index);
 #endif
 
 
@@ -612,8 +599,16 @@ int aimOutputs(int iIndex, void *aimStruc, int index, char **aoname, capsValue *
 }
 
 
-int aimCalcOutput(int iIndex, void *aimInfo, const char *analysisPath,
-        int index, capsValue *val, capsErrs **errors)
+/* no longer optional and needed for restart */
+int aimPostAnalysis(/*@unused@*/ void *instStore, /*@unused@*/ void *aimStruc,
+                    /*@unused@*/ int restart, /*@unused@*/ capsValue *inputs)
+{
+  return CAPS_SUCCESS;
+}
+
+
+int aimCalcOutput(/*@unused@*/ void *instStore, /*@unused@*/void *aimInfo,
+                  int index, capsValue *val)
 {
     int status; // Function return status
     int i, j, k; // Indexing
@@ -628,12 +623,10 @@ int aimCalcOutput(int iIndex, void *aimInfo, const char *analysisPath,
     double dataLine[MAX_DATA_ENTRY];
 
     size_t     linecap = 0;
-    char       currentPath[PATH_MAX], *line = NULL, *rest = NULL, *token = NULL;
+    char       *line = NULL, *rest = NULL, *token = NULL;
     char       headers[MAX_DATA_ENTRY][20];
     const char *valHeader;
     FILE       *fp;
-
-    *errors        = NULL;
 
     if (val->length > 1) {
         if (val->vals.reals != NULL) EG_free(val->vals.reals);
@@ -646,20 +639,8 @@ int aimCalcOutput(int iIndex, void *aimInfo, const char *analysisPath,
     val->ncol = 1;
     val->length = val->nrow*val->ncol;
 
-    // Get where we are and set the path to our output
-    (void) getcwd(currentPath, PATH_MAX);
-    if (chdir(analysisPath) != 0) {
-
-#ifdef DEBUG
-        printf(" xfoilAIM/aimCalcOutput Cannot chdir to %s!\n", analysisPath);
-#endif
-
-        return CAPS_DIRERR;
-    }
-
     // Open the XFOIL output file
     fp = fopen("xfoilPolar.dat", "r");
-    chdir(currentPath);
     if (fp == NULL) return CAPS_IOERR;
 
     // Move to beginning of data
@@ -684,7 +665,8 @@ int aimCalcOutput(int iIndex, void *aimInfo, const char *analysisPath,
         //printf("%s\n", headers[numDataEntry]);
         numDataEntry++;
         if (numDataEntry == MAX_DATA_ENTRY) {
-            printf("More than %d columns in xfoilPolar.dat is not expected!\n", numDataEntry);
+            printf("More than %d columns in xfoilPolar.dat is not expected!\n",
+                   numDataEntry);
             status = CAPS_IOERR;
             goto cleanup;
         }
@@ -698,21 +680,22 @@ int aimCalcOutput(int iIndex, void *aimInfo, const char *analysisPath,
     }
 
     // Headers expected in xfoilPolar.dat that correspond to the AIM output names
-         if (index == 1)
+  
+         if (index == outAlpha)
         valHeader = "alpha";
-    else if (index == 2)
+    else if (index == outCL)
         valHeader = "CL";
-    else if (index == 3)
+    else if (index == outCD)
         valHeader = "CD";
-    else if (index == 4)
+    else if (index == outCD_p)
         valHeader = "CDp";
-    else if (index == 5)
+    else if (index == outCM)
         valHeader = "CM";
-    else if (index == 6)
+    else if (index == outCp_Min)
         valHeader = "Cpmin";
-    else if (index == 7)
+    else if (index == outTransition_Top)
         valHeader = "Top_Xtr";
-    else if (index == 8)
+    else if (index == outTransition_Bottom)
         valHeader = "Bot_Xtr";
     else {
         printf("Developer error: Unkown variable index %d", index);
@@ -722,7 +705,8 @@ int aimCalcOutput(int iIndex, void *aimInfo, const char *analysisPath,
 
     // Find which column contains the requested data
     valIndex = 0;
-    while( valIndex < numDataEntry && strncmp(headers[valIndex], valHeader, strlen(valHeader)) != 0 ) valIndex++;
+    while( valIndex < numDataEntry && strncmp(headers[valIndex], valHeader,
+                                              strlen(valHeader)) != 0 ) valIndex++;
     if (valIndex == numDataEntry) {
         printf("Could not find '%s' header in xfoilPolar.dat\n", valHeader);
         status = CAPS_NOTFOUND;
@@ -772,11 +756,13 @@ int aimCalcOutput(int iIndex, void *aimInfo, const char *analysisPath,
 
         if (skipLine == (int) true) continue;
 
-        if (valCount == 1){
+        if (valCount == 1) {
             val->vals.real = dataLine[valIndex];
         } else {
             //printf("k = %d, Val (%d) - %f\n", k, valIndex,dataLine[valIndex]);
+/*@-nullderef@*/
             val->vals.reals[k] = dataLine[valIndex];
+/*@+nullderef@*/
         }
         k += 1;
     }
@@ -807,12 +793,12 @@ int aimCalcOutput(int iIndex, void *aimInfo, const char *analysisPath,
         return status;
 }
 
-void aimCleanup()
+
+void aimCleanup(/*@unused@*/ void *instStore)
 {
 
 #ifdef DEBUG
     printf(" xfoilAIM/aimCleanup!\n");
 #endif
 
-    numInstance = 0;
 }

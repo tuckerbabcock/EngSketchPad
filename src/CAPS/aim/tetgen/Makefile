@@ -38,6 +38,9 @@ $(ODIR)/predicates.o:	$(TETGEN)/predicates.cxx
 $(ODIR)/tetgen.o:	$(TETGEN)/tetgen.cxx
 	$(CXX) -c $(COPTS) -DTETLIBRARY -w $(TETGEN)/tetgen.cxx -o $(ODIR)/tetgen.o
 
+lint:
+	$(LINT) -I../../include -I$(IDIR) $(wildcard *.c) -uniondef -exportlocal -nullpass
+
 clean:
 	-rm -f $(ODIR)/tetgen.o $(ODIR)/predicates.o $(ODIR)/tetgen_Interface.o \
 		$(ODIR)/tetgenAIM.o

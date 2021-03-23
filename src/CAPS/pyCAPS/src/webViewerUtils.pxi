@@ -1,7 +1,7 @@
 #
 # Written by Dr. Ryan Durscher AFRL/RQVC
 # 
-# This software has been cleared for public release on 25 Jul 2018, case number 88ABW-2018-3793.
+# This software has been cleared for public release on 27 Oct. 2020, case number 88ABW-2020-3328.
 
 # Python version
 try:
@@ -989,7 +989,7 @@ cdef class graphicPrimitive:
     
     # \param items List of wvData objects used to create the triangle 
     # \param name Name of graphic primitive. Important: Name must be unique 
-    # \param lines Lines in the primiteve on or off
+    # \param lines Turn lines in the primitive on or off.
     # \return Instance of  graphicPrimitive class 
     def createLine(self, items, name, lines=True):
         cdef:
@@ -1007,7 +1007,7 @@ cdef class graphicPrimitive:
         
     # \param items List of wvData objects used to create the triangle 
     # \param name Name of graphic primitive. Important: Name must be unique 
-    # \param lines Lines in the primiteve on or off
+    # \param lines Turn lines in the primitive on or off.
     # \return Instance of  graphicPrimitive class 
     def createTriangle(self, items, name, lines=True):
         cdef:
@@ -1321,9 +1321,10 @@ cdef class graphicPrimitive:
         numContour = <int>  item.numContour
         reverseMap = <int>  item.reverseMap
         
+#         print cMapName, numContour, minColor, maxColor
         # Get color map 
         colorMap = getColorMap(cMapName, numContour, reverseMap)
-        
+       
         # Create key data 
         if minColor == maxColor:
             numCol = 1
@@ -1338,14 +1339,14 @@ cdef class graphicPrimitive:
             keyData[0] = <float> colorMap[-3]
             keyData[1] = <float> colorMap[-2]
             keyData[2] = <float> colorMap[-1]
-        else:
             
+        else:
             i = 0
             while i < 3*numCol:
-            #for i in range(3*numCol):
                 keyData[i] = <float> colorMap[i]
                 i += 1
-
+#                 print keyData[i-1],colorMap[i-1]
+                
         self.status = cWV.wv_setKey(self.context.context, numCol,  
                                                           keyData, 
                                                           minColor, maxColor, 
@@ -1555,8 +1556,8 @@ cdef class _wvContext:
         self.buffer = bytearray(self.bufferLen)
         self.bufferIndex = 0
             
-    def setKey(self, primativeIndex=0):
-        self.graphicPrim[primativeIndex].setKey()
+    def setKey(self, primitiveIndex=0):
+        self.graphicPrim[primitiveIndex].setKey()
         
     def addPrimative(self, type, items, name=None, lines=True ):
          
@@ -2390,11 +2391,16 @@ cdef class _wvContext:
             
             if (i == -1):
                 i = 0
-                
-            struct.pack_into('B', self.buffer, self.bufferIndex+0, i)
-            struct.pack_into('B', self.buffer, self.bufferIndex+1, 0)
+            
+            struct.pack_into('i', self.buffer, self.bufferIndex+0, i)
+            #struct.pack_into('B', self.buffer, self.bufferIndex+1, 0)
             struct.pack_into('B', self.buffer, self.bufferIndex+2, 0)
-            struct.pack_into('B', self.buffer, self.bufferIndex+3, 9)
+            struct.pack_into('B', self.buffer, self.bufferIndex+3, 9) 
+  
+#             struct.pack_into('B', self.buffer, self.bufferIndex+0, i)
+#             struct.pack_into('B', self.buffer, self.bufferIndex+1, 0)
+#             struct.pack_into('B', self.buffer, self.bufferIndex+2, 0)
+#             struct.pack_into('B', self.buffer, self.bufferIndex+3, 9)
 
             self.bufferIndex += 4
             
@@ -2626,7 +2632,7 @@ cdef class _wvContext:
         
         cWV.wv_cleanupServers()
     
-    # Remove all graphic primatives from context 
+    # Remove all graphic primitives from context 
     def removeAll(self):
         cWV.wv_removeAll(self.context)
             
@@ -2748,7 +2754,7 @@ cdef class capsViewer:
     #
     # \param enableCheck Enable checks to ensure all primitives have the same number colors and that the limits
     # for each color are initially the same. 
-    # \param unifyBoundingBox Unify the bounding boxes of all primatives (so all images are within the viewering area)
+    # \param unifyBoundingBox Unify the bounding boxes of all primitives (so all images are within the viewering area)
     def startServer(self, enableCheck = True, unifyBoundingBox = True):
         
         self.context.startServer(enableCheck=enableCheck, unifyBoundingBox=unifyBoundingBox)
@@ -2920,9 +2926,9 @@ cdef class capsViewer:
 
     ## Add color/scalar data set. 
     # See \ref webviewer.py for an example use case. 
-    # \param colorData A list of color/scalar data to be applied at each node  
-    # (e.g. [ node1_Color, node2_Color, node3_Color, etc.]). Cell-centered coloring isn't currently supported. Alternatively,
-    # a Hex string (e.g. '#ff0000' == the color red) may be used to set all nodes to a constant color.
+    # \param colorData A list of scalar data values or Hexedecimal strings to be applied at each node
+    # (e.g. [ node1_Color, node2_Color, node3_Color, etc.]). Alternatively,
+    # a single Hexadecimal string (e.g. '#ff0000' == the color red) may be used to set all nodes to a constant color.
     #
     # \param minColor Minimum color value to use for scaling (default - None). If None, the minimum value is determined
     # automatically from the colorData provided. When plotting multiple color/data sets a minimum value should be provided
@@ -2948,9 +2954,9 @@ cdef class capsViewer:
     
     ## Add color/scalar data set for the graphical lines on triangular primitives. (\ref addLineIndex ). 
     # See \ref webviewer.py for an example use case. 
-    # \param colorData A list of color/scalar data to be applied at each node
+    # \param colorData A list of scalar data values or Hexedecimal strings to be applied at each node
     # (e.g. [ node1_Color, node2_Color, node3_Color, etc.]). Alternatively,
-    # a Hex string (e.g. '#ff0000' == the color red) may be used to set all nodes to a constant color.
+    # a single Hexadecimal string (e.g. '#ff0000' == the color red) may be used to set all nodes to a constant color.
     #
     # \param minColor Minimum color value to use for scaling (default - None). If None, the minimum value is determined
     # automatically from the colorData provided. When plotting multiple color/data sets a minimum value should be provided
@@ -2976,9 +2982,9 @@ cdef class capsViewer:
     
     ## Add color/scalar data set for the graphical points on line or triangular primitives. (\ref addPointIndex ). 
     # See \ref webviewer.py for an example use case. 
-    # \param colorData A list of color/scalar data to be applied at each node
+    # \param colorData A list of scalar data values or Hexedecimal strings to be applied at each node
     # (e.g. [ node1_Color, node2_Color, node3_Color, etc.]). Alternatively,
-    # a Hex string (e.g. '#ff0000' == the color red) may be used to set all nodes to a constant color.
+    # a single Hexadecimal string (e.g. '#ff0000' == the color red) may be used to set all nodes to a constant color.
     #
     # \param minColor Minimum color value to use for scaling (default - None). If None, the minimum value is determined
     # automatically from the colorData provided. When plotting multiple color/data sets a minimum value should be provided
@@ -3064,12 +3070,12 @@ cdef class capsViewer:
     
     ## Create a generic graphic primitive.
     # \param type Type of primitive to create. Options: "point", "line", or "triangle" (case insensitive)
-    # \param items List of "wvData items (objects)" used to create the triangle (default - None). 
+    # \param items List of "wvData items (objects)" used to create the primitive (default - None). 
     # If none are provided all current items added will be used! 
     #
     # \param name Name of graphic primitive (default - GPrim_#, where # is 1 + number of primitives previously loaded). 
     # Important: If specified, the name must be unique.
-    # \param lines Lines in the primiteve on or off
+    # \param lines Turn lines in the primitive on or off.
     #
     def createPrimitive(self, type, items=None, name=None, lines=True ):
         
@@ -3091,7 +3097,7 @@ cdef class capsViewer:
 #         return gPrim
         
     ## Create a point graphic primitive.
-    # \param items List of "wvData items (objects)" used to create the triangle (default - None). 
+    # \param items List of "wvData items (objects)" used to create the point (default - None). 
     # If none are provided all current items added will be used! 
     #
     # \param name Name of graphic primitive (default - GPrim_#, where # is 1 + number of primitives previously loaded). 
@@ -3104,14 +3110,14 @@ cdef class capsViewer:
         return self.createPrimitive("point", items=items, name=name)
         
     ## Create a line graphic primitive.
-    # \param items List of "wvData items (objects)" used to create the triangle (default - None). 
+    # \param items List of "wvData items (objects)" used to create the line (default - None). 
     # If none are provided all current items added will be used! 
     #
     # \param name Name of graphic primitive (default - GPrim_#, where # is 1 + number of primitives previously loaded). 
     # Important: If specified, the name must be unique.
     #
     # \return Optionally returns a reference to the graphicPrimitive object. 
-    def createLine(self, items=None, name=None, turnOn=True):
+    def createLine(self, items=None, name=None):
     # \return Index of graphic primitive
         
         return self.createPrimitive("line", items=items, name=name)
@@ -3123,10 +3129,10 @@ cdef class capsViewer:
     #
     # \param name Name of graphic primitive (default - GPrim_#, where # is 1 + number of primitives previously loaded). 
     # Important: If specified, the name must be unique.
-    # \param lines Lines in the primiteve on or off
+    # \param lines Turn lines in the primitive on or off.
     #
     # \return Optionally returns a reference to the graphicPrimitive object. 
-    def createTriangle(self, items=None, name=None, turnOn=True, lines=True):
+    def createTriangle(self, items=None, name=None, lines=True):
    
         
         return self.createPrimitive("triangle", items=items, name=name, lines=lines)
@@ -3329,9 +3335,9 @@ cdef class capsViewer:
     def addBound(self, bound, dataSetType="both"):
         self.addDataBound( bound, dataSetType="both")
 
-    ## Add a _capsBound (see \ref _capsBound) object(s). 
+    ## Add a capsBound (see \ref capsBound) object(s). 
     #
-    # \param bound A single or list of instances of _capsBound objects. 
+    # \param bound A single or list of instances of capsBound objects. 
     # \param dataSetType Specifies which type of data sets in the bound should be added, source or destination.
     # Options: "source", "destination, or "both" (default) - values are case insensitive. 
     def addDataBound(self, bound, dataSetType="both"):  
@@ -3354,8 +3360,8 @@ cdef class capsViewer:
         for i in bound:
             
             # Check to make sure the bound is actually a bound 
-            if not isinstance(i, _capsBound):
-                print("Value is not a _capsBound")
+            if not isinstance(i, capsBound):
+                print("Value is not a capsBound")
                 raise TypeError
             
             if dataSetType == "both" or dataSetType == "source":
@@ -3543,7 +3549,7 @@ cdef class capsViewer:
     # \param meshFile Name of unstructured mesh file to load or an instance of a 
     # capsUnstructMesh(see \ref capsUnstructMesh) object.
     #  
-    def addUnstructMesh(self, meshFile):
+    def addUnstructMesh(self, meshFile, **kwargs):
         
         if isinstance(meshFile, str):
             mesh = capsUnstructMesh(meshFile)
@@ -3551,7 +3557,7 @@ cdef class capsViewer:
             mesh = meshFile 
         
         if mesh.numNode == 0 or mesh.numElement == 0:    
-            mesh.loadFile()
+            mesh.loadFile(**kwargs)
         
         if mesh.oneBias != self.oneBias:
             print("Index biasing between mesh and server mismatch!")
@@ -3830,7 +3836,7 @@ cdef class capsViewer:
     cdef addEgadsTess(self, int numTess, cEGADS.ego *tess): 
         self.__loadEGADS(numTess, NULL, tess, globalTess=True)
     
-    # Tessellate an array of EGADS bodies and add them to the primatives or add an array
+    # Tessellate an array of EGADS bodies and add them to the primitives or add an array
     # of tessellated bodies to primitives. One of 'bodies' or 'tessellations' should be null. 
     cdef __loadEGADS(self, int numBody, cEGADS.ego *bodies, cEGADS.ego *tessellations, globalTess=False):
         cdef:
@@ -3904,7 +3910,6 @@ cdef class capsViewer:
             if self.status != cEGADS.EGADS_SUCCESS:
                 raiseError("while getting body info (during a call to EG_getTopology)")
 
-            # Skip WIREBODY in this loop
             if mtype == cEGADS.WIREBODY:
                 nameList = self.__loadWireMesh(ibody, nameList, body, tess)
             else:
@@ -4180,7 +4185,7 @@ cdef class capsViewer:
 
         #print xyz
         #print connectivity
-
+        
         if useColorArray:
             self.addColor(colorArray)
         else:
@@ -4192,7 +4197,13 @@ cdef class capsViewer:
         self.addLineColor(1, colorMap = "grey")
         
         name, nameList = self.__getBodyName(ibody, nameList, body)
-
+        
+#         cud = capsUnstructData()
+#         cud.xyz = xyz
+#         cud.connectivity = connectivity
+#         if color: cud.metaData = {"color": color}
+#         cud.writeFile(name)
+        
         self.createTriangle(name=name,lines=globalTess)
     
         return nameList
@@ -4349,7 +4360,8 @@ cdef class capsViewer:
             const double *reals 
             const char *string
             
-        name = "Body " + str(ibody+1)
+        name = "Body_" + str(ibody+1)
+        
         attr = _byteify("_name")
         # Get body _name - if available 
         self.status = cEGADS.EG_attributeRet(body, <char *>attr, &atype, &alen, &ints, &reals, &string)
@@ -4362,9 +4374,9 @@ cdef class capsViewer:
                 name = _strify(string)
         if name:
             if name in nameList:
-                name = "Body " + str(ibody+1)
+                name = "Body_" + str(ibody+1)
                 print("Body", ibody, ": Name '", name, "' found more than once. Changing name to: '", name, "'")
-            else: 
-                nameList.append(name)
+            
+            nameList.append(name)
 
         return name, nameList

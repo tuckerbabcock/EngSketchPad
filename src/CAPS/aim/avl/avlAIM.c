@@ -3,7 +3,7 @@
  *
  *             AVL AIM
  *
- *      Copyright 2014-2020, Massachusetts Institute of Technology
+ *      Copyright 2014-2021, Massachusetts Institute of Technology
  *      Licensed under The GNU Lesser General Public License, version 2.1
  *      See http://www.opensource.org/licenses/lgpl-2.1.php
  *
@@ -20,26 +20,138 @@
 #include "vlmSpanSpace.h"
 
 #ifdef WIN32
-#define getcwd   _getcwd
-#define PATH_MAX _MAX_PATH
-
 #define strcasecmp  stricmp
 #define strncasecmp _strnicmp
-#define strtok_r   strtok_s
-
-#else
-
-#include <unistd.h>
-#include <limits.h>
+#define strtok_r    strtok_s
 #endif
 
-#define NUMINPUT  18
-#define NUMOUT    94
 #define MAXPOINT  200
 #define PI        3.1415926535897931159979635
 #define NINT(A)         (((A) < 0)   ? (int)(A-0.5) : (int)(A+0.5))
 
 //#define DEBUG
+
+enum aimInputs
+{
+  inMach = 1,                    /* index is 1-based */
+  inAlpha,
+  inBeta,
+  inRollRate,
+  inPitchRate,
+  inYawRate,
+  inCDp,
+  inAVL_Surface,
+  inAVL_Control,
+  inCL,
+  inMoment_Center,
+  inLunit,
+  inMunit,
+  inTunit,
+  inMassProp,
+  inGravity,
+  inDensity,
+  inVelocity,
+  NUMINPUT = inVelocity        /* Total number of inputs */
+};
+
+enum aimOutputs
+{
+  Alpha = 1,                   /* index is 1-based */
+  Beta,
+  Mach,
+  pbd2V,
+  qcd2V,
+  rbd2V,
+  pPbd2V,
+  rPbd2V,
+  CXtot,
+  CYtot,
+  CZtot,
+  Cltot,
+  Cmtot,
+  Cntot,
+  ClPtot,
+  CnPtot,
+  CLtot,
+  CDtot,
+  CDvis,
+  CLff,
+  CYff,
+  CDind,
+  CDff,
+  e,
+  CLa,
+  CYa,
+  ClPa,
+  Cma,
+  CnPa,
+  CLb,
+  CYb,
+  ClPb,
+  Cmb,
+  CnPb,
+  CLpP,
+  CYpP,
+  ClPpP,
+  CmpP,
+  CnPpP,
+  CLqP,
+  CYqP,
+  ClPqP,
+  CmqP,
+  CnPqP,
+  CLrP,
+  CYrP,
+  ClPrP,
+  CmrP,
+  CnPrP,
+  CXu,
+  CYu,
+  CZu,
+  Clu,
+  Cmu,
+  Cnu,
+  CXv,
+  CYv,
+  CZv,
+  Clv,
+  Cmv,
+  Cnv,
+  CXw,
+  CYw,
+  CZw,
+  Clw,
+  Cmw,
+  Cnw,
+  CXp,
+  CYp,
+  CZp,
+  Clp,
+  Cmp,
+  Cnp,
+  CXq,
+  CYq,
+  CZq,
+  Clq,
+  Cmq,
+  Cnq,
+  CXr,
+  CYr,
+  CZr,
+  Clr,
+  Cmr,
+  Cnr,
+  Xnp,
+  Xcg,
+  Ycg,
+  Zcg,
+  ControlStability,
+  ControlBody,
+  HingeMoment,
+  StripForces,
+  EigenValues,
+  NUMOUT = EigenValues         /* Total number of outputs */
+};
 
 /*!\mainpage Introduction
  * \tableofcontents
@@ -333,15 +445,10 @@ to be delimited by a colon (`:'). This is associated with the AVL Surface.
 
 
 typedef struct {
-    // Analysis file path/directory
-    char *analysisPath;
 
     mapAttrToIndexStruct controlMap;
 
 } aimStorage;
-
-static aimStorage *avlInstance = NULL;
-static int         numInstance  = 0;
 
 
 /* ********************** AVL AIM Helper Functions ************************** */
@@ -368,7 +475,8 @@ static int writeSection(FILE *fp, vlmSectionStruct *vlmSection)
     Nspan = vlmSection->Nspan;
     Sspace = vlmSection->Sspace;
 
-    status = EG_attributeRet(body, "avlNumSpan", &atype, &alen, &ints, &reals, &string);
+    status = EG_attributeRet(body, "avlNumSpan", &atype, &alen, &ints, &reals,
+                             &string);
     if (status == EGADS_SUCCESS) {
         printf("*************************************************************\n");
         printf("Warning: avlNumSpan is DEPRICATED in favor of vlmNumSpan!!!\n");
@@ -376,7 +484,8 @@ static int writeSection(FILE *fp, vlmSectionStruct *vlmSection)
         printf("*************************************************************\n");
 
         if (atype != ATTRINT && atype != ATTRREAL && alen != 1) {
-            printf ("Error: Attribute %s should be followed by a single integer\n", "avlNumSpan");
+            printf ("Error: Attribute %s should be followed by a single integer\n",
+                    "avlNumSpan");
         }
 
         if (atype == ATTRINT) {
@@ -401,15 +510,16 @@ static int writeSection(FILE *fp, vlmSectionStruct *vlmSection)
 
     status = CAPS_SUCCESS;
 
-    goto cleanup;
+cleanup:
+    if (status != CAPS_SUCCESS)
+        printf("Error: Premature exit in writeSection, status = %d\n", status);
 
-    cleanup:
-        if (status != CAPS_SUCCESS) printf("Error: Premature exit in writeSection, status = %d\n", status);
-
-        return status;
+    return status;
 }
 
-static int writeMassFile(void *aimInfo, capsValue *aimInputs, const char *lengthUnitsIn, char massFilename[])
+
+static int writeMassFile(void *aimInfo, capsValue *aimInputs,
+                         const char *lengthUnitsIn, char massFilename[])
 {
   int status; // Function return status
 
@@ -458,14 +568,14 @@ static int writeMassFile(void *aimInfo, capsValue *aimInputs, const char *length
   fprintf(fp, "#  The Lunit and Munit values scale the mass, xyz, and inertia table data below.\n");
   fprintf(fp, "#  Lunit value will also scale all lengths and areas in the AVL input file.\n");
 
-  Lunit  = aimInputs[aim_getIndex(aimInfo, "Lunit", ANALYSISIN)-1].vals.real;
-  Lunits = aimInputs[aim_getIndex(aimInfo, "Lunit", ANALYSISIN)-1].units;
+  Lunit  = aimInputs[inLunit-1].vals.real;
+  Lunits = aimInputs[inLunit-1].units;
 
-  Munit  = aimInputs[aim_getIndex(aimInfo, "Munit", ANALYSISIN)-1].vals.real;
-  Munits = aimInputs[aim_getIndex(aimInfo, "Munit", ANALYSISIN)-1].units;
+  Munit  = aimInputs[inMunit-1].vals.real;
+  Munits = aimInputs[inMunit-1].units;
 
-  Tunit  = aimInputs[aim_getIndex(aimInfo, "Tunit", ANALYSISIN)-1].vals.real;
-  Tunits = aimInputs[aim_getIndex(aimInfo, "Tunit", ANALYSISIN)-1].units;
+  Tunit  = aimInputs[inTunit-1].vals.real;
+  Tunits = aimInputs[inTunit-1].units;
 
   // conversion of Lunits into the units of the csm model
   status = aim_convert(aimInfo, lengthUnitsIn, 1.0, Lunits, &Lunit);
@@ -478,25 +588,25 @@ static int writeMassFile(void *aimInfo, capsValue *aimInputs, const char *length
   fprintf(fp, "#-------------------------\n");
   fprintf(fp, "#  Gravity and density to be used as default values in trim setup.\n");
   fprintf(fp, "#  Must be in the units given above.\n");
-
-  status = aim_unitRaise(aimInfo, Tunits, -2, &tmpUnits ); // 1/time^2
+/*@-nullpass@*/
+  status = aim_unitRaise(aimInfo, Tunits, -2, &tmpUnits); // 1/time^2
   if (status != CAPS_SUCCESS) goto cleanup;
-  status = aim_unitMultiply(aimInfo, Lunits, tmpUnits, &Funits ); // length/time^2, e.g force
-  if (status != CAPS_SUCCESS) goto cleanup;
-  EG_free(tmpUnits); tmpUnits = NULL;
-
-  status = aim_unitRaise(aimInfo, Lunits, -3, &tmpUnits ); // 1/length^3
-  if (status != CAPS_SUCCESS) goto cleanup;
-  status = aim_unitMultiply(aimInfo, Munits, tmpUnits, &Dunits ); // mass/length^3, e.g density
+  status = aim_unitMultiply(aimInfo, Lunits, tmpUnits, &Funits); // length/time^2, e.g force
   if (status != CAPS_SUCCESS) goto cleanup;
   EG_free(tmpUnits); tmpUnits = NULL;
 
-  status = aim_convert(aimInfo, aimInputs[aim_getIndex(aimInfo, "Gravity", ANALYSISIN)-1].units,
-                                aimInputs[aim_getIndex(aimInfo, "Gravity", ANALYSISIN)-1].vals.real,
+  status = aim_unitRaise(aimInfo, Lunits, -3, &tmpUnits); // 1/length^3
+  if (status != CAPS_SUCCESS) goto cleanup;
+  status = aim_unitMultiply(aimInfo, Munits, tmpUnits, &Dunits); // mass/length^3, e.g density
+  if (status != CAPS_SUCCESS) goto cleanup;
+  EG_free(tmpUnits); tmpUnits = NULL;
+
+  status = aim_convert(aimInfo, aimInputs[inGravity-1].units,
+                                aimInputs[inGravity-1].vals.real,
                                 Funits, &gravity);
   if (status != CAPS_SUCCESS) goto cleanup;
-  status = aim_convert(aimInfo, aimInputs[aim_getIndex(aimInfo, "Density", ANALYSISIN)-1].units,
-                                aimInputs[aim_getIndex(aimInfo, "Density", ANALYSISIN)-1].vals.real,
+  status = aim_convert(aimInfo, aimInputs[inDensity-1].units,
+                                aimInputs[inDensity-1].vals.real,
                                 Dunits, &density);
   if (status != CAPS_SUCCESS) goto cleanup;
 
@@ -514,15 +624,15 @@ static int writeMassFile(void *aimInfo, capsValue *aimInputs, const char *length
   fprintf(fp, "#  mass     x     y     z       Ixx    Iyy    Izz   [ Ixy  Ixz  Iyz ]\n");
   fprintf(fp, "#\n");
 
-  massProp    = aimInputs[aim_getIndex(aimInfo, "MassProp", ANALYSISIN)-1].vals.tuple;
-  massPropLen = aimInputs[aim_getIndex(aimInfo, "MassProp", ANALYSISIN)-1].length;
+  massProp    = aimInputs[inMassProp-1].vals.tuple;
+  massPropLen = aimInputs[inMassProp-1].length;
 
   status = aim_unitRaise(aimInfo, Lunits, 2, &tmpUnits ); // length^2
   if (status != CAPS_SUCCESS) goto cleanup;
   status = aim_unitMultiply(aimInfo, Munits, tmpUnits, &Iunits ); // mass*length^2, e.g moment of inertia
   if (status != CAPS_SUCCESS) goto cleanup;
   EG_free(tmpUnits); tmpUnits = NULL;
-
+/*@+nullpass@*/
   MLL = Munit * Lunit * Lunit;
 
   //status = writeMassProp(aimInfo, aimInputs, fp);
@@ -532,7 +642,7 @@ static int writeMassFile(void *aimInfo, capsValue *aimInputs, const char *length
   for (i = 0; i< massPropLen; i++ ) {
 
       // Set error message strings
-      errName = massProp[i].name;
+      errName  = massProp[i].name;
       errValue = massProp[i].value;
 
       // Do we have a json string?
@@ -543,7 +653,7 @@ static int writeMassFile(void *aimInfo, capsValue *aimInputs, const char *length
        }
 
        keyWord = "mass";
-       status = search_jsonDictionary( massProp[i].value, keyWord, &keyValue);
+       status  = search_jsonDictionary(massProp[i].value, keyWord, &keyValue);
        if (status == CAPS_SUCCESS) {
 
            status = json_parseTuple(keyValue, &numString, &stringArray);
@@ -554,9 +664,10 @@ static int writeMassFile(void *aimInfo, capsValue *aimInputs, const char *length
                status = CAPS_BADVALUE;
                goto cleanup;
            }
-
-           units = stringArray[1];
+/*@-nullderef@*/
+           units  = stringArray[1];
            status = string_toDouble(stringArray[0], &mass);
+/*@+nullderef@*/
            if (status != CAPS_SUCCESS) goto cleanup;
 
            status = aim_convert(aimInfo, units, mass, Munits, &mass);
@@ -571,7 +682,7 @@ static int writeMassFile(void *aimInfo, capsValue *aimInputs, const char *length
        }
 
        keyWord = "CG";
-       status = search_jsonDictionary( massProp[i].value, keyWord, &keyValue);
+       status  = search_jsonDictionary(massProp[i].value, keyWord, &keyValue);
        if (status == CAPS_SUCCESS) {
 
            status = json_parseTuple(keyValue, &numString, &stringArray);
@@ -582,15 +693,18 @@ static int writeMassFile(void *aimInfo, capsValue *aimInputs, const char *length
                status = CAPS_BADVALUE;
                goto cleanup;
            }
-
-           units = stringArray[1];
-
+/*@-nullderef@*/
+           units  = stringArray[1];
            status = string_toDoubleArray(stringArray[0], 3, xyz);
+/*@+nullderef@*/
            if (status != CAPS_SUCCESS) goto cleanup;
 
-           status = aim_convert(aimInfo, units, xyz[0], Lunits, &xyz[0]); if (status != CAPS_SUCCESS) { errUnits = Lunits; goto cleanup; }
-           status = aim_convert(aimInfo, units, xyz[1], Lunits, &xyz[1]); if (status != CAPS_SUCCESS) { errUnits = Lunits; goto cleanup; }
-           status = aim_convert(aimInfo, units, xyz[2], Lunits, &xyz[2]); if (status != CAPS_SUCCESS) { errUnits = Lunits; goto cleanup; }
+           status = aim_convert(aimInfo, units, xyz[0], Lunits, &xyz[0]);
+           if (status != CAPS_SUCCESS) { errUnits = Lunits; goto cleanup; }
+           status = aim_convert(aimInfo, units, xyz[1], Lunits, &xyz[1]);
+           if (status != CAPS_SUCCESS) { errUnits = Lunits; goto cleanup; }
+           status = aim_convert(aimInfo, units, xyz[2], Lunits, &xyz[2]);
+           if (status != CAPS_SUCCESS) { errUnits = Lunits; goto cleanup; }
 
            EG_free(keyValue); keyValue = NULL;
            (void) string_freeArray(numString, &stringArray);
@@ -601,7 +715,7 @@ static int writeMassFile(void *aimInfo, capsValue *aimInputs, const char *length
        }
 
        keyWord = "massInertia";
-       status = search_jsonDictionary( massProp[i].value, keyWord, &keyValue);
+       status  = search_jsonDictionary(massProp[i].value, keyWord, &keyValue);
        if (status == CAPS_SUCCESS) {
 
            status = json_parseTuple(keyValue, &numString, &stringArray);
@@ -612,16 +726,21 @@ static int writeMassFile(void *aimInfo, capsValue *aimInputs, const char *length
                status = CAPS_BADVALUE;
                goto cleanup;
            }
-
-           units = stringArray[1];
-
+/*@-nullderef@*/
+           units  = stringArray[1];
            status = string_toDoubleDynamicArray(stringArray[0], &inertiaLen, &I);
+/*@+nullderef@*/
            if (status != CAPS_SUCCESS) goto cleanup;
 
            for (j = 0; j< 6; j++) inertia[j] = 0; // Inertia order = Ixx, Iyy, Izz, Ixy, Ixz, Iyz
 
            for (j = 0; j < inertiaLen; j++) {
-               status = aim_convert(aimInfo, units, I[j], Iunits, &inertia[j]); if (status != CAPS_SUCCESS) { errUnits = Iunits; goto cleanup; }
+/*@-nullderef@*/
+/*@-nullpass@*/
+               status = aim_convert(aimInfo, units, I[j], Iunits, &inertia[j]);
+/*@+nullpass@*/
+/*@+nullderef@*/
+               if (status != CAPS_SUCCESS) { errUnits = Iunits; goto cleanup; }
            }
 
            EG_free(I); I = NULL;
@@ -637,7 +756,8 @@ static int writeMassFile(void *aimInfo, capsValue *aimInputs, const char *length
       fprintf(fp, "%lf %lf %lf %lf %lf %lf %lf %lf %lf %lf ! %s\n",
                   mass/Munit,
                   xyz[0]/Lunit, xyz[1]/Lunit, xyz[2]/Lunit,
-                  inertia[0]/MLL, inertia[1]/MLL, inertia[2]/MLL, inertia[3]/MLL, inertia[4]/MLL, inertia[5]/MLL,
+                  inertia[0]/MLL, inertia[1]/MLL, inertia[2]/MLL, inertia[3]/MLL,
+                  inertia[4]/MLL, inertia[5]/MLL,
                   massProp[i].name);
   }
 
@@ -759,7 +879,6 @@ static int writeMassFile(void *aimInfo, capsValue *aimInputs, const char *length
   }
 #endif
 
-
   status = CAPS_SUCCESS;
 
 cleanup:
@@ -769,15 +888,17 @@ cleanup:
       printf("Cannot parse mass properties for:\n");
       printf("  (\"%s\", %s)\n", errName, errValue);
       if (status == CAPS_UNITERR) {
-      printf("\n");
-      printf("  Unable to convert units \"%s\" to \"%s\"\n", units, errUnits);
+          printf("\n");
+/*@-nullpass@*/
+          printf("  Unable to convert units \"%s\" to \"%s\"\n", units, errUnits);
+/*@+nullpass@*/
       }
       if (errMsg != NULL && keyWord != NULL) {
-      printf("\n");
-      printf("%s for %s\n", errMsg, keyWord);
+          printf("\n");
+          printf("%s for %s\n", errMsg, keyWord);
       } else if (errMsg != NULL) {
-        printf("\n");
-        printf("%s\n", errMsg);
+          printf("\n");
+          printf("%s\n", errMsg);
       }
       printf("\n");
       printf("  The 'value' string should be of the form:\n");
@@ -805,30 +926,23 @@ cleanup:
 }
 
 
-static int read_Data(const char *file, const char *analysisPath, const char *key, double *data) {
+static int read_Data(const char *file, const char *key, double *data)
+{
 
     int i; //Indexing
 
     size_t     linecap = 0;
-    char       currentPath[PATH_MAX], *valstr = NULL, *line = NULL;
+    char       *valstr = NULL, *line = NULL;
     FILE       *fp = NULL;
 
     *data = 0.0;
 
     if (file == NULL) return CAPS_NULLVALUE;
-    if (analysisPath == NULL) return CAPS_NULLVALUE;
-    if (key == NULL) return CAPS_NULLVALUE;
-
-    (void) getcwd(currentPath, PATH_MAX);
-
-    if (chdir(analysisPath) != 0) return CAPS_DIRERR;
+    if (key  == NULL) return CAPS_NULLVALUE;
 
     // Open the AVL output file
     fp = fopen(file, "r");
     if (fp == NULL) {
-
-        chdir(currentPath);
-
         return CAPS_DIRERR;
     }
 
@@ -861,7 +975,6 @@ static int read_Data(const char *file, const char *analysisPath, const char *key
     }
 
     // Restore the path we came in with
-    chdir(currentPath);
     fclose(fp);
 
     if (line != NULL) EG_free(line);
@@ -869,29 +982,22 @@ static int read_Data(const char *file, const char *analysisPath, const char *key
     return CAPS_SUCCESS;
 }
 
-static int read_StripForces(const char *analysisPath, int *length, capsTuple **surfaces_out) {
+
+static int read_StripForces(int *length, capsTuple **surfaces_out)
+{
 
     int status = CAPS_SUCCESS;
     int i; //Indexing
 
     size_t     linecap = 0, vallen = 0, alen = 0;
-    char       currentPath[PATH_MAX], *str = NULL, *line = NULL, *rest = NULL, *token = NULL, *value = NULL;
+    char       *str = NULL, *line = NULL, *rest = NULL, *token = NULL, *value = NULL;
     capsTuple  *tuples = NULL, *surfaces = NULL;
     int        numSurfaces = 0, numDataEntry = 0;
     FILE       *fp = NULL;
 
-    if (analysisPath == NULL) return CAPS_NULLVALUE;
-
-    (void) getcwd(currentPath, PATH_MAX);
-
-    if (chdir(analysisPath) != 0) return CAPS_DIRERR;
-
     // Open the AVL output file
     fp = fopen("capsStripForce.txt", "r");
     if (fp == NULL) {
-
-        chdir(currentPath);
-
         return CAPS_DIRERR;
     }
 
@@ -905,7 +1011,6 @@ static int read_StripForces(const char *analysisPath, int *length, capsTuple **s
         }
         if (status < 0 || str == NULL) {
           // reached end of file without finding another surface
-          status = CAPS_SUCCESS;
           break;
         }
 
@@ -914,7 +1019,7 @@ static int read_StripForces(const char *analysisPath, int *length, capsTuple **s
         while ((str = strstr(line, "\r")) != NULL) str[0] = ' ';
 
         rest = strstr(line, "#");
-        token = strtok_r(rest, " ", &rest); // skip the #
+       (void)   strtok_r(rest, " ", &rest); // skip the #
         token = strtok_r(rest, " ", &rest); // skip the surface number
         while(rest[0]              == ' ' && rest[0] != '\0') rest++;                      // remove leading spaces
         while(rest[strlen(rest)-1] == ' '                   ) rest[strlen(rest)-1] = '\0'; // remove trailing spaces
@@ -929,8 +1034,8 @@ static int read_StripForces(const char *analysisPath, int *length, capsTuple **s
         surfaces = (capsTuple *)EG_reall(surfaces, sizeof(capsTuple)*(numSurfaces));
         if (surfaces == NULL) { status = EGADS_MALLOC; goto cleanup; }
 
-        surfaces[numSurfaces-1].name  = (char*)EG_alloc((strlen(rest)+1)*sizeof(char));
-        surfaces[numSurfaces-1].value = (char*)EG_alloc((strlen("{")+1)*sizeof(char));
+        surfaces[numSurfaces-1].name  = (char *) EG_alloc((strlen(rest)+1)*sizeof(char));
+        surfaces[numSurfaces-1].value = (char *) EG_alloc((strlen("{")+1)*sizeof(char));
         if (surfaces[numSurfaces-1].name  == NULL) { status = EGADS_MALLOC; goto cleanup; }
         if (surfaces[numSurfaces-1].value == NULL) { status = EGADS_MALLOC; goto cleanup; }
 
@@ -970,12 +1075,12 @@ static int read_StripForces(const char *analysisPath, int *length, capsTuple **s
 
         rest = line;
         // skip the "j" column
-        token = strtok_r(rest, " ", &rest);
+        (void) strtok_r(rest, " ", &rest);
 
         numDataEntry = 0;
         while ((token = strtok_r(rest, " ", &rest))) {
             // resize the number of tuples
-            tuples = (capsTuple *)EG_reall(tuples, sizeof(capsTuple)*(numDataEntry+1));
+            tuples = (capsTuple *) EG_reall(tuples, sizeof(capsTuple)*(numDataEntry+1));
             if (tuples == NULL) { status = EGADS_MALLOC; goto cleanup; }
 
             tuples[numDataEntry].name  = (char*)EG_alloc((strlen(token)+1)*sizeof(char));
@@ -993,6 +1098,11 @@ static int read_StripForces(const char *analysisPath, int *length, capsTuple **s
             strcpy(tuples[numDataEntry].name, token);
             strcpy(tuples[numDataEntry].value, "[");
             numDataEntry++;
+        }
+        if ((numDataEntry == 0) || (tuples == NULL) || (surfaces == NULL)) {
+           printf(" CAPS Warning: *** No Tuples/Surfaces! ***\n");
+            status = CAPS_IOERR;
+            goto cleanup;
         }
 
         // read in the data columns
@@ -1014,11 +1124,12 @@ static int read_StripForces(const char *analysisPath, int *length, capsTuple **s
           i = 0;
           while ((token = strtok_r(rest, " ", &rest))) {
               vallen = strlen(tuples[i].value);
-              tuples[i].value = (char*)EG_reall(tuples[i].value, (vallen+strlen(token)+2)*sizeof(char));
+              tuples[i].value = (char *) EG_reall(tuples[i].value,
+                                          (vallen+strlen(token)+2)*sizeof(char));
               if (tuples[i].value  == NULL) { status = EGADS_MALLOC; goto cleanup; }
 
               // append the values to the list
-              sprintf(tuples[i].value + vallen,"%s,", token );
+              sprintf(tuples[i].value + vallen,"%s,", token);
               i++;
           }
         }
@@ -1034,13 +1145,14 @@ static int read_StripForces(const char *analysisPath, int *length, capsTuple **s
 
             // collapse down the tuples for the surface
             vallen = strlen(surfaces[numSurfaces-1].value);
-                // \" + name                 + \": + value                 + ,\0
+            // \" + name                 + \": + value                 + ,\0
             alen = 1 + strlen(tuples[i].name) + 2 + strlen(tuples[i].value) + 2;
-            surfaces[numSurfaces-1].value = (char *)EG_reall(surfaces[numSurfaces-1].value, sizeof(char)*(vallen+alen));
+            surfaces[numSurfaces-1].value = (char *) EG_reall(surfaces[numSurfaces-1].value,
+                                                              sizeof(char)*(vallen+alen));
             if (surfaces[numSurfaces-1].value == NULL) { status = EGADS_MALLOC; goto cleanup; }
 
             value = surfaces[numSurfaces-1].value + vallen;
-            sprintf(value,"\"%s\":%s,", tuples[i].name, tuples[i].value );
+            sprintf(value,"\"%s\":%s,", tuples[i].name, tuples[i].value);
 
             // release the memory now that it's been consumed
             EG_free(tuples[i].name ); tuples[i].name  = NULL;
@@ -1060,10 +1172,9 @@ static int read_StripForces(const char *analysisPath, int *length, capsTuple **s
 cleanup:
 
     // Restore the path we came in with
-    chdir(currentPath);
     if (fp != NULL) fclose(fp);
 
-    if (status != CAPS_SUCCESS) {
+    if ((status != CAPS_SUCCESS) && (surfaces != NULL)) {
         for (i = 0; i < numSurfaces; i++) {
             EG_free(surfaces[i].name);
             EG_free(surfaces[i].value);
@@ -1071,11 +1182,13 @@ cleanup:
         EG_free(surfaces);
     }
 
-    for (i = 0; i < numDataEntry; i++) {
-        EG_free(tuples[i].name);
-        EG_free(tuples[i].value);
+    if (tuples != NULL) {
+        for (i = 0; i < numDataEntry; i++) {
+            EG_free(tuples[i].name);
+            EG_free(tuples[i].value);
+        }
+        EG_free(tuples);
     }
-    EG_free(tuples);
 
     EG_free(line);
 
@@ -1083,35 +1196,28 @@ cleanup:
 }
 
 
-static int read_EigenValues(const char *analysisPath, int *length, capsTuple **eigen_out) {
+static int read_EigenValues(int *length, capsTuple **eigen_out)
+{
 
     int status = CAPS_SUCCESS;
     int i; //Indexing
 
     size_t     linecap = 0, vallen = 0;
-    char       currentPath[PATH_MAX], *str = NULL, *line = NULL, *rest = NULL, *token = NULL;
+    char       *str = NULL, *line = NULL, *rest = NULL, *token = NULL;
     char       caseName[30];
     capsTuple  *eigen = NULL;
     int        numCase = 0, icase = 0;
     FILE       *fp = NULL;
     char eigenValueFile[] = "capsEigenValues.txt";
 
-    if (analysisPath == NULL) return CAPS_NULLVALUE;
-
-    (void) getcwd(currentPath, PATH_MAX);
-
-    if (chdir(analysisPath) != 0) return CAPS_DIRERR;
-
     // ignore if file does not exist
     if (file_exist(eigenValueFile) == (int) false) {
-        chdir(currentPath);
         return CAPS_SUCCESS;
     }
 
     // Open the eigen value output file
     fp = fopen(eigenValueFile, "r");
     if (fp == NULL) {
-        chdir(currentPath);
         return CAPS_DIRERR;
     }
 
@@ -1127,8 +1233,7 @@ static int read_EigenValues(const char *analysisPath, int *length, capsTuple **e
       goto cleanup;
     }
 
-    icase = 0;
-    while ((status = getline(&line, &linecap, fp)) >= 0) {
+    while (getline(&line, &linecap, fp) >= 0) {
 
         // remove line feed charachters
         while ((str = strstr(line, "\n")) != NULL) str[0] = ' ';
@@ -1141,7 +1246,7 @@ static int read_EigenValues(const char *analysisPath, int *length, capsTuple **e
         if (icase > numCase) {
             // create a new case to save off the eigen informaiton
             numCase = icase;
-            eigen = (capsTuple *)EG_reall(eigen, sizeof(capsTuple)*(numCase));
+            eigen = (capsTuple *) EG_reall(eigen, sizeof(capsTuple)*(numCase));
             if (eigen == NULL) { status = EGADS_MALLOC; goto cleanup; }
 
             sprintf(caseName,"case %d", icase );
@@ -1151,36 +1256,38 @@ static int read_EigenValues(const char *analysisPath, int *length, capsTuple **e
             if (eigen[icase-1].value == NULL) { status = EGADS_MALLOC; goto cleanup; }
         }
 
-        for (i = 0; i < 2; i++) {
-            token = strtok_r(rest, " ", &rest); // get the real/imaginary part of the eigen value
+        if (eigen != NULL)
+            for (i = 0; i < 2; i++) {
+                token = strtok_r(rest, " ", &rest); // get the real/imaginary part of the eigen value
 
-            vallen = strlen(eigen[icase-1].value);
-            eigen[icase-1].value = (char*)EG_reall(eigen[icase-1].value, (vallen+strlen(token)+3)*sizeof(char));
-            if (eigen[icase-1].value  == NULL) { status = EGADS_MALLOC; goto cleanup; }
+                vallen = strlen(eigen[icase-1].value);
+                eigen[icase-1].value = (char *) EG_reall(eigen[icase-1].value,
+                                                         (vallen+strlen(token)+3)*
+                                                         sizeof(char));
+                if (eigen[icase-1].value  == NULL) { status = EGADS_MALLOC; goto cleanup; }
 
-            // append the values to the list
-            if (i == 0)
-                sprintf(eigen[icase-1].value + vallen,"[%s,", token );
-            else
-                sprintf(eigen[icase-1].value + vallen,"%s],", token );
-        }
+                // append the values to the list
+                if (i == 0)
+                    sprintf(eigen[icase-1].value + vallen,"[%s,", token );
+                else
+                    sprintf(eigen[icase-1].value + vallen,"%s],", token );
+            }
     }
 
     // close the array by replacing the ',' with ']'
-    for (icase = 0; icase < numCase; icase++)
-        eigen[icase].value[strlen(eigen[icase].value)-1] = ']';
+    if (eigen != NULL)
+        for (icase = 0; icase < numCase; icase++)
+            eigen[icase].value[strlen(eigen[icase].value)-1] = ']';
 
     *eigen_out = eigen;
-    *length = numCase;
-    status = CAPS_SUCCESS;
+    *length    = numCase;
+    status     = CAPS_SUCCESS;
 
 cleanup:
 
-    // Restore the path we came in with
-    chdir(currentPath);
     if (fp != NULL) fclose(fp);
 
-    if (status != CAPS_SUCCESS) {
+    if ((status != CAPS_SUCCESS) && (eigen != NULL)) {
         for (i = 0; i < numCase; i++) {
             EG_free(eigen[i].name);
             EG_free(eigen[i].value);
@@ -1193,7 +1300,8 @@ cleanup:
     return status;
 }
 
-static int get_controlDeriv(void *aimInfo, char *analysisPath, int controlIndex, int outputIndex, double *data) {
+static int get_controlDeriv(int controlIndex, int outputIndex, double *data)
+{
 
     int status; // Function return status
     char *fileToOpen;
@@ -1202,48 +1310,48 @@ static int get_controlDeriv(void *aimInfo, char *analysisPath, int controlIndex,
     char key[10];
 
     // Stability axis
-    if        (outputIndex == aim_getIndex(aimInfo, "CLtot", ANALYSISOUT)) {
+    if        (outputIndex == CLtot) {
         fileToOpen = "capsStatbilityDeriv.txt";
         coeff = "CL";
 
-    } else if (outputIndex == aim_getIndex(aimInfo, "CYtot", ANALYSISOUT)) {
+    } else if (outputIndex == CYtot) {
         fileToOpen = "capsStatbilityDeriv.txt";
         coeff = "CY";
 
-    } else if (outputIndex == aim_getIndex(aimInfo, "Cl'tot", ANALYSISOUT)) {
+    } else if (outputIndex == ClPtot) {
         fileToOpen = "capsStatbilityDeriv.txt";
         coeff = "Cl";
 
-    } else if (outputIndex == aim_getIndex(aimInfo, "Cmtot", ANALYSISOUT)) {
+    } else if (outputIndex == Cmtot) {
         fileToOpen = "capsStatbilityDeriv.txt";
         coeff = "Cm";
 
-    } else if (outputIndex == aim_getIndex(aimInfo, "Cn'tot", ANALYSISOUT)) {
+    } else if (outputIndex == CnPtot) {
         fileToOpen = "capsStatbilityDeriv.txt";
         coeff = "Cn";
 
     // Body axis
-    } else if (outputIndex == aim_getIndex(aimInfo, "CXtot", ANALYSISOUT)) {
+    } else if (outputIndex == CXtot) {
         fileToOpen = "capsBodyAxisDeriv.txt";
         coeff = "CX";
 
-    } else if (outputIndex == aim_getIndex(aimInfo, "CYtot", ANALYSISOUT)) {
+    } else if (outputIndex == CYtot) {
         fileToOpen = "capsBodyAxisDeriv.txt";
         coeff = "CY";
 
-    } else if (outputIndex == aim_getIndex(aimInfo, "CZtot", ANALYSISOUT)) {
+    } else if (outputIndex == CZtot) {
         fileToOpen = "capsBodyAxisDeriv.txt";
         coeff = "CZ";
 
-    } else if (outputIndex == aim_getIndex(aimInfo, "Cltot", ANALYSISOUT)) {
+    } else if (outputIndex == Cltot) {
         fileToOpen = "capsBodyAxisDeriv.txt";
         coeff = "Cl";
 
-    } else if (outputIndex == aim_getIndex(aimInfo, "Cmtot", ANALYSISOUT)) {
+    } else if (outputIndex == Cmtot) {
         fileToOpen = "capsBodyAxisDeriv.txt";
         coeff = "Cm";
 
-    } else if (outputIndex == aim_getIndex(aimInfo, "Cntot", ANALYSISOUT)) {
+    } else if (outputIndex == Cntot) {
         fileToOpen = "capsBodyAxisDeriv.txt";
         coeff = "Cn";
 
@@ -1255,7 +1363,7 @@ static int get_controlDeriv(void *aimInfo, char *analysisPath, int controlIndex,
 
     sprintf(key, "%sd%d =", coeff, controlIndex);
 
-    status = read_Data(fileToOpen, analysisPath, key, data);
+    status = read_Data(fileToOpen, key, data);
     if (status != CAPS_SUCCESS) return status;
 
     status = CAPS_SUCCESS;
@@ -1265,7 +1373,10 @@ static int get_controlDeriv(void *aimInfo, char *analysisPath, int controlIndex,
         return status;
 }
 
-static int parse_controlName(int iIndex, char string[], int *controlNumber) {
+
+static int parse_controlName(aimStorage *avlInstance, char string[],
+                             int *controlNumber)
+{
 
     int status; // Function return status
 
@@ -1294,7 +1405,7 @@ static int parse_controlName(int iIndex, char string[], int *controlNumber) {
     //printf("Temp = %s\n", temp);
 
     // Loop through and determine which control integer this name corresponds to?
-    status = get_mapAttrToIndexIndex(&avlInstance[iIndex].controlMap,
+    status = get_mapAttrToIndexIndex(&avlInstance->controlMap,
             (const char *) controlName, controlNumber);
     if (status != CAPS_SUCCESS) goto cleanup;
 
@@ -1306,31 +1417,28 @@ static int parse_controlName(int iIndex, char string[], int *controlNumber) {
     status = CAPS_SUCCESS;
     goto cleanup;
 
-    cleanup:
-        return status;
+cleanup:
+    return status;
 }
+
 
 /* ********************** Exposed AIM Functions ***************************** */
 
-int aimInitialize(/*@unused@*/ int ngIn, /*@unused@*/ /*@null@*/ capsValue *gIn,
-                  int *qeFlag, /*@null@*/ const char *unitSys, int *nIn,
-                  int *nOut, int *nFields, char ***fnames, int **ranks)
+int aimInitialize(int inst, /*@unused@*/ /*@null@*/ const char *unitSys,
+                  void **instStore, /*@unused@*/ int *major,
+                  /*@unused@*/ int *minor, int *nIn, int *nOut,
+                  int *nFields, char ***fnames, int **ranks)
 {
-    int flag;
-
-    aimStorage *tmp;
+    aimStorage *avlInstance;
 
 #ifdef DEBUG
-    printf("\n avlAIM/aimInitialize   ngIn = %d!\n", ngIn);
+    printf("\n avlAIM/aimInitialize   instance = %d!\n", inst);
 #endif
-
-    flag    = *qeFlag;
-    *qeFlag = 0;
 
     /* specify the number of analysis input and out "parameters" */
     *nIn     = NUMINPUT;
     *nOut    = NUMOUT;
-    if (flag == 1) return CAPS_SUCCESS;
+    if (inst == -1) return CAPS_SUCCESS;
 
     /*! \page geomRepIntentAVL Geometry Representation and Analysis Intent
      * The geometric representation for the AVL AIM requires that "body(ies)" [or cross-sections], be a face
@@ -1343,30 +1451,19 @@ int aimInitialize(/*@unused@*/ int ngIn, /*@unused@*/ /*@null@*/ capsValue *gIn,
     *fnames  = NULL;
 
     // Allocate avlInstance
-    if (avlInstance == NULL) {
-        avlInstance = (aimStorage *) EG_alloc(sizeof(aimStorage));
-        if (avlInstance == NULL) return EGADS_MALLOC;
-    } else {
-        tmp = (aimStorage *) EG_reall(avlInstance, (numInstance+1)*sizeof(aimStorage));
-        if (tmp == NULL) return EGADS_MALLOC;
-        avlInstance = tmp;
-    }
-
-    // Analysis file path/directory
-    avlInstance[numInstance].analysisPath = NULL;
+    avlInstance = (aimStorage *) EG_alloc(sizeof(aimStorage));
+    if (avlInstance == NULL) return EGADS_MALLOC;
 
     // Initiate control map
-    (void) initiate_mapAttrToIndexStruct(&avlInstance[numInstance].controlMap);
+    (void) initiate_mapAttrToIndexStruct(&avlInstance->controlMap);
 
-    // Increment number of instances
-    numInstance += 1;
-
-    return (numInstance -1);
+    *instStore = avlInstance;
+    return CAPS_SUCCESS;
 }
 
 
-int aimInputs(/*@unused@*/ int inst, /*@unused@*/ void *aimInfo, int index,
-              char **ainame, capsValue *defval)
+int aimInputs(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
+              int index, char **ainame, capsValue *defval)
 {
     /*! \page aimInputsAVL AIM Inputs
      * The following list outlines the AVL inputs along with their default value available
@@ -1374,7 +1471,7 @@ int aimInputs(/*@unused@*/ int inst, /*@unused@*/ void *aimInfo, int index,
      */
 
 #ifdef DEBUG
-    printf(" avlAIM/aimInputs instance = %d  index = %d!\n", inst, index);
+    printf(" avlAIM/aimInputs  index = %d!\n", index);
 #endif
 
     if (index == 1) {
@@ -1626,34 +1723,11 @@ int aimInputs(/*@unused@*/ int inst, /*@unused@*/ void *aimInfo, int index,
          */
     }
 
-    /*else if (index == 11) {
-     *ainame           = EG_strdup("Get_Stability");
-        defval->type      = Boolean;
-        defval->dim       = Vector;
-        defval->length    = 1;
-        defval->nrow      = 1;
-        defval->ncol      = 1;
-        defval->units     = NULL;
-        defval->vals.integer = (int) false;
-        defval->nullVal    = NotNull;
-        defval->lfixed    = Fixed;
-
-        ! \page aimInputsAVL
-     * - <B> Get_Stability = False </B> <br>
-     *  Execute the calculation of stability derivatives.
-
-    }*/
-
-#if NUMINPUT != 18
-#error "NUMINPUTS is inconsistent with the list of inputs"
-#endif
-
     return CAPS_SUCCESS;
 }
 
 
-int aimPreAnalysis(int iIndex, /*@unused@*/ void *aimInfo,
-                   const char *analysisPath, /*@null@*/ capsValue *aimInputs, capsErrs **errs)
+int aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
 {
     int status; // Function return status
 
@@ -1665,8 +1739,7 @@ int aimPreAnalysis(int iIndex, /*@unused@*/ void *aimInfo,
     int eigenValues = (int) false;
 
     int atype, alen;
-
-    char currentPath[PATH_MAX] = "None";
+    aimStorage *avlInstance;
 
     double      Sref, Cref, Bref, Xref, Yref, Zref;
     const int    *ints;
@@ -1716,8 +1789,10 @@ int aimPreAnalysis(int iIndex, /*@unused@*/ void *aimInfo,
 
 
 #ifdef DEBUG
-    printf(" avlAIM/aimPreAnalysis instance = %d\n", inst);
+    printf(" avlAIM/aimPreAnalysis\n");
 #endif
+  
+    avlInstance = (aimStorage *) instStore;
 
     // Initialize reference values
     Sref = 1.0;
@@ -1728,17 +1803,10 @@ int aimPreAnalysis(int iIndex, /*@unused@*/ void *aimInfo,
     Yref = 0.0;
     Zref = 0.0;
 
-    // NULL out errs
-    *errs = NULL;
-
-    // Save a copy of analysisPath
-    avlInstance[iIndex].analysisPath = (char *) analysisPath;
-
     if (aimInputs == NULL) {
 #ifdef DEBUG
         printf(" avlAIM/aimPreAnalysis aimInputs == NULL!\n");
 #endif
-
         return CAPS_NULLVALUE;
     }
 
@@ -1756,7 +1824,7 @@ int aimPreAnalysis(int iIndex, /*@unused@*/ void *aimInfo,
     }
 
     // Destroy previous controlMap (in case it already exists)
-    status = destroy_mapAttrToIndexStruct(&avlInstance[iIndex].controlMap);
+    status = destroy_mapAttrToIndexStruct(&avlInstance->controlMap);
     if (status != CAPS_SUCCESS) return status;
 
     // Container for attribute to index map
@@ -1771,10 +1839,10 @@ int aimPreAnalysis(int iIndex, /*@unused@*/ void *aimInfo,
     if (status != CAPS_SUCCESS) goto cleanup;
 
     // Get AVL surface information
-    if (aimInputs[aim_getIndex(aimInfo, "AVL_Surface", ANALYSISIN)-1].nullVal == NotNull) {
+    if (aimInputs[inAVL_Surface-1].nullVal == NotNull) {
 
-        status = get_vlmSurface(aimInputs[aim_getIndex(aimInfo, "AVL_Surface", ANALYSISIN)-1].length,
-                                aimInputs[aim_getIndex(aimInfo, "AVL_Surface", ANALYSISIN)-1].vals.tuple,
+        status = get_vlmSurface(aimInputs[inAVL_Surface-1].length,
+                                aimInputs[inAVL_Surface-1].vals.tuple,
                                 &attrMap,
                                 1.0, // default Cspace
                                 &numAVLSurface,
@@ -1787,10 +1855,10 @@ int aimPreAnalysis(int iIndex, /*@unused@*/ void *aimInfo,
     if (status != CAPS_SUCCESS) goto cleanup;
 
     // Get AVL control surface information
-    if (aimInputs[aim_getIndex(aimInfo, "AVL_Control", ANALYSISIN)-1].nullVal == NotNull) {
+    if (aimInputs[inAVL_Control-1].nullVal == NotNull) {
 
-        status = get_vlmControl(aimInputs[aim_getIndex(aimInfo, "AVL_Control", ANALYSISIN)-1].length,
-                                aimInputs[aim_getIndex(aimInfo, "AVL_Control", ANALYSISIN)-1].vals.tuple,
+        status = get_vlmControl(aimInputs[inAVL_Control-1].length,
+                                aimInputs[inAVL_Control-1].vals.tuple,
                                 &numAVLControl,
                                 &avlControl);
 
@@ -1798,16 +1866,22 @@ int aimPreAnalysis(int iIndex, /*@unused@*/ void *aimInfo,
     }
 
     // Accumulate section data
-    status = vlm_getSections(numBody, bodies, NULL, attrMap, vlmGENERIC, numAVLSurface, &avlSurface);
+    status = vlm_getSections(numBody, bodies, NULL, attrMap, vlmGENERIC,
+                             numAVLSurface, &avlSurface);
     if (status != CAPS_SUCCESS) goto cleanup;
+    if (avlSurface == NULL) {
+        status = CAPS_NULLVALUE;
+        goto cleanup;
+    }
 
     // Loop through surfaces and transfer control surface data to sections
     for (surf = 0; surf < numAVLSurface; surf++) {
-
+/*@-nullpass@*/
         status = get_ControlSurface(bodies,
                                     numAVLControl,
                                     avlControl,
                                     &avlSurface[surf]);
+/*@+nullpass@*/
         if (status != CAPS_SUCCESS) goto cleanup;
     }
 
@@ -1873,49 +1947,39 @@ int aimPreAnalysis(int iIndex, /*@unused@*/ void *aimInfo,
      */
 
     // look for eigen value analysis
-    if ( (aimInputs[aim_getIndex(aimInfo, "MassProp", ANALYSISIN)-1].nullVal == NotNull) ||
-         (aimInputs[aim_getIndex(aimInfo, "Gravity" , ANALYSISIN)-1].nullVal == NotNull) ||
-         (aimInputs[aim_getIndex(aimInfo, "Density" , ANALYSISIN)-1].nullVal == NotNull) ||
-         (aimInputs[aim_getIndex(aimInfo, "Velocity", ANALYSISIN)-1].nullVal == NotNull) ) {
+    if ( (aimInputs[inMassProp-1].nullVal == NotNull) ||
+         (aimInputs[inGravity-1].nullVal  == NotNull) ||
+         (aimInputs[inDensity-1].nullVal  == NotNull) ||
+         (aimInputs[inVelocity-1].nullVal == NotNull) ) {
 
         // Get length units
         status = check_CAPSLength(numBody, bodies, &lengthUnitsIn);
         if (status != CAPS_SUCCESS) {
           printf("***********************************************************************************\n");
-          printf(" *** ERROR: masstranAIM: No units assigned *** capsLength is not set in *.csm file!\n");
+          printf(" *** ERROR: avlAIM: No units assigned *** capsLength is not set in *.csm file!\n");
           printf("***********************************************************************************\n");
           status = CAPS_BADVALUE;
           goto cleanup;
         }
 
-        if ( !((aimInputs[aim_getIndex(aimInfo, "MassProp", ANALYSISIN)-1].nullVal == NotNull) &&
-               (aimInputs[aim_getIndex(aimInfo, "Gravity" , ANALYSISIN)-1].nullVal == NotNull) &&
-               (aimInputs[aim_getIndex(aimInfo, "Density" , ANALYSISIN)-1].nullVal == NotNull) &&
-               (aimInputs[aim_getIndex(aimInfo, "Velocity", ANALYSISIN)-1].nullVal == NotNull)) ) {
+        if ( !((aimInputs[inMassProp-1].nullVal == NotNull) &&
+               (aimInputs[inGravity-1].nullVal  == NotNull) &&
+               (aimInputs[inDensity-1].nullVal  == NotNull) &&
+               (aimInputs[inVelocity-1].nullVal == NotNull)) ) {
             printf("******************************************************************************\n");
             printf(" All inputs 'MassProp', 'Gravity', 'Density', and 'Velocity'\n");
             printf(" must be set for AVL eigen value analysis.\n");
             printf(" Missing values for:\n");
-            if (aimInputs[aim_getIndex(aimInfo, "MassProp", ANALYSISIN)-1].nullVal == IsNull) printf("    MassProp\n");
-            if (aimInputs[aim_getIndex(aimInfo, "Gravity" , ANALYSISIN)-1].nullVal == IsNull) printf("    Gravity\n");
-            if (aimInputs[aim_getIndex(aimInfo, "Density" , ANALYSISIN)-1].nullVal == IsNull) printf("    Density\n");
-            if (aimInputs[aim_getIndex(aimInfo, "Velocity", ANALYSISIN)-1].nullVal == IsNull) printf("    Velocity\n");
+            if (aimInputs[inMassProp-1].nullVal == IsNull) printf("    MassProp\n");
+            if (aimInputs[inGravity-1].nullVal  == IsNull) printf("    Gravity\n");
+            if (aimInputs[inDensity-1].nullVal  == IsNull) printf("    Density\n");
+            if (aimInputs[inVelocity-1].nullVal == IsNull) printf("    Velocity\n");
             printf("******************************************************************************\n");
             status = CAPS_BADVALUE;
             goto cleanup;
         }
 
         eigenValues = (int) true; // compute eigen values
-    }
-
-
-
-    // Get where we are and set the path to our input
-    (void) getcwd(currentPath, PATH_MAX);
-
-    if (chdir(analysisPath) != 0) {
-        status = CAPS_DIRERR;
-        goto cleanup;
     }
 
     // Open and write the input to control the AVL session
@@ -1942,27 +2006,27 @@ int aimPreAnalysis(int iIndex, /*@unused@*/ void *aimInfo,
     // Set operation parameters
     fprintf(fp, "OPER\n");
 
-    if (aimInputs[aim_getIndex(aimInfo, "Alpha", ANALYSISIN)-1].nullVal ==  NotNull) {
+    if (aimInputs[inAlpha-1].nullVal ==  NotNull) {
         fprintf(fp, "A A ");//Alpha
         fprintf(fp, "%lf\n", aimInputs[1].vals.real);
     }
 
-    if (aimInputs[aim_getIndex(aimInfo, "CL", ANALYSISIN)-1].nullVal ==  NotNull) {
+    if (aimInputs[inCL-1].nullVal ==  NotNull) {
         fprintf(fp, "A C ");//CL
         fprintf(fp, "%lf\n", aimInputs[9].vals.real);
     }
 
     fprintf(fp, "B B ");//Beta
-    fprintf(fp, "%lf\n", aimInputs[aim_getIndex(aimInfo, "Beta", ANALYSISIN)-1].vals.real);
+    fprintf(fp, "%lf\n", aimInputs[inBeta-1].vals.real);
 
     fprintf(fp, "R R ");//Roll Rate pb/2V
-    fprintf(fp, "%lf\n", aimInputs[aim_getIndex(aimInfo, "RollRate", ANALYSISIN)-1].vals.real);
+    fprintf(fp, "%lf\n", aimInputs[inRollRate-1].vals.real);
 
     fprintf(fp, "P P ");//Pitch Rate qc/2v
-    fprintf(fp, "%lf\n", aimInputs[aim_getIndex(aimInfo, "PitchRate", ANALYSISIN)-1].vals.real);
+    fprintf(fp, "%lf\n", aimInputs[inPitchRate-1].vals.real);
 
     fprintf(fp, "Y Y ");//Yaw Rate rb/2v
-    fprintf(fp, "%lf\n", aimInputs[aim_getIndex(aimInfo, "YawRate", ANALYSISIN)-1].vals.real);
+    fprintf(fp, "%lf\n", aimInputs[inYawRate-1].vals.real);
 
     // Check for control surface information
     j = 1;
@@ -1978,9 +2042,9 @@ int aimPreAnalysis(int iIndex, /*@unused@*/ void *aimInfo,
                 // Check to see if control surface hasn't already been written
                 found = (int) false;
 
-                if (numControlName == 0) {
+                if (controlName == NULL) {
 
-                    numControlName += 1;
+                    numControlName = 1;
 
                     controlName = (char **) EG_alloc(numControlName * sizeof(char *));
                     if (controlName == NULL) {
@@ -1988,8 +2052,6 @@ int aimPreAnalysis(int iIndex, /*@unused@*/ void *aimInfo,
                         status = EGADS_MALLOC;
                         goto cleanup;
                     }
-
-                    found = (int) false;
 
                 } else {
 
@@ -2022,7 +2084,7 @@ int aimPreAnalysis(int iIndex, /*@unused@*/ void *aimInfo,
                         avlSurface[surf].vlmSection[section].vlmControl[control].name);
 
                 // Store control map for later use
-                status = increment_mapAttrToIndexStruct(&avlInstance[iIndex].controlMap,
+                status = increment_mapAttrToIndexStruct(&avlInstance->controlMap,
                         (const char *) controlName[numControlName-1]);
                 if (status != CAPS_SUCCESS) goto cleanup;
 
@@ -2046,22 +2108,23 @@ int aimPreAnalysis(int iIndex, /*@unused@*/ void *aimInfo,
 
     fprintf(fp, "M\n"); // Modify parameters
     fprintf(fp, "MN\n");//Mach
-    fprintf(fp, "%lf\n", aimInputs[aim_getIndex(aimInfo, "Mach", ANALYSISIN)-1].vals.real);
+    fprintf(fp, "%lf\n", aimInputs[inMach-1].vals.real);
 
-    if (aimInputs[aim_getIndex(aimInfo, "Velocity", ANALYSISIN)-1].nullVal == NotNull) {
+    if (aimInputs[inVelocity-1].nullVal == NotNull) {
 
-        Lunit  = aimInputs[aim_getIndex(aimInfo, "Lunit", ANALYSISIN)-1].vals.real;
-        Lunits = aimInputs[aim_getIndex(aimInfo, "Lunit", ANALYSISIN)-1].units;
+        Lunit  = aimInputs[inLunit-1].vals.real;
+        Lunits = aimInputs[inLunit-1].units;
 
-        Tunit  = aimInputs[aim_getIndex(aimInfo, "Tunit", ANALYSISIN)-1].vals.real;
-        Tunits = aimInputs[aim_getIndex(aimInfo, "Tunit", ANALYSISIN)-1].units;
+        Tunit  = aimInputs[inTunit-1].vals.real;
+        Tunits = aimInputs[inTunit-1].units;
 
         status = aim_unitDivide(aimInfo, Lunits, Tunits, &Vunits ); // length/time, e.g speed
         if (status != CAPS_SUCCESS) goto cleanup;
-
-        status = aim_convert(aimInfo, aimInputs[aim_getIndex(aimInfo, "Velocity", ANALYSISIN)-1].units,
-                                      aimInputs[aim_getIndex(aimInfo, "Velocity", ANALYSISIN)-1].vals.real,
+/*@-nullpass@*/
+        status = aim_convert(aimInfo, aimInputs[inVelocity-1].units,
+                                      aimInputs[inVelocity-1].vals.real,
                                       Vunits, &velocity);
+/*@+nullpass@*/
         if (status != CAPS_SUCCESS) goto cleanup;
         EG_free(Vunits); Vunits = NULL;
 
@@ -2141,7 +2204,8 @@ int aimPreAnalysis(int iIndex, /*@unused@*/ void *aimInfo,
 
     // Loop over bodies and look for reference quantity attributes
     for (i=0; i < numBody; i++) {
-        status = EG_attributeRet(bodies[i], "capsReferenceArea", &atype, &alen, &ints, &reals, &string);
+        status = EG_attributeRet(bodies[i], "capsReferenceArea",
+                                 &atype, &alen, &ints, &reals, &string);
         if (status == EGADS_SUCCESS) {
 
             if (atype == ATTRREAL && alen == 1) {
@@ -2153,7 +2217,8 @@ int aimPreAnalysis(int iIndex, /*@unused@*/ void *aimInfo,
             }
         }
 
-        status = EG_attributeRet(bodies[i], "capsReferenceChord", &atype, &alen, &ints, &reals, &string);
+        status = EG_attributeRet(bodies[i], "capsReferenceChord",
+                                 &atype, &alen, &ints, &reals, &string);
         if (status == EGADS_SUCCESS) {
 
             if (atype == ATTRREAL && alen == 1) {
@@ -2165,7 +2230,8 @@ int aimPreAnalysis(int iIndex, /*@unused@*/ void *aimInfo,
             }
         }
 
-        status = EG_attributeRet(bodies[i], "capsReferenceSpan", &atype, &alen, &ints, &reals, &string);
+        status = EG_attributeRet(bodies[i], "capsReferenceSpan",
+                                 &atype, &alen, &ints, &reals, &string);
         if (status == EGADS_SUCCESS) {
 
             if (atype == ATTRREAL && alen == 1) {
@@ -2177,7 +2243,8 @@ int aimPreAnalysis(int iIndex, /*@unused@*/ void *aimInfo,
             }
         }
 
-        status = EG_attributeRet(bodies[i], "capsReferenceX", &atype, &alen, &ints, &reals, &string);
+        status = EG_attributeRet(bodies[i], "capsReferenceX",
+                                 &atype, &alen, &ints, &reals, &string);
         if (status == EGADS_SUCCESS) {
 
             if (atype == ATTRREAL && alen == 1) {
@@ -2189,7 +2256,8 @@ int aimPreAnalysis(int iIndex, /*@unused@*/ void *aimInfo,
             }
         }
 
-        status = EG_attributeRet(bodies[i], "capsReferenceY", &atype, &alen, &ints, &reals, &string);
+        status = EG_attributeRet(bodies[i], "capsReferenceY",
+                                 &atype, &alen, &ints, &reals, &string);
         if (status == EGADS_SUCCESS) {
 
             if (atype == ATTRREAL && alen == 1) {
@@ -2201,7 +2269,8 @@ int aimPreAnalysis(int iIndex, /*@unused@*/ void *aimInfo,
             }
         }
 
-        status = EG_attributeRet(bodies[i], "capsReferenceZ", &atype, &alen, &ints, &reals, &string);
+        status = EG_attributeRet(bodies[i], "capsReferenceZ",
+                                 &atype, &alen, &ints, &reals, &string);
         if (status == EGADS_SUCCESS){
 
             if (atype == ATTRREAL && alen == 1) {
@@ -2215,19 +2284,19 @@ int aimPreAnalysis(int iIndex, /*@unused@*/ void *aimInfo,
     }
 
     // Check for moment reference overwrites
-    if (aimInputs[aim_getIndex(aimInfo, "Moment_Center", ANALYSISIN)-1].nullVal ==  NotNull) {
+    if (aimInputs[inMoment_Center-1].nullVal ==  NotNull) {
 
-        Xref =aimInputs[aim_getIndex(aimInfo, "Moment_Center", ANALYSISIN)-1].vals.reals[0];
-        Yref =aimInputs[aim_getIndex(aimInfo, "Moment_Center", ANALYSISIN)-1].vals.reals[1];
-        Zref =aimInputs[aim_getIndex(aimInfo, "Moment_Center", ANALYSISIN)-1].vals.reals[2];
+        Xref = aimInputs[inMoment_Center-1].vals.reals[0];
+        Yref = aimInputs[inMoment_Center-1].vals.reals[1];
+        Zref = aimInputs[inMoment_Center-1].vals.reals[2];
     }
 
     fprintf(fp, "CAPS generated Configuration\n");
-    fprintf(fp, "0.0         # Mach\n");                                                                 /* Mach */
-    fprintf(fp, "0 0 0       # IYsym   IZsym   Zsym\n");                                                 /* IYsym   IZsym   Zsym */
-    fprintf(fp, "%lf %lf %lf # Sref    Cref    Bref\n", Sref, Cref, Bref);                               /* Sref    Cref    Bref */
-    fprintf(fp, "%lf %lf %lf # Xref    Yref    Zref\n", Xref, Yref, Zref);                               /* Xref    Yref    Zref */
-    fprintf(fp, "%lf         # CDp\n", aimInputs[aim_getIndex(aimInfo, "CDp", ANALYSISIN)-1].vals.real); /* CDp */
+    fprintf(fp, "0.0         # Mach\n");                                   /* Mach */
+    fprintf(fp, "0 0 0       # IYsym   IZsym   Zsym\n");                   /* IYsym   IZsym   Zsym */
+    fprintf(fp, "%lf %lf %lf # Sref    Cref    Bref\n", Sref, Cref, Bref); /* Sref    Cref    Bref */
+    fprintf(fp, "%lf %lf %lf # Xref    Yref    Zref\n", Xref, Yref, Zref); /* Xref    Yref    Zref */
+    fprintf(fp, "%lf         # CDp\n", aimInputs[inCDp-1].vals.real);      /* CDp */
 
     // Write out the Surfaces, one at a time
     for (surf = 0; surf < numAVLSurface; surf++) {
@@ -2235,8 +2304,8 @@ int aimPreAnalysis(int iIndex, /*@unused@*/ void *aimInfo,
         printf("Writing surface - %s (ID = %d)\n", avlSurface[surf].name, surf);
 
         if (avlSurface[surf].numSection < 2) {
-            printf("Surface %s only has %d Sections - it will be skipped!\n", avlSurface[surf].name,
-                                                                              avlSurface[surf].numSection);
+            printf("Surface %s only has %d Sections - it will be skipped!\n",
+                   avlSurface[surf].name, avlSurface[surf].numSection);
             continue;
         }
 
@@ -2266,7 +2335,8 @@ int aimPreAnalysis(int iIndex, /*@unused@*/ void *aimInfo,
 
             section = avlSurface[surf].vlmSection[i].sectionIndex;
 
-            printf("\tSection %d of %d (ID = %d)\n", i+1, avlSurface[surf].numSection, section);
+            printf("\tSection %d of %d (ID = %d)\n",
+                   i+1, avlSurface[surf].numSection, section);
 
             // Write section data
             status = writeSection(fp, &avlSurface[surf].vlmSection[section]);
@@ -2302,56 +2372,69 @@ int aimPreAnalysis(int iIndex, /*@unused@*/ void *aimInfo,
     }
 
     // write mass data file for needed for eigen value analysis
-    if (eigenValues == (int)true) {
+    if (eigenValues == (int) true) {
+/*@-nullpass@*/
       status = writeMassFile(aimInfo, aimInputs, lengthUnitsIn, massFilename);
+/*@+nullpass@*/
       if (status != CAPS_SUCCESS) goto cleanup;
     }
 
     status = CAPS_SUCCESS;
 
-    cleanup:
-        if (status != CAPS_SUCCESS) printf("Error: Premature exit in AVL preAnalysis() status = %d\n", status);
+cleanup:
+    if (status != CAPS_SUCCESS)
+        printf("Error: Premature exit in AVL preAnalysis() status = %d\n",
+               status);
 
-        EG_free(Vunits); Vunits = NULL;
+    EG_free(Vunits); Vunits = NULL;
 
-        // Restore the path we came in with and get out
-        if (strcmp(currentPath, "None") != 0) chdir(currentPath);
+    if (fp != NULL) fclose(fp);
 
-        if (fp != NULL) fclose(fp);
+    // Free array of control name strings
+    if (numControlName != 0 && controlName != NULL) {
+        (void) string_freeArray(numControlName, &controlName);
+#ifdef S_SPLINT_S
+        EG_free(controlName);
+#endif
+    }
 
-        // Free array of control name strings
-        if (numControlName != 0 && controlName != NULL){
-            (void) string_freeArray(numControlName, &controlName);
+    // Attribute to index map
+    (void) destroy_mapAttrToIndexStruct(&attrMap);
+
+    // Destroy avlSurfaces
+    if (avlSurface != NULL) {
+        for (i = 0; i < numAVLSurface; i++) {
+            (void) destroy_vlmSurfaceStruct(&avlSurface[i]);
         }
+    }
 
-        // Attribute to index map
-        (void ) destroy_mapAttrToIndexStruct(&attrMap);
+    EG_free(avlSurface);
+    numAVLSurface = 0;
 
-        // Destroy avlSurfaces
-        if (avlSurface != NULL) {
-            for (i = 0; i < numAVLSurface; i++) {
-                (void) destroy_vlmSurfaceStruct(&avlSurface[i]);
-            }
+    // Destroy avlControl
+    if (avlControl != NULL) {
+        for (i = 0; i < numAVLControl; i++) {
+            (void) destroy_vlmControlStruct(&avlControl[i]);
         }
+    }
 
-        EG_free(avlSurface);
-        numAVLSurface = 0;
+    EG_free(avlControl);
+    numAVLControl = 0;
 
-        // Destroy avlControl
-        if (avlControl != NULL) {
-            for (i = 0; i < numAVLControl; i++) {
-                (void) destroy_vlmControlStruct(&avlControl[i]);
-            }
-        }
-
-        EG_free(avlControl);
-        numAVLControl = 0;
-
-        return status;
+    return status;
 }
 
 
-int aimOutputs(/*@unused@*/ int inst, /*@unused@*/ void *aimStruc, int index, char **aoname, capsValue *form)
+/* no longer optional and needed for restart */
+int aimPostAnalysis(/*@unused@*/ void *instStore, /*@unused@*/ void *aimStruc,
+                    /*@unused@*/ int restart, /*@unused@*/ capsValue *inputs)
+{
+  return CAPS_SUCCESS;
+}
+
+
+int aimOutputs(/*@unused@*/ void *instStore, /*@unused@*/ void *aimStruc,
+               int index, char **aoname, capsValue *form)
 {
 
     /*! \page aimOutputsAVL AIM Outputs
@@ -2836,10 +2919,6 @@ int aimOutputs(/*@unused@*/ int inst, /*@unused@*/ void *aimStruc, int index, ch
         return CAPS_NOTFOUND;
     }
 
-#if NUMOUT != 94
-#error "NUMOUT is inconsistent with the list of outputs"
-#endif
-
     if (index >= 90) {
         form->type = Tuple;
         form->units = NULL;
@@ -2860,8 +2939,8 @@ int aimOutputs(/*@unused@*/ int inst, /*@unused@*/ void *aimStruc, int index, ch
 }
 
 
-int aimCalcOutput(int iIndex, void *aimInfo,
-                  const char *analysisPath, int index, capsValue *val, capsErrs **errors)
+int aimCalcOutput(void *instStore, /*@unused@*/ void *aimInfo, int index,
+                  capsValue *val)
 {
 
     int status; // Function return status
@@ -2870,6 +2949,7 @@ int aimCalcOutput(int iIndex, void *aimInfo,
 
     char *key = NULL;
     char *fileToOpen = "capsTotalForce.txt";
+    aimStorage *avlInstance;
 
     double tempVal[6];
 
@@ -2886,10 +2966,10 @@ int aimCalcOutput(int iIndex, void *aimInfo,
     const char *name;
 
     status = aim_getName(aimInfo, index, ANALYSISOUT, &name);
-    printf(" avlAIM/aimCalcOutput instance = %d  index = %d  %s %d!\n", iIndex, index, name, status);
+    printf(" avlAIM/aimCalcOutput index =  %s %d!\n", index, name, status);
 #endif
+    avlInstance = (aimStorage *) instStore;
 
-    *errors        = NULL;
     val->vals.real = 0.0;
 
     switch (index) {
@@ -3349,7 +3429,7 @@ int aimCalcOutput(int iIndex, void *aimInfo,
           goto cleanup;
       }
 
-      status = read_Data(fileToOpen, analysisPath, key, &val->vals.real);
+      status = read_Data(fileToOpen, key, &val->vals.real);
       if (status != CAPS_SUCCESS) goto cleanup;
 
     } else if (index >= 90 && index <= 92) { // Need to build something for control output
@@ -3366,7 +3446,7 @@ int aimCalcOutput(int iIndex, void *aimInfo,
         }
 
         // Initiate tuple base on number of control surfaces
-        val->length = val->nrow = avlInstance[iIndex].controlMap.numAttribute;
+        val->length = val->nrow = avlInstance->controlMap.numAttribute;
 
         // nothing to do if there is no control attributes
         if (val->length == 0)
@@ -3381,83 +3461,81 @@ int aimCalcOutput(int iIndex, void *aimInfo,
         for (i = 0; i < val->length; i++) val->vals.tuple[i].name = val->vals.tuple[i].value = NULL;
 
         // Loop through control surfaces
-        for (i = 0; i < avlInstance[iIndex].controlMap.numAttribute; i++) {
+        for (i = 0; i < avlInstance->controlMap.numAttribute; i++) {
 
-            val->vals.tuple[i].name = EG_strdup(avlInstance[iIndex].controlMap.attributeName[i]);
+            val->vals.tuple[i].name = EG_strdup(avlInstance->controlMap.attributeName[i]);
 
             // Stability axis
             if (index == 90) {
-                status = get_controlDeriv(aimInfo, (char *) analysisPath, avlInstance[iIndex].controlMap.attributeIndex[i],
-                                          aim_getIndex(aimInfo, "CLtot", ANALYSISOUT), &tempVal[0]);
+                status = get_controlDeriv(avlInstance->controlMap.attributeIndex[i],
+                                          CLtot, &tempVal[0]);
                 if (status != CAPS_SUCCESS) goto cleanup;
 
-                status = get_controlDeriv(aimInfo, (char *) analysisPath, avlInstance[iIndex].controlMap.attributeIndex[i],
-                                          aim_getIndex(aimInfo, "CYtot", ANALYSISOUT), &tempVal[1]);
-                if (status != CAPS_SUCCESS) goto cleanup;
-
-
-                status = get_controlDeriv(aimInfo, (char *) analysisPath, avlInstance[iIndex].controlMap.attributeIndex[i],
-                                          aim_getIndex(aimInfo, "Cl'tot", ANALYSISOUT), &tempVal[2]);
+                status = get_controlDeriv(avlInstance->controlMap.attributeIndex[i],
+                                          CYtot, &tempVal[1]);
                 if (status != CAPS_SUCCESS) goto cleanup;
 
 
-                status = get_controlDeriv(aimInfo, (char *) analysisPath, avlInstance[iIndex].controlMap.attributeIndex[i],
-                                          aim_getIndex(aimInfo, "Cmtot", ANALYSISOUT), &tempVal[3]);
+                status = get_controlDeriv(avlInstance->controlMap.attributeIndex[i],
+                                          ClPtot, &tempVal[2]);
                 if (status != CAPS_SUCCESS) goto cleanup;
 
 
-                status = get_controlDeriv(aimInfo, (char *) analysisPath, avlInstance[iIndex].controlMap.attributeIndex[i],
-                                          aim_getIndex(aimInfo, "Cn'tot", ANALYSISOUT), &tempVal[4]);
+                status = get_controlDeriv(avlInstance->controlMap.attributeIndex[i],
+                                          Cmtot, &tempVal[3]);
                 if (status != CAPS_SUCCESS) goto cleanup;
 
-                sprintf(jsonOut,"{\"%s\":%7.6f,\"%s\":%7.6f,\"%s\":%7.6f,\"%s\":%7.6f,\"%s\":%7.6f}", "CLtot",  tempVal[0],
-                                                                                                      "CYtot",  tempVal[1],
-                                                                                                      "Cl'tot", tempVal[2],
-                                                                                                      "Cmtot",  tempVal[3],
-                                                                                                      "Cn'tot", tempVal[4]);
+
+                status = get_controlDeriv(avlInstance->controlMap.attributeIndex[i],
+                                          CnPtot, &tempVal[4]);
+                if (status != CAPS_SUCCESS) goto cleanup;
+
+                sprintf(jsonOut,"{\"%s\":%7.6f,\"%s\":%7.6f,\"%s\":%7.6f,\"%s\":%7.6f,\"%s\":%7.6f}",
+                        "CLtot",  tempVal[0],
+                        "CYtot",  tempVal[1],
+                        "Cl'tot", tempVal[2],
+                        "Cmtot",  tempVal[3],
+                        "Cn'tot", tempVal[4]);
                 val->vals.tuple[i].value = EG_strdup(jsonOut);
 
             } else if (index == 91) {
 
                 // Body axis
-                status = get_controlDeriv(aimInfo, (char *) analysisPath, avlInstance[iIndex].controlMap.attributeIndex[i],
-                                          aim_getIndex(aimInfo, "CXtot", ANALYSISOUT), &tempVal[0]);
+                status = get_controlDeriv(avlInstance->controlMap.attributeIndex[i],
+                                          CXtot, &tempVal[0]);
                 if (status != CAPS_SUCCESS) goto cleanup;
 
-                status = get_controlDeriv(aimInfo, (char *) analysisPath, avlInstance[iIndex].controlMap.attributeIndex[i],
-                                          aim_getIndex(aimInfo, "CYtot", ANALYSISOUT), &tempVal[1]);
+                status = get_controlDeriv(avlInstance->controlMap.attributeIndex[i],
+                                          CYtot, &tempVal[1]);
                 if (status != CAPS_SUCCESS) goto cleanup;
 
-                status = get_controlDeriv(aimInfo, (char *) analysisPath, avlInstance[iIndex].controlMap.attributeIndex[i],
-                                          aim_getIndex(aimInfo, "CZtot", ANALYSISOUT), &tempVal[2]);
-                if (status != CAPS_SUCCESS) goto cleanup;
-
-
-                status = get_controlDeriv(aimInfo, (char *) analysisPath, avlInstance[iIndex].controlMap.attributeIndex[i],
-                                          aim_getIndex(aimInfo, "Cltot", ANALYSISOUT), &tempVal[3]);
+                status = get_controlDeriv(avlInstance->controlMap.attributeIndex[i],
+                                          CZtot, &tempVal[2]);
                 if (status != CAPS_SUCCESS) goto cleanup;
 
 
-                status = get_controlDeriv(aimInfo, (char *) analysisPath, avlInstance[iIndex].controlMap.attributeIndex[i],
-                                          aim_getIndex(aimInfo, "Cmtot", ANALYSISOUT), &tempVal[4]);
+                status = get_controlDeriv(avlInstance->controlMap.attributeIndex[i],
+                                          Cltot, &tempVal[3]);
                 if (status != CAPS_SUCCESS) goto cleanup;
 
 
-                status = get_controlDeriv(aimInfo, (char *) analysisPath, avlInstance[iIndex].controlMap.attributeIndex[i],
-                                          aim_getIndex(aimInfo, "Cntot", ANALYSISOUT), &tempVal[5]);
+                status = get_controlDeriv(avlInstance->controlMap.attributeIndex[i],
+                                          Cmtot, &tempVal[4]);
+                if (status != CAPS_SUCCESS) goto cleanup;
+
+
+                status = get_controlDeriv(avlInstance->controlMap.attributeIndex[i],
+                                          Cntot, &tempVal[5]);
                 if (status != CAPS_SUCCESS) goto cleanup;;
 
-                sprintf(jsonOut,"{\"%s\":%7.6f,\"%s\":%7.6f,\"%s\":%7.6f,\"%s\":%7.6f,\"%s\":%7.6f,\"%s\":%7.6f}", "CXtot", tempVal[0],
-                                                                                                                   "CYtot", tempVal[1],
-                                                                                                                   "CZtot", tempVal[2],
-                                                                                                                   "Cltot", tempVal[3],
-                                                                                                                   "Cmtot", tempVal[4],
-                                                                                                                   "Cntot", tempVal[5]);
+                sprintf(jsonOut,"{\"%s\":%7.6f,\"%s\":%7.6f,\"%s\":%7.6f,\"%s\":%7.6f,\"%s\":%7.6f,\"%s\":%7.6f}",
+                        "CXtot", tempVal[0], "CYtot", tempVal[1], "CZtot", tempVal[2],
+                        "Cltot", tempVal[3], "Cmtot", tempVal[4], "Cntot", tempVal[5]);
                 val->vals.tuple[i].value = EG_strdup(jsonOut);
 
             } else if (index == 92) {
 
-                status = read_Data(fileToOpen, analysisPath, val->vals.tuple[i].name, &tempVal[0]);
+                status = read_Data(fileToOpen, val->vals.tuple[i].name, &tempVal[0]);
                 if (status != CAPS_SUCCESS) goto cleanup;
 
                 sprintf(jsonOut, "%5.4e", tempVal[0]);
@@ -3466,6 +3544,7 @@ int aimCalcOutput(int iIndex, void *aimInfo,
 
             } else {
                 status = CAPS_NOTFOUND;
+                goto cleanup;
             }
 
         }
@@ -3484,7 +3563,7 @@ int aimCalcOutput(int iIndex, void *aimInfo,
       }
 
       // Read in the strip forces
-      status = read_StripForces(analysisPath, &val->length, &val->vals.tuple);
+      status = read_StripForces(&val->length, &val->vals.tuple);
       if (status != CAPS_SUCCESS) goto cleanup;
       val->nrow = val->length;
 
@@ -3502,7 +3581,7 @@ int aimCalcOutput(int iIndex, void *aimInfo,
       }
 
       // Read in the strip forces
-      status = read_EigenValues(analysisPath, &val->length, &val->vals.tuple);
+      status = read_EigenValues(&val->length, &val->vals.tuple);
       if (status != CAPS_SUCCESS) goto cleanup;
       val->nrow = val->length;
 
@@ -3520,33 +3599,27 @@ int aimCalcOutput(int iIndex, void *aimInfo,
 }
 
 
-void aimCleanup()
+void aimCleanup(void *instStore)
 {
 
-    int iIndex;
+    aimStorage *avlInstance;
 
 #ifdef DEBUG
     printf(" avlAIM/aimCleanup!\n");
 #endif
+    avlInstance = (aimStorage *) instStore;
 
+    (void) destroy_mapAttrToIndexStruct(&avlInstance->controlMap);
 
-    for (iIndex = 0; iIndex < numInstance; iIndex++) {
-        printf(" Cleaning up avlInstance - %d\n", iIndex);
-
-        // Attribute to index map
-        (void) destroy_mapAttrToIndexStruct(&avlInstance[iIndex].controlMap);
-
-    }
-
-    if (avlInstance != NULL) EG_free(avlInstance);
-    avlInstance = NULL;
-    numInstance = 0;
+    EG_free(avlInstance);
 
 }
 
 
 // Back function used to calculate sensitivities
-int aimBackdoor(int iIndex, void *aimInfo, const char *JSONin, char **JSONout) {
+int aimBackdoor(void *instStore, void *aimInfo, const char *JSONin,
+                char **JSONout)
+{
 
     /*! \page aimBackDoorAVL AIM Back Door
      * The back door function of this AIM may be used as an alternative to retrieve sensitivity information produced by the
@@ -3581,33 +3654,29 @@ int aimBackdoor(int iIndex, void *aimInfo, const char *JSONin, char **JSONout) {
 
     int status; // Function return status
 
-    int index;
+    int index = -99;
     double data;
     capsValue val;
-    capsErrs *errors;
+    aimStorage *avlInstance;
 
     char *keyValue = NULL;
-    char *keyWord = NULL;
+    char *keyWord  = NULL;
 
     char *tempString = NULL; // Freeable
 
-    int inputIndex = 0, outputIndex = 0, controlIndex;
+    int inputIndex = 0, outputIndex = 0, controlIndex = 0;
 
     char *outputJSON = NULL;
 
-    index = -99;
-
     *JSONout = NULL;
 
-    if (avlInstance[iIndex].analysisPath == NULL) {
-        printf("Analysis path hasn't been set - Need to run preAnalysis first!");
-        return CAPS_DIRERR;
-    }
-
-    keyWord = "mode";
-    status = search_jsonDictionary(JSONin, keyWord, &keyValue);
+    keyWord  = "mode";
+    status   = search_jsonDictionary(JSONin, keyWord, &keyValue);
     if (status != CAPS_SUCCESS) goto cleanup;
-
+    if (keyValue == NULL) {
+        status = CAPS_NULLVALUE;
+        goto cleanup;
+    }
 
     // Type of acceptable modes for this AIM backdoor
     if (strcasecmp(keyValue, "\"Sensitivity\"") != 0) {
@@ -3616,6 +3685,8 @@ int aimBackdoor(int iIndex, void *aimInfo, const char *JSONin, char **JSONout) {
         status = CAPS_NOTFOUND;
         goto cleanup;
     }
+  
+    avlInstance = (aimStorage *) instStore;
 
     // We are using this to get sensitivities
     if (strcasecmp(keyValue, "\"Sensitivity\"") == 0) {
@@ -3627,8 +3698,13 @@ int aimBackdoor(int iIndex, void *aimInfo, const char *JSONin, char **JSONout) {
         keyWord = "inputVar";
         status = search_jsonDictionary(JSONin, keyWord, &keyValue);
         if (status != CAPS_SUCCESS) goto cleanup;
+        if (keyValue == NULL) {
+            status = CAPS_NULLVALUE;
+            goto cleanup;
+        }
 
         tempString = string_removeQuotation(keyValue);
+        AIM_NOTNULL(tempString, aimInfo, status);
 
         inputIndex = aim_getIndex(aimInfo, tempString, ANALYSISIN);
         if (inputIndex <= 0) {
@@ -3644,7 +3720,8 @@ int aimBackdoor(int iIndex, void *aimInfo, const char *JSONin, char **JSONout) {
                 inputIndex = NUMINPUT+3;
 
                 // Try to see if it is a control parameter
-            } else if (parse_controlName(iIndex, tempString, &controlIndex) == CAPS_SUCCESS) {
+            } else if (parse_controlName(avlInstance, tempString,
+                                         &controlIndex) == CAPS_SUCCESS) {
                 inputIndex = CAPSMAGIC;
 
             } else {
@@ -3659,10 +3736,11 @@ int aimBackdoor(int iIndex, void *aimInfo, const char *JSONin, char **JSONout) {
 
         // Outout variable
         keyWord = "outputVar";
-        status = search_jsonDictionary(JSONin, keyWord, &keyValue);
+        status  = search_jsonDictionary(JSONin, keyWord, &keyValue);
         if (status != CAPS_SUCCESS) goto cleanup;
 
         tempString = string_removeQuotation(keyValue);
+        AIM_NOTNULL(tempString, aimInfo, status);
 
         outputIndex = aim_getIndex(aimInfo, tempString, ANALYSISOUT);
         if (outputIndex <= 0) {
@@ -3671,408 +3749,346 @@ int aimBackdoor(int iIndex, void *aimInfo, const char *JSONin, char **JSONout) {
             goto cleanup;
         }
 
-        if (tempString != NULL) EG_free(tempString);
-        tempString = NULL;
+        AIM_FREE(tempString);
 
         //printf("InputIndex = %d\n", inputIndex);
         //printf("OutputIndex = %d\n", outputIndex);
 
         // Stability axis - Alpha
-        if (outputIndex == aim_getIndex(aimInfo, "CLtot", ANALYSISOUT) &&
-            inputIndex == aim_getIndex(aimInfo, "Alpha", ANALYSISIN)) {
+        if (outputIndex == CLtot && inputIndex == inAlpha) {
 
-            index = aim_getIndex(aimInfo,"CLa", ANALYSISOUT);
+            index = CLa;
         }
 
-        else if (outputIndex == aim_getIndex(aimInfo, "CYtot", ANALYSISOUT) &&
-                 inputIndex  == aim_getIndex(aimInfo, "Alpha", ANALYSISIN)) {
+        else if (outputIndex == CYtot && inputIndex == inAlpha) {
 
-            index = aim_getIndex(aimInfo,"CYa", ANALYSISOUT);
+            index = CYa;
 
         }
 
-        else if (outputIndex == aim_getIndex(aimInfo, "Cl'tot", ANALYSISOUT) &&
-                 inputIndex  == aim_getIndex(aimInfo, "Alpha", ANALYSISIN)) {
+        else if (outputIndex == ClPtot && inputIndex == inAlpha) {
 
-            index = aim_getIndex(aimInfo,"Cl'a", ANALYSISOUT);
+            index = ClPa;
         }
 
-        else if (outputIndex == aim_getIndex(aimInfo, "Cmtot", ANALYSISOUT) &&
-                 inputIndex  == aim_getIndex(aimInfo, "Alpha", ANALYSISIN)) {
+        else if (outputIndex == Cmtot && inputIndex == inAlpha) {
 
-            index = aim_getIndex(aimInfo,"Cma", ANALYSISOUT);
+            index = Cma;
         }
 
-        else if (outputIndex == aim_getIndex(aimInfo, "Cn'tot", ANALYSISOUT) &&
-                 inputIndex  == aim_getIndex(aimInfo, "Alpha", ANALYSISIN)) {
+        else if (outputIndex == CnPtot && inputIndex == inAlpha) {
 
-            index = aim_getIndex(aimInfo,"Cn'a", ANALYSISOUT);
+            index = CnPa;
         }
 
         // Stability axis - Beta
-        else if (outputIndex == aim_getIndex(aimInfo, "CLtot", ANALYSISOUT) &&
-                 inputIndex  == aim_getIndex(aimInfo, "Beta", ANALYSISIN)) {
+        else if (outputIndex == CLtot && inputIndex == inBeta) {
 
-            index = aim_getIndex(aimInfo,"CLb", ANALYSISOUT);
+            index = CLb;
         }
 
-        else if (outputIndex == aim_getIndex(aimInfo, "CYtot", ANALYSISOUT) &&
-                 inputIndex  == aim_getIndex(aimInfo, "Beta", ANALYSISIN)) {
+        else if (outputIndex == CYtot && inputIndex == inBeta) {
 
-            index = aim_getIndex(aimInfo,"CYb", ANALYSISOUT);
+            index = CYb;
 
         }
 
-        else if (outputIndex == aim_getIndex(aimInfo, "Cl'tot", ANALYSISOUT) &&
-                 inputIndex  == aim_getIndex(aimInfo, "Beta", ANALYSISIN)) {
+        else if (outputIndex == ClPtot && inputIndex == inBeta) {
 
-            index = aim_getIndex(aimInfo,"Cl'b", ANALYSISOUT);
+            index = ClPb;
         }
 
-        else if (outputIndex == aim_getIndex(aimInfo, "Cmtot", ANALYSISOUT) &&
-                 inputIndex  == aim_getIndex(aimInfo, "Beta", ANALYSISIN)) {
+        else if (outputIndex == Cmtot && inputIndex == inBeta) {
 
-            index = aim_getIndex(aimInfo,"Cmb", ANALYSISOUT);
+            index = Cmb;
         }
 
-        else if (outputIndex == aim_getIndex(aimInfo, "Cn'tot", ANALYSISOUT) &&
-                 inputIndex  == aim_getIndex(aimInfo, "Beta", ANALYSISIN)) {
+        else if (outputIndex == CnPtot && inputIndex == inBeta) {
 
-            index = aim_getIndex(aimInfo,"Cn'b", ANALYSISOUT);
+            index = CnPb;
         }
 
         // Stability axis - RollRate
-        else if (outputIndex == aim_getIndex(aimInfo, "CLtot", ANALYSISOUT) &&
-                 inputIndex  == aim_getIndex(aimInfo, "RollRate", ANALYSISIN)) {
+        else if (outputIndex == CLtot && inputIndex == inRollRate) {
 
-            index = aim_getIndex(aimInfo,"CLp'", ANALYSISOUT);
+            index = CLpP;
         }
 
-        else if (outputIndex == aim_getIndex(aimInfo, "CYtot", ANALYSISOUT) &&
-                 inputIndex  == aim_getIndex(aimInfo, "RollRate", ANALYSISIN)) {
+        else if (outputIndex == CYtot && inputIndex == inRollRate) {
 
-            index = aim_getIndex(aimInfo,"CYp'", ANALYSISOUT);
+            index = CYpP;
 
         }
 
-        else if (outputIndex == aim_getIndex(aimInfo, "Cl'tot", ANALYSISOUT) &&
-                 inputIndex  == aim_getIndex(aimInfo, "RollRate", ANALYSISIN)) {
+        else if (outputIndex == ClPtot && inputIndex == inRollRate) {
 
-            index = aim_getIndex(aimInfo,"Cl'p'", ANALYSISOUT);
+            index = ClPpP;
         }
 
-        else if (outputIndex == aim_getIndex(aimInfo, "Cmtot", ANALYSISOUT) &&
-                 inputIndex  == aim_getIndex(aimInfo, "RollRate", ANALYSISIN)) {
+        else if (outputIndex == Cmtot && inputIndex == inRollRate) {
 
-            index = aim_getIndex(aimInfo,"Cmp'", ANALYSISOUT);
+            index = CmpP;
         }
 
-        else if (outputIndex == aim_getIndex(aimInfo, "Cn'tot", ANALYSISOUT) &&
-                 inputIndex  == aim_getIndex(aimInfo, "RollRate", ANALYSISIN)) {
+        else if (outputIndex == CnPtot && inputIndex == inRollRate) {
 
-            index = aim_getIndex(aimInfo,"Cn'p'", ANALYSISOUT);
+            index = CnPpP;
         }
 
         // Stability axis - PitchRate
-        else if (outputIndex == aim_getIndex(aimInfo, "CLtot", ANALYSISOUT) &&
-                 inputIndex  == aim_getIndex(aimInfo, "PitchRate", ANALYSISIN)) {
+        else if (outputIndex == CLtot && inputIndex == inPitchRate) {
 
-            index = aim_getIndex(aimInfo,"CLq'", ANALYSISOUT);
+            index = CLqP;
         }
 
-        else if (outputIndex == aim_getIndex(aimInfo, "CYtot", ANALYSISOUT) &&
-                 inputIndex  == aim_getIndex(aimInfo, "PitchRate", ANALYSISIN)) {
+        else if (outputIndex == CYtot && inputIndex == inPitchRate) {
 
-            index = aim_getIndex(aimInfo,"CYq'", ANALYSISOUT);
+            index = CYqP;
 
         }
 
-        else if (outputIndex == aim_getIndex(aimInfo, "Cl'tot", ANALYSISOUT) &&
-                 inputIndex  == aim_getIndex(aimInfo, "PitchRate", ANALYSISIN)) {
+        else if (outputIndex == ClPtot && inputIndex == inPitchRate) {
 
-            index = aim_getIndex(aimInfo,"Cl'q'", ANALYSISOUT);
+            index = ClPqP;
         }
 
-        else if (outputIndex == aim_getIndex(aimInfo, "Cmtot", ANALYSISOUT) &&
-                 inputIndex  == aim_getIndex(aimInfo, "PitchRate", ANALYSISIN)) {
+        else if (outputIndex == Cmtot && inputIndex == inPitchRate) {
 
-            index = aim_getIndex(aimInfo,"Cmq'", ANALYSISOUT);
+            index = CmqP;
         }
 
-        else if (outputIndex == aim_getIndex(aimInfo, "Cn'tot", ANALYSISOUT) &&
-                 inputIndex  == aim_getIndex(aimInfo, "PitchRate", ANALYSISIN)) {
+        else if (outputIndex == CnPtot && inputIndex == inPitchRate) {
 
-            index = aim_getIndex(aimInfo,"Cn'q'", ANALYSISOUT);
+            index = CnPqP;
         }
 
 
         // Stability axis - YawRate
-        else if (outputIndex == aim_getIndex(aimInfo, "CLtot", ANALYSISOUT) &&
-                 inputIndex  == aim_getIndex(aimInfo, "YawRate", ANALYSISIN)) {
+        else if (outputIndex == CLtot && inputIndex == inYawRate) {
 
-            index = aim_getIndex(aimInfo,"CLr'", ANALYSISOUT);
+            index = CLrP;
         }
 
-        else if (outputIndex == aim_getIndex(aimInfo, "CYtot", ANALYSISOUT) &&
-                 inputIndex  == aim_getIndex(aimInfo, "YawRate", ANALYSISIN)) {
+        else if (outputIndex == CYtot && inputIndex == inYawRate) {
 
-            index = aim_getIndex(aimInfo,"CYr'", ANALYSISOUT);
+            index = CYrP;
 
         }
 
-        else if (outputIndex == aim_getIndex(aimInfo, "Cl'tot", ANALYSISOUT) &&
-                 inputIndex  == aim_getIndex(aimInfo, "YawRate", ANALYSISIN)) {
+        else if (outputIndex == ClPtot && inputIndex == inYawRate) {
 
-            index = aim_getIndex(aimInfo,"Cl'r'", ANALYSISOUT);
+            index = ClPrP;
         }
 
-        else if (outputIndex == aim_getIndex(aimInfo, "Cmtot", ANALYSISOUT) &&
-                 inputIndex  == aim_getIndex(aimInfo, "YawRate", ANALYSISIN)) {
+        else if (outputIndex == Cmtot && inputIndex == inYawRate) {
 
-            index = aim_getIndex(aimInfo,"Cmr'", ANALYSISOUT);
+            index = CmrP;
         }
 
-        else if (outputIndex == aim_getIndex(aimInfo, "Cn'tot", ANALYSISOUT) &&
-                 inputIndex  == aim_getIndex(aimInfo, "YawRate", ANALYSISIN)) {
+        else if (outputIndex == CnPtot && inputIndex == inYawRate) {
 
-            index = aim_getIndex(aimInfo,"Cn'r'", ANALYSISOUT);
+            index = CnPrP;
         }
 
 
         //////////////////////////////////////////////////////////
 
         // Body axis - AxialVelocity
-        else if (outputIndex == aim_getIndex(aimInfo, "CXtot", ANALYSISOUT) &&
-                 inputIndex  == NUMINPUT+1) {
+        else if (outputIndex == CXtot && inputIndex == NUMINPUT+1) {
 
-            index = aim_getIndex(aimInfo,"CXu", ANALYSISOUT);
+            index = CXu;
         }
 
-        else if (outputIndex == aim_getIndex(aimInfo, "CYtot", ANALYSISOUT) &&
-                 inputIndex  == NUMINPUT+1) {
+        else if (outputIndex == CYtot && inputIndex == NUMINPUT+1) {
 
-            index = aim_getIndex(aimInfo,"CYu", ANALYSISOUT);
-
-        }
-
-        else if (outputIndex == aim_getIndex(aimInfo, "CZtot", ANALYSISOUT) &&
-                 inputIndex  == NUMINPUT+1) {
-
-            index = aim_getIndex(aimInfo,"CZu", ANALYSISOUT);
+            index = CYu;
 
         }
 
-        else if (outputIndex == aim_getIndex(aimInfo, "Cltot", ANALYSISOUT) &&
-                 inputIndex  == NUMINPUT+1) {
+        else if (outputIndex == CZtot && inputIndex == NUMINPUT+1) {
 
-            index = aim_getIndex(aimInfo,"Clu", ANALYSISOUT);
+            index = CZu;
+
         }
 
-        else if (outputIndex == aim_getIndex(aimInfo, "Cmtot", ANALYSISOUT) &&
-                 inputIndex  == NUMINPUT+1) {
+        else if (outputIndex == Cltot && inputIndex == NUMINPUT+1) {
 
-            index = aim_getIndex(aimInfo,"Cmu", ANALYSISOUT);
+            index = Clu;
         }
 
-        else if (outputIndex == aim_getIndex(aimInfo, "Cntot", ANALYSISOUT) &&
-                 inputIndex  == NUMINPUT+1) {
+        else if (outputIndex == Cmtot && inputIndex == NUMINPUT+1) {
 
-            index = aim_getIndex(aimInfo,"Cnu", ANALYSISOUT);
+            index = Cmu;
+        }
+
+        else if (outputIndex == Cntot && inputIndex == NUMINPUT+1) {
+
+            index = Cnu;
         }
 
         // Body axis - Sideslip
-        else if (outputIndex == aim_getIndex(aimInfo, "CXtot", ANALYSISOUT) &&
-                 inputIndex  == NUMINPUT+2) {
+        else if (outputIndex == CXtot && inputIndex == NUMINPUT+2) {
 
-            index = aim_getIndex(aimInfo,"CXv", ANALYSISOUT);
+            index = CXv;
         }
 
-        else if (outputIndex == aim_getIndex(aimInfo, "CYtot", ANALYSISOUT) &&
-                 inputIndex  == NUMINPUT+2) {
+        else if (outputIndex == CYtot && inputIndex == NUMINPUT+2) {
 
-            index = aim_getIndex(aimInfo,"CYv", ANALYSISOUT);
-
-        }
-
-        else if (outputIndex == aim_getIndex(aimInfo, "CZtot", ANALYSISOUT) &&
-                 inputIndex  == NUMINPUT+2) {
-
-            index = aim_getIndex(aimInfo,"CZv", ANALYSISOUT);
+            index = CYv;
 
         }
 
-        else if (outputIndex == aim_getIndex(aimInfo, "Cltot", ANALYSISOUT) &&
-                 inputIndex  == NUMINPUT+2) {
+        else if (outputIndex == CZtot && inputIndex == NUMINPUT+2) {
 
-            index = aim_getIndex(aimInfo,"Clv", ANALYSISOUT);
+            index = CZv;
+
         }
 
-        else if (outputIndex == aim_getIndex(aimInfo, "Cmtot", ANALYSISOUT) &&
-                 inputIndex  == NUMINPUT+2) {
+        else if (outputIndex == Cltot && inputIndex == NUMINPUT+2) {
 
-            index = aim_getIndex(aimInfo,"Cmv", ANALYSISOUT);
+            index = Clv;
         }
 
-        else if (outputIndex == aim_getIndex(aimInfo, "Cntot", ANALYSISOUT) &&
-                 inputIndex  == NUMINPUT+2) {
+        else if (outputIndex == Cmtot && inputIndex == NUMINPUT+2) {
 
-            index = aim_getIndex(aimInfo,"Cnv", ANALYSISOUT);
+            index = Cmv;
+        }
+
+        else if (outputIndex == Cntot && inputIndex == NUMINPUT+2) {
+
+            index = Cnv;
         }
 
         // Body axis - Normal
-        else if (outputIndex == aim_getIndex(aimInfo, "CXtot", ANALYSISOUT) &&
-                 inputIndex  == NUMINPUT+3) {
+        else if (outputIndex == CXtot && inputIndex == NUMINPUT+3) {
 
-            index = aim_getIndex(aimInfo,"CXw", ANALYSISOUT);
+            index = CXw;
         }
 
-        else if (outputIndex == aim_getIndex(aimInfo, "CYtot", ANALYSISOUT) &&
-                 inputIndex  == NUMINPUT+3) {
+        else if (outputIndex == CYtot && inputIndex == NUMINPUT+3) {
 
-            index = aim_getIndex(aimInfo,"CYw", ANALYSISOUT);
-
-        }
-
-        else if (outputIndex == aim_getIndex(aimInfo, "CZtot", ANALYSISOUT) &&
-                 inputIndex  == NUMINPUT+3) {
-
-            index = aim_getIndex(aimInfo,"CZw", ANALYSISOUT);
+            index = CYw;
 
         }
 
-        else if (outputIndex == aim_getIndex(aimInfo, "Cltot", ANALYSISOUT) &&
-                 inputIndex  == NUMINPUT+3) {
+        else if (outputIndex == CZtot && inputIndex == NUMINPUT+3) {
 
-            index = aim_getIndex(aimInfo,"Clw", ANALYSISOUT);
+            index = CZw;
+
         }
 
-        else if (outputIndex == aim_getIndex(aimInfo, "Cmtot", ANALYSISOUT) &&
-                 inputIndex  == NUMINPUT+3) {
+        else if (outputIndex == Cltot && inputIndex == NUMINPUT+3) {
 
-            index = aim_getIndex(aimInfo,"Cmw", ANALYSISOUT);
+            index = Clw;
         }
 
-        else if (outputIndex == aim_getIndex(aimInfo, "Cntot", ANALYSISOUT) &&
-                 inputIndex  == NUMINPUT+3) {
+        else if (outputIndex == Cmtot && inputIndex == NUMINPUT+3) {
 
-            index = aim_getIndex(aimInfo,"Cnw", ANALYSISOUT);
+            index = Cmw;
+        }
+
+        else if (outputIndex == Cntot && inputIndex == NUMINPUT+3) {
+
+            index = Cnw;
         }
 
         // Body axis - RollRate
-        else if (outputIndex == aim_getIndex(aimInfo, "CXtot", ANALYSISOUT) &&
-                 inputIndex  == aim_getIndex(aimInfo, "RollRate", ANALYSISIN)) {
+        else if (outputIndex == CXtot && inputIndex == inRollRate) {
 
-            index = aim_getIndex(aimInfo,"CXp", ANALYSISOUT);
+            index = CXp;
         }
 
-        else if (outputIndex == aim_getIndex(aimInfo, "CYtot", ANALYSISOUT) &&
-                 inputIndex  == aim_getIndex(aimInfo, "RollRate", ANALYSISIN)) {
+        else if (outputIndex == CYtot && inputIndex == inRollRate) {
 
-            index = aim_getIndex(aimInfo,"CYp", ANALYSISOUT);
-
-        }
-
-        else if (outputIndex == aim_getIndex(aimInfo, "CZtot", ANALYSISOUT) &&
-                 inputIndex  == aim_getIndex(aimInfo, "RollRate", ANALYSISIN)) {
-
-            index = aim_getIndex(aimInfo,"CZp", ANALYSISOUT);
+            index = CYp;
 
         }
 
-        else if (outputIndex == aim_getIndex(aimInfo, "Cltot", ANALYSISOUT) &&
-                 inputIndex  == aim_getIndex(aimInfo, "RollRate", ANALYSISIN)) {
+        else if (outputIndex == CZtot && inputIndex == inRollRate) {
 
-            index = aim_getIndex(aimInfo,"Clp", ANALYSISOUT);
+            index = CZp;
+
         }
 
-        else if (outputIndex == aim_getIndex(aimInfo, "Cmtot", ANALYSISOUT) &&
-                 inputIndex  == aim_getIndex(aimInfo, "RollRate", ANALYSISIN)) {
+        else if (outputIndex == Cltot && inputIndex == inRollRate) {
 
-            index = aim_getIndex(aimInfo,"Cmp", ANALYSISOUT);
+            index = Clp;
         }
 
-        else if (outputIndex == aim_getIndex(aimInfo, "Cntot", ANALYSISOUT) &&
-                 inputIndex  == aim_getIndex(aimInfo, "RollRate", ANALYSISIN)) {
+        else if (outputIndex == Cmtot && inputIndex == inRollRate) {
 
-            index = aim_getIndex(aimInfo,"Cnp", ANALYSISOUT);
+            index = Cmp;
+        }
+
+        else if (outputIndex == Cntot && inputIndex == inRollRate) {
+
+            index = Cnp;
         }
 
         // Body axis - PitchRate
-        else if (outputIndex == aim_getIndex(aimInfo, "CXtot", ANALYSISOUT) &&
-                 inputIndex  == aim_getIndex(aimInfo, "PitchRate", ANALYSISIN)) {
+        else if (outputIndex == CXtot && inputIndex == inPitchRate) {
 
-            index = aim_getIndex(aimInfo,"CXq", ANALYSISOUT);
+            index = CXq;
         }
 
-        else if (outputIndex == aim_getIndex(aimInfo, "CYtot", ANALYSISOUT) &&
-                 inputIndex  == aim_getIndex(aimInfo, "PitchRate", ANALYSISIN)) {
+        else if (outputIndex == CYtot && inputIndex == inPitchRate) {
 
-            index = aim_getIndex(aimInfo,"CYq", ANALYSISOUT);
-
-        }
-
-        else if (outputIndex == aim_getIndex(aimInfo, "CZtot", ANALYSISOUT) &&
-                 inputIndex  == aim_getIndex(aimInfo, "PitchRate", ANALYSISIN)) {
-
-            index = aim_getIndex(aimInfo,"CZq", ANALYSISOUT);
+            index = CYq;
 
         }
 
-        else if (outputIndex == aim_getIndex(aimInfo, "Cltot", ANALYSISOUT) &&
-                 inputIndex  == aim_getIndex(aimInfo, "PitchRate", ANALYSISIN)) {
+        else if (outputIndex == CZtot && inputIndex == inPitchRate) {
 
-            index = aim_getIndex(aimInfo,"Clq", ANALYSISOUT);
+            index = CZq;
+
         }
 
-        else if (outputIndex == aim_getIndex(aimInfo, "Cmtot", ANALYSISOUT) &&
-                 inputIndex  == aim_getIndex(aimInfo, "PitchRate", ANALYSISIN)) {
+        else if (outputIndex == Cltot && inputIndex == inPitchRate) {
 
-            index = aim_getIndex(aimInfo,"Cmq", ANALYSISOUT);
+            index = Clq;
         }
 
-        else if (outputIndex == aim_getIndex(aimInfo, "Cntot", ANALYSISOUT) &&
-                 inputIndex == aim_getIndex(aimInfo, "PitchRate", ANALYSISIN)) {
+        else if (outputIndex == Cmtot && inputIndex == inPitchRate) {
 
-            index = aim_getIndex(aimInfo,"Cnq", ANALYSISOUT);
+            index = Cmq;
+        }
+
+        else if (outputIndex == Cntot && inputIndex == inPitchRate) {
+
+            index = Cnq;
         }
 
         // Body axis - YawRate
-        else if (outputIndex == aim_getIndex(aimInfo, "CXtot", ANALYSISOUT) &&
-                 inputIndex  == aim_getIndex(aimInfo, "YawRate", ANALYSISIN)) {
+        else if (outputIndex == CXtot && inputIndex == inYawRate) {
 
-            index = aim_getIndex(aimInfo,"CXr", ANALYSISOUT);
+            index = CXr;
         }
 
-        else if (outputIndex == aim_getIndex(aimInfo, "CYtot", ANALYSISOUT) &&
-                 inputIndex == aim_getIndex(aimInfo, "YawRate", ANALYSISIN)) {
+        else if (outputIndex == CYtot && inputIndex == inYawRate) {
 
-            index = aim_getIndex(aimInfo,"CYr", ANALYSISOUT);
-
-        }
-
-        else if (outputIndex == aim_getIndex(aimInfo, "CZtot", ANALYSISOUT) &&
-                 inputIndex == aim_getIndex(aimInfo, "YawRate", ANALYSISIN)) {
-
-            index = aim_getIndex(aimInfo,"CZr", ANALYSISOUT);
+            index = CYr;
 
         }
 
-        else if (outputIndex == aim_getIndex(aimInfo, "Cltot", ANALYSISOUT) &&
-                 inputIndex  == aim_getIndex(aimInfo, "YawRate", ANALYSISIN)) {
+        else if (outputIndex == CZtot && inputIndex == inYawRate) {
 
-            index = aim_getIndex(aimInfo,"Clr", ANALYSISOUT);
+            index = CZr;
+
         }
 
-        else if (outputIndex == aim_getIndex(aimInfo, "Cmtot", ANALYSISOUT) &&
-                 inputIndex  == aim_getIndex(aimInfo, "YawRate", ANALYSISIN)) {
+        else if (outputIndex == Cltot && inputIndex == inYawRate) {
 
-            index = aim_getIndex(aimInfo,"Cmr", ANALYSISOUT);
+            index = Clr;
         }
 
-        else if (outputIndex == aim_getIndex(aimInfo, "Cntot", ANALYSISOUT) &&
-                 inputIndex  == aim_getIndex(aimInfo, "YawRate", ANALYSISIN)) {
+        else if (outputIndex == Cmtot && inputIndex == inYawRate) {
 
-            index = aim_getIndex(aimInfo,"Cnr", ANALYSISOUT);
+            index = Cmr;
+        }
+
+        else if (outputIndex == Cntot && inputIndex == inYawRate) {
+
+            index = Cnr;
         }
         else if (inputIndex == CAPSMAGIC) { // Control variable found
             index = CAPSMAGIC;
@@ -4087,7 +4103,7 @@ int aimBackdoor(int iIndex, void *aimInfo, const char *JSONin, char **JSONout) {
         // If we have a control variable
         if (index == CAPSMAGIC) {
 
-            status = get_controlDeriv(aimInfo, avlInstance[iIndex].analysisPath, controlIndex, outputIndex, &data);
+            status = get_controlDeriv(controlIndex, outputIndex, &data);
             if (status != CAPS_SUCCESS) goto cleanup;
 
             val.vals.real = data;
@@ -4095,11 +4111,15 @@ int aimBackdoor(int iIndex, void *aimInfo, const char *JSONin, char **JSONout) {
 
         } else { // Make the standard call
 
-            status = aimCalcOutput(iIndex, aimInfo, avlInstance[iIndex].analysisPath, index, &val, &errors);
+            status = aimCalcOutput(instStore, aimInfo, index, &val);
             if (status != CAPS_SUCCESS) goto cleanup;
         }
 
         outputJSON = (char *) EG_alloc(50*sizeof(char));
+        if (outputJSON == NULL) {
+            status = EGADS_MALLOC;
+            goto cleanup;
+        }
 
         sprintf(outputJSON, "{\"sensitivity\": %7.6f}", val.vals.real);
     }
@@ -4107,14 +4127,14 @@ int aimBackdoor(int iIndex, void *aimInfo, const char *JSONin, char **JSONout) {
     *JSONout = outputJSON;
 
     status = CAPS_SUCCESS;
-    goto cleanup;
 
-    cleanup:
-        if (status != CAPS_SUCCESS) printf("Error: Premature exit in aimBackdoor, status = %d\n", status);
+cleanup:
+    if (status != CAPS_SUCCESS)
+      printf("Error: Premature exit in aimBackdoor, status = %d\n", status);
 
-        if (keyValue != NULL) EG_free(keyValue);
+    if (keyValue != NULL) EG_free(keyValue);
 
-        if (tempString != NULL) EG_free(tempString);
+    if (tempString != NULL) EG_free(tempString);
 
-        return status;
+    return status;
 }

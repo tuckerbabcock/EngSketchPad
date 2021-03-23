@@ -3,7 +3,7 @@
  *
  *             Attribute Functions
  *
- *      Copyright 2014-2020, Massachusetts Institute of Technology
+ *      Copyright 2014-2021, Massachusetts Institute of Technology
  *      Licensed under The GNU Lesser General Public License, version 2.1
  *      See http://www.opensource.org/licenses/lgpl-2.1.php
  *
@@ -193,11 +193,10 @@ caps_setAttr(capsObject *cobj, /*@null@*/ const char *aname, capsObject *aval)
   if (name              == NULL)         return CAPS_NULLNAME;
   status = caps_findProblem(cobj, CAPS_SETATTR, &pobject);
   if (status            != CAPS_SUCCESS) return status;
-
   value = aval->blind;
-  if ((value->type == Boolean) || (value->type == Value)) return CAPS_BADVALUE;
   
   if (value->type == Integer) {
+    if (value->dim == 2) return CAPS_BADRANK;
     atype = ATTRINT;
     if (value->length == 1) {
       ints = &value->vals.integer;
@@ -205,15 +204,18 @@ caps_setAttr(capsObject *cobj, /*@null@*/ const char *aname, capsObject *aval)
       ints =  value->vals.integers;
     }
   } else if (value->type == Double) {
+    if (value->dim == 2) return CAPS_BADRANK;
     atype = ATTRREAL;
     if (value->length == 1) {
       reals = &value->vals.real;
     } else {
       reals =  value->vals.reals;
     }
-  } else {
+  } else if (value->type == String){
     atype = ATTRSTRING;
     str   = value->vals.string;
+  } else {
+    return CAPS_BADVALUE;
   }
 
   attrs = (egAttrs *) cobj->attrs;
@@ -309,7 +311,7 @@ caps_setAttr(capsObject *cobj, /*@null@*/ const char *aname, capsObject *aval)
 
 
 int
-caps_deleleAttr(capsObject *cobj, /*@null@*/ char *name)
+caps_deleteAttr(capsObject *cobj, /*@null@*/ char *name)
 {
   int        i, status, find = -1;
   egAttrs    *attrs;

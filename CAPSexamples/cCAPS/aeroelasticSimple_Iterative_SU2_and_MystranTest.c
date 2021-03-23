@@ -3,7 +3,7 @@
  *
  *             SU2, tetgen, mystran AIM tester
  *
- *      Copyright 2014-2020, Massachusetts Institute of Technology
+ *      Copyright 2014-2021, Massachusetts Institute of Technology
  *      Licensed under The GNU Lesser General Public License, version 2.1
  *      See http://www.opensource.org/licenses/lgpl-2.1.php
  *
@@ -32,7 +32,7 @@
 
 static int
 setValueByName_Double(capsObj probObj,              /* (in)  problem object */
-                      int     type,                 /* (in)  variable type */
+                      int     type,                 /* (in)  variable subtype */
                       char    name[],               /* (in)  variable name */
                       int     nrow,                 /* (in)  number of rows */
                       int     ncol,                 /* (in)  number of columns */
@@ -40,14 +40,12 @@ setValueByName_Double(capsObj probObj,              /* (in)  problem object */
 {
     int  status = CAPS_SUCCESS;
 
-    int       nErr;
-    capsErrs  *errors;
+    int       nErr=0, i;
+    capsErrs  *errors=NULL;
 
     capsObj          valObj;
-    const double     *data;
-    int              vlen;
-    const char       *units;
-    enum capsvType   vtype;
+    const int        *partial=NULL;
+    const char       *units=NULL;
 
     /* --------------------------------------------------------------- */
 
@@ -57,23 +55,17 @@ setValueByName_Double(capsObj probObj,              /* (in)  problem object */
         goto cleanup;
     }
 
-    status = caps_getValue(valObj, &vtype, &vlen, (const void**)(&data), &units, &nErr, &errors);
-    if (status != CAPS_SUCCESS) {
-        printf("caps_getValue -> status=%d\n", status);
-        goto cleanup;
-    } else if (vtype != Double) {
-        printf("'%s' is not Double data type\n", name);
-        status = CAPS_BADTYPE;
-        goto cleanup;
-    }
-
-    status = caps_setValue(valObj, nrow, ncol, (void*)value);
+    status = caps_setValue(valObj, Double, nrow, ncol, (void*)value, partial, units, &nErr, &errors);
     if (status != CAPS_SUCCESS) {
         printf("caps_setValue(%s) -> status=%d\n", name, status);
         goto cleanup;
     }
 
 cleanup:
+    for (i = 0; i < nErr; i++)
+      caps_freeError(errors+i);
+    EG_free(errors);
+
     return status;
 }
 
@@ -87,14 +79,12 @@ setValueByName_Integer(capsObj probObj,              /* (in)  problem object */
 {
     int  status = CAPS_SUCCESS;
 
-    int       nErr;
-    capsErrs  *errors;
+    int       nErr=0,i;
+    capsErrs  *errors=NULL;
 
     capsObj          valObj;
-    const double     *data;
-    int              vlen;
-    const char       *units;
-    enum capsvType   vtype;
+    const int        *partial=NULL;
+    const char       *units=NULL;
 
     /* --------------------------------------------------------------- */
 
@@ -104,23 +94,17 @@ setValueByName_Integer(capsObj probObj,              /* (in)  problem object */
         goto cleanup;
     }
 
-    status = caps_getValue(valObj, &vtype, &vlen, (const void**)(&data), &units, &nErr, &errors);
-    if (status != CAPS_SUCCESS) {
-        printf("caps_getValue -> status=%d\n", status);
-        goto cleanup;
-    } else if (vtype != Integer) {
-        printf("'%s' is not Integer data type\n", name);
-        status = CAPS_BADTYPE;
-        goto cleanup;
-    }
-
-    status = caps_setValue(valObj, nrow, ncol, (void*)value);
+    status = caps_setValue(valObj, Integer, nrow, ncol, (void*)value, partial, units, &nErr, &errors);
     if (status != CAPS_SUCCESS) {
         printf("caps_setValue(%s) -> status=%d\n", name, status);
         goto cleanup;
     }
 
 cleanup:
+    for (i = 0; i < nErr; i++)
+      caps_freeError(errors+i);
+    EG_free(errors);
+
     return status;
 }
 
@@ -134,14 +118,12 @@ setValueByName_Boolean(capsObj           probObj,              /* (in)  problem 
 {
     int  status = CAPS_SUCCESS;
 
-    int       nErr;
-    capsErrs  *errors;
+    int       nErr=0,i;
+    capsErrs  *errors=NULL;
 
     capsObj          valObj;
-    const double     *data;
-    int              vlen;
-    const char       *units;
-    enum capsvType   vtype;
+    const int        *partial=NULL;
+    const char       *units=NULL;
 
     /* --------------------------------------------------------------- */
 
@@ -151,23 +133,17 @@ setValueByName_Boolean(capsObj           probObj,              /* (in)  problem 
         goto cleanup;
     }
 
-    status = caps_getValue(valObj, &vtype, &vlen, (const void**)(&data), &units, &nErr, &errors);
-    if (status != CAPS_SUCCESS) {
-        printf("caps_getValue -> status=%d\n", status);
-        goto cleanup;
-    } else if (vtype != Boolean) {
-        printf("'%s' is not Boolean data type\n", name);
-        status = CAPS_BADTYPE;
-        goto cleanup;
-    }
-
-    status = caps_setValue(valObj, nrow, ncol, (void*)value);
+    status = caps_setValue(valObj, Boolean, nrow, ncol, (void*)value, partial, units, &nErr, &errors);
     if (status != CAPS_SUCCESS) {
         printf("caps_setValue(%s) -> status=%d\n", name, status);
         goto cleanup;
     }
 
 cleanup:
+    for (i = 0; i < nErr; i++)
+      caps_freeError(errors+i);
+    EG_free(errors);
+
     return status;
 }
 
@@ -181,14 +157,12 @@ setValueByName_Tuple(capsObj    probObj,              /* (in)  problem object */
 {
     int  status = CAPS_SUCCESS;
 
-    int       nErr;
-    capsErrs  *errors;
+    int       nErr=0,i;
+    capsErrs  *errors=NULL;
 
     capsObj          valObj;
-    const double     *data;
-    int              vlen;
-    const char       *units;
-    enum capsvType   vtype;
+    const int        *partial=NULL;
+    const char       *units=NULL;
 
     /* --------------------------------------------------------------- */
 
@@ -198,23 +172,17 @@ setValueByName_Tuple(capsObj    probObj,              /* (in)  problem object */
         goto cleanup;
     }
 
-    status = caps_getValue(valObj, &vtype, &vlen, (const void**)(&data), &units, &nErr, &errors);
-    if (status != CAPS_SUCCESS) {
-        printf("caps_getValue -> status=%d\n", status);
-        goto cleanup;
-    } else if (vtype != Tuple) {
-        printf("'%s' is not Tuple data type\n", name);
-        status = CAPS_BADTYPE;
-        goto cleanup;
-    }
-
-    status = caps_setValue(valObj, nrow, ncol, (void*)value);
+    status = caps_setValue(valObj, Tuple, nrow, ncol, (void*)value, partial, units, &nErr, &errors);
     if (status != CAPS_SUCCESS) {
         printf("caps_setValue(%s) -> status=%d\n", name, status);
         goto cleanup;
     }
 
 cleanup:
+    for (i = 0; i < nErr; i++)
+      caps_freeError(errors+i);
+    EG_free(errors);
+
     return status;
 }
 
@@ -228,14 +196,12 @@ setValueByName_String(capsObj     probObj,              /* (in)  problem object 
 {
     int  status = CAPS_SUCCESS;
 
-    int       nErr;
-    capsErrs  *errors;
+    int       nErr=0,i;
+    capsErrs  *errors=NULL;
 
     capsObj          valObj;
-    const double     *data;
-    int              vlen;
-    const char       *units;
-    enum capsvType   vtype;
+    const int        *partial=NULL;
+    const char       *units=NULL;
 
     /* --------------------------------------------------------------- */
 
@@ -245,23 +211,17 @@ setValueByName_String(capsObj     probObj,              /* (in)  problem object 
         goto cleanup;
     }
 
-    status = caps_getValue(valObj, &vtype, &vlen, (const void**)(&data), &units, &nErr, &errors);
-    if (status != CAPS_SUCCESS) {
-        printf("caps_getValue -> status=%d\n", status);
-        goto cleanup;
-    } else if (vtype != String) {
-        printf("'%s' is not String data type\n", name);
-        status = CAPS_BADTYPE;
-        goto cleanup;
-    }
-
-    status = caps_setValue(valObj, nrow, ncol, (void*)value);
+    status = caps_setValue(valObj, String, nrow, ncol, (void*)value, partial, units, &nErr, &errors);
     if (status != CAPS_SUCCESS) {
         printf("caps_setValue(%s) -> status=%d\n", name, status);
         goto cleanup;
     }
 
 cleanup:
+    for (i = 0; i < nErr; i++)
+      caps_freeError(errors+i);
+    EG_free(errors);
+
     return status;
 }
 
@@ -294,7 +254,7 @@ int main(int argc, char *argv[])
     int i, iter; // Indexing
 
     // CAPS objects
-    capsObj  problemObj, meshObj, su2Obj, mystranObj;
+    capsObj  problemObj, surfMeshObj, meshObj, su2Obj, mystranObj;
     capsErrs *errors;
     capsOwn  current;
 
@@ -313,7 +273,7 @@ int main(int argc, char *argv[])
     char *name;
     enum capsoType   type;
     enum capssType   subtype;
-    capsObj link, parent;
+    capsObj link, parent, source, target;
 
 
     // Input values
@@ -366,17 +326,21 @@ int main(int argc, char *argv[])
     if (status != CAPS_SUCCESS) goto cleanup;
 
     status = caps_info(problemObj, &name, &type, &subtype, &link, &parent, &current);
+    if (status != CAPS_SUCCESS)  goto cleanup;
 
     /* --------------------------------------------------------------- */
 
     // Load the AIMs
-    status = caps_load(problemObj, "tetgenAIM", analysisPath, NULL, NULL, 0, NULL, &meshObj);
+    status = caps_makeAnalysis(problemObj, "egadsTessAIM", analysisPath, NULL, NULL, 0, NULL, &surfMeshObj);
     if (status != CAPS_SUCCESS)  goto cleanup;
 
-    status = caps_load(problemObj, "su2AIM", analysisPath, NULL, NULL, 1, &meshObj, &su2Obj);
+    status = caps_makeAnalysis(problemObj, "tetgenAIM", analysisPath, NULL, NULL, 1, &surfMeshObj, &meshObj);
+    if (status != CAPS_SUCCESS)  goto cleanup;
+
+    status = caps_makeAnalysis(problemObj, "su2AIM", analysisPath, NULL, NULL, 1, &meshObj, &su2Obj);
     if (status != CAPS_SUCCESS) goto cleanup;
 
-    status = caps_load(problemObj, "mystranAIM", analysisPath, NULL, NULL, 0, NULL, &mystranObj);
+    status = caps_makeAnalysis(problemObj, "mystranAIM", analysisPath, NULL, NULL, 0, NULL, &mystranObj);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     /* --------------------------------------------------------------- */
@@ -409,6 +373,42 @@ int main(int argc, char *argv[])
 
         status = caps_completeBound(boundObj[i]);
         if (status != CAPS_SUCCESS) goto cleanup;
+    }
+
+    /* --------------------------------------------------------------- */
+
+    // Link surface mesh from EGADS to TetGen
+    status = caps_childByName(surfMeshObj, VALUE, ANALYSISOUT, "Surface_Mesh", &source);
+    if (status != CAPS_SUCCESS) {
+      printf("surfMeshObj childByName for Surface_Mesh = %d\n", status);
+      goto cleanup;
+    }
+    status = caps_childByName(meshObj, VALUE, ANALYSISIN, "Surface_Mesh",  &target);
+    if (status != CAPS_SUCCESS) {
+      printf("meshObj childByName for tessIn = %d\n", status);
+      goto cleanup;
+    }
+    status = caps_makeLinkage(source, Copy, target);
+    if (status != CAPS_SUCCESS) {
+      printf(" caps_makeLinkage = %d\n", status);
+      goto cleanup;
+    }
+
+    /* Link the volume mesh from TetGen to SU2 */
+    status = caps_childByName(meshObj, VALUE, ANALYSISOUT, "Volume_Mesh", &source);
+    if (status != CAPS_SUCCESS) {
+      printf("meshObj childByName for Volume_Mesh = %d\n", status);
+      goto cleanup;
+    }
+    status = caps_childByName(su2Obj, VALUE, ANALYSISIN, "Mesh",  &target);
+    if (status != CAPS_SUCCESS) {
+      printf("fun3dObj childByName for Mesh = %d\n", status);
+      goto cleanup;
+    }
+    status = caps_makeLinkage(source, Copy, target);
+    if (status != CAPS_SUCCESS) {
+      printf(" caps_makeLinkage = %d\n", status);
+      goto cleanup;
     }
 
     /* --------------------------------------------------------------- */
@@ -513,6 +513,16 @@ int main(int argc, char *argv[])
     load[0].value = EG_strdup("{\"loadType\": \"PressureExternal\", \"loadScaleFactor\": -1.0}");
 
     status = setValueByName_Tuple(mystranObj, ANALYSISIN, "Load", numLoad, 1, load);
+    if (status != CAPS_SUCCESS) goto cleanup;
+
+    /* --------------------------------------------------------------- */
+
+    // Do the analysis -- actually run EGADS
+    status = caps_preAnalysis(surfMeshObj, &nErr, &errors);
+    if (status != CAPS_SUCCESS) goto cleanup;
+
+    // Everything is done in preAnalysis, so we just do the post
+    status = caps_postAnalysis(surfMeshObj, current, &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     /* --------------------------------------------------------------- */

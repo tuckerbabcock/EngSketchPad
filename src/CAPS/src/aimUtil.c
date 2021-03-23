@@ -3,7 +3,7 @@
  *
  *             AIM Utility Functions
  *
- *      Copyright 2014-2020, Massachusetts Institute of Technology
+ *      Copyright 2014-2021, Massachusetts Institute of Technology
  *      Licensed under The GNU Lesser General Public License, version 2.1
  *      See http://www.opensource.org/licenses/lgpl-2.1.php
  *
@@ -12,6 +12,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#ifdef WIN32
+#define strcasecmp stricmp
+#endif
 
 #include "capsTypes.h"
 #include "udunits.h"
@@ -23,7 +27,7 @@
 
 
 #define EBUFSIZE  4096
-
+#define UNIT_BUFFER_MAX 257
 
 /*@-incondefs@*/
 extern void ut_free(/*@only@*/ ut_unit* const unit);
@@ -31,31 +35,27 @@ extern void cv_free(/*@only@*/ cv_converter* const converter);
 /*@+incondefs@*/
 
 
-static int
-aim_Data(aimContext     cntxt,
-         const char     *aname,
-         int            instance,       /* instance index */
-         const char     *name,          /* name of transfer */
-         enum capsvType *vtype,         /* data type */
-         int            *rank,          /* rank of the data */
-         int            *nrow,          /* number of rows */
-         int            *ncol,          /* number of columns */
-         void           **vdata,        /* the returned data */
-         char           **units)        /* returned units -- if any */
+void
+aim_capsRev(int *major, int *minor)
 {
-  int i;
+  *major = CAPSMAJOR;
+  *minor = CAPSMINOR;
+}
 
-  for (i = 0; i < cntxt.aim_nAnal; i++)
-    if (strcmp(aname, cntxt.aimName[i]) == 0) break;
 
-  if (i == cntxt.aim_nAnal) return CAPS_NOTFOUND;
-  if (cntxt.aimData[i] == NULL) {
-    printf("aimData not implemented in AIM %s\n", aname);
-    return CAPS_NOTIMPLEMENT;
-  }
+int
+aim_getDirectory(void *aimStruc, const char **aimPath)
+{
+  aimInfo      *aInfo;
+  capsAnalysis *analysis;
 
-  return cntxt.aimData[i](instance, name, vtype, rank, nrow, ncol, vdata,
-                          units);
+  aInfo = (aimInfo *) aimStruc;
+  if (aInfo == NULL)                   return CAPS_NULLOBJ;
+  if (aInfo->magicnumber != CAPSMAGIC) return CAPS_BADOBJECT;
+  analysis = (capsAnalysis *) aInfo->analysis;
+
+  *aimPath = analysis->path;
+  return CAPS_SUCCESS;
 }
 
 
@@ -66,8 +66,8 @@ aim_getUnitSys(void *aimStruc, char **unitSys)
   capsAnalysis *analysis;
 
   aInfo = (aimInfo *) aimStruc;
-  if (aInfo == NULL)                               return CAPS_NULLOBJ;
-  if (aInfo->magicnumber != CAPSMAGIC)             return CAPS_BADOBJECT;
+  if (aInfo == NULL)                   return CAPS_NULLOBJ;
+  if (aInfo->magicnumber != CAPSMAGIC) return CAPS_BADOBJECT;
   analysis = (capsAnalysis *) aInfo->analysis;
 
   *unitSys = analysis->unitSys;
@@ -110,6 +110,41 @@ aim_newGeometry(void *aimStruc)
 
   if (problem->geometry.sNum < analysis->pre.sNum) return CAPS_CLEAN;
   return CAPS_SUCCESS;
+}
+
+
+int
+aim_numInstance(void *aimStruc)
+{
+  int          i;
+  aimInfo      *aInfo;
+  capsProblem  *problem;
+  capsAnalysis *analysis;
+
+  aInfo = (aimInfo *) aimStruc;
+  if (aInfo == NULL)                   return CAPS_NULLOBJ;
+  if (aInfo->magicnumber != CAPSMAGIC) return CAPS_BADOBJECT;
+  problem  = aInfo->problem;
+  analysis = (capsAnalysis *) aInfo->analysis;
+  
+  for (i = 0; i < problem->aimFPTR.aim_nAnal; i++)
+    if (strcasecmp(analysis->loadName, problem->aimFPTR.aimName[i]) == 0) break;
+  if (i == problem->aimFPTR.aim_nAnal) return CAPS_BADINIT;
+
+  return problem->aimFPTR.aim_nInst[i];
+}
+
+
+int
+aim_getInstance(void *aimStruc)
+{
+  aimInfo *aInfo;
+
+  aInfo = (aimInfo *) aimStruc;
+  if (aInfo == NULL)                   return CAPS_NULLOBJ;
+  if (aInfo->magicnumber != CAPSMAGIC) return CAPS_BADOBJECT;
+  
+  return aInfo->instance;
 }
 
 
@@ -158,11 +193,10 @@ aim_unitMultiply(void *aimStruc, const char  *inUnits1, const char *inUnits2,
                  char **outUnits)
 {
   int         status;
-  size_t      len1, len2, ulen;
   aimInfo     *aInfo;
   capsProblem *problem;
   ut_unit     *utunit1, *utunit2, *utunit;
-  char        *units = NULL;
+  char        buffer[UNIT_BUFFER_MAX];
 
   if ((inUnits1 == NULL) ||
       (inUnits2 == NULL) || (outUnits == NULL)) return CAPS_NULLNAME;
@@ -173,14 +207,6 @@ aim_unitMultiply(void *aimStruc, const char  *inUnits1, const char *inUnits2,
 
   *outUnits = NULL;
 
-  len1 = strlen(inUnits1);
-  len2 = strlen(inUnits2);
-  ulen = 10*(len1+len2);
-  if (ulen == 0) return CAPS_UNITERR;
-
-  units = (char *) EG_alloc(ulen*sizeof(char));
-  if (units == NULL) return EGADS_MALLOC;
-
   utunit1 = ut_parse((ut_system *) problem->utsystem, inUnits1, UT_ASCII);
   utunit2 = ut_parse((ut_system *) problem->utsystem, inUnits2, UT_ASCII);
   utunit  = ut_multiply(utunit1, utunit2);
@@ -188,21 +214,20 @@ aim_unitMultiply(void *aimStruc, const char  *inUnits1, const char *inUnits2,
     ut_free(utunit1);
     ut_free(utunit2);
     ut_free(utunit);
-    EG_free(units);
     return CAPS_UNITERR;
   }
 
-  status = ut_format(utunit, units, ulen, UT_ASCII);
+  status = ut_format(utunit, buffer, UNIT_BUFFER_MAX, UT_ASCII);
 
   ut_free(utunit1);
   ut_free(utunit2);
   ut_free(utunit);
 
   if (status < UT_SUCCESS) {
-    EG_free(units);
     return CAPS_UNITERR;
   } else {
-    *outUnits = units;
+    *outUnits = EG_strdup(buffer);
+    if (*outUnits == NULL) return EGADS_MALLOC;
     return CAPS_SUCCESS;
   }
 }
@@ -213,11 +238,10 @@ aim_unitDivide(void *aimStruc, const char  *inUnits1, const char *inUnits2,
                char **outUnits)
 {
   int         status;
-  size_t      len1, len2, ulen;
   aimInfo     *aInfo;
   capsProblem *problem;
   ut_unit     *utunit1, *utunit2, *utunit;
-  char        *units = NULL;
+  char        buffer[UNIT_BUFFER_MAX];
 
   if ((inUnits1 == NULL) ||
       (inUnits2 == NULL) || (outUnits == NULL)) return CAPS_NULLNAME;
@@ -228,14 +252,6 @@ aim_unitDivide(void *aimStruc, const char  *inUnits1, const char *inUnits2,
 
   *outUnits = NULL;
 
-  len1 = strlen(inUnits1);
-  len2 = strlen(inUnits2);
-  ulen = 10*(len1+len2);
-  if (ulen == 0) return CAPS_UNITERR;
-
-  units = (char *) EG_alloc(ulen*sizeof(char));
-  if (units == NULL) return EGADS_MALLOC;
-
   utunit1 = ut_parse((ut_system *) problem->utsystem, inUnits1, UT_ASCII);
   utunit2 = ut_parse((ut_system *) problem->utsystem, inUnits2, UT_ASCII);
   utunit  = ut_divide(utunit1, utunit2);
@@ -243,21 +259,20 @@ aim_unitDivide(void *aimStruc, const char  *inUnits1, const char *inUnits2,
     ut_free(utunit1);
     ut_free(utunit2);
     ut_free(utunit);
-    EG_free(units);
     return CAPS_UNITERR;
   }
 
-  status = ut_format(utunit, units, ulen, UT_ASCII);
+  status = ut_format(utunit, buffer, UNIT_BUFFER_MAX, UT_ASCII);
 
   ut_free(utunit1);
   ut_free(utunit2);
   ut_free(utunit);
 
-  if (status < UT_SUCCESS) {
-    EG_free(units);
+  if (ut_get_status() != UT_SUCCESS || status >= UNIT_BUFFER_MAX) {
     return CAPS_UNITERR;
   } else {
-    *outUnits = units;
+    *outUnits = EG_strdup(buffer);
+    if (*outUnits == NULL) return EGADS_MALLOC;
     return CAPS_SUCCESS;
   }
 }
@@ -267,11 +282,10 @@ int
 aim_unitInvert(void *aimStruc, const char  *inUnit, char **outUnits)
 {
   int         status;
-  size_t      len1, ulen;
   aimInfo     *aInfo;
   capsProblem *problem;
   ut_unit     *utunit1, *utunit;
-  char        *units = NULL;
+  char        buffer[UNIT_BUFFER_MAX];
 
   if ((inUnit == NULL) || (outUnits == NULL)) return CAPS_NULLNAME;
   aInfo = (aimInfo *) aimStruc;
@@ -281,32 +295,24 @@ aim_unitInvert(void *aimStruc, const char  *inUnit, char **outUnits)
 
   *outUnits = NULL;
 
-  len1 = strlen(inUnit);
-  ulen = 10*len1;
-  if (ulen == 0) return CAPS_UNITERR;
-
-  units = (char *) EG_alloc(ulen*sizeof(char));
-  if (units == NULL) return EGADS_MALLOC;
-
   utunit1 = ut_parse((ut_system *) problem->utsystem, inUnit, UT_ASCII);
   utunit  = ut_invert(utunit1);
   if (ut_get_status() != UT_SUCCESS) {
     ut_free(utunit1);
     ut_free(utunit);
-    EG_free(units);
     return CAPS_UNITERR;
   }
 
-  status = ut_format(utunit, units, ulen, UT_ASCII);
+  status = ut_format(utunit, buffer, UNIT_BUFFER_MAX, UT_ASCII);
 
   ut_free(utunit1);
   ut_free(utunit);
 
-  if (status < UT_SUCCESS) {
-    EG_free(units);
+  if (ut_get_status() != UT_SUCCESS || status >= UNIT_BUFFER_MAX) {
     return CAPS_UNITERR;
   } else {
-    *outUnits = units;
+    *outUnits = EG_strdup(buffer);
+    if (*outUnits == NULL) return EGADS_MALLOC;
     return CAPS_SUCCESS;
   }
 }
@@ -317,11 +323,10 @@ aim_unitRaise(void *aimStruc, const char  *inUnit, const int power,
               char **outUnits)
 {
   int         status;
-  size_t      len1, ulen;
   aimInfo     *aInfo;
   capsProblem *problem;
   ut_unit     *utunit1, *utunit;
-  char        *units = NULL;
+  char        buffer[UNIT_BUFFER_MAX];
 
   if ((inUnit == NULL) || (outUnits == NULL)) return CAPS_NULLNAME;
   aInfo = (aimInfo *) aimStruc;
@@ -331,32 +336,24 @@ aim_unitRaise(void *aimStruc, const char  *inUnit, const int power,
 
   *outUnits = NULL;
 
-  len1 = strlen(inUnit);
-  ulen = 10*len1;
-  if (ulen == 0) return CAPS_UNITERR;
-
-  units = (char *) EG_alloc(ulen*sizeof(char));
-  if (units == NULL) return EGADS_MALLOC;
-
   utunit1 = ut_parse((ut_system *) problem->utsystem, inUnit, UT_ASCII);
   utunit  = ut_raise(utunit1, power);
   if (ut_get_status() != UT_SUCCESS) {
     ut_free(utunit1);
     ut_free(utunit);
-    EG_free(units);
     return CAPS_UNITERR;
   }
 
-  status = ut_format(utunit, units, ulen, UT_ASCII);
+  status = ut_format(utunit, buffer, UNIT_BUFFER_MAX, UT_ASCII);
 
   ut_free(utunit1);
   ut_free(utunit);
 
-  if (status < UT_SUCCESS) {
-    EG_free(units);
+  if (ut_get_status() != UT_SUCCESS || status >= UNIT_BUFFER_MAX) {
     return CAPS_UNITERR;
   } else {
-    *outUnits = units;
+    *outUnits = EG_strdup(buffer);
+    if (*outUnits == NULL) return EGADS_MALLOC;
     return CAPS_SUCCESS;
   }
 }
@@ -510,145 +507,6 @@ aim_getGeomInType(void *aimStruc, int index)
 
 
 static int
-aim_analyScan(capsProblem  *problem, capsAnalysis *analysis, const char *name,
-              enum capsvType *vtype, int *rank, int *nrow, int *ncol,
-              void **data, char **units)
-{
-  int            i, status, rankx, nrowx, ncolx;
-  char           *unitx;
-  void           *datax;
-  enum capsvType vtypx;
-  capsAnalysis   *analpar;
-  capsObject     *aobj;
-
-  for (i = 0; i < analysis->nParent; i++) {
-    aobj    = analysis->parents[i];
-    analpar = (capsAnalysis *) aobj->blind;
-    status  = aim_Data(problem->aimFPTR, analpar->loadName,
-                       analpar->instance, name, &vtypx, &rankx, &nrowx,
-                       &ncolx, &datax, &unitx);
-    if ((status == CAPS_SUCCESS) && (datax != NULL)) {
-      if (*data != NULL) {
-        if (*rank  < 0)     EG_free(*data);
-        if (*units != NULL) EG_free(*units);
-        return CAPS_SOURCEERR;
-      }
-      *vtype = vtypx;
-      *rank  = rankx;
-      *nrow  = nrowx;
-      *ncol  = ncolx;
-      *data  = datax;
-      *units = unitx;
-    }
-/*  do not recurse
-    status = aim_analyScan(problem, analpar, name, vtype, rank, nrow, ncol,
-                           data, units);
-    if (status == CAPS_SOURCEERR) return status;  */
-  }
-
-  if (*data == NULL) return CAPS_NOTFOUND;
-  return CAPS_SUCCESS;
-}
-
-
-int
-aim_getData(void *aimStruc, const char *name, enum capsvType *vtype, int *rank,
-            int *nrow, int *ncol, void **data, char **units)
-{
-  int          i, status;
-  aimInfo      *aInfo;
-  capsProblem  *problem;
-  capsAnalysis *analysis, *analpar;
-  capsObject   *aobj, *source, *object, *last;
-  capsValue    *value;
-
-  *vtype = Integer;
-  *nrow  = *ncol = *rank = 0;
-  *data  = NULL;
-  *units = NULL;
-  aInfo  = (aimInfo *) aimStruc;
-  if (name  == NULL)                   return CAPS_NULLNAME;
-  if (aInfo == NULL)                   return CAPS_NULLOBJ;
-  if (aInfo->magicnumber != CAPSMAGIC) return CAPS_BADOBJECT;
-  problem  = aInfo->problem;
-  analysis = (capsAnalysis *) aInfo->analysis;
-
-  /* check for dirty geometry inputs */
-  for (status = i = 0; i < problem->nGeomIn; i++) {
-    source = object = problem->geomIn[i];
-    do {
-      if (source->magicnumber != CAPSMAGIC) return CAPS_BADOBJECT;
-      if (source->type        != VALUE)     return CAPS_BADTYPE;
-      if (source->blind       == NULL)      return CAPS_NULLBLIND;
-      value = (capsValue *) source->blind;
-      if (value->link == object)            return CAPS_CIRCULARLINK;
-      last   = source;
-      source = value->link;
-    } while (value->link != NULL);
-    if (last->last.sNum > problem->geometry.sNum) {
-      status = 1;
-      break;
-    }
-  }
-  /* check for dirty branchs */
-  for (i = 0; i < problem->nBranch; i++) {
-    source = object = problem->branchs[i];
-    do {
-      if (source->magicnumber != CAPSMAGIC) return CAPS_BADOBJECT;
-      if (source->type        != VALUE)     return CAPS_BADTYPE;
-      if (source->blind       == NULL)      return CAPS_NULLBLIND;
-      value = (capsValue *) source->blind;
-      if (value->link == object)            return CAPS_CIRCULARLINK;
-      last   = source;
-      source = value->link;
-    } while (value->link != NULL);
-    if (last->last.sNum > problem->geometry.sNum) {
-      status = 1;
-      break;
-    }
-  }
-  if (status != 0) return CAPS_DIRTY;
-
-  /* are any of the analysis dirty? */
-  for (i = 0; i < analysis->nParent; i++) {
-    aobj    = analysis->parents[i];
-    analpar = (capsAnalysis *) aobj->blind;
-    if (analpar->pre.sNum == 0) {
-      status = 1;
-    } else {
-      /* check for dirty inputs */
-      for (i = 0; i < analpar->nAnalysisIn; i++) {
-        source = object = analpar->analysisIn[i];
-        do {
-          if (source->magicnumber != CAPSMAGIC) return CAPS_BADOBJECT;
-          if (source->type        != VALUE)     return CAPS_BADTYPE;
-          if (source->blind       == NULL)      return CAPS_NULLBLIND;
-          value = (capsValue *) source->blind;
-          if (value->link == object)            return CAPS_CIRCULARLINK;
-          last   = source;
-          source = value->link;
-        } while (value->link != NULL);
-        if (last->last.sNum > analpar->pre.sNum) {
-          status = 1;
-          break;
-        }
-      }
-    }
-    /* is geometry new? */
-    if (status == 0)
-      if (problem->geometry.sNum > analpar->pre.sNum) status = 4;
-    /* is post required? */
-    if (status == 0)
-      if (analpar->pre.sNum > aobj->last.sNum) status = 5;
-    if (status != 0) return CAPS_DIRTY;
-  }
-
-  return aim_analyScan(problem, analysis, name, vtype, rank, nrow, ncol, data,
-                       units);
-}
-
-
-static int
 aim_findByName(const char *name, int len, capsObject **objs, capsObject **child)
 {
   int i;
@@ -733,12 +591,12 @@ aim_link(void *aimStruc, const char *name, enum capssType stype,
 
 
 int
-aim_setTess(void *aimStruc, ego tess)
+aim_newTess(void *aimStruc, ego tess)
 {
   int          stat, i, state, npts;
   aimInfo      *aInfo;
   capsAnalysis *analysis;
-  ego          body;
+  ego          body, tbody;
 
   aInfo = (aimInfo *) aimStruc;
   if (aInfo == NULL)                   return CAPS_NULLOBJ;
@@ -747,17 +605,12 @@ aim_setTess(void *aimStruc, ego tess)
   if (tess->magicnumber  != MAGIC)     return EGADS_NOTOBJ;
   analysis = (capsAnalysis *) aInfo->analysis;
 
-  /* remove an existing tessellation? */
-  if (tess->oclass == BODY) {
-    for (i = 0; i < analysis->nBody; i++) {
-      if (tess != analysis->bodies[i]) continue;
-      if (analysis->bodies[analysis->nBody+i] != NULL)
-        EG_deleteObject(analysis->bodies[analysis->nBody+i]);
-      analysis->bodies[analysis->nBody+i] = NULL;
-      return CAPS_SUCCESS;
-    }
-    printf(" CAPS Info: Matching Body not in list! (aim_setTess)\n");
-    return CAPS_NOTFOUND;
+  /* allocate tessellation storage if it does not exist */
+  if (analysis->tess == NULL) {
+    analysis->tess = (ego *) EG_alloc(analysis->nBody*sizeof(ego));
+    if (analysis->tess == NULL) return EGADS_MALLOC;
+    analysis->nTess = analysis->nBody;
+    for (i = 0; i < analysis->nBody; i++) analysis->tess[i] = NULL;
   }
 
   /* associate a tessellation object */
@@ -767,13 +620,33 @@ aim_setTess(void *aimStruc, ego tess)
 
   for (i = 0; i < analysis->nBody; i++) {
     if (body != analysis->bodies[i]) continue;
-    if (analysis->bodies[analysis->nBody+i] != NULL) return EGADS_EXISTS;
-    analysis->bodies[analysis->nBody+i] = tess;
+    if (analysis->tess[i] != NULL) {
+      EG_deleteObject(analysis->tess[i]);
+    }
+    analysis->tess[i] = tess;
+    return CAPS_SUCCESS;
+  }
+  
+  /* look for AIM created bodies */
+  for (i = analysis->nBody-1; i < analysis->nTess; i++) {
+    stat = EG_statusTessBody(analysis->tess[i], &tbody, &state, &npts);
+    if (stat <  EGADS_SUCCESS) return stat;
+    if (stat == EGADS_OUTSIDE) return CAPS_SOURCEERR;
+    if (tbody != body) continue;
+    if (analysis->tess[i] != NULL) {
+      EG_deleteObject(analysis->tess[i]);
+    }
+    analysis->tess[i] = tess;
     return CAPS_SUCCESS;
   }
 
-  printf(" CAPS Info: Tessellation Body not in list! (aim_setTess)\n");
-  return CAPS_NOTFOUND;
+  /* not in the Body list -- extend the list of tessellations */
+  analysis->tess = (ego *) EG_reall(analysis->tess, (analysis->nTess+1)*sizeof(ego));
+  if (analysis->tess == NULL) return EGADS_MALLOC;
+  analysis->tess[analysis->nTess] = tess;
+  analysis->nTess++;
+
+  return CAPS_SUCCESS;
 }
 
 
@@ -1003,17 +876,195 @@ aim_getBounds(void *aimStruc, int *nTname, char ***tnames)
 }
 
 
+static int
+aim_fillAttrs(capsObject *object, int *n, char ***names, capsValue **values)
+{
+  int       i, j, num, len, atype;
+  char      **aName;
+  capsValue *value;
+
+  num    = object->attrs->nattrs;
+  if (num <= 0) return CAPS_SUCCESS;
+  aName  = (char **) EG_alloc(num*sizeof(char *));
+  if (aName == NULL) return EGADS_MALLOC;
+  value = (capsValue *) EG_alloc(num*sizeof(capsValue));
+  if (value == NULL) {
+    EG_free(aName);
+    return EGADS_MALLOC;
+  }
+  for (i = 0; i < num; i++) {
+    len   = object->attrs->attrs[i].length;
+    atype = object->attrs->attrs[i].type;
+    value[i].length  = 1;
+    value[i].type    = Integer;
+    value[i].nrow    = value[i].ncol   = value[i].dim = value[i].pIndex = 0;
+    value[i].lfixed  = value[i].sfixed = Fixed;
+    value[i].nullVal = NotAllowed;
+    value[i].units   = NULL;
+    value[i].link    = NULL;
+    aName[i]         = EG_strdup(object->attrs->attrs[i].name);
+    if (aName[i] == NULL) goto bail;
+    value[i].limits.dlims[0] = value[i].limits.dlims[1] = 0.0;
+    value[i].linkMethod      = Copy;
+    value[i].gInType         = 0;
+    value[i].partial         = NULL;
+    value[i].ndot            = 0;
+    value[i].dots            = NULL;
+    if (atype == ATTRINT) {
+      if (len == 1) {
+        value[i].vals.integer = object->attrs->attrs[i].vals.integer;
+      } else {
+        value[i].vals.integers = (int *) EG_alloc(len*sizeof(int));
+        if (value[i].vals.integers == NULL) goto bail;
+        for (j = 0; j < len; j++)
+          value[i].vals.integers[j] = object->attrs->attrs[i].vals.integers[j];
+      }
+    } else if (atype == ATTRREAL) {
+      value[i].type = Double;
+      if (len == 1) {
+        value[i].vals.real = object->attrs->attrs[i].vals.real;
+      } else {
+        value[i].vals.reals = (double *) EG_alloc(len*sizeof(double));
+        if (value[i].vals.reals == NULL) goto bail;
+        for (j = 0; j < len; j++)
+          value[i].vals.reals[j] = object->attrs->attrs[i].vals.reals[j];
+      }
+    } else {
+      value[i].type = String;
+      value[i].vals.string = EG_strdup(object->attrs->attrs[i].vals.string);
+      if (value[i].vals.string == NULL) goto bail;
+    }
+    value[i].length = len;
+  }
+  
+  *n      = num;
+  *names  = aName;
+  *values = value;
+  return CAPS_SUCCESS;
+  
+bail:
+  for (j = 0; j < i; j++) {
+    EG_free(aName[j]);
+    if (value[j].type == Integer) {
+      if (value[j].length == 1) continue;
+      EG_free(value[j].vals.integers);
+    } else if (value[j].type == Double) {
+      if (value[j].length == 1) continue;
+      EG_free(value[j].vals.reals);
+    } else {
+      EG_free(value[j].vals.string);
+    }
+  }
+/*@-dependenttrans@*/
+  EG_free(aName);
+  EG_free(value);
+/*@+dependenttrans@*/
+  return EGADS_MALLOC;
+}
+
+
+int
+aim_valueAttrs(void *aimStruc, int index, enum capssType stype, int *nValue,
+               char ***names, capsValue **values)
+{
+  aimInfo      *aInfo;
+  capsProblem  *problem;
+  capsAnalysis *analysis;
+  capsObject   *object = NULL;
+  
+  *nValue = 0;
+  *names  = NULL;
+  *values = NULL;
+  aInfo   = (aimInfo *) aimStruc;
+  if (aInfo == NULL)                    return CAPS_NULLOBJ;
+  if (aInfo->magicnumber != CAPSMAGIC)  return CAPS_BADOBJECT;
+  if (index < 1)                        return CAPS_BADINDEX;
+  problem  = aInfo->problem;
+  analysis = (capsAnalysis *) aInfo->analysis;
+  
+  if (stype == GEOMETRYIN) {
+    if (index > problem->nGeomIn)       return CAPS_BADINDEX;
+    object = problem->geomIn[index-1];
+  } else if (stype == GEOMETRYOUT) {
+    if (index > problem->nGeomOut)      return CAPS_BADINDEX;
+    object = problem->geomOut[index-1];
+  } else if (stype == ANALYSISIN) {
+    if (index > analysis->nAnalysisIn)  return CAPS_BADINDEX;
+    object = analysis->analysisIn[index-1];
+  } else if (stype == ANALYSISOUT) {
+    if (index > analysis->nAnalysisOut) return CAPS_BADINDEX;
+    object = analysis->analysisOut[index-1];
+  } else {
+    return CAPS_BADTYPE;
+  }
+  if (object == NULL)                   return CAPS_NULLOBJ;
+  if (object->attrs == NULL)            return CAPS_SUCCESS;
+  
+  return aim_fillAttrs(object, nValue, names, values);
+}
+
+
+int
+aim_analysisAttrs(void *aimStruc, int *nValue, char ***names,
+                  capsValue **values)
+{
+  int          i;
+  aimInfo      *aInfo;
+  capsProblem  *problem;
+  capsAnalysis *analysis;
+  
+  *nValue = 0;
+  *names  = NULL;
+  *values = NULL;
+  aInfo   = (aimInfo *) aimStruc;
+  if (aInfo == NULL)                    return CAPS_NULLOBJ;
+  if (aInfo->magicnumber != CAPSMAGIC)  return CAPS_BADOBJECT;
+  problem  = aInfo->problem;
+  analysis = (capsAnalysis *) aInfo->analysis;
+  
+  for (i = 0; i < problem->nAnalysis; i++) {
+    if (problem->analysis[i] == NULL) continue;
+    if (problem->analysis[i]->blind == analysis) break;
+  }
+  if (i == problem->nAnalysis) return CAPS_NOTFOUND;
+  
+  return aim_fillAttrs(problem->analysis[i], nValue, names, values);
+}
+
+
+void
+aim_freeAttrs(int nValue, char **names, capsValue *values)
+{
+  int i;
+  
+  for (i = 0; i < nValue; i++) {
+    EG_free(names[i]);
+    if (values[i].type == Integer) {
+      if (values[i].length == 1) continue;
+      EG_free(values[i].vals.integers);
+    } else if (values[i].type == Double) {
+      if (values[i].length == 1) continue;
+      EG_free(values[i].vals.reals);
+    } else {
+      EG_free(values[i].vals.string);
+    }
+  }
+  EG_free(names);
+  EG_free(values);
+}
+
+
 int
 aim_setSensitivity(void *aimStruc, const char *GIname, int irow, int icol)
 {
-  int          stat, i, j, k, m, n, ipmtr, nbrch, npmtr, nrow, ncol, type;
-  int          buildTo, builtTo, nbody;
-  char         name[MAX_NAME_LEN];
-  double       *reals;
-  modl_T       *MODL;
-  aimInfo      *aInfo;
-  capsProblem  *problem;
-  capsValue    *value;
+  int         stat, i, j, k, m, n, ipmtr, nbrch, npmtr, nrow, ncol, type;
+  int         buildTo, builtTo, nbody;
+  char        name[MAX_NAME_LEN];
+  double      *reals;
+  modl_T      *MODL;
+  aimInfo     *aInfo;
+  capsProblem *problem;
+  capsValue   *value;
 
   aInfo = (aimInfo *) aimStruc;
   if (aInfo == NULL)                   return CAPS_NULLOBJ;
@@ -1344,7 +1395,7 @@ aim_isNodeBody(ego body, double *xyz)
 
 
 static void
-aim_addLine(void *aimStruc, enum capseType etype, const char *line)
+aim_addErrorLine(void *aimStruc, enum capseType etype, const char *line)
 {
   int       index, len;
   char      **ltmp;
@@ -1394,86 +1445,65 @@ aim_addLine(void *aimStruc, enum capseType etype, const char *line)
 
 
 void
-aim_status(void *aimInfo, const int status, const char *file, const int line,
-           const char *func, const int narg, ...)
+aim_status(void *aimInfo, const int status, const char *file,
+           const int line, const char *func, const int narg, ...)
 {
   va_list args;
   char    buffer[EBUFSIZE] = {'\0'}, buffer2[EBUFSIZE] = {'\0'};
   const char *format = NULL;
+
+  snprintf(buffer2, EBUFSIZE, "%s:%d in %s(): Error status = %d", file, line, func, status);
+  aim_addErrorLine(aimInfo, CSTAT, buffer2);
 
   if (narg > 0) {
     va_start(args, narg);
     format = va_arg(args, const char *);
     vsnprintf(buffer, EBUFSIZE, format, args);
     va_end(args);
+
+    snprintf(buffer2, EBUFSIZE, "%s", buffer);
+    aim_addErrorLine(aimInfo, CONTINUATION, buffer2);
   }
-
-  snprintf(buffer2, EBUFSIZE, "%s:%d %s %s\n", file, line, func, buffer);
-  aim_addLine(aimInfo, CERROR, buffer2);
 }
 
 
 void
-aim_error(void *aimInfo, const char *file, const int line, const char *func,
+aim_message(enum capseType etype, void *aimInfo, const char *file, const int line, const char *func,
            const char *format, ...)
 {
   va_list args;
   char    buffer[EBUFSIZE] = {'\0'}, buffer2[EBUFSIZE] = {'\0'};
+  const char  *eType[4] = {"Info",
+                           "Warning",
+                           "Error",
+                           "Possible Developer Error"};
+
+  // clang-analyzer
+  if (etype == CONTINUATION) return;
+
+  snprintf(buffer2, EBUFSIZE, "%s:%d in %s():", file, line, func);
+  aim_addErrorLine(aimInfo, etype, buffer2);
 
   va_start(args, format);
   vsnprintf(buffer, EBUFSIZE, format, args);
   va_end(args);
 
-  snprintf(buffer2, EBUFSIZE, "%s:%d %s %s\n", file, line, func, buffer);
-  aim_addLine(aimInfo, CERROR, buffer2);
+  snprintf(buffer2, EBUFSIZE, "%s: %s", eType[etype], buffer);
+  aim_addErrorLine(aimInfo, CONTINUATION, buffer2);
 }
 
 
 void
-aim_warning(void *aimInfo, const char *file, const int line, const char *func,
-           const char *format, ...)
+aim_addLine(void *aimInfo, const char *format, ...)
 {
   va_list args;
-  char    buffer[EBUFSIZE] = {'\0'}, buffer2[EBUFSIZE] = {'\0'};
+  char    buffer[EBUFSIZE] = {'\0'};
 
   va_start(args, format);
   vsnprintf(buffer, EBUFSIZE, format, args);
   va_end(args);
 
-  snprintf(buffer2, EBUFSIZE, "%s:%d %s %s\n", file, line, func, buffer);
-  aim_addLine(aimInfo, CWARN, buffer2);
-}
-
-
-void
-aim_info(void *aimInfo, const char *file, const int line, const char *func,
-         const char *format, ...)
-{
-  va_list args;
-  char    buffer[EBUFSIZE] = {'\0'}, buffer2[EBUFSIZE] = {'\0'};
-
-  va_start(args, format);
-  vsnprintf(buffer, EBUFSIZE, format, args);
-  va_end(args);
-
-  snprintf(buffer2, EBUFSIZE, "%s:%d %s %s\n", file, line, func, buffer);
-  aim_addLine(aimInfo, CINFO, buffer2);
-}
-
-
-void
-aim_continuation(void *aimInfo, const char *file, const int line,
-                 const char *func, const char *format, ...)
-{
-  va_list args;
-  char    buffer[EBUFSIZE] = {'\0'}, buffer2[EBUFSIZE] = {'\0'};
-
-  va_start(args, format);
-  vsnprintf(buffer, EBUFSIZE, format, args);
-  va_end(args);
-
-  snprintf(buffer2, EBUFSIZE, "%s:%d %s %s\n", file, line, func, buffer);
-  aim_addLine(aimInfo, CONTINUATION, buffer2);
+  aim_addErrorLine(aimInfo, CONTINUATION, buffer);
 }
 
 
@@ -1482,7 +1512,8 @@ aim_setIndexError(void *aimStruc, int index)
 {
   int     i;
   aimInfo *aInfo;
-  
+  capsAnalysis *analysis;
+
   aInfo = (aimInfo *) aimStruc;
   if (aInfo == NULL)                   return;
   if (aInfo->magicnumber != CAPSMAGIC) return;
@@ -1490,6 +1521,10 @@ aim_setIndexError(void *aimStruc, int index)
 
   i = aInfo->errs.nError - 1;
   aInfo->errs.errors[i].index = index;
+
+  analysis = (capsAnalysis *) aInfo->analysis;
+  if (index > 0 && index <= analysis->nAnalysisIn)
+    aim_addLine(aimStruc, "ANALYSISIN name: %s", analysis->analysisIn[index-1]->name);
 }
 
 
@@ -1504,7 +1539,8 @@ aim_removeError(void *aimStruc)
   if (aInfo->magicnumber != CAPSMAGIC) return;
   
   for (j = i = 0; i < aInfo->errs.nError; i++)
-    if (aInfo->errs.errors[i].eType == CERROR) {
+    if (aInfo->errs.errors[i].eType == CERROR ||
+        aInfo->errs.errors[i].eType == CSTAT) {
       for (k = 0; k < aInfo->errs.errors[i].nLines; k++)
         EG_free(aInfo->errs.errors[i].lines[k]);
       EG_free(aInfo->errs.errors[i].lines);

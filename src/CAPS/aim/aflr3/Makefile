@@ -38,7 +38,10 @@ endif
 #UG_FILES=$(wildcard $(AFLR)/src/ug/*.c)
 #UG_OBJS=$(patsubst %.c,%.o,$(UG_FILES))
 
-#OBJS=$(AFLR3_OBJS) $(UG_OBJS)
+#UG3_FILES=$(wildcard $(AFLR)/src/ug3/*.c)
+#UG3_OBJS=$(patsubst %.c,%.o,$(UG3_FILES))
+
+#OBJS=$(AFLR3_OBJS) $(UG_OBJS) $(UG3_OBJS)
 ###############################################################################
 
 $(LDIR)/aflr3AIM.so:	$(ODIR)/aflr3AIM.o $(ODIR)/aflr3_Interface.o \
@@ -55,7 +58,8 @@ $(ODIR)/aflr3AIM.o:	$(ODIR)/aflr3_version aflr3AIM.c $(IDIR)/capsTypes.h \
 	$(CC) -c $(COPTS) $(DEFINE) -I$(IDIR) -I../utils aflr3AIM.c \
 		-o $(ODIR)/aflr3AIM.o
 
-$(ODIR)/aflr3_Interface.o:	$(ODIR)/aflr3_version aflr3_Interface.c ../utils/meshUtils.h
+$(ODIR)/aflr3_Interface.o:	$(ODIR)/aflr3_version aflr3_Interface.c \
+				../utils/meshUtils.h
 	$(CC) -c $(COPTS) $(DEFINE) -I$(IDIR) \
 		-I$(AFLR)/src/aflr3 -I$(AFLR)/src -I../utils \
 		aflr3_Interface.c -o $(ODIR)/aflr3_Interface.o
@@ -72,6 +76,9 @@ ifdef OBJS
 $(OBJS): %.o:	%.c
 	$(CC) -c $(COPTS) $(DEFINE) -I$(IDIR) -I$(AFLR)/src $< -o $@
 endif
+
+lint:
+	$(LINT) -I../../include -I$(IDIR) -I../utils -I$(AFLR)/src -I$(AFLR)/src/aflr3 $(wildcard *.c) -nullpass -exportlocal -bufferoverflowhigh
 
 clean:
 	-rm -f $(ODIR)/aflr3_Interface.o $(ODIR)/aflr3AIM.o $(ODIR)/aflr3_version $(OBJS)

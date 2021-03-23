@@ -3,7 +3,7 @@
  *
  *             su2 AIM tester
  *
- *      Copyright 2014-2020, Massachusetts Institute of Technology
+ *      Copyright 2014-2021, Massachusetts Institute of Technology
  *      Licensed under The GNU Lesser General Public License, version 2.1
  *      See http://www.opensource.org/licenses/lgpl-2.1.php
  *
@@ -77,9 +77,10 @@ int main(int argc, char *argv[])
     if (status != CAPS_SUCCESS) goto cleanup;
 
     status = caps_info(problemObj, &name, &type, &subtype, &link, &parent, &current);
+    if (status != CAPS_SUCCESS)  goto cleanup;
 
     // Load the AFLR4 AIM */
-    status = caps_load(problemObj, "tetgenAIM", analysisPath, NULL, NULL, 0, NULL, &meshObj);
+    status = caps_makeAnalysis(problemObj, "tetgenAIM", analysisPath, NULL, NULL, 0, NULL, &meshObj);
     if (status != CAPS_SUCCESS)  goto cleanup;
 
     // Set input variables for Tetgen  - None needed
@@ -97,7 +98,7 @@ int main(int argc, char *argv[])
     if (status != CAPS_SUCCESS) goto cleanup;
 
     // Now load the su2AIM
-    status = caps_load(problemObj, "su2AIM", analysisPath, NULL, NULL, 1, &meshObj, &su2Obj);
+    status = caps_makeAnalysis(problemObj, "su2AIM", analysisPath, NULL, NULL, 1, &meshObj, &su2Obj);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     // Find & set Boundary_Conditions
@@ -114,7 +115,7 @@ int main(int argc, char *argv[])
     tupleVal[2].name = EG_strdup("Farfield");
     tupleVal[2].value = EG_strdup("farfield");
 
-    status = caps_setValue(tempObj, tupleSize, 1,  (void **) tupleVal);
+    status = caps_setValue(tempObj, Tuple, tupleSize, 1,  (void **) tupleVal, NULL, NULL, &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     // Find & set Mach number input
@@ -122,7 +123,7 @@ int main(int argc, char *argv[])
     if (status != CAPS_SUCCESS) goto cleanup;
 
     doubleVal  = 0.4;
-    status = caps_setValue(tempObj, 1, 1, (void *) &doubleVal);
+    status = caps_setValue(tempObj, Double, 1, 1, (void *) &doubleVal, NULL, NULL, &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     // Find & set Overwrite Configuration file */
@@ -130,7 +131,7 @@ int main(int argc, char *argv[])
     if (status != CAPS_SUCCESS) goto cleanup;
 
     boolVal = true;
-    status = caps_setValue(tempObj, 1, 1, (void *) &boolVal);
+    status = caps_setValue(tempObj, Boolean, 1, 1, (void *) &boolVal, NULL, NULL, &nErr, &errors);
     if (status != CAPS_SUCCESS) goto cleanup;
 
     // Do the analysis setup for SU2;

@@ -54,6 +54,9 @@
   #define NINT(x) ((INT_) (((x) >= 0.0) ? floor((x)+0.5) : -floor(0.5-(x))))
 #endif
 
+#ifndef EGADS_EXTRAPOL
+  #define EGADS_EXTRAPOL -37
+#endif
 #ifndef EGADS_UVMAP
   #define EGADS_UVMAP -35
 #endif

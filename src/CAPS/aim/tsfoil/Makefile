@@ -24,6 +24,9 @@ $(ODIR)/tsfoilAIM.o: tsfoilAIM.c $(IDIR)/capsTypes.h
 	$(CC) -c $(COPTS) $(DEFINE) -I$(IDIR) -I../utils \
 		tsfoilAIM.c -o $(ODIR)/tsfoilAIM.o
 
+lint:
+	$(LINT) -I../../include -I$(IDIR) -I../utils $(wildcard *.c) -exportlocal -nestcomment -evalorder -retvalother
+
 clean:
 	-rm $(ODIR)/tsfoilAIM.o
 
