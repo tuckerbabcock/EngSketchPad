@@ -5,7 +5,7 @@
  *
  *             General Object Header
  *
- *      Copyright 2011-2020, Massachusetts Institute of Technology
+ *      Copyright 2011-2021, Massachusetts Institute of Technology
  *      Licensed under The GNU Lesser General Public License, version 2.1
  *      See http://www.opensource.org/licenses/lgpl-2.1.php
  *
@@ -261,19 +261,26 @@ typedef struct {
 
 
 typedef struct {
-  egObject *edge;               /* Edge object */
-  int      sense;               /* sense use for Edge */
-  int      npts;                /* number of discrete points */
-  egObject *nstart;             /* Node object @ beginning */
+  egObject *edge;               /* Bounding Edge */
+  int      curve;               /* -1 internal, 0 - line, 1 - curve */
+  int      npts;                /* number of verts */
+  double   *ts;                 /* the t values (npts in length) */
   double   dstart[3];           /* displacement in xyz first Node */
-  double   tstart;              /* t for beginning of segment */
   double   dend[3];             /* displacement in xyz last Node */
+} egEdVert;
+
+
+typedef struct {
+  int      iedge;               /* the Edge Index */
+  int      sense;               /* sense use for Edge */
+  egObject *nstart;             /* Node object @ beginning */
+  double   tstart;              /* t for beginning of segment */
   double   tend;                /* t for end of segment */
-  double   *ts;                 /* ts (original Edge) */
 } egEEseg;
 
 
 typedef struct {
+  egEdVert *sedges;             /* source Edge structure */
   int      nsegs;               /* number of Edge segments */
   egEEseg  *segs;               /* Edge segments */
   double   trange[2];
@@ -300,18 +307,20 @@ typedef struct {
 
 typedef struct {
   egObject *face;               /* Face object */
+  double   tol;                 /* max displacement magnitude */
   int      start;               /* offset for start in larger triangulation */
   int      nuvs;                /* length of uvs (x 2) */
   int      ndeflect;            /* length of deflect (x 3) */
   int      ntris;               /* number of triangles (single Face) */
   int      *uvtris;             /* tri indices into uvs */
+  int      *uvtric;             /* neighbors (NULL until needed) */
   double   *uvs;                /* UVs for the triangle vertices -- Face Tess */
-  int      *dtris;              /* deflection tri indices -- zero - no bump */
   double   *deflect;            /* displacement in xyz for frame indices */
 } egEPatch;
 
 
 typedef struct {
+  egEdVert *sedges;             /* source Edge structure */
   int      npatch;              /* number of Faces */
   egEPatch *patches;            /* the Face(s) and discrete data */
   egEMap   eloops;              /* list of ELoops */
@@ -337,6 +346,8 @@ typedef struct {
   int      *senses;
   double   angle;               /* Open Edge Node removal criteria */
   int      done;                /* is EBody complete? */
+  int      nedge;               /* the number of source Edges */
+  egEdVert *edges;              /* the source Edge discretizations */
 } egEBody;
 
 #endif

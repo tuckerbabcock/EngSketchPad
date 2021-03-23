@@ -5,7 +5,7 @@
  *
  *             Function Prototypes
  *
- *      Copyright 2014-2020, Massachusetts Institute of Technology
+ *      Copyright 2014-2021, Massachusetts Institute of Technology
  *      Licensed under The GNU Lesser General Public License, version 2.1
  *      See http://www.opensource.org/licenses/lgpl-2.1.php
  *
@@ -38,7 +38,7 @@ __ProtoExt__ int
   
 __ProtoExt__ int
   caps_size( const capsObj object, enum capsoType type, enum capssType stype,
-             int *size );
+             int *size, int *nErr, capsErrs **errors );
   
 __ProtoExt__ int
   caps_childByIndex( const capsObj object, enum capsoType type,
@@ -84,7 +84,8 @@ __ProtoExt__ int
   caps_readParameters( const capsObj pobject, char *filename );
 
 __ProtoExt__ int
-  caps_writeGeometry( const capsObj obj, int flag, const char *filename );
+  caps_writeGeometry(const capsObject *object, int flag, const char *filename,
+                     int *nErr, capsErrs **errors);
 
 
 /* attribute functions */
@@ -99,7 +100,7 @@ __ProtoExt__ int
   caps_setAttr( capsObj cobj, /*@null@*/ const char *name, capsObj aval );
   
 __ProtoExt__ int
-  caps_deleleAttr( capsObj cobj, /*@null@*/ char *name );
+  caps_deleteAttr( capsObj cobj, /*@null@*/ char *name );
 
   
 /* problem functions */
@@ -142,9 +143,9 @@ __ProtoExt__ int
   caps_AIMbackdoor( const capsObj aobject, const char *JSONin, char **JSONout );
   
 __ProtoExt__ int
-  caps_load( capsObj pobj, const char *anam, const char *apath,
-             /*@null@*/ const char *unitSys, /*@null@*/ const char *intents,
-             int nparent, /*@null@*/ capsObj *parents, capsObj *aobj );
+  caps_makeAnalysis( capsObj pobj, const char *anam, const char *apath,
+                     /*@null@*/ const char *unitSys, /*@null@*/ const char *intents,
+                     int nparent, /*@null@*/ capsObj *parents, capsObj *aobj );
 
 __ProtoExt__ int
   caps_dupAnalysis( capsObj from, const char *apath, int nparent,
@@ -227,36 +228,41 @@ __ProtoExt__ int
 /* value functions */
   
 __ProtoExt__ int
-  caps_getValue( capsObj object, enum capsvType *type, int *vlen,
-                 /*@null@*/ const void **data, const char **units, int *nErr,
-                 capsErrs **errors );
+  caps_getValue( capsObj object, enum capsvType *vtype, int *nrow, int *ncol,
+                 /*@null@*/ const void **data, /*@null@*/ const int **partial,
+                 /*@null@*/ const char **units, int *nErr, capsErrs **errors );
   
 __ProtoExt__ int
   caps_makeValue( capsObj pobject, const char *vname, enum capssType stype,
-                  enum capsvType vtype, int nrow, int ncol, const void *data,
+                  enum capsvType vtype, int nrow, int ncol,
+                  const void *data, /*@null@*/ int *partial,
                   /*@null@*/ const char *units, capsObj *vobj );
   
 __ProtoExt__ int
-  caps_setValue( capsObj object, int nrow, int ncol, const void *data );
+  caps_setValue( capsObj object, enum capsvType vtype, int nrow, int ncol,
+                 /*@null@*/ const void *data, /*@null@*/ const int *partial,
+                 /*@null@*/ const char *units, int *nErr, capsErrs **errors );
   
 __ProtoExt__ int
-  caps_getLimits( const capsObj object, const void **limits );
+  caps_getLimits( const capsObj object, enum capsvType *vtype,
+                  const void **limits, const char **units );
   
 __ProtoExt__ int
-  caps_setLimits( capsObj object, void *limits );
+  caps_setLimits( capsObj object, enum capsvType vtype,
+                  void *limits, const char *units );
   
 __ProtoExt__ int
-  caps_getValueShape( const capsObj object, int *dim, enum capsFixed *lfix,
-                      enum capsFixed *sfix, enum capsNull *ntype,
-                      int *nrow, int *ncol );
+  caps_getValueProps( const capsObj object, int *dim, int *pmtr,
+                      enum capsFixed *lfix, enum capsFixed *sfix,
+                      enum capsNull *ntype );
 
 __ProtoExt__ int
-  caps_setValueShape( capsObj object, int dim, enum capsFixed lfixed,
+  caps_setValueProps( capsObj object, int dim, enum capsFixed lfixed,
                       enum capsFixed sfixed, enum capsNull ntype );
   
 __ProtoExt__ int
-  caps_convert( const capsObj object, const char *units, double inp,
-                double *outp );
+  caps_convertValue( const capsObj value, double inVal, const char *inUnit,
+                     double *outVal );
 
 __ProtoExt__ int
   caps_transferValues( capsObj source, enum capstMethod method,
@@ -271,8 +277,28 @@ __ProtoExt__ int
 
 __ProtoExt__ int
   caps_getDot( const capsObj value, const char *name, int *len, int *rank,
-               double **dot );
+               double **dot, int *nErr, capsErrs **errors );
 
+/* units */
+
+__ProtoExt__ int
+  caps_convert( const char *inUnit, double inVal,
+                const char *outUnit, double *outVal );
+
+__ProtoExt__ int
+caps_unitMultiply(const char *inUnits1, const char *inUnits2,
+                  char **outUnits);
+
+__ProtoExt__ int
+caps_unitDivide(const char *inUnits1, const char *inUnits2,
+                char **outUnits);
+
+__ProtoExt__ int
+caps_unitInvert(const char *inUnit, char **outUnits);
+
+__ProtoExt__ int
+caps_unitRaise(const char  *inUnit, const int power,
+               char **outUnits);
 
 /* others */
   

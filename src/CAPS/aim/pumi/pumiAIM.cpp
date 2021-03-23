@@ -219,6 +219,9 @@ static int destroy_aimStorage(int iIndex) {
 /* ********************** Exposed AIM Functions ***************************** */
 
 extern "C" int
+// aimInitialize( int inst, /*@null@*/ const char *unitSys,
+//                void **instStore, int *maj, int *min, int *nIn, int *nOut,
+//                int *nFields, char ***fnames, int **ranks )
 aimInitialize(int ngIn, capsValue *gIn, int *qeFlag, const char *unitSys,
               int *nIn, int *nOut, int *nFields, char ***fnames, int **ranks)
 {   
@@ -287,6 +290,8 @@ aimInitialize(int ngIn, capsValue *gIn, int *qeFlag, const char *unitSys,
 
 
 extern "C" int
+// aimInputs( /*@null@*/ void *instStore, void *aimInfo, int index, char **ainame,
+//            capsValue *defval )
 aimInputs(int iIndex, void *aimInfo, int index, char **ainame, capsValue *defval)
 {
     /*! \page aimInputsPUMI AIM Inputs
@@ -405,6 +410,7 @@ aimData(int iIndex, const char *name, enum capsvType *vtype, int *rank, int *nro
 }
 
 extern "C" int
+// aimPreAnalysis( void *instStore, void *aimInfo, /*@null@*/ capsValue *inputs )
 aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValue *aimInputs,
         capsErrs **errs)
 {
@@ -1079,6 +1085,8 @@ aimPreAnalysis(int iIndex, void *aimInfo, const char *analysisPath, capsValue *a
 }
 
 extern "C" int
+// aimOutputs( /*@null@*/ void *instStore, void *aimInfo, int index, char **aoname,
+//             capsValue *form )
 aimOutputs(/*@unused@*/ int iIndex, void *aimInfo,  int index, char **aoname, capsValue *form)
 {
     /*! \page aimOutputsPUMI AIM Outputs
@@ -1099,6 +1107,7 @@ aimOutputs(/*@unused@*/ int iIndex, void *aimInfo,  int index, char **aoname, ca
 }
 
 extern "C" int
+// aimCalcOutput( void *instStore, void *aimInfo, int index, capsValue *val )
 aimCalcOutput(int iIndex, void *aimInfo, const char *analysisPath, int index, capsValue *val,
         capsErrs **errors)
 {
@@ -1161,6 +1170,7 @@ aimCalcOutput(int iIndex, void *aimInfo, const char *analysisPath, int index, ca
 }
 
 extern "C" void
+// aimCleanup( void *instStore )
 aimCleanup()
 {
     int iIndex; //Indexing
@@ -1201,8 +1211,6 @@ aimCleanup()
  * when CAPS terminates
  */
 
-
-
 extern "C" int
 aimFreeDiscr(capsDiscr *discr)
 {
@@ -1234,6 +1242,8 @@ aimDiscr(char *transferName, capsDiscr *discr)
 
 
 extern "C" int
+// aimLocateElement( capsDiscr *discr, double *params, double *param,
+//                   int *bIndex, int *eIndex, double *bary )
 aimLocateElement(/*@unused@*/ capsDiscr *discr, /*@unused@*/ double *params,
         /*@unused@*/ double *param,    /*@unused@*/ int *eIndex,
         /*@unused@*/ double *bary)
@@ -1259,6 +1269,8 @@ aimTransfer(/*@unused@*/ capsDiscr *discr, /*@unused@*/ const char *name,
 }
 
 extern "C" int
+// aimInterpolation( capsDiscr *discr, const char *name, int bIndex, int eIndex,
+//                   double *bary, int rank, double *data, double *result )
 aimInterpolation(/*@unused@*/ capsDiscr *discr, /*@unused@*/ const char *name,
         /*@unused@*/ int eIndex, /*@unused@*/ double *bary,
         /*@unused@*/ int rank, /*@unused@*/ double *data,
@@ -1274,6 +1286,8 @@ aimInterpolation(/*@unused@*/ capsDiscr *discr, /*@unused@*/ const char *name,
 
 
 extern "C" int
+// aimInterpolateBar( capsDiscr *discr, const char *name, int bIndex, int eIndex,
+                  //  double *bary, int rank, double *r_bar, double *d_bar )
 aimInterpolateBar(/*@unused@*/ capsDiscr *discr, /*@unused@*/ const char *name,
         /*@unused@*/ int eIndex, /*@unused@*/ double *bary,
         /*@unused@*/ int rank, /*@unused@*/ double *r_bar,
@@ -1289,6 +1303,8 @@ aimInterpolateBar(/*@unused@*/ capsDiscr *discr, /*@unused@*/ const char *name,
 
 
 extern "C" int
+// aimIntegration( capsDiscr *discr, const char *name, int bIndex, int eIndex,
+//                int rank, double *data, double *result )
 aimIntegration(/*@unused@*/ capsDiscr *discr, /*@unused@*/ const char *name,
         /*@unused@*/ int eIndex, /*@unused@*/ int rank,
         /*@unused@*/ /*@null@*/ double *data, /*@unused@*/ double *result)
@@ -1303,6 +1319,8 @@ aimIntegration(/*@unused@*/ capsDiscr *discr, /*@unused@*/ const char *name,
 
 
 extern "C" int
+// aimIntegrateBar( capsDiscr *discr, const char *name, int bIndex, int eIndex,
+//                  int rank, double *r_bar, double *d_bar )
 aimIntegrateBar(/*@unused@*/ capsDiscr *discr, /*@unused@*/ const char *name,
         /*@unused@*/ int eIndex, /*@unused@*/ int rank,
         /*@unused@*/ double *r_bar, /*@unused@*/ double *d_bar)
@@ -1314,3 +1332,7 @@ aimIntegrateBar(/*@unused@*/ capsDiscr *discr, /*@unused@*/ const char *name,
 
     return CAPS_SUCCESS;
 }
+
+// extern "C" int
+// aimBackdoor( void *instStore, void *aimInfo, const char *JSONin,
+//              char **JSONout )

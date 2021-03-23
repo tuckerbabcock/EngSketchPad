@@ -5,7 +5,7 @@
  *
  *             General Object Header
  *
- *      Copyright 2014-2020, Massachusetts Institute of Technology
+ *      Copyright 2014-2021, Massachusetts Institute of Technology
  *      Licensed under The GNU Lesser General Public License, version 2.1
  *      See http://www.opensource.org/licenses/lgpl-2.1.php
  *
@@ -29,7 +29,6 @@
 #else
 #include <stdbool.h>
 #define CAPSLONG unsigned long
-#include <dlfcn.h>
 #define DLL void *
 #endif
 
@@ -47,9 +46,10 @@ enum capsoType   {BODIES=-2, ATTRIBUTES, UNUSED, PROBLEM, VALUE, ANALYSIS,
 enum capssType   {NONE, STATIC, PARAMETRIC, GEOMETRYIN, GEOMETRYOUT, BRANCH,
                   PARAMETER, USER, ANALYSISIN, ANALYSISOUT, CONNECTED,
                   UNCONNECTED};
-enum capseType   {CONTINUATION=-1, CINFO, CWARN, CERROR};
+enum capseType   {CONTINUATION=-1, CINFO, CWARN, CERROR, CSTAT};
 enum capsBoolean {False=false, True=true};
-enum capsvType   {Boolean, Integer, Double, String, Tuple, Value, DoubleDot};
+enum capsvType   {Boolean, Integer, Double, String, Tuple, Pointer, DoubleDot,
+                  Value};
 enum capsvDim    {Scalar, Vector, Array2D};
 enum capsFixed   {Change, Fixed};
 enum capsNull    {NotAllowed, NotNull, IsNull, IsPartial};
@@ -141,7 +141,6 @@ typedef struct {
  * positions.
  */
 typedef struct {
-  int   bIndex;                 /* the body index (bias 1) */
   int   tIndex;                 /* the element type index (bias 1) */
   int   eIndex;                 /* element owning index -- dim 1 Edge, 2 Face */
   int   *gIndices;              /* local indices (bias 1) geom ref positions,
@@ -156,34 +155,53 @@ typedef struct {
 
 
 /*
- * defines a discretized collection of Elements
+ * defines a discretized collection of Elements for a body
  *
  * specifies the connectivity based on a collection of Element Types and the
- * elements referencing the types. nPoints refers to the number of indices
- * referenced by the geometric positions in the element which may be different
- * from nVerts which is the number of positions used for the data representation
- * in the element. For simple nodal or isoparametric discretizations, nVerts is
- * zero and verts is set to NULL.
+ * elements referencing the types.
  */
 typedef struct {
-  int         dim;              /* dimensionality [1-3] */
-  int         instance;         /* analysis instance */
-  /*@dependent@*/
-  void        *aInfo;           /* AIM info */
-                                /* below handled by the AIMs: */
-  int         nPoints;          /* number of entries in the geom positions */
-  int         *mapping;         /* tessellation indices to this local space
-                                   2*nPoints in len (body, global tess index) */
-  int         nVerts;           /* number data ref positions or unconnected */
-  double      *verts;           /* data ref positions -- NULL if same as geom */
-  int         *celem;           /* element containing vert or NULL */
-  int         nTypes;           /* number of Element Types */
-  capsEleType *types;           /* the Element Types (nTypes in length) */
+  ego         tess;             /* tessellation object associated with the
+                                   discretization */
   int         nElems;           /* number of Elements */
   capsElement *elems;           /* the Elements (nElems in length) */
-  int         nDtris;           /* number of triangles to plot data */
-  int         *dtris;           /* NULL for NULL verts -- indices into verts */
-  void        *ptrm;            /* pointer for optional AIM use */
+  int         *gIndices;        /* memory storage for elemental gIndices */
+  int         *dIndices;        /* memory storage for elemental dIndices */
+  int         *poly;            /* memory storage for elemental poly */
+  int         globalOffset;     /* tessellation global index offset across bodies */
+} capsBodyDiscr;
+
+
+/*
+ * defines a discretized collection of Bodies
+ *
+ * specifies the dimensionality, vertices, Element Types, and body discretizations.
+ *
+ * nPoints refers to the number of indices referenced by the geometric positions
+ * in the element which may be different from nVerts which is the number of
+ * positions used for the data representation in the element. For simple nodal
+ * or isoparametric discretizations, nVerts is zero and verts is set to NULL.
+ */
+typedef struct {
+  int           dim;            /* dimensionality [1-3] */
+/*@dependent@*/
+  void          *instStore;     /* analysis instance storage */
+/*@dependent@*/
+  void          *aInfo;         /* AIM info */
+                                /* below handled by the AIMs: */
+  int           nVerts;         /* number data ref positions or unconnected */
+  double        *verts;         /* data ref positions -- NULL if same as geom */
+  int           *celem;         /* 2*nVerts (body, element) containing vert or NULL */
+  int           nDtris;         /* number of triangles to plot data */
+  int           *dtris;         /* NULL for NULL verts -- indices into verts */
+  int           nPoints;        /* number of entries in the geom positions */
+  int           nTypes;         /* number of Element Types */
+  capsEleType   *types;         /* the Element Types (nTypes in length) */
+  int           nBodys;         /* number of Body discretizations */
+  capsBodyDiscr *bodys;         /* the Body discretizations (nBodys in length) */
+  int           *tessGlobal;    /* tessellation indices to this local space
+                                   2*nPoints in len (body index, global tess index) */
+  void          *ptrm;          /* pointer for optional AIM use */
 } capsDiscr;
 
 
@@ -209,7 +227,7 @@ typedef struct capsObject* capsObj;
  */
 typedef struct {
   capsObject *errObj;           /* the offending object pointer -- not AIM */
-  int        eType;             /* Error Type: INFO, WARNING, ERROR */
+  int        eType;             /* Error Type: INFO, WARNING, ERROR, STATUS */
   int        index;             /* index to offending struct -- AIM */
   int        nLines;            /* the number of error strings */
   char       **lines;           /* the error strings */
@@ -277,31 +295,36 @@ typedef struct {
  * AIM declarations
  */
 
-typedef int  (*aimI) (int, /*@null@*/ capsValue *, int *, /*@null@*/ const char *,
-                      int *, int *, int *, char ***, int **);
+typedef int  (*aimI) (int, /*@null@*/ const char *, /*@null@*/ void **, int *,
+                      int *, int *, int *, int *, char ***, int **);
 typedef int  (*aimD) (char *, capsDiscr *);
-typedef int  (*aimF) (/*@null@*/ capsDiscr *);
-typedef int  (*aimL) (capsDiscr *, double *, double *, int *, double *);
-typedef int  (*aimIn)(int, /*@null@*/ void *, int, char **, capsValue *);
-typedef int  (*aimU) (int, void *, const char *, const char *, enum capsdMethod);
-typedef int  (*aimA) (int, void *, const char *, /*@null@*/ capsValue *,
-                      capsErrs **);
-typedef int  (*aimPo)(int, void *, const char *, capsErrs **);
-typedef int  (*aimO) (int, /*@null@*/ void *, int, char **, capsValue *);
-typedef int  (*aimC) (int, void *, const char *, int, capsValue *, capsErrs **);
+typedef void (*aimF) (void *);
+typedef int  (*aimL) (capsDiscr *, double *, double *, int *, int *, double *);
+typedef int  (*aimIn)(/*@null@*/ void *, /*@null@*/ void *, int, char **,
+                      capsValue *);
+typedef int  (*aimU) (/*@null@*/ void *, void *, const char *, const char *,
+                      enum capsdMethod);
+typedef int  (*aimA) (/*@null@*/ void *, void *, /*@null@*/ capsValue *);
+typedef int  (*aimEx)(/*@null@*/ void *, void *, int *);
+typedef int  (*aimPo)(/*@null@*/ void *, void *, int, /*@null@*/ capsValue *);
+typedef int  (*aimO) (/*@null@*/ void *, /*@null@*/ void *, int, char **,
+                      capsValue *);
+typedef int  (*aimC) (/*@null@*/ void *, void *, int, capsValue *);
 typedef int  (*aimT) (capsDiscr *, const char *, int, int, double *, char **);
-typedef int  (*aimP) (capsDiscr *, const char *, int, double *, int, double *,
+typedef int  (*aimP) (capsDiscr *, const char *, int, int, double *, int, double *,
                       double *);
-typedef int  (*aimG) (capsDiscr *, const char *, int, int, /*@null@*/ double *,
+typedef int  (*aimG) (capsDiscr *, const char *, int, int, int, /*@null@*/ double *,
                       double *);
-typedef int  (*aimDa)(int, const char *, enum capsvType *, int *, int *,
-                      int *, void **, char **);
-typedef int  (*aimBd)(int, void *, const char *, char **);
-typedef void (*aimCU)(void);
+typedef int  (*aimDa)(/*@null@*/ void *, void *, const char *, enum capsvType *,
+                      int *, int *, int *, void **, char **);
+typedef int  (*aimS) (/*@null@*/ void *, void *, const char *, int, int);
+typedef int  (*aimBd)(/*@null@*/ void *, void *, const char *, char **);
+typedef void (*aimCU)(void *);
 
 typedef struct {
   int   aim_nAnal;
   char *aimName[MAXANAL];
+  int   aim_nInst[MAXANAL];
   DLL   aimDLL[MAXANAL];
   aimI  aimInit[MAXANAL];
   aimD  aimDiscr[MAXANAL];
@@ -310,6 +333,8 @@ typedef struct {
   aimIn aimInput[MAXANAL];
   aimU  aimUsesDS[MAXANAL];
   aimA  aimPAnal[MAXANAL];
+  aimEx aimExec[MAXANAL];
+  aimEx aimCheck[MAXANAL];
   aimPo aimPost[MAXANAL];
   aimO  aimOutput[MAXANAL];
   aimC  aimCalc[MAXANAL];
@@ -318,7 +343,7 @@ typedef struct {
   aimP  aimIntrpBar[MAXANAL];
   aimG  aimIntgr[MAXANAL];
   aimG  aimIntgrBar[MAXANAL];
-  aimDa aimData[MAXANAL];
+  aimS  aimSensit[MAXANAL];
   aimBd aimBdoor[MAXANAL];
   aimCU aimClean[MAXANAL];
 } aimContext;
@@ -380,11 +405,12 @@ typedef struct {
  */
 typedef struct {
   int         magicnumber;     /* the magic number */
+  int         instance;        /* instance index */
   int         pIndex;          /* the OpenCSM parameter index - sensitivities */
   int         irow;            /* the parameter row index */
   int         icol;            /* the parameter column index */
   capsProblem *problem;        /* problem structure */
-  /*@dependent@*/
+/*@dependent@*/
   void        *analysis;       /* specific analysis structure */
   capsErrs    errs;            /* accumulate the AIMs error/warnings */
 } aimInfo;
@@ -397,9 +423,11 @@ typedef struct {
   char       *loadName;         /* so/DLL name */
   char       *path;             /* filesystem path to read/write files */
   char       *unitSys;          /* the unit system used */
-  int        instance;          /* this objects index into the so/DLL */
+  int        major;             /* the major version */
+  int        minor;             /* the minor version */
+  void       *instStore;        /* the AIM's instance storage */
   int        eFlag;             /* execution flag - 1 AIM executes analysis */
-  /*@null@*/
+/*@null@*/
   char       *intents;          /* the intents requested for the instance
                                    NULL - all bodies given to the AIM */
   aimInfo    info;              /* data to pass to AIMs to connect with CAPS */
@@ -414,6 +442,8 @@ typedef struct {
   capsObject **parents;         /* list of Parent Analysis objects */
   int        nBody;             /* number of Bodies for this Analysis */
   ego        *bodies;           /* the bodies */
+  int        nTess;             /* number of tessellations for this Analysis */
+  ego        *tess;             /* the tessellations */
   capsOwn    pre;               /* preAnalysis time/date stamp */
 } capsAnalysis;
 
