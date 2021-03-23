@@ -168,8 +168,6 @@ void createEdge(apf::Mesh2* m, apf::MeshEntity* a, apf::MeshEntity* b,
         /// if two mesh verts belong to a mesh edge, and they're classified on
         /// model entities with the same dimension, that entity must be the
         /// same.
-        std::cout << "gent dim: " << a_gent_dim << "\n";
-        std::cout << a_gent_tag << ", " << b_gent_tag << "\n";
         if (a_gent_tag != b_gent_tag)
             gent = f_gent;
         else
@@ -380,6 +378,8 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
     ego *bodies = nullptr;
     int numBody = 0;
 
+    printf("\nGenerating PUMI mesh.....\n");
+
     // Get AIM bodies
     status = aim_getBodies(aimInfo, &intents, &numBody, &bodies);
     if (status != CAPS_SUCCESS) return status;
@@ -526,9 +526,7 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
         if (status != EGADS_SUCCESS) return status;
         for (int j = 0; j < len; ++j) {
             EG_localToGlobal(tess, -edgeID, j+1, &globalID);
-            printf("global id: %d\n", globalID);
             // get the PUMI mesh vertex corresponding to the globalID
-            // ment = apf::getMdsEntity(pumiMesh, 0, globalID);
             ment = verts[globalID-1];
             
             // set the model entity and parametric values
@@ -572,15 +570,9 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
         gent = pumiMesh->findModelEntity(2, faceID);
         // construct triangles
         for (int j = 0; j < ntri; ++j) {
-            std::cout << "j: " << j << "\n";
             EG_localToGlobal(tess, faceID, ptris[3*j], &aGlobalID);
             EG_localToGlobal(tess, faceID, ptris[3*j+1], &bGlobalID);
             EG_localToGlobal(tess, faceID, ptris[3*j+2], &cGlobalID);
-
-            std::cout << "tris: " << ptris[3*j] << ", " << ptris[3*j+1] << ", " << ptris[3*j+2] << "\n";
-            // a = apf::getMdsEntity(pumiMesh, 0, aGlobalID);
-            // b = apf::getMdsEntity(pumiMesh, 0, bGlobalID);
-            // c = apf::getMdsEntity(pumiMesh, 0, cGlobalID);
 
             a = verts[aGlobalID-1];
             b = verts[bGlobalID-1];
@@ -635,7 +627,6 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
                 }
             }             
 
-            // std::cout << "i: " << i << std::endl;
             apf::MeshEntity *tet = apf::buildElement(pumiMesh, gent,
                                                      apf::Mesh::TET,
                                                      tet_verts);
@@ -673,7 +664,6 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
                 {
                     apf::ModelEntity *tet_me = pumiMesh->toModel(tets[i]);
                     int tet_me_tag = pumiMesh->getModelTag(tet_me);
-                    std::cout << tet_me_tag << std::endl;
                     adj_graph[0][tet_me_tag-1].insert(vtx_me_tag); // 0-3
                     adj_graph[3][vtx_me_tag-1].insert(tet_me_tag); // 3-0
                 }
@@ -749,8 +739,11 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
     }
 
     gmi_egads_init_adjacency(pumiModel, c_graph);
+    printf("Done generating PUMI mesh!\n");
 
+    printf("\nVerifying PUMI mesh.....\n");
     pumiMesh->verify();
+    printf("PUMI mesh verified!\n");
 
     int elementOrder = pumiInstance->meshInput.pumiInput.elementOrder;
     if (elementOrder > 1) {
@@ -769,11 +762,14 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
             /// write .smb mesh file
             std::string smb_filename(filename);
             smb_filename += ".smb";
+            printf("\nWriting native PUMI mesh: %s....\n", smb_filename.c_str());
             pumiMesh->writeNative(smb_filename.c_str());
+            printf("Finished writing native PUMI mesh\n");
 
             /// write native tesselation
             std::string tess_filename(filename);
             tess_filename += ".eto";
+            printf("\nWriting native tesselation: %s....\n", tess_filename.c_str());
 
             /// remove existing tesselation file if it exists
             {
@@ -784,10 +780,12 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
             status = EG_saveTess(tess, tess_filename.c_str());
             if (status != EGADS_SUCCESS)
                 printf(" PUMI AIM Warning: EG_saveTess failed with status: %d!\n", status);
+            printf("Finished writing native tesselation\n");
 
             /// write EGADS model file
             std::string model_filename(filename);
             model_filename += ".egads";
+            printf("\nWriting EGADS model file: %s....\n", model_filename.c_str());
 
             // Get context
             ego context;
@@ -834,10 +832,14 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
             }
             }
             EG_free(bodyCopy);
+            printf("Finished writing EGADS model\n");
+
 
             /// write adjacency table
             std::string adj_filename(filename);
             adj_filename += ".egads.sup";
+            
+            printf("\nWriting supplementary EGADS model file: %s....\n", adj_filename.c_str());
 
             /// Binary
             std::ofstream adj_file(adj_filename.c_str(),
@@ -877,9 +879,10 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
                 }
             }
             adj_file.close();
-
+            printf("Finished writing supplementary EGADS model\n\n");
 
         } else if (strcasecmp(pumiInstance->meshInput.outputFormat, "VTK") == 0) {
+            printf("\nWriting VTK file: %s....\n", filename);
             if (elementOrder > 1) {
                 if (mesh->meshType == VolumeMesh)
                     crv::writeCurvedVtuFiles(pumiMesh, apf::Mesh::TET, 10, filename);
@@ -889,6 +892,7 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
             } else {
                 apf::writeVtkFiles(filename, pumiMesh);
             }
+            printf("Finished writing VTK file\n\n");
         }
         if (filename != NULL) EG_free(filename);
     }
