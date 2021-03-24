@@ -1,0 +1,8 @@
+# Ignore everything except for specific whitelist 
+*
+!.gitignore
+!/c3dio/*
+!/libCart3D/*
+!/winhelpers/*
+!/xddm/*
+!/nmb.h
