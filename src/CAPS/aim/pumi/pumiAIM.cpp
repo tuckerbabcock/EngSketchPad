@@ -67,7 +67,7 @@
 
 /** \brief initialize a gmi_model with an EGADS body and number of regions */
 extern "C"
-struct gmi_model* gmi_egads_init(struct egObject *body, int numRegions);
+struct gmi_model* gmi_egads_init(struct egObject *body, int numRegions, ego context);
 
 /** \brief initialize the model adjacency table for 3D regions */
 extern "C" 
@@ -238,6 +238,7 @@ aimInitialize(int inst, /*@unused@*/ const char *unitSys,
         MPI_Init(NULL, NULL);
         PCU_Comm_Init();
     }
+    gmi_egads_start();
 
     int status; // Function status return
 
@@ -478,7 +479,12 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
 
     /// initialize PUMI EGADS model
     gmi_register_egads();
-    struct gmi_model *pumiModel = gmi_egads_init(body, nregions);
+    ego context;
+    status = EG_getContext(body, &context);
+    if (status != EGADS_SUCCESS)
+        printf("PUMI AIM Warning: EG_getContext failed with status: %d!\n", status);
+
+    struct gmi_model *pumiModel = gmi_egads_init(body, nregions, context);
 
     int nnode = pumiModel->n[0];
     int nedge = pumiModel->n[1];
@@ -1037,6 +1043,8 @@ aimCleanup( void *instStore )
 
     if (pumiInstance != NULL) EG_free(pumiInstance);
     pumiInstance = NULL;
+
+    gmi_egads_stop();
 
     int mpi_flag;
     MPI_Finalized(&mpi_flag);
