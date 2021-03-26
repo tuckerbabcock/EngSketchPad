@@ -531,7 +531,12 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
         status = EG_getTessEdge(tess, edgeID, &len, &pxyz, &pt);
         if (status != EGADS_SUCCESS) return status;
         for (int j = 0; j < len; ++j) {
-            EG_localToGlobal(tess, -edgeID, j+1, &globalID);
+            status = EG_localToGlobal(tess, -edgeID, j+1, &globalID);
+            if (status == EGADS_DEGEN)
+                break; // skip degenerate edges
+            else if (status != EGADS_SUCCESS) 
+                return status;
+   
             // get the PUMI mesh vertex corresponding to the globalID
             ment = verts[globalID-1];
             

@@ -25,18 +25,18 @@ endif
 
 DEFINE = -DREVISION=$(CASREV)
 CXX    = clang++ -m64 -g $(ESPFLAGS)
-CPPOPT = -O -fPIC -DOCC_CONVERT_SIGNALS -DCSFDB -DHAVE_WOK_CONFIG_H -DHAVE_CONFIG_H  -DNDEBUG -DNo_Exception -D_OCC64 -Wall -Wno-write-strings -Wno-dangling-else -Wno-unused-result $(CPDS)
+CPPOPT = -O2 -fPIC -DOCC_CONVERT_SIGNALS -DCSFDB -DHAVE_WOK_CONFIG_H -DHAVE_CONFIG_H  -DNDEBUG -DNo_Exception -D_OCC64 -Wall -Wno-write-strings -Wno-dangling-else -Wno-unused-result $(CPDS)
 CC     = clang -m64 -g $(ESPFLAGS)
-COPTS  = -O -Wall -Wno-dangling-else -Wno-unused-result
-OCOPT  = -O -Wall -Wno-dangling-else -Wno-unused-result
+COPTS  = -O2 -Wall -Wno-dangling-else -Wno-unused-result
+OCOPT  = -O2 -Wall -Wno-dangling-else -Wno-unused-result
 ifeq ($(EFCOMP),gfortran)
 FCOMP  = gfortran -m64 -g $(ESPFFLAGS)
-FOPTS  = -O -frecursive -fcray-pointer
+FOPTS  = -O2 -frecursive -fcray-pointer
 FSOFLG = -bundle -undefined error
 endif
 ifeq ($(EFCOMP),ifort)
 FCOMP  = ifort -m64 -g -traceback
-FOPTS  = -O -recursive
+FOPTS  = -O2 -recursive
 FSOFLG = -nofor-main -Wl,-bundle,-undefined,error
 endif
 LOPTS  = rs

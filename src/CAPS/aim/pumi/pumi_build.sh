@@ -6,7 +6,11 @@ PUMI_DIR=$2
 if [[ -n "$EGADS_DIR" ]]; then
   if [[ -n "$PUMI_DIR" ]]; then
 
-    cmake "$PUMI_DIR/build" -DENABLE_EGADS=ON -DEGADS_DIR="$EGADS_DIR"
+    cmake "$PUMI_DIR/build" \
+      -DENABLE_EGADS=ON \
+      -DEGADS_DIR="$EGADS_DIR" \
+      -DSCOREC_CXX_OPTIMIZE="YES"
+
     cmake --build "$PUMI_DIR/build" --target install
 
   else
