@@ -67,7 +67,7 @@
 
 /** \brief initialize a gmi_model with an EGADS body and number of regions */
 extern "C"
-struct gmi_model* gmi_egads_init(struct egObject *body, int numRegions, ego context);
+struct gmi_model* gmi_egads_init(size_t nbytes, char *stream, int nregions);
 
 /** \brief initialize the model adjacency table for 3D regions */
 extern "C" 
@@ -451,10 +451,10 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
         return EGADS_WRITERR;
     }
 
-    ego body;
+    ego tessBody;
     int state, npts;
     // get the body from tessellation
-    status = EG_statusTessBody(tess, &body, &state, &npts);
+    status = EG_statusTessBody(tess, &tessBody, &state, &npts);
     if (status != EGADS_SUCCESS) {
 #ifdef DEBUG
         printf(" EGADS Warning: Tessellation is Open (EG_saveTess)!\n");
@@ -477,14 +477,69 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
         nregions = countRegions(&(mesh->element[tetStartIndex]), numTets);
     }
 
+    /// allocate and copy body to export to stream
+    size_t nbytes;
+    char *stream;
+    {
+        ego context;
+        status = EG_getContext(tessBody, &context);
+        if (status != EGADS_SUCCESS)
+        {
+            printf(" PUMI AIM Warning: EG_getContext failed with status: %d!\n", status);
+            return status;
+        }
+
+        ego *body = (ego *) EG_alloc(sizeof(ego));
+        if (body == NULL) {
+            status = EGADS_MALLOC;
+            if (status != EGADS_SUCCESS)
+            {
+                printf(" PUMI AIM Warning: EG_alloc failed with status: %d!\n", status);
+                return status;
+            }
+        }
+
+        *body = NULL;
+        status = EG_copyObject(tessBody, NULL, body);
+        if (status != EGADS_SUCCESS)
+        {
+            printf(" EG_copyObject failed with status: %d!\n", status);
+            return status;
+        }
+
+        // Create a model
+        ego model;
+        status = EG_makeTopology(context, NULL, MODEL, 0, NULL, 
+                                 numBody, body, NULL, &model);
+        if (status != EGADS_SUCCESS)
+        {
+            printf(" PUMI AIM Warning: EG_makeTopology failed with status: %d!\n", status);
+            return status;
+        }
+
+        status = EG_exportModel(model, &nbytes, &stream);
+        if (status != EGADS_SUCCESS)
+        {
+            printf(" PUMI AIM Warning: EG_exportModel failed with status: %d!\n", status);
+            return status;
+        }
+        // delete the model
+        if (model != NULL) {
+            EG_deleteObject(model);
+        }
+        else {
+            if (body != NULL) {
+                if (*body != NULL) {
+                    (void) EG_deleteObject(*body);
+                }
+            }
+        }
+        EG_free(body);
+    }
+
     /// initialize PUMI EGADS model
     gmi_register_egads();
-    ego context;
-    status = EG_getContext(body, &context);
-    if (status != EGADS_SUCCESS)
-        printf("PUMI AIM Warning: EG_getContext failed with status: %d!\n", status);
-
-    struct gmi_model *pumiModel = gmi_egads_init(body, nregions, context);
+    struct gmi_model *pumiModel = gmi_egads_init(nbytes, stream, nregions);
 
     int nnode = pumiModel->n[0];
     int nedge = pumiModel->n[1];
@@ -793,34 +848,59 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
                 printf(" PUMI AIM Warning: EG_saveTess failed with status: %d!\n", status);
             printf("Finished writing native tesselation\n");
 
+            /// create copy of body in new model for saving
+            ego model;
+            ego *body;
+            size_t nbytes;
+            char *stream;
+            {
+                ego context;
+                status = EG_getContext(tessBody, &context);
+                if (status != EGADS_SUCCESS)
+                {
+                    printf(" PUMI AIM Warning: EG_getContext failed with status: %d!\n", status);
+                    return status;
+                }
+
+                body = (ego *) EG_alloc(sizeof(ego));
+                if (body == NULL) {
+                    status = EGADS_MALLOC;
+                    if (status != EGADS_SUCCESS)
+                    {
+                        printf(" PUMI AIM Warning: EG_alloc failed with status: %d!\n", status);
+                        return status;
+                    }
+                }
+
+                *body = NULL;
+                status = EG_copyObject(tessBody, NULL, body);
+                if (status != EGADS_SUCCESS)
+                {
+                    printf(" EG_copyObject failed with status: %d!\n", status);
+                    return status;
+                }
+
+                // Create a model
+                status = EG_makeTopology(context, NULL, MODEL, 0, NULL, 
+                                         numBody, body, NULL, &model);
+                if (status != EGADS_SUCCESS)
+                {
+                    printf(" PUMI AIM Warning: EG_makeTopology failed with status: %d!\n", status);
+                    return status;
+                }
+
+                status = EG_exportModel(model, &nbytes, &stream);
+                if (status != EGADS_SUCCESS)
+                {
+                    printf(" PUMI AIM Warning: EG_exportModel failed with status: %d!\n", status);
+                    return status;
+                }
+            }
+
             /// write EGADS model file
             std::string model_filename(filename);
             model_filename += ".egads";
             printf("\nWriting EGADS model file: %s....\n", model_filename.c_str());
-
-            // Get context
-            ego context;
-            status = EG_getContext(body, &context);
-            if (status != EGADS_SUCCESS)
-                printf(" PUMI AIM Warning: EG_getContext failed with status: %d!\n", status);
-
-            ego *bodyCopy = (ego *) EG_alloc(sizeof(ego));
-            if (bodyCopy == NULL) {
-                status = EGADS_MALLOC;
-                if (status != EGADS_SUCCESS)
-                    printf(" PUMI AIM Warning: EG_alloc failed with status: %d!\n", status);
-            }
-
-            *bodyCopy = NULL;
-
-            status = EG_copyObject(body, NULL, bodyCopy);
-            // if (status != EGADS_SUCCESS) goto cleanup;
-
-            // Create a model
-            ego model;
-            status = EG_makeTopology(context, NULL, MODEL, 0, NULL, numBody, bodyCopy, NULL, &model);
-            if (status != EGADS_SUCCESS)
-                printf(" PUMI AIM Warning: EG_makeTopology failed with status: %d!\n", status);
 
             /// remove existing model file if it exists
             {
@@ -831,24 +911,43 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
             status = EG_saveModel(model, model_filename.c_str());
             if (status != EGADS_SUCCESS)
                 printf(" PUMI AIM Warning: EG_saveModel failed with status: %d!\n", status);
+            printf("Finished writing EGADS model\n");
+
+            /// write EGADSlite model file
+            std::string litemodel_filename(filename);
+            litemodel_filename += ".egadslite";
+            printf("\nWriting EGADSlite model file: %s....\n", litemodel_filename.c_str());
+
+            /// remove existing lite model file if it exists
+            {
+                std::ifstream model_file(litemodel_filename.c_str());
+                if (model_file.good())
+                    std::remove(litemodel_filename.c_str());
+            }
+            {                
+                FILE *fp = fopen(litemodel_filename.c_str(), "wb");
+                fwrite(stream, sizeof(char), nbytes, fp);
+                fclose(fp);
+            }
+            EG_free(stream);
 
             // delete the model
             if (model != NULL) {
-            EG_deleteObject(model);
-            } else {
-            if (bodyCopy != NULL) {
-                if (*bodyCopy != NULL)  {
-                    (void) EG_deleteObject(*bodyCopy);
+                EG_deleteObject(model);
+            }
+            else {
+                if (body != NULL) {
+                    if (*body != NULL) {
+                        (void) EG_deleteObject(*body);
+                    }
                 }
             }
-            }
-            EG_free(bodyCopy);
-            printf("Finished writing EGADS model\n");
-
+            EG_free(body);
+            printf("Finished writing EGADSlite model\n");
 
             /// write adjacency table
             std::string adj_filename(filename);
-            adj_filename += ".egads.sup";
+            adj_filename += ".egadslite.sup";
             
             printf("\nWriting supplementary EGADS model file: %s....\n", adj_filename.c_str());
 

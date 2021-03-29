@@ -9,6 +9,7 @@ if [[ -n "$EGADS_DIR" ]]; then
     cmake "$PUMI_DIR/build" \
       -DENABLE_EGADS=ON \
       -DEGADS_DIR="$EGADS_DIR" \
+      -DBUILD_SHARED_LIBS=ON \
       -DSCOREC_CXX_OPTIMIZE="YES"
 
     cmake --build "$PUMI_DIR/build" --target install
