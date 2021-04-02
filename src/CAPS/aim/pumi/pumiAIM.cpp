@@ -65,9 +65,9 @@
 #include "meshUtils.h"  // Collection of helper functions for meshing
 #include "miscUtils.h"  // Collection of helper functions for miscellaneous use
 
-/** \brief initialize a gmi_model with an EGADS body and number of regions */
+/** \brief initialize a gmi_model with filestream and number of regions */
 extern "C"
-struct gmi_model* gmi_egads_init(size_t nbytes, char *stream, int nregions);
+struct gmi_model* gmi_egadslite_init(size_t nbytes, char *stream, int nregions);
 
 /** \brief initialize the model adjacency table for 3D regions */
 extern "C" 
@@ -539,7 +539,7 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
 
     /// initialize PUMI EGADS model
     gmi_register_egads();
-    struct gmi_model *pumiModel = gmi_egads_init(nbytes, stream, nregions);
+    struct gmi_model *pumiModel = gmi_egadslite_init(nbytes, stream, nregions);
 
     int nnode = pumiModel->n[0];
     int nedge = pumiModel->n[1];

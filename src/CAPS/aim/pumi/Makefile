@@ -18,17 +18,13 @@ endif
 
 CXX = mpicxx
 
-PUMI_INSTALL := $(PUMI)/build/install
+PUMI_BUILD := pumi_build
+PUMI_INSTALL := $(PUMI_BUILD)/install
 PUMI_LDIR := $(PUMI_INSTALL)/lib
 PUMI_IDIR := $(PUMI_INSTALL)/include
 
 $(LDIR)/pumiAIM.so: $(ODIR)/pumiAIM.o \
-			$(LDIR)/libutils.a $(LDIR)/libaimUtil.a $(OBJS) $(OBJSP) \
-			$(PUMI_LDIR)/libapf.a $(PUMI_LDIR)/libapf_zoltan.a $(PUMI_LDIR)/libcrv.a $(PUMI_LDIR)/libgmi.a \
-			$(PUMI_LDIR)/libgmi_egads.a $(PUMI_LDIR)/liblion.a $(PUMI_LDIR)/libma.a \
-			$(PUMI_LDIR)/libmds.a $(PUMI_LDIR)/libmth.a $(PUMI_LDIR)/libparma.a \
-			$(PUMI_LDIR)/libpcu.a $(PUMI_LDIR)/libph.a $(PUMI_LDIR)/libpumi.a \
-			$(PUMI_LDIR)/libsam.a $(PUMI_LDIR)/libspr.a
+			$(LDIR)/libutils.a $(LDIR)/libaimUtil.a $(OBJS) $(OBJSP)
 	$(CXX) $(SOFLGS) -o $(LDIR)/pumiAIM.so $(ODIR)/pumiAIM.o \
 		$(OBJS) $(OBJSP) -L$(PUMI_LDIR) -L$(LDIR) -lutils \
 		-laimUtil -locsm -legads -ludunits2 $(RPATH) $(CPPSLB) -lm \
@@ -47,7 +43,7 @@ $(ODIR)/pumiAIM.o: pumi pumiAIM.cpp $(IDIR)/capsTypes.h ../utils/meshUtils.h \
 # CAPS compiles PUMI library to use the latest egads.h file
 .PHONY: pumi
 pumi: 
-	./pumi_build.sh $(ESP_ROOT) $(PUMI)
+	./pumi_build.sh $(ESP_ROOT) $(PUMI) $(PUMI_BUILD) $(PUMI_INSTALL)
 
 clean:
 	-rm -f $(ODIR)/pumiAIM.o $(OBJS) $(OBJSP)
