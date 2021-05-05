@@ -67,7 +67,7 @@
 
 /** \brief initialize a gmi_model with filestream and number of regions */
 extern "C"
-struct gmi_model* gmi_egadslite_init(size_t nbytes, char *stream, int nregions);
+struct gmi_model* gmi_egads_init_model(ego eg_model, int nregions);
 
 /** \brief initialize the model adjacency table for 3D regions */
 extern "C" 
@@ -477,69 +477,45 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
         nregions = countRegions(&(mesh->element[tetStartIndex]), numTets);
     }
 
-    /// allocate and copy body to export to stream
-    size_t nbytes;
-    char *stream;
+    /// Copy body from tesselation and create a model to import into PUMI
+    ego model;
+    ego context;
+    status = EG_getContext(tessBody, &context);
+    if (status != EGADS_SUCCESS)
     {
-        ego context;
-        status = EG_getContext(tessBody, &context);
+        printf(" PUMI AIM Warning: EG_getContext failed with status: %d!\n", status);
+        return status;
+    }
+
+    ego *body = (ego *) EG_alloc(sizeof(ego));
+    if (body == NULL) {
+        status = EGADS_MALLOC;
         if (status != EGADS_SUCCESS)
         {
-            printf(" PUMI AIM Warning: EG_getContext failed with status: %d!\n", status);
+            printf(" PUMI AIM Warning: EG_alloc failed with status: %d!\n", status);
             return status;
         }
+    }
 
-        ego *body = (ego *) EG_alloc(sizeof(ego));
-        if (body == NULL) {
-            status = EGADS_MALLOC;
-            if (status != EGADS_SUCCESS)
-            {
-                printf(" PUMI AIM Warning: EG_alloc failed with status: %d!\n", status);
-                return status;
-            }
-        }
+    *body = NULL;
+    status = EG_copyObject(tessBody, NULL, body);
+    if (status != EGADS_SUCCESS)
+    {
+        printf(" EG_copyObject failed with status: %d!\n", status);
+        return status;
+    }
 
-        *body = NULL;
-        status = EG_copyObject(tessBody, NULL, body);
-        if (status != EGADS_SUCCESS)
-        {
-            printf(" EG_copyObject failed with status: %d!\n", status);
-            return status;
-        }
-
-        // Create a model
-        ego model;
-        status = EG_makeTopology(context, NULL, MODEL, 0, NULL, 
-                                 numBody, body, NULL, &model);
-        if (status != EGADS_SUCCESS)
-        {
-            printf(" PUMI AIM Warning: EG_makeTopology failed with status: %d!\n", status);
-            return status;
-        }
-
-        status = EG_exportModel(model, &nbytes, &stream);
-        if (status != EGADS_SUCCESS)
-        {
-            printf(" PUMI AIM Warning: EG_exportModel failed with status: %d!\n", status);
-            return status;
-        }
-        // delete the model
-        if (model != NULL) {
-            EG_deleteObject(model);
-        }
-        else {
-            if (body != NULL) {
-                if (*body != NULL) {
-                    (void) EG_deleteObject(*body);
-                }
-            }
-        }
-        EG_free(body);
+    status = EG_makeTopology(context, NULL, MODEL, 0, NULL, 
+                                numBody, body, NULL, &model);
+    if (status != EGADS_SUCCESS)
+    {
+        printf(" PUMI AIM Warning: EG_makeTopology failed with status: %d!\n", status);
+        return status;
     }
 
     /// initialize PUMI EGADS model
     gmi_register_egads();
-    struct gmi_model *pumiModel = gmi_egadslite_init(nbytes, stream, nregions);
+    struct gmi_model *pumiModel = gmi_egads_init_model(model, nregions);
 
     int nnode = pumiModel->n[0];
     int nedge = pumiModel->n[1];
@@ -708,9 +684,8 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
     int sizes[] = {nregions, nregions, nregions, nnode, nedge, nface};
 
     for (int i = 0; i < 6; ++i) {
-        std::set<int> empty;
         for (int j = 0; j < sizes[i]; ++j) {
-            adj_graph[i].push_back(empty);
+            adj_graph[i].push_back(std::set<int>{});
         }
     }
 
@@ -945,50 +920,97 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
             EG_free(body);
             printf("Finished writing EGADSlite model\n");
 
-            /// write adjacency table
-            std::string adj_filename(filename);
-            adj_filename += ".egadslite.sup";
-            
-            printf("\nWriting supplementary EGADS model file: %s....\n", adj_filename.c_str());
+            /// write adjacency table (lite)
+            {
+               std::string adj_filename(filename);
+               adj_filename += ".egadslite.sup";
+               
+               printf("\nWriting supplementary EGADS model file: %s....\n", adj_filename.c_str());
 
-            /// Binary
-            std::ofstream adj_file(adj_filename.c_str(),
-                                   std::ios::out | std::ios::binary);
+               /// Binary
+               std::ofstream adj_file(adj_filename.c_str(),
+                                    std::ios::out | std::ios::binary);
 
-            /// ASCII
-            // std::ofstream adj_file(adj_filename.c_str());
-            PCU_ALWAYS_ASSERT(adj_file.is_open());
+               /// ASCII
+               // std::ofstream adj_file(adj_filename.c_str());
+               PCU_ALWAYS_ASSERT(adj_file.is_open());
 
-            /// write header
-            /// Binary
-            adj_file.write(reinterpret_cast<const char *>(sizes),
-                           sizeof(sizes[0])*6);
+               /// write header
+               /// Binary
+               adj_file.write(reinterpret_cast<const char *>(sizes),
+                              sizeof(sizes[0])*6);
 
-            /// ASCII
-            // adj_file << nregions << "," << nregions "," << nregions << ",";
-            // adj_file << nnode << "," << nedge << "," << nface  << std::endl;
+               /// ASCII
+               // adj_file << nregions << "," << nregions "," << nregions << ",";
+               // adj_file << nnode << "," << nedge << "," << nface  << std::endl;
 
-            /// write adjacency table
-            for (int i = 0; i < 6; ++i) {
-                for (int j = 0; j < sizes[i]; ++j) {
-                    /// Binary file
-                    auto n = (int)adj_graph[i][j].size();
-                    adj_file.write(reinterpret_cast<char*>(&n),
-                                   sizeof(n));
-                    for (auto elem : adj_graph[i][j]) {
-                        adj_file.write(reinterpret_cast<char*>(&elem),
-                                       sizeof(elem));
-                    }
+               /// write adjacency table
+               for (int i = 0; i < 6; ++i) {
+                  for (int j = 0; j < sizes[i]; ++j) {
+                     /// Binary file
+                     auto n = (int)adj_graph[i][j].size();
+                     adj_file.write(reinterpret_cast<char*>(&n),
+                                    sizeof(n));
+                     for (auto elem : adj_graph[i][j]) {
+                           adj_file.write(reinterpret_cast<char*>(&elem),
+                                          sizeof(elem));
+                     }
 
-                    /// ASCII file
-                    // adj_file << adj_graph[i][j].size();
-                    // for (auto elem : adj_graph[i][j]) {
-                    //     adj_file << "," << elem;
-                    // }
-                    // adj_file << std::endl;
-                }
+                     /// ASCII file
+                     // adj_file << adj_graph[i][j].size();
+                     // for (auto elem : adj_graph[i][j]) {
+                     //     adj_file << "," << elem;
+                     // }
+                     // adj_file << std::endl;
+                  }
+               }
+               adj_file.close();
             }
-            adj_file.close();
+
+            /// write adjacency table
+            {
+               std::string adj_filename(filename);
+               adj_filename += ".egads.sup";
+               
+               /// Binary
+               std::ofstream adj_file(adj_filename.c_str(),
+                                    std::ios::out | std::ios::binary);
+
+               /// ASCII
+               // std::ofstream adj_file(adj_filename.c_str());
+               PCU_ALWAYS_ASSERT(adj_file.is_open());
+
+               /// write header
+               /// Binary
+               adj_file.write(reinterpret_cast<const char *>(sizes),
+                              sizeof(sizes[0])*6);
+
+               /// ASCII
+               // adj_file << nregions << "," << nregions "," << nregions << ",";
+               // adj_file << nnode << "," << nedge << "," << nface  << std::endl;
+
+               /// write adjacency table
+               for (int i = 0; i < 6; ++i) {
+                  for (int j = 0; j < sizes[i]; ++j) {
+                     /// Binary file
+                     auto n = (int)adj_graph[i][j].size();
+                     adj_file.write(reinterpret_cast<char*>(&n),
+                                    sizeof(n));
+                     for (auto elem : adj_graph[i][j]) {
+                           adj_file.write(reinterpret_cast<char*>(&elem),
+                                          sizeof(elem));
+                     }
+
+                     /// ASCII file
+                     // adj_file << adj_graph[i][j].size();
+                     // for (auto elem : adj_graph[i][j]) {
+                     //     adj_file << "," << elem;
+                     // }
+                     // adj_file << std::endl;
+                  }
+               }
+               adj_file.close();
+            }
             printf("Finished writing supplementary EGADS model\n\n");
 
         } else if (strcasecmp(pumiInstance->meshInput.outputFormat, "VTK") == 0) {

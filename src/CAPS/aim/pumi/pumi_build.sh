@@ -22,8 +22,9 @@ if [[ -n "$EGADS_DIR" ]]; then
          -DCMAKE_POSITION_INDEPENDENT_CODE="ON" \
          -DENABLE_EGADS="ON" \
          -DEGADS_DIR="$EGADS_DIR" \
-         -DBUILD_SHARED_LIBS="ON" \
-         -DCMAKE_INSTALL_PREFIX="../$PUMI_INSTALL"
+         -DBUILD_SHARED_LIBS="OFF" \
+         -DCMAKE_INSTALL_PREFIX="../$PUMI_INSTALL" \
+         -DPUMI_USE_EGADSLITE="OFF" \
 
         cmake --build . --target install --parallel 4
       else
