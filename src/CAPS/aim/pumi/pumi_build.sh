@@ -19,6 +19,7 @@ if [[ -n "$EGADS_DIR" ]]; then
          -DSCOREC_ENABLE_CXX11="ON" \
          -DSCOREC_CXX_OPTIMIZE="OFF" \
          -DSCOREC_CXX_SYMBOLS="ON" \
+         -DSCOREC_EXTRA_CXX_FLAGS="-DN_FORTIFY_SOURCE -Wno-cpp -Wno-error=cpp -Wno-error=stringop-truncation -Wno-error=stringop-overflow" \
          -DCMAKE_POSITION_INDEPENDENT_CODE="ON" \
          -DENABLE_EGADS="ON" \
          -DEGADS_DIR="$EGADS_DIR" \
