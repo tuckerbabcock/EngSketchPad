@@ -55,15 +55,19 @@ if [ -f /bin/uname -o -f /usr/bin/uname \
 	if [ -f /bin/uname ]; then
 		os="`/bin/uname -s`"
 		rl="`/bin/uname -r`"
+		mt="`/bin/uname -m`"
 	elif [ -f /usr/bin/uname ]; then
 		os="`/usr/bin/uname -s`"
 		rl="`/usr/bin/uname -r`"
+		mt="`/usr/bin/uname -m`"
 	elif [ -f /bin/uname.exe ]; then
 		os="`/bin/uname.exe -s`"
 		rl="`/bin/uname.exe -r`"
+		mt="`/bin/uname.exe -m`"
 	else
 		os="`/usr/bin/uname.exe -s`"
 		rl="`/usr/bin/uname.exe -r`"
+		mt="`/usr/bin/uname.exe -m`"
 	fi
 
 	ARCH=$os
@@ -78,17 +82,24 @@ fi
 #
 if [ "$ARCH" = Darwin ]; then
 	case "$rl" in
-	 9.*) MACOSX=10.5 ;;
-	10.*) MACOSX=10.6 ;;
-	11.*) MACOSX=10.7 ;;
-	12.*) MACOSX=10.8 ;;
-	13.*) MACOSX=10.9 ;;
-	14.*) MACOSX=10.10 ;;
-	15.*) MACOSX=10.11 ;;
-	16.*) MACOSX=10.12 ;;
-	17.*) MACOSX=10.13 ;;
-	18.*) MACOSX=10.14 ;;
-	19.*) MACOSX=10.15 ;;
+	14.*)   MACOSX=10.10 ;;
+	15.*)   MACOSX=10.11 ;;
+	16.*)   MACOSX=10.12 ;;
+	17.*)   MACOSX=10.13 ;;
+	18.*)   MACOSX=10.14 ;;
+	19.*)   MACOSX=10.15 ;;
+	20.1.*) MACOSX=11.0 ;;
+	20.2.*) MACOSX=11.1 ;;
+	20.3.*) MACOSX=11.2 ;;
+	20.4.*) MACOSX=11.3 ;;
+	20.5.*) MACOSX=11.4 ;;
+	20.6.*) MACOSX=11.5 ;;
+	20.7.*) MACOSX=11.6 ;;
+	21.0.*) MACOSX=12.0 ;;
+	21.1.*) MACOSX=12.0 ;;
+	21.2.*) MACOSX=12.1 ;;
+	21.3.*) MACOSX=12.2 ;;
+	21.*)   MACOSX=12.x ;;
 	esac
 fi
 
@@ -141,6 +152,9 @@ fi
 #
 if [ "$ARCH" = Darwin ]; then
 	CARCH=DARWIN64
+	if [ "$mt" = arm64 ]; then
+		CARCH=DARWINM1
+	fi
 else
 	CARCH=LINUX64
 fi
@@ -194,12 +208,16 @@ fi
 #
 # do we have AFLR?
 #
-if [ -n "$AFLR" ]; then
-	if [ "$ARCH" = Darwin ] && [ "$MACOSX" != UNKNOWN ]; then
-		AFLR_ARCH=MacOSX-x86-64
+if [ "$ARCH" = Darwin ] && [ "$MACOSX" != UNKNOWN ]; then
+	if [ "$CARCH" = DARWINM1 ]; then
+		AFLR_ARCH=MacOSX-arm64
 	else
-		AFLR_ARCH=Linux-x86-64
+		AFLR_ARCH=MacOSX-x86-64
 	fi
+else
+	AFLR_ARCH=Linux-x86-64
+fi
+if [ -n "$AFLR" ]; then
 	if [ ! -d $AFLR/$AFLR_ARCH ]; then
 		echo "ERROR - \$AFLR/$AFLR_ARCH (e.g. $AFLR/$AFLR_ARCH) is not a directory!"
 		exit 1
@@ -238,27 +256,22 @@ fi
 if [ ! -n "$PYTHONLIB" ]; then
 	PYTHONLIB=UNKNOWN
 fi
-pyt="`which python3`"
+pyt="`which python`"
 if [ -n "$pyt" ]; then
-	PYTH=python3
+	if python -c "import sys; assert sys.version_info >= (3,8)" >& /dev/null; then 
+		PYTH=python
+		echo "Info: Python exec $pyt found!"
+	else
+		echo "Info: Ignoring Python exec $pyt older than 3.8!"
+	fi
 fi
 
 if [ "$PYTH" != UNKNOWN ]; then
 	if [ "$PYTHONINC" == UNKNOWN ]; then
 		pscr="\"from __future__ import print_function; import distutils.sysconfig as sysconfig; print(sysconfig.get_config_var('INCLUDEPY'))\""
-		pcmd="python3 -c $pscr"
+		pcmd="python -c $pscr"
 		eval PYTHINC=\`$pcmd\`
 
-		if [ -f "$PYTHINC/Python.h" ]; then
-			PYTHONINC=$PYTHINC
-			echo "Info: Python header $PYTHONINC/Python.h found!"
-		fi
-	fi
-
-	if [ "$PYTHONINC" == UNKNOWN ]; then
-		pscr="\"from __future__ import print_function; import distutils.sysconfig as sysconfig; print(sysconfig.get_path('platinclude'))\""
-		pcmd="python3 -c $pscr"
-		eval PYTHINC=\`$pcmd\`
 		if [ -f "$PYTHINC/Python.h" ]; then
 			PYTHONINC=$PYTHINC
 			echo "Info: Python header $PYTHONINC/Python.h found!"
@@ -267,7 +280,7 @@ if [ "$PYTH" != UNKNOWN ]; then
 
 	if [ "$PYTHONINC" == UNKNOWN ]; then
 		pscr="\"from __future__ import print_function; import sysconfig; print(sysconfig.get_path('platinclude'))\""
-		pcmd="python3 -c $pscr"
+		pcmd="python -c $pscr"
 		eval PYTHONINC=\`$pcmd\`
 		if [ -f "$PYTHONINC/Python.h" ]; then
 			PYTHONINC=$PYTHINC
@@ -282,7 +295,7 @@ if [ "$PYTH" != UNKNOWN ]; then
 	fi
 
 	pscr="\"from __future__ import print_function; import distutils.sysconfig as sysconfig; print(sysconfig.get_config_var('LIBRARY'))\""
-	pcmd="python3 -c $pscr"
+	pcmd="python -c $pscr"
 	eval plb=\`$pcmd\`
 	pso=`echo $plb|sed -e 'sx.axx'`.so
 	pdy=`echo $plb|sed -e 'sx.axx'`.dylib
@@ -291,7 +304,7 @@ if [ "$PYTH" != UNKNOWN ]; then
 
 	if [ "$PYTHONLIB" == UNKNOWN ] && [ "$ARCH" = Darwin ]; then
 		pscr="\"from __future__ import print_function; import sys, os; print(os.path.exists(os.path.join(sys.prefix, 'conda-meta')))\""
-		pcmd="python3 -c $pscr"
+		pcmd="python -c $pscr"
 		eval conda=\`$pcmd\`
 
 		if [ "$conda" == True ]; then
@@ -302,7 +315,7 @@ if [ "$PYTH" != UNKNOWN ]; then
 
 	if [ "$PYTHONLIB" == UNKNOWN ]; then
 		pscr="\"from __future__ import print_function; import distutils.sysconfig as sysconfig; print(sysconfig.get_config_var('LIBPL'))\""
-		pcmd="python3 -c $pscr"
+		pcmd="python -c $pscr"
 		eval plp=\`$pcmd\`
 
 		if [ -f "$plp/$pso" ]; then
@@ -319,24 +332,7 @@ if [ "$PYTH" != UNKNOWN ]; then
 
 	if [ "$PYTHONLIB" == UNKNOWN ]; then
 		pscr="\"from __future__ import print_function; import distutils.sysconfig as sysconfig; print(sysconfig.get_config_var('LIBDIR'))\""
-		pcmd="python3 -c $pscr"
-		eval plp=\`$pcmd\`
-
-		if [ -f "$plp/$pso" ]; then
-			PYTHONLIB="-L$plp -l$pllb"
-			echo "Info: Python library $plp/$pso found!"
-		elif [ -f "$plp/$pdy" ]; then
-			PYTHONLIB="-L$plp -l$pllb"
-			echo "Info: Python library $plp/$pdy found!"
-		#elif [ -f "$plp/$plb" ]; then
-		#	PYTHONLIB="-L$plp -l$pllb"
-		#	echo "Info: Python library $plb found!"
-		fi
-	fi
-
-	if [ "$PYTHONLIB" == UNKNOWN ]; then
-		pscr="\"from __future__ import print_function; import distutils.sysconfig as sysconfig; print(sysconfig.get_path('platstdlib'))\""
-		pcmd="python3 -c $pscr"
+		pcmd="python -c $pscr"
 		eval plp=\`$pcmd\`
 
 		if [ -f "$plp/$pso" ]; then
@@ -353,7 +349,7 @@ if [ "$PYTH" != UNKNOWN ]; then
 
 	if [ "$PYTHONLIB" == UNKNOWN ]; then
 		pscr="\"from __future__ import print_function; import sysconfig; print(sysconfig.get_path('platstdlib'))\""
-		pcmd="python3 -c $pscr"
+		pcmd="python -c $pscr"
 		eval plp=\`$pcmd\`
 		if [ -f "$plp/$pso" ]; then
 			PYTHONLIB="-L$plp -l$pllb"
@@ -369,7 +365,7 @@ if [ "$PYTH" != UNKNOWN ]; then
 
 	if [ "$PYTHONLIB" == UNKNOWN ]; then
 		pscr="\"from __future__ import print_function; import sys; import os; print(os.path.join(sys.exec_prefix, 'lib'))\""
-		pcmd="python3 -c $pscr"
+		pcmd="python -c $pscr"
 		eval plp=\`$pcmd\`
 		if [ -f "$plp/$pso" ]; then
 			PYTHONLIB="-L$plp -l$pllb"
@@ -385,7 +381,7 @@ if [ "$PYTH" != UNKNOWN ]; then
 
 	if [ "$PYTHONLIB" == UNKNOWN ]; then
 		pscr="\"from __future__ import print_function; import sys; import os; print(os.path.join(os.path.dirname(os.path.dirname(sys.executable)), 'lib'))\""
-		pcmd="python3 -c $pscr"
+		pcmd="python -c $pscr"
 		eval plp=\`$pcmd\`
 		if [ -f "$plp/$pso" ]; then
 			PYTHONLIB="-L$plp -l$pllb"
@@ -401,7 +397,7 @@ if [ "$PYTH" != UNKNOWN ]; then
 
 	if [ "$PYTHONLIB" == UNKNOWN ]; then
 		pscr="\"from __future__ import print_function; import sysconfig; print(sysconfig.get_config_var('PYTHONFRAMEWORKPREFIX'))\""
-		pcmd="python3 -c $pscr"
+		pcmd="python -c $pscr"
 		eval plp=\`$pcmd\`
 		if [ -f "$plp/$pso" ]; then
 			PYTHONLIB="-L$plp -l$pllb"
@@ -418,7 +414,7 @@ if [ "$PYTH" != UNKNOWN ]; then
 	# Alternatively we could have just this one check that should work on all platforms
 	# https://github.com/JuliaPy/PyCall.jl/blob/master/deps/find_libpython.py
 	#if [ "$PYTHONLIB" == UNKNOWN ]; then
-		#plp=`python3 find_libpython.py`
+		#plp=`python find_libpython.py`
 		#if [ -f "$plp" ]; then
 			#PYTHONLIB=$plp
 			#echo "Info: Python library $plp found!"
@@ -493,8 +489,8 @@ else
 fi
 if [ "$ARCH" = Darwin ]; then
 	if [ "$MACOSX" != UNKNOWN ]; then
-		echo "export AFLR_ARCH=MacOSX-x86-64"    >> ../ESPenv.sh
-		echo "export MACOSX="$MACOSX   >> ../ESPenv.sh
+		echo "export AFLR_ARCH="$AFLR_ARCH >> ../ESPenv.sh
+		echo "export MACOSX="$MACOSX       >> ../ESPenv.sh
 		echo "export UDUNITS2_XML_PATH="$BASE/src/CAPS/udunits/udunits2.xml >> ../ESPenv.sh
 		echo "export CAPS_GLYPH="$BASE/src/CAPS/aim/pointwise/glyph >> ../ESPenv.sh
 	fi
@@ -529,14 +525,12 @@ fi
 echo "#export AWAVE=$HOME/Projects/awave/awavemod.f"    >> ../ESPenv.sh
 if [ "$ARCH" = Darwin ]; then
 	echo "export SLUGS_START=\"open -a /Applications/Safari.app $BASE/SLUGS/Slugs.html\"" >> ../ESPenv.sh
-	echo "export CAPS_START=\"open -a /Applications/Safari.app $BASE/src/CAPS/pyCAPS/viewer/capsViewer.html\"" >> ../ESPenv.sh
-	echo "export ESP_START=\"open -a /Applications/Safari.app $BASE/ESP/ESP.html\""       >> ../ESPenv.sh
+	echo "export ESP_START=\"open -a /Applications/Safari.app;sleep 1;open -a /Applications/Safari.app $BASE/ESP/ESP.html\""       >> ../ESPenv.sh
 	echo "export WV_START=\"open -a /Applications/Safari.app $BASE/wvClient/wv.html\""    >> ../ESPenv.sh
 else
-	echo "export SLUGS_START=\"firefox $BASE/SLUGS/Slugs.html\"" >> ../ESPenv.sh
-	echo "export CAPS_START=\"firefox $BASE/src/CAPS/pyCAPS/viewer/capsViewer.html\"" >> ../ESPenv.sh
-	echo "export ESP_START=\"firefox $BASE/ESP/ESP.html\""       >> ../ESPenv.sh
-	echo "export WV_START=\"firefox $BASE/wvClient/wv.html\""    >> ../ESPenv.sh
+	echo "export SLUGS_START=\"firefox $BASE/SLUGS/Slugs.html &\"" >> ../ESPenv.sh
+	echo "export ESP_START=\"firefox $BASE/ESP/ESP.html &\""       >> ../ESPenv.sh
+	echo "export WV_START=\"firefox $BASE/wvClient/wv.html &\""    >> ../ESPenv.sh
 fi
 
 #
@@ -575,8 +569,8 @@ else
 fi
 if [ "$ARCH" = Darwin ]; then
 	if [ "$MACOSX" != UNKNOWN ]; then
-		echo "setenv AFLR_ARCH MacOSX-x86-64"    >> ../ESPenv.csh
-		echo "setenv MACOSX "$MACOSX   >> ../ESPenv.csh
+		echo "setenv AFLR_ARCH "$AFLR_ARCH >> ../ESPenv.csh
+		echo "setenv MACOSX "$MACOSX       >> ../ESPenv.csh
 		echo "setenv UDUNITS2_XML_PATH "$BASE/src/CAPS/udunits/udunits2.xml >> ../ESPenv.csh
 		echo "setenv CAPS_GLYPH "$BASE/src/CAPS/aim/pointwise/glyph >> ../ESPenv.csh
 	fi
@@ -611,14 +605,12 @@ fi
 echo "#setenv AWAVE $HOME/Projects/awave/awavemod.f"    >> ../ESPenv.csh
 if [ "$ARCH" = Darwin ]; then
 	echo "setenv SLUGS_START \"open -a /Applications/Safari.app $BASE/SLUGS/Slugs.html\"" >> ../ESPenv.csh
-	echo "setenv CAPS_START \"open -a /Applications/Safari.app $BASE/src/CAPS/pyCAPS/viewer/capsViewer.html\"" >> ../ESPenv.csh
-	echo "setenv ESP_START \"open -a /Applications/Safari.app $BASE/ESP/ESP.html\""       >> ../ESPenv.csh
+	echo "setenv ESP_START \"open -a /Applications/Safari.app;sleep 1;open -a /Applications/Safari.app $BASE/ESP/ESP.html\""       >> ../ESPenv.csh
 	echo "setenv WV_START \"open -a /Applications/Safari.app $BASE/wvClient/wv.html\""    >> ../ESPenv.csh
 else
-	echo "setenv SLUGS_START \"firefox $BASE/SLUGS/Slugs.html\"" >> ../ESPenv.csh
-	echo "setenv CAPS_START \"firefox $BASE/src/CAPS/pyCAPS/viewer/capsViewer.html\"" >> ../ESPenv.csh
-	echo "setenv ESP_START \"firefox $BASE/ESP/ESP.html\""       >> ../ESPenv.csh
-	echo "setenv WV_START \"firefox $BASE/wvClient/wv.html\""    >> ../ESPenv.csh
+	echo "setenv SLUGS_START \"firefox $BASE/SLUGS/Slugs.html &\"" >> ../ESPenv.csh
+	echo "setenv ESP_START \"firefox $BASE/ESP/ESP.html &\""       >> ../ESPenv.csh
+	echo "setenv WV_START \"firefox $BASE/wvClient/wv.html &\""    >> ../ESPenv.csh
 fi
 
 exit
