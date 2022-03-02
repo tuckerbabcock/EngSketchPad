@@ -228,9 +228,9 @@ static int destroy_aimStorage(aimStorage *pumiInstance) {
 /* ********************** Exposed AIM Functions ***************************** */
 
 extern "C" int
-aimInitialize(int inst, /*@unused@*/ const char *unitSys,
+aimInitialize(int inst, /*@null@*/ const char *unitSys, void *aimInfo,
               void **instStore, int *maj, int *min, int *nIn, int *nOut,
-              int *nFields, char ***fnames, int **ranks)
+              int *nFields, char ***fnames, int **franks, int **fInOut)
 {   
     int mpi_flag;
     MPI_Initialized(&mpi_flag);
@@ -255,7 +255,7 @@ aimInitialize(int inst, /*@unused@*/ const char *unitSys,
 
     /* specify the field variables this analysis can generate */
     *nFields = 0;
-    *ranks   = NULL;
+    *franks  = NULL;
     *fnames  = NULL;
 
     // Allocate pumiInstance
@@ -443,9 +443,9 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
     
     ego tess;
     if (mesh->meshType == SurfaceMesh)
-        tess = pumiInstance->mesh[0].bodyTessMap.egadsTess;
+        tess = pumiInstance->mesh[0].egadsTess;
     else if (mesh->meshType == VolumeMesh)
-        tess = pumiInstance->mesh[0].referenceMesh[0].bodyTessMap.egadsTess;
+        tess = pumiInstance->mesh[0].referenceMesh[0].egadsTess;
     else {
         printf(" Unknown mesh dimension, error!\n");
         return EGADS_WRITERR;

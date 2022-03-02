@@ -13,19 +13,20 @@ if [[ -n "$EGADS_DIR" ]]; then
         mkdir -p "$PUMI_BUILD"
         cd "$PUMI_BUILD"
 
-        cmake "$PUMI_DIR" \
-         -DCMAKE_C_COMPILER="mpicc" \
-         -DCMAKE_CXX_COMPILER="mpicxx" \
-         -DSCOREC_ENABLE_CXX11="ON" \
-         -DSCOREC_CXX_OPTIMIZE="OFF" \
-         -DSCOREC_CXX_SYMBOLS="ON" \
-         -DSCOREC_EXTRA_CXX_FLAGS="-DN_FORTIFY_SOURCE -Wno-cpp -Wno-error=cpp -Wno-error=stringop-truncation -Wno-error=stringop-overflow" \
-         -DCMAKE_POSITION_INDEPENDENT_CODE="ON" \
-         -DENABLE_EGADS="ON" \
-         -DEGADS_DIR="$EGADS_DIR" \
-         -DBUILD_SHARED_LIBS="OFF" \
-         -DCMAKE_INSTALL_PREFIX="../$PUMI_INSTALL" \
-         -DPUMI_USE_EGADSLITE="OFF" \
+         cmake "$PUMI_DIR" \
+          -DCMAKE_C_COMPILER="mpicc" \
+          -DCMAKE_CXX_COMPILER="mpicxx" \
+          -DSCOREC_CXX_OPTIMIZE=OFF \
+          -DSCOREC_CXX_SYMBOLS=ON \
+          -DSCOREC_CXX_WARNINGS=OFF \
+          -DBUILD_SHARED_LIBS=ON \
+          -DCMAKE_POSITION_INDEPENDENT_CODE="ON" \
+          -DSCOREC_EXTRA_CXX_FLAGS="-Wextra -Wall" \
+          -DCMAKE_INSTALL_PREFIX="../$PUMI_INSTALL" \
+          -DENABLE_EGADS=ON \
+          -DEGADS_DIR="$ESP_ROOT" \
+          -DPUMI_USE_EGADSLITE=OFF \
+          -DIS_TESTING=ON
 
         cmake --build . --target install --parallel 4
       else

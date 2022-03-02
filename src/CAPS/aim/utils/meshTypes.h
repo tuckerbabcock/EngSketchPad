@@ -86,6 +86,12 @@ typedef struct {
     int *orderLocalElevatedTris;
 } hoTessInputStruct;
 
+// Container for PUMI specific inputs
+typedef struct {
+    // curved mesh element order 
+    int elementOrder;
+} pumiInputStruct;
+
 // Container for meshing inputs
 typedef struct {
     double paramTess[3]; /*a set of 3 parameters that drive the EDGE discretization and the
@@ -111,6 +117,7 @@ typedef struct {
     aflr3InputStruct aflr3Input; // Structure of AFLR3 specific inputs
     aflr4InputStruct aflr4Input; // Structure of AFLR4 specific inputs
     hoTessInputStruct hoTessInput; // Structure of hoTess specific inputs
+    pumiInputStruct pumiInput; // Structure of PUMI specific inputs
 
 } meshInputStruct;
 
