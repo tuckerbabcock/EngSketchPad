@@ -3,12 +3,12 @@ EXPORTS
 aimInitialize
 aimInputs
 aimPreAnalysis
+aimExecute
 aimPostAnalysis
 aimOutputs
 aimCalcOutput
 aimFreeDiscrPtr
 aimDiscr
-aimUsesDataSet
 aimCleanup
 aimLocateElement
 aimTransfer

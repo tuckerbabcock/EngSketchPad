@@ -2,40 +2,36 @@
 
 #include <string.h>
 #include <stdio.h>
-
+#include <errno.h>
+#include <ctype.h>
 
 #include "egads.h"        // Bring in egads utilss
 #include "capsTypes.h"    // Bring in CAPS types
 #include "aimUtil.h"      // Bring in AIM utils
+#include "aimMesh.h"      // Bring in AIM meshing
+
 #include "miscUtils.h"    // Bring in misc. utility functions
 #include "meshUtils.h"    // Bring in meshing utility functions
 #include "cfdTypes.h"     // Bring in cfd specific types
+#include "cfdUtils.h"
 #include "tecplotUtils.h" // Bring in tecplot utility functions
 #include "fun3dUtils.h"   // Bring in fun3d utility header
+#include "fun3dInputs.h"
+#include "ugridWriter.h"
 
-
-#include "errno.h"
 
 #ifdef WIN32
 #define strcasecmp  stricmp
-
-// For _mkdir
-#include "direct.h"
-
-#else
-
-// For mkdir
-#include "sys/stat.h"
-
+#define strncasecmp _strnicmp
 #endif
 
 
 // Extract the FEPOINT Tecoplot data from a FUN3D Aero-Loads file (connectivity is ignored) - dataMatrix = [numVariable][numDataPoint]
-int fun3d_readAeroLoad(char *filename, int *numVariable, char **variableName[],
+int fun3d_readAeroLoad(void *aimInfo, char *filename, int *numVariable, char **variableName[],
                        int *numDataPoint, double ***dataMatrix)
 {
 
-    int status; // Function return
+    int status = CAPS_SUCCESS; // Function return
     int i, j; // Indexing
 
     size_t linecap = 0;
@@ -47,9 +43,9 @@ int fun3d_readAeroLoad(char *filename, int *numVariable, char **variableName[],
     FILE *fp = NULL; // File pointer
 
     // Open file
-    fp = fopen(filename, "r");
+    fp = aim_fopen(aimInfo, filename, "r");
     if (fp == NULL) {
-        printf("Unable to open file: %s\n", filename);
+        AIM_ERROR(aimInfo, "Unable to open file: %s\n", filename);
         return CAPS_IOERR;
     }
 
@@ -91,7 +87,7 @@ int fun3d_readAeroLoad(char *filename, int *numVariable, char **variableName[],
             if (tempStr2 != NULL) EG_free(tempStr2);
             tempStr2 = NULL;
 
-            if (status != CAPS_SUCCESS) return status;
+            if (status != CAPS_SUCCESS) goto cleanup;
 
             // Print out list of variables found in load file
             printf("Variables found in file %s:\n",filename);
@@ -116,26 +112,13 @@ int fun3d_readAeroLoad(char *filename, int *numVariable, char **variableName[],
     if (*numVariable != 0 && *numDataPoint != 0) {
 
         // Allocate dataMatrix array
-        if (*dataMatrix != NULL) EG_free(*dataMatrix);
+        AIM_FREE(*dataMatrix);
 
-        *dataMatrix = (double **) EG_alloc(*numVariable *sizeof(double *));
-        if (*dataMatrix == NULL) return EGADS_MALLOC; // If allocation failed ....
+        AIM_ALLOC(*dataMatrix, (*numVariable), double *, aimInfo, status);
+        for (i = 0; i < *numVariable; i++) (*dataMatrix)[i] = NULL;
 
         for (i = 0; i < *numVariable; i++) {
-
-            (*dataMatrix)[i] = (double *) EG_alloc(*numDataPoint*sizeof(double));
-
-            if ((*dataMatrix)[i] == NULL) { // If allocation failed ....
-                for (j = 0; j < *numVariable; j++) {
-
-                    if ((*dataMatrix)[j] != NULL ) EG_free((*dataMatrix)[j]);
-                }
-
-                if ((*dataMatrix) != NULL) EG_free((*dataMatrix));
-                fclose(fp);
-                if (line != NULL) EG_free(line);
-                return EGADS_MALLOC;
-            }
+            AIM_ALLOC((*dataMatrix)[i], (*numDataPoint), double, aimInfo, status);
         }
 
         // Loop through the file and fill up the data matrix
@@ -151,28 +134,232 @@ int fun3d_readAeroLoad(char *filename, int *numVariable, char **variableName[],
     } else {
 
         printf("No data values extracted from file - %s",filename);
-        fclose(fp);
-        if (line != NULL) EG_free(line);
-        return CAPS_BADVALUE;
+        status = CAPS_BADVALUE;
     }
 
-    fclose(fp);
+cleanup:
+    if (fp != NULL) fclose(fp);
 
-    if (line != NULL) EG_free(line);
-    return CAPS_SUCCESS;
+    if (status != CAPS_SUCCESS) {
+      if (*dataMatrix != NULL) {
+        for (j = 0; j < *numVariable; j++) {
+          AIM_FREE((*dataMatrix)[j]);
+        }
+        AIM_FREE((*dataMatrix));
+      }
+    }
+
+    EG_free(line);
+    return status;
+}
+
+
+static int
+fun3d_read2DBinaryUgrid(void *aimInfo, FILE *fp, meshStruct *surfaceMesh)
+{
+  int    status = CAPS_SUCCESS;
+
+  int    numNode, numLine, numTriangle, numQuadrilateral;
+  int    numTetrahedral, numPyramid, numPrism, numHexahedral;
+  int    i, elementIndex, numPoint, bcID;
+  double *coords = NULL;
+
+  /* we get a binary UGRID file */
+  status = fread(&numNode,          sizeof(int), 1, fp);
+  if (status != 1) { status = CAPS_IOERR; AIM_STATUS(aimInfo, status); }
+  status = fread(&numTriangle,      sizeof(int), 1, fp);
+  if (status != 1) { status = CAPS_IOERR; AIM_STATUS(aimInfo, status); }
+  status = fread(&numQuadrilateral, sizeof(int), 1, fp);
+  if (status != 1) { status = CAPS_IOERR; AIM_STATUS(aimInfo, status); }
+  status = fread(&numTetrahedral,   sizeof(int), 1, fp);
+  if (status != 1) { status = CAPS_IOERR; AIM_STATUS(aimInfo, status); }
+  status = fread(&numPyramid,       sizeof(int), 1, fp);
+  if (status != 1) { status = CAPS_IOERR; AIM_STATUS(aimInfo, status); }
+  status = fread(&numPrism,         sizeof(int), 1, fp);
+  if (status != 1) { status = CAPS_IOERR; AIM_STATUS(aimInfo, status); }
+  status = fread(&numHexahedral,    sizeof(int), 1, fp);
+  if (status != 1) { status = CAPS_IOERR; AIM_STATUS(aimInfo, status); }
+
+  if ( numTetrahedral   +
+       numPyramid       +
+       numPrism         +
+       numHexahedral  > 0) {
+    AIM_ERROR(aimInfo, "Expecting a 2D ugrid file!!!");
+    status = CAPS_IOERR;
+    goto cleanup;
+  }
+
+  /*
+  printf("\n Header from UGRID file: %d  %d %d  %d %d %d %d\n", numNode,
+         numTriangle, numQuadrilateral, numTetrahedral, numPyramid, numPrism,
+         numHexahedral);
+   */
+
+  AIM_ALLOC(coords, 3*numNode, double, aimInfo, status);
+
+  /* read all of the vertices */
+  status = fread(coords, sizeof(double), 3*numNode, fp);
+  if (status != 3*numNode) { status = CAPS_IOERR; AIM_STATUS(aimInfo, status); }
+
+  surfaceMesh->analysisType = UnknownMeshAnalysis;
+
+  // Set that this is a volume mesh
+  surfaceMesh->meshType = Surface2DMesh;
+
+  // Numbers
+  surfaceMesh->numNode = numNode;
+  surfaceMesh->numElement = numTriangle + numQuadrilateral;
+
+  surfaceMesh->meshQuickRef.useStartIndex = (int) true;
+
+  surfaceMesh->meshQuickRef.numTriangle      = numTriangle;
+  surfaceMesh->meshQuickRef.numQuadrilateral = numQuadrilateral;
+
+  // Nodes - allocate
+  AIM_ALLOC(surfaceMesh->node, surfaceMesh->numNode, meshNodeStruct, aimInfo, status);
+
+  // Initialize
+  for (i = 0; i < surfaceMesh->numNode; i++) {
+      status = initiate_meshNodeStruct(&surfaceMesh->node[i],
+                                        surfaceMesh->analysisType);
+      AIM_STATUS(aimInfo, status);
+  }
+
+  // Nodes - set
+  for (i = 0; i < surfaceMesh->numNode; i++) {
+
+    // Copy node data
+    surfaceMesh->node[i].nodeID = i+1;
+
+    surfaceMesh->node[i].xyz[0] = coords[3*i+0];
+    surfaceMesh->node[i].xyz[1] = coords[3*i+1];
+    surfaceMesh->node[i].xyz[2] = coords[3*i+2];
+  }
+  AIM_FREE(coords);
+
+  // Elements - allocate
+  AIM_ALLOC(surfaceMesh->element, surfaceMesh->numElement, meshElementStruct, aimInfo, status);
+
+  // Initialize
+  for (i = 0; i < surfaceMesh->numElement; i++ ) {
+      status = initiate_meshElementStruct(&surfaceMesh->element[i],
+                                           surfaceMesh->analysisType);
+      AIM_STATUS(aimInfo, status);
+  }
+
+  // Start of element index
+  elementIndex = 0;
+
+  // Elements -Set triangles
+  if (numTriangle > 0)
+    surfaceMesh->meshQuickRef.startIndexTriangle = elementIndex;
+
+  numPoint = mesh_numMeshConnectivity(Triangle);
+  for (i = 0; i < numTriangle; i++) {
+
+      surfaceMesh->element[elementIndex].elementType = Triangle;
+      surfaceMesh->element[elementIndex].elementID   = elementIndex+1;
+
+      status = mesh_allocMeshElementConnectivity(&surfaceMesh->element[elementIndex]);
+      if (status != CAPS_SUCCESS) goto cleanup;
+
+      // read the element connectivity
+      status = fread(surfaceMesh->element[elementIndex].connectivity,
+                     sizeof(int), numPoint, fp);
+      if (status != numPoint) { status = CAPS_IOERR; AIM_STATUS(aimInfo, status); }
+
+      elementIndex += 1;
+  }
+
+  // Elements -Set quadrilateral
+  if (numQuadrilateral > 0)
+    surfaceMesh->meshQuickRef.startIndexQuadrilateral = elementIndex;
+
+  numPoint = mesh_numMeshConnectivity(Quadrilateral);
+  for (i = 0; i < numQuadrilateral; i++) {
+
+      surfaceMesh->element[elementIndex].elementType = Quadrilateral;
+      surfaceMesh->element[elementIndex].elementID   = elementIndex+1;
+
+      status = mesh_allocMeshElementConnectivity(&surfaceMesh->element[elementIndex]);
+      if (status != CAPS_SUCCESS) goto cleanup;
+
+      // read the element connectivity
+      status = fread(surfaceMesh->element[elementIndex].connectivity,
+                     sizeof(int), numPoint, fp);
+      if (status != numPoint) { status = CAPS_IOERR; AIM_STATUS(aimInfo, status); }
+
+      elementIndex += 1;
+  }
+
+  // skip face ID section of the file
+  status = fseek(fp, (numTriangle + numQuadrilateral)*sizeof(int), SEEK_CUR);
+  if (status != 0) { status = CAPS_IOERR; AIM_STATUS(aimInfo, status); }
+
+  // Get the number of Line elements
+  status = fread(&numLine, sizeof(int), 1, fp);
+  if (status != 1) { status = CAPS_IOERR; AIM_STATUS(aimInfo, status); }
+
+  // Elements - re-allocate with Line elements
+  surfaceMesh->meshQuickRef.numLine = numLine;
+  AIM_REALL(surfaceMesh->element, surfaceMesh->numElement+numLine, meshElementStruct, aimInfo, status);
+
+  surfaceMesh->meshQuickRef.startIndexLine = elementIndex;
+
+  // Initialize
+  for (i = surfaceMesh->numElement; i < surfaceMesh->numElement+numLine; i++ ) {
+      status = initiate_meshElementStruct(&surfaceMesh->element[i],
+                                           surfaceMesh->analysisType);
+      AIM_STATUS(aimInfo, status);
+  }
+  surfaceMesh->numElement += numLine;
+
+  numPoint = mesh_numMeshConnectivity(Line);
+  for (i = 0; i < numLine; i++) {
+
+    surfaceMesh->element[elementIndex].elementType = Line;
+    surfaceMesh->element[elementIndex].elementID   = elementIndex+1;
+
+    status = mesh_allocMeshElementConnectivity(&surfaceMesh->element[elementIndex]);
+    AIM_STATUS(aimInfo, status);
+
+    // read the element connectivity
+    status = fread(surfaceMesh->element[elementIndex].connectivity,
+                   sizeof(int), numPoint, fp);
+    if (status != numPoint) { status = CAPS_IOERR; AIM_STATUS(aimInfo, status); }
+    status = fread(&bcID, sizeof(int), 1, fp);
+    if (status != 1) { status = CAPS_IOERR; AIM_STATUS(aimInfo, status); }
+
+    surfaceMesh->element[elementIndex].markerID = bcID;
+
+    elementIndex += 1;
+  }
+
+  status = CAPS_SUCCESS;
+
+  cleanup:
+      if (status != CAPS_SUCCESS)
+        printf("Premature exit in getUGRID status = %d\n", status);
+
+      EG_free(coords); coords = NULL;
+
+      return status;
 }
 
 
 // Create a 3D mesh for FUN3D from a 2D mesh
-int fun3d_2DMesh(meshStruct *surfaceMesh, mapAttrToIndexStruct *attrMap,
-                 meshStruct *volumeMesh, int *extrusionBCIndex)
+int fun3d_2DMesh(void *aimInfo,
+                 aimMeshRef *meshRef,
+                 const char *projectName,
+                 mapAttrToIndexStruct *groupMap,
+                 cfdBoundaryConditionStruct *bcProps)
 {
 
     int status; // Function return status
 
     int i; // Indexing
 
-    int faceBCIndex = CAPSMAGIC;
+    int faceBCIndex = -1, extrusionBCIndex = -1;
 
     double extrusion = -1.0; // Extrusion length
 
@@ -180,104 +367,145 @@ int fun3d_2DMesh(meshStruct *surfaceMesh, mapAttrToIndexStruct *attrMap,
     int xMeshConstant = (int) true, yMeshConstant = (int) true, zMeshConstant= (int) true; // 2D mesh checks
     double tempCoord;
 
-    cfdMeshDataStruct *cfdData;
-    int elementIndex;
-    int marker;
+    meshStruct surfaceMesh;
+    meshStruct volumeMesh;
 
-    if (surfaceMesh->meshQuickRef.useStartIndex == (int) false &&
-        surfaceMesh->meshQuickRef.useListIndex  == (int) false) {
+    char filename[PATH_MAX];
+//    int elementIndex;
+    FILE *fp = NULL;
 
-        status = mesh_fillQuickRefList(surfaceMesh);
-        if (status != CAPS_SUCCESS) goto cleanup;
+    status = initiate_meshStruct(&surfaceMesh);
+    AIM_STATUS(aimInfo, status);
+
+    status = initiate_meshStruct(&volumeMesh);
+    AIM_STATUS(aimInfo, status);
+
+    sprintf(filename, "%s%s", meshRef->fileName, MESHEXTENSION);
+
+    fp = fopen(filename, "rb");
+    if (fp == NULL) {
+      AIM_ERROR(aimInfo, "Cannot open file: %s\n", filename);
+      status = CAPS_IOERR;
+      goto cleanup;
     }
+
+    status = fun3d_read2DBinaryUgrid(aimInfo, fp, &surfaceMesh);
+    AIM_STATUS(aimInfo, status);
 
     // add boundary elements if they are missing
-    if (surfaceMesh->meshQuickRef.numLine == 0) {
-        status = mesh_addTess2Dbc(surfaceMesh, attrMap);
+    if (surfaceMesh.meshQuickRef.numLine == 0) {
+        status = mesh_addTess2Dbc(aimInfo, &surfaceMesh, groupMap);
         if (status != CAPS_SUCCESS) goto cleanup;
     }
 
-    // Check to make sure the surface has a consistent boundary index
-    for (i = 0; i < surfaceMesh->numElement; i++) {
 
-        if (surfaceMesh->element[i].elementType != Triangle &&
-            surfaceMesh->element[i].elementType != Quadrilateral) {
-            continue;
-        }
-
-        if (surfaceMesh->element[i].analysisType == MeshCFD) {
-            cfdData = (cfdMeshDataStruct *) surfaceMesh->element[i].analysisData;
-            marker = cfdData->bcID;
-        } else {
-            marker = surfaceMesh->element[i].markerID;
-        }
-
-        if (faceBCIndex == CAPSMAGIC) {
-            faceBCIndex = marker;
-            continue;
-        }
-
-        if (faceBCIndex != marker) {
-            printf("All boundary indexes must be the same for the face!!!\n");
-            status = CAPS_BADVALUE;
-            goto cleanup;
-        }
-
+    // Find the faceBCIndex for the symmetry plane
+    for (i = 0; i < bcProps->numSurfaceProp-1; i++) {
+      if (bcProps->surfaceProp[i].surfaceType == Symmetry) {
+        faceBCIndex = bcProps->surfaceProp[i].bcID;
+        break;
+      }
     }
 
+    if (faceBCIndex == -1) {
+      // Add plane boundary condition
+      AIM_REALL(bcProps->surfaceProp, bcProps->numSurfaceProp+1, cfdSurfaceStruct, aimInfo, status);
+      bcProps->numSurfaceProp += 1;
+
+      status = initiate_cfdSurfaceStruct(&bcProps->surfaceProp[bcProps->numSurfaceProp-1]);
+      AIM_STATUS(aimInfo, status);
+
+      bcProps->surfaceProp[bcProps->numSurfaceProp-1].surfaceType = Symmetry;
+      bcProps->surfaceProp[bcProps->numSurfaceProp-1].symmetryPlane = 1;
+
+      // Find largest index value for bcID and set it plus 1 to the new surfaceProp
+      for (i = 0; i < bcProps->numSurfaceProp-1; i++) {
+          if (bcProps->surfaceProp[i].bcID >= faceBCIndex) {
+            faceBCIndex = bcProps->surfaceProp[i].bcID + 1;
+          }
+      }
+      bcProps->surfaceProp[bcProps->numSurfaceProp-1].bcID = faceBCIndex;
+    }
+
+
+    // Add extruded plane boundary condition
+    AIM_REALL(bcProps->surfaceProp, bcProps->numSurfaceProp+1, cfdSurfaceStruct, aimInfo, status);
+    bcProps->numSurfaceProp += 1;
+
+    status = initiate_cfdSurfaceStruct(&bcProps->surfaceProp[bcProps->numSurfaceProp-1]);
+    AIM_STATUS(aimInfo, status);
+
+    bcProps->surfaceProp[bcProps->numSurfaceProp-1].surfaceType = Symmetry;
+    bcProps->surfaceProp[bcProps->numSurfaceProp-1].symmetryPlane = 2;
+
+    // Find largest index value for bcID and set it plus 1 to the new surfaceProp
+    for (i = 0; i < bcProps->numSurfaceProp-1; i++) {
+        if (bcProps->surfaceProp[i].bcID >= extrusionBCIndex) {
+          extrusionBCIndex = bcProps->surfaceProp[i].bcID + 1;
+        }
+    }
+    bcProps->surfaceProp[bcProps->numSurfaceProp-1].bcID = extrusionBCIndex;
+
+
+    // Set the symmetry index for all Tri/Quad
+    for (i = 0; i < surfaceMesh.numElement; i++) {
+
+        if (surfaceMesh.element[i].elementType != Triangle &&
+            surfaceMesh.element[i].elementType != Quadrilateral) {
+            continue;
+        }
+
+        surfaceMesh.element[i].markerID = faceBCIndex;
+    }
+
+#ifdef I_DONT_THINK_WE_NEED_THIS
     // Determine a suitable boundary index of the extruded plane
     *extrusionBCIndex = faceBCIndex;
-    for (i = 0; i < surfaceMesh->meshQuickRef.numLine; i++) {
+    for (i = 0; i < surfaceMesh.meshQuickRef.numLine; i++) {
 
-        if (surfaceMesh->meshQuickRef.startIndexLine >= 0) {
-            elementIndex = surfaceMesh->meshQuickRef.startIndexLine + i;
+        if (surfaceMesh.meshQuickRef.startIndexLine >= 0) {
+            elementIndex = surfaceMesh.meshQuickRef.startIndexLine + i;
         } else {
-            elementIndex = surfaceMesh->meshQuickRef.listIndexLine[i];
+            elementIndex = surfaceMesh.meshQuickRef.listIndexLine[i];
         }
 
-        if (surfaceMesh->element[elementIndex].analysisType == MeshCFD) {
-            cfdData = (cfdMeshDataStruct *) surfaceMesh->element[elementIndex].analysisData;
-            marker = cfdData->bcID;
-        } else {
-            marker = surfaceMesh->element[elementIndex].markerID;
-        }
-
+        marker = surfaceMesh.element[elementIndex].markerID;
 
         if (marker > *extrusionBCIndex)  {
             *extrusionBCIndex = marker;
         }
     }
-
     *extrusionBCIndex += 1;
+#endif
 
     // Check to make sure the face is on the y = 0 plane
-    for (i = 0; i < surfaceMesh->numNode; i++) {
+    for (i = 0; i < surfaceMesh.numNode; i++) {
 
-        if (surfaceMesh->node[i].xyz[1] != 0.0) {
+        if (surfaceMesh.node[i].xyz[1] != 0.0) {
             printf("\nSurface mesh is not on y = 0.0 plane, FUN3D could fail during execution for this 2D mesh!!!\n");
             break;
         }
     }
 
     // Constant x?
-    for (i = 0; i < surfaceMesh->numNode; i++) {
-        if ((surfaceMesh->node[i].xyz[0] - surfaceMesh->node[0].xyz[0]) > 1E-7) {
+    for (i = 0; i < surfaceMesh.numNode; i++) {
+        if ((surfaceMesh.node[i].xyz[0] - surfaceMesh.node[0].xyz[0]) > 1E-7) {
             xMeshConstant = (int) false;
             break;
         }
     }
 
     // Constant y?
-    for (i = 0; i < surfaceMesh->numNode; i++) {
-        if ((surfaceMesh->node[i].xyz[1] - surfaceMesh->node[0].xyz[1] ) > 1E-7) {
+    for (i = 0; i < surfaceMesh.numNode; i++) {
+        if ((surfaceMesh.node[i].xyz[1] - surfaceMesh.node[0].xyz[1] ) > 1E-7) {
             yMeshConstant = (int) false;
             break;
         }
     }
 
     // Constant z?
-    for (i = 0; i < surfaceMesh->numNode; i++) {
-        if ((surfaceMesh->node[i].xyz[2] - surfaceMesh->node[0].xyz[2]) > 1E-7) {
+    for (i = 0; i < surfaceMesh.numNode; i++) {
+        if ((surfaceMesh.node[i].xyz[2] - surfaceMesh.node[0].xyz[2]) > 1E-7) {
             zMeshConstant = (int) false;
             break;
         }
@@ -288,56 +516,71 @@ int fun3d_2DMesh(meshStruct *surfaceMesh, mapAttrToIndexStruct *attrMap,
 
         if (xMeshConstant == (int) true && zMeshConstant == (int) false) {
             printf("Swapping y and x coordinates!\n");
-            for (i = 0; i < surfaceMesh->numNode; i++) {
-                tempCoord = surfaceMesh->node[i].xyz[0];
-                surfaceMesh->node[i].xyz[0] = surfaceMesh->node[i].xyz[1];
-                surfaceMesh->node[i].xyz[1] = tempCoord;
+            for (i = 0; i < surfaceMesh.numNode; i++) {
+                tempCoord = surfaceMesh.node[i].xyz[0];
+                surfaceMesh.node[i].xyz[0] = surfaceMesh.node[i].xyz[1];
+                surfaceMesh.node[i].xyz[1] = tempCoord;
             }
 
         } else if(xMeshConstant == (int) false && zMeshConstant == (int) true) {
 
             printf("Swapping y and z coordinates!\n");
-            for (i = 0; i < surfaceMesh->numNode; i++) {
-                tempCoord = surfaceMesh->node[i].xyz[2];
-                surfaceMesh->node[i].xyz[2] = surfaceMesh->node[i].xyz[1];
-                surfaceMesh->node[i].xyz[1] = tempCoord;
+            for (i = 0; i < surfaceMesh.numNode; i++) {
+                tempCoord = surfaceMesh.node[i].xyz[2];
+                surfaceMesh.node[i].xyz[2] = surfaceMesh.node[i].xyz[1];
+                surfaceMesh.node[i].xyz[1] = tempCoord;
             }
 
         } else {
-            printf("Unable to rotate mesh!\n");
+            AIM_ERROR(aimInfo, "Unable to rotate mesh!\n");
             status = CAPS_NOTFOUND;
             goto cleanup;
         }
     }
 
-    status = extrude_SurfaceMesh(extrusion, *extrusionBCIndex, surfaceMesh, volumeMesh);
-    if (status != CAPS_SUCCESS) goto cleanup;
+    status = extrude_SurfaceMesh(extrusion, extrusionBCIndex, &surfaceMesh, &volumeMesh);
+    AIM_STATUS(aimInfo, status);
+
+    strcpy(filename, projectName);
+
+    // Write AFLR3
+/*@-nullpass@*/
+     status = mesh_writeAFLR3(aimInfo, filename,
+                              0, // write binary file
+                              &volumeMesh,
+                              1.0);
+/*@+nullpass@*/
+     AIM_STATUS(aimInfo, status);
 
     status = CAPS_SUCCESS;
 
 cleanup:
     if (status != CAPS_SUCCESS) {
         printf("Error: Premature exit in fun3d_2DMesh status = %d\n", status);
-
-        // Destroy volume mesh
-        (void) destroy_meshStruct(volumeMesh);
     }
+
+/*@-dependenttrans@*/
+    if (fp != NULL) fclose(fp);
+/*@+dependenttrans@*/
+
+    // Destroy meshes
+    (void) destroy_meshStruct(&surfaceMesh);
+    (void) destroy_meshStruct(&volumeMesh);
 
     return status;
 }
 
 
 // Remove unused nodes from dataMatrix and update connectivity matrix
-static int fun3d_removeUnused(int numVariable, int *numNode,  int used[],
+static int fun3d_removeUnused(void *aimInfo, int numVariable, int *numNode,  int used[],
                               double ***data, /*@null@*/ int *numConnect,
-                              /*@null@*/ int **connect)
+                              /*@null@*/ int *dataConnectMatrix)
 {
     int i, j, k; //Indexing
     int status;
 
     int *usedNode=NULL; // Freeable
 
-    int *dataConnectMatrix;
     double **dataMatrix;
 
     dataMatrix = *data;
@@ -374,9 +617,8 @@ static int fun3d_removeUnused(int numVariable, int *numNode,  int used[],
     *numNode = j; // New number of nodes
 
     // Redo connectivity
-/*@-nullderef@*/
-    if (*connect != NULL) {
-        dataConnectMatrix = *connect;
+    if (dataConnectMatrix != NULL) {
+        AIM_NOTNULL(numConnect, aimInfo, status);
         j = 0;
         for (i = 0; i < *numConnect; i++) {
 
@@ -394,7 +636,6 @@ static int fun3d_removeUnused(int numVariable, int *numNode,  int used[],
 
         *numConnect = j; // New number of elements
     }
-/*@+nullderef@*/
 
     status = CAPS_SUCCESS;
 
@@ -410,15 +651,16 @@ cleanup:
 
 // Write FUN3D data transfer files
 int fun3d_dataTransfer(void *aimInfo,
-                       char *projectName,
+                       const char *projectName,
+                       mapAttrToIndexStruct *groupMap,
                        cfdBoundaryConditionStruct bcProps,
-                       meshStruct volumeMesh,
+                       aimMeshRef *meshRef,
                        /*@null@*/ cfdModalAeroelasticStruct *eigenVector)
 {
 
     /*! \page dataTransferFUN3D FUN3D Data Transfer
      *
-     * \section dataToFUN3D Data transfer to FUN3D
+     * \section dataToFUN3D Data transfer to FUN3D (FieldIn)
      *
      * <ul>
      *  <li> <B>"Displacement"</B> </li> <br>
@@ -438,447 +680,493 @@ int fun3d_dataTransfer(void *aimInfo,
      *
      */
 
-
     int status; // Function return status
-    int i, j, k, eigenIndex; // Indexing
+    int i, j, ibound, ibody, iface, iglobal, eigenIndex; // Indexing
 
     int stringLength = 0;
 
     char *filename = NULL;
 
     // Discrete data transfer variables
-    capsDiscr *dataTransferDiscreteObj;
-    char **transferName = NULL;
-    int numTransferName = 0;
+    capsDiscr *discr;
+    char **boundName = NULL;
+    int numBoundName = 0;
     enum capsdMethod dataTransferMethod;
     int numDataTransferPoint;
-    //int numDataTransferElement = 0;
     int dataTransferRank;
     double *dataTransferData;
+    char   *units;
+
+    int state, nGlobal, *globalOffset=NULL, nFace;
+    ego body, *faces=NULL;
+
+    int alen, ntri, atype, itri, ielem;
+    const double *face_xyz, *face_uv, *reals;
+    const int *face_ptype, *face_pindex, *face_tris, *face_tric, *nquad=NULL;
+    const char *string, *groupName = NULL;
 
     // Variables used in global node mapping
-    int globalNodeID;
+    int ptype, pindex;
+    double xyz[3];
 
     // Data transfer Out variables
     const char *dataOutName[] = {"x","y","z", "id", "dx", "dy", "dz"};
+    const int dataOutFormat[] = {Double, Double, Double, Integer, Double, Double, Double};
 
     double **dataOutMatrix = NULL;
-    int *dataOutFormat = NULL;
     int *dataConnectMatrix = NULL;
 
     int numOutVariable = 7;
     int numOutDataPoint = 0;
     int numOutDataConnect = 0;
 
-    char fileExtBody[] = "_body1";
-    char fileExt[] = ".dat";
-    char fileExtMode[] = "_mode";
+    const char fileExtBody[] = "_body1";
+    const char fileExt[] = ".dat";
+    const char fileExtMode[] = "_mode";
 
     int foundDisplacement = (int) false, foundEigenVector = (int) false;
 
-    meshStruct surfaceMesh;
-
     int marker;
-    cfdMeshDataStruct *cfdData;
 
-    int numUsedNode = 0, numUsedConnectivity = 0;
+    int numUsedNode = 0, numUsedConnectivity = 0, usedElems;
     int *usedNode = NULL;
 
-    status = aim_getBounds(aimInfo, &numTransferName, &transferName);
-    if (status != CAPS_SUCCESS) return status;
-    if (transferName == NULL) return CAPS_NOTFOUND;
-
-    (void) initiate_meshStruct(&surfaceMesh);
+    status = aim_getBounds(aimInfo, &numBoundName, &boundName);
+    AIM_STATUS(aimInfo, status);
 
     foundDisplacement = foundEigenVector = (int) false;
-    for (i = 0; i < numTransferName; i++) {
+    for (ibound = 0; ibound < numBoundName; ibound++) {
+      AIM_NOTNULL(boundName, aimInfo, status);
 
-        status = aim_getDiscr(aimInfo, transferName[i], &dataTransferDiscreteObj);
-        if (status != CAPS_SUCCESS) continue;
+      status = aim_getDiscr(aimInfo, boundName[ibound], &discr);
+      if (status != CAPS_SUCCESS) continue;
 
-        status = aim_getDataSet(dataTransferDiscreteObj,
-                                "Displacement",
-                                &dataTransferMethod,
-                                &numDataTransferPoint,
-                                &dataTransferRank,
-                                &dataTransferData);
+      status = aim_getDataSet(discr,
+                              "Displacement",
+                              &dataTransferMethod,
+                              &numDataTransferPoint,
+                              &dataTransferRank,
+                              &dataTransferData,
+                              &units);
 
-        if (status == CAPS_SUCCESS) { // If we do have data ready is the rank correct
+      if (status == CAPS_SUCCESS) { // If we do have data ready is the rank correct
 
-            foundDisplacement = (int) true;
+        foundDisplacement = (int) true;
+
+        if (dataTransferRank != 3) {
+          AIM_ERROR(aimInfo, "Displacement transfer data found however rank is %d not 3!!!!\n", dataTransferRank);
+          status = CAPS_BADRANK;
+          goto cleanup;
+        }
+        break;
+      }
+
+      if (eigenVector != NULL) {
+        for (eigenIndex = 0; eigenIndex < eigenVector->numEigenValue; eigenIndex++) {
+
+          status = aim_getDataSet(discr,
+                                  eigenVector->eigenValue[eigenIndex].name,
+                                  &dataTransferMethod,
+                                  &numDataTransferPoint,
+                                  &dataTransferRank,
+                                  &dataTransferData,
+                                  &units);
+
+          if (status == CAPS_SUCCESS) { // If we do have data ready is the rank correct
+
+            foundEigenVector = (int) true;
 
             if (dataTransferRank != 3) {
-                printf("Displacement transfer data found however rank is %d not 3!!!!\n", dataTransferRank);
-                status = CAPS_BADRANK;
-                goto cleanup;
+              AIM_ERROR(aimInfo, "EigenVector transfer data found however rank is %d not 3!!!!\n", dataTransferRank);
+              status = CAPS_BADRANK;
+              goto cleanup;
             }
-
             break;
-        }
+          }
+        } // Loop through EigenValues
 
-        if (eigenVector != NULL) {
-            for (eigenIndex = 0; eigenIndex < eigenVector->numEigenValue; eigenIndex++) {
+        if (foundEigenVector == (int) true) break;
 
-                status = aim_getDataSet(dataTransferDiscreteObj,
-                                        eigenVector->eigenValue[eigenIndex].name,
-                                        &dataTransferMethod,
-                                        &numDataTransferPoint,
-                                        &dataTransferRank,
-                                        &dataTransferData);
-
-                if (status == CAPS_SUCCESS) { // If we do have data ready is the rank correct
-
-                    foundEigenVector = (int) true;
-
-                    if (dataTransferRank != 3) {
-                        printf("EigenVector transfer data found however rank is %d not 3!!!!\n", dataTransferRank);
-                        status = CAPS_BADRANK;
-                        goto cleanup;
-                    }
-
-                    break;
-                }
-            } // Loop through EigenValues
-
-            if (foundEigenVector == (int) true) break;
-
-        } // If eigen-vectors provided
+      } // If eigen-vectors provided
     } // Loop through transfer names
 
     if (foundDisplacement != (int) true && foundEigenVector != (int) true) {
-
-        printf("No recognized data transfer names found!\n");
-
-        status = CAPS_NOTFOUND;
-        goto cleanup;
+      printf("No recognized data transfer names found!\n");
+      status = CAPS_NOTFOUND;
+      goto cleanup;
     }
 
     // Ok looks like we have displacements/EigenVectors to get so lets continue
     printf("Writing FUN3D data transfer files\n");
 
-    // Combine surface meshes found in the volumes
-    status = mesh_combineMeshStruct(volumeMesh.numReferenceMesh,
-                                    volumeMesh.referenceMesh,
-                                    &surfaceMesh);
-    if (status != CAPS_SUCCESS) goto cleanup;
-
-    // Right now we are just going to output a body containing all surface nodes in case we eventually
-    // do transfers for something other than just viscous and inviscid surfaces - we filter appropriately below
-    numOutDataPoint = surfaceMesh.numNode;
-
-    numOutDataConnect = 0;
-    status = mesh_retrieveNumMeshElements(surfaceMesh.numElement,
-                                          surfaceMesh.element,
-                                          Triangle,
-                                          &j);
-    if (status != CAPS_SUCCESS) goto cleanup;
-    numOutDataConnect += j;
-
-    status = mesh_retrieveNumMeshElements(surfaceMesh.numElement,
-                                          surfaceMesh.element,
-                                          Quadrilateral,
-                                          &j);
-    if (status != CAPS_SUCCESS) goto cleanup;
-    numOutDataConnect += j;
-
-    if (numOutDataConnect != surfaceMesh.numElement) {
-        printf("Error: Unsupported element type for a surface mesh - only 'Triangle' and 'Quadrilateral' are currently supported!");
-        status = CAPS_BADVALUE;
-        goto cleanup;
-    }
-
-    usedNode = (int *) EG_alloc(numOutDataPoint*sizeof(int));
-    if (usedNode == NULL) {
-        status = EGADS_MALLOC;
-        goto cleanup;
-    }
-    for (i = 0; i < numOutDataPoint; i++) usedNode[i] = (int) false;
-
     // Allocate data arrays that are going to be output
-    dataOutMatrix = (double **) EG_alloc(numOutVariable*sizeof(double));
-    dataOutFormat = (int *) EG_alloc(numOutVariable*sizeof(int));
-    dataConnectMatrix = (int *) EG_alloc(4*numOutDataConnect*sizeof(int));
-
-    if (dataOutMatrix == NULL || dataOutFormat == NULL || dataConnectMatrix == NULL) {
-        status = EGADS_MALLOC;
-        goto cleanup;
-    }
-
+    AIM_ALLOC(dataOutMatrix, numOutVariable, double*, aimInfo, status);
     for (i = 0; i < numOutVariable; i++) dataOutMatrix[i] = NULL;
 
-    for (i = 0; i < numOutVariable; i++) {
+    AIM_ALLOC(globalOffset, meshRef->nmap+1, int, aimInfo, status);
+    numOutDataPoint = 0;
+    ielem = 0;
+    globalOffset[0] = 0;
+    for (i = 0; i < meshRef->nmap; i++) {
+      status = EG_statusTessBody(meshRef->maps[i].tess, &body, &state, &nGlobal);
+      AIM_STATUS(aimInfo, status);
 
-        dataOutMatrix[i] = (double *) EG_alloc(numOutDataPoint*sizeof(double));
+      // re-allocate data arrays
+      for (j = 0; j < numOutVariable; j++) {
+        AIM_REALL(dataOutMatrix[j], numOutDataPoint + nGlobal, double, aimInfo, status);
+      }
+      AIM_REALL(usedNode, numOutDataPoint + nGlobal, int, aimInfo, status);
+      for (j = globalOffset[0]; j < numOutDataPoint + nGlobal; j++) usedNode[j] = (int) false;
 
-        if (dataOutMatrix[i] == NULL) { // If allocation failed ....
 
-            status =  EGADS_MALLOC;
-            goto cleanup;
-        }
-    }
+      for (iglobal = 0; iglobal < nGlobal; iglobal++) {
+        status = EG_getGlobal(meshRef->maps[i].tess,
+                              iglobal+1, &ptype, &pindex, xyz);
+        AIM_STATUS(aimInfo, status);
 
-    // Set data out formatting
-    for (i = 0; i < numOutVariable; i++) {
-        if (strcasecmp(dataOutName[i], "id") == 0) {
-            dataOutFormat[i] = (int) Integer;
-        } else {
-            dataOutFormat[i] = (int) Double;
-        }
-    }
+        // First just set the Coordinates
+        dataOutMatrix[0][globalOffset[i]+iglobal] = xyz[0];
+        dataOutMatrix[1][globalOffset[i]+iglobal] = xyz[1];
+        dataOutMatrix[2][globalOffset[i]+iglobal] = xyz[2];
 
-    // Fill data out matrix with current surface mesh and global id
-    for (i = 0; i < numOutDataPoint; i++ ) {
-
-        // Coordinates
-        dataOutMatrix[0][i] = surfaceMesh.node[i].xyz[0];
-        dataOutMatrix[1][i] = surfaceMesh.node[i].xyz[1];
-        dataOutMatrix[2][i] = surfaceMesh.node[i].xyz[2];
-
-        // Global ID - assumes the surfaceMesh nodes are in the volume at the beginning
-        dataOutMatrix[3][i] = (double) surfaceMesh.node[i].nodeID;
+        // Volume mesh node ID
+        dataOutMatrix[3][globalOffset[i]+iglobal] = meshRef->maps[i].map[iglobal];
 
         // Delta displacements
         dataOutMatrix[4][i] = 0;
         dataOutMatrix[5][i] = 0;
         dataOutMatrix[6][i] = 0;
-    }
+      }
 
-    for (i = 0; i < numOutDataConnect; i++) { // This would assume numOutDataConnect == surfaceMesh.numElement
+      // check if the tessellation has a mixture of quad and tess
+      status = EG_attributeRet(meshRef->maps[i].tess, ".mixed",
+                               &atype, &alen, &nquad, &reals, &string);
+      if (status != EGADS_SUCCESS &&
+          status != EGADS_NOTFOUND) AIM_STATUS(aimInfo, status);
 
-        if (surfaceMesh.element[i].elementType == Triangle) {
-            dataConnectMatrix[4*i+ 0] = surfaceMesh.element[i].connectivity[0];
-            dataConnectMatrix[4*i+ 1] = surfaceMesh.element[i].connectivity[1];
-            dataConnectMatrix[4*i+ 2] = surfaceMesh.element[i].connectivity[2];
-            dataConnectMatrix[4*i+ 3] = surfaceMesh.element[i].connectivity[2];
-        }
+      status = EG_getBodyTopos(body, NULL, FACE, &nFace, &faces);
+      AIM_STATUS(aimInfo, status);
+      for (iface = 0; iface < nFace; iface++) {
+        // get the face tessellation
+        status = EG_getTessFace(meshRef->maps[i].tess, iface+1, &alen, &face_xyz, &face_uv,
+                                &face_ptype, &face_pindex, &ntri, &face_tris, &face_tric);
+        AIM_STATUS(aimInfo, status);
+        AIM_NOTNULL(faces, aimInfo, status);
 
-        if (surfaceMesh.element[i].elementType == Quadrilateral) {
-            dataConnectMatrix[4*i+ 0] = surfaceMesh.element[i].connectivity[0];
-            dataConnectMatrix[4*i+ 1] = surfaceMesh.element[i].connectivity[1];
-            dataConnectMatrix[4*i+ 2] = surfaceMesh.element[i].connectivity[2];
-            dataConnectMatrix[4*i+ 3] = surfaceMesh.element[i].connectivity[3];
-        }
-    }
-
-    //  To keep with the moving_bodying input we will assume used nodes are all inviscid and viscous surfaces instead
-    //                        usedNode[k] = (int) true;
-    for (i = 0; i < numOutDataConnect; i++) {// This would assume numOutDataConnect == surfaceMesh.numElement
-
-        if (surfaceMesh.element[i].analysisType == MeshCFD) {
-            cfdData = (cfdMeshDataStruct *) surfaceMesh.element[i].analysisData;
-            marker = cfdData->bcID;
+        status = retrieve_CAPSGroupAttr(faces[iface], &groupName);
+        if (status == EGADS_SUCCESS) {
+          AIM_NOTNULL(groupName, aimInfo, status);
+          status = get_mapAttrToIndexIndex(groupMap, groupName, &marker);
+          if (status != CAPS_SUCCESS) {
+            AIM_ERROR(aimInfo, "No capsGroup \"%s\" not found in attribute map", groupName);
+            goto cleanup;
+          }
         } else {
-            marker = surfaceMesh.element[i].markerID;
+          AIM_ERROR(aimInfo, "No capsGroup on face %d", iface+1);
+          print_AllAttr(aimInfo, faces[iface]);
+          goto cleanup;
         }
 
+        //  To keep with the moving_bodying input we will assume used nodes are all inviscid and viscous surfaces instead
+        //                        usedNode[k] = (int) true;
+        usedElems = (int) false;
         for (j = 0; j < bcProps.numSurfaceProp; j++) {
+          if (marker != bcProps.surfaceProp[j].bcID) continue;
 
-            if (marker != bcProps.surfaceProp[j].bcID) continue;
+          if (bcProps.surfaceProp[j].surfaceType == Viscous ||
+              bcProps.surfaceProp[j].surfaceType == Inviscid) {
+              usedElems = (int) true;
+          }
+          break;
+        }
 
-            if (bcProps.surfaceProp[j].surfaceType == Viscous ||
-                bcProps.surfaceProp[j].surfaceType == Inviscid) {
+        if (nquad == NULL) { // all triangles
 
-                for (k = 0; k < mesh_numMeshElementConnectivity(&surfaceMesh.element[i]); k++) {
-                    usedNode[surfaceMesh.element[i].connectivity[k]-1] = (int) true;
-                }
+          // re-allocate data arrays
+          AIM_REALL(dataConnectMatrix, 4*(numOutDataConnect + ntri), int, aimInfo, status);
+
+          for (itri = 0; itri < ntri; itri++, ielem++) {
+            for (j = 0; j < 3; j++) {
+              status = EG_localToGlobal(meshRef->maps[i].tess, iface+1, face_tris[3*itri+j], &iglobal);
+              AIM_STATUS(aimInfo, status);
+              dataConnectMatrix[4*ielem+j] = globalOffset[i] + iglobal;
+              usedNode[globalOffset[i]+iglobal-1] = usedElems;
+            }
+            // repeat the last node for triangles
+            dataConnectMatrix[4*ielem+3] = dataConnectMatrix[4*ielem+2];
+          }
+
+          numOutDataConnect += ntri;
+
+        } else { // mixture of tri and quad elements
+
+          // re-allocate data arrays
+          AIM_REALL(dataConnectMatrix, 4*(numOutDataConnect + ntri-nquad[iface]), int, aimInfo, status);
+
+          // process triangles
+          for (itri = 0; itri < ntri-2*nquad[iface]; itri++, ielem++) {
+            for (j = 0; j < 3; j++) {
+              status = EG_localToGlobal(meshRef->maps[i].tess, iface+1, face_tris[3*itri+j], &iglobal);
+              AIM_STATUS(aimInfo, status);
+              dataConnectMatrix[4*ielem+j] = globalOffset[i] + iglobal;
+              usedNode[globalOffset[i]+iglobal-1] = usedElems;
+            }
+            // repeat the last node for triangle
+            dataConnectMatrix[4*ielem+3] = dataConnectMatrix[4*ielem+2];
+          }
+          // process quads
+          for (; itri < ntri; itri++, ielem++) {
+            for (j = 0; j < 3; j++) {
+              status = EG_localToGlobal(meshRef->maps[i].tess, iface+1, face_tris[3*itri+j], &iglobal);
+              AIM_STATUS(aimInfo, status);
+              dataConnectMatrix[4*ielem+j] = globalOffset[i] + iglobal;
+              usedNode[globalOffset[i]+iglobal-1] = usedElems;
             }
 
-            break;
+            // add the last node from the 2nd triangle to make the quad
+            itri++;
+            status = EG_localToGlobal(meshRef->maps[i].tess, iface+1, face_tris[3*itri+2], &iglobal);
+            AIM_STATUS(aimInfo, status);
+            dataConnectMatrix[4*ielem+3] = globalOffset[i] + iglobal;
+            usedNode[globalOffset[i]+iglobal-1] = usedElems;
+          }
+
+          numOutDataConnect += ntri-nquad[iface];
         }
+
+      }
+      AIM_FREE(faces);
+
+      numOutDataPoint += nGlobal;
+      globalOffset[i+1] = globalOffset[i] + nGlobal;
     }
 
     // Re-loop through transfers - if we are doing displacements
     if (foundDisplacement == (int) true) {
 
-        for (i = 0; i < numTransferName; i++) {
+      for (ibound = 0; ibound < numBoundName; ibound++) {
+        AIM_NOTNULL(boundName, aimInfo, status);
 
-            status = aim_getDiscr(aimInfo, transferName[i], &dataTransferDiscreteObj);
-            if (status != CAPS_SUCCESS) continue;
+        status = aim_getDiscr(aimInfo, boundName[ibound], &discr);
+        if (status != CAPS_SUCCESS) continue;
 
-            status = aim_getDataSet(dataTransferDiscreteObj,
-                                    "Displacement",
-                                    &dataTransferMethod,
-                                    &numDataTransferPoint,
-                                    &dataTransferRank,
-                                    &dataTransferData);
+        status = aim_getDataSet(discr,
+                                "Displacement",
+                                &dataTransferMethod,
+                                &numDataTransferPoint,
+                                &dataTransferRank,
+                                &dataTransferData,
+                                &units);
+        if (status != CAPS_SUCCESS) continue; // If no elements in this object skip to next transfer name
 
-            if (status != CAPS_SUCCESS) continue; // If no elements in this object skip to next transfer name
+        if (numDataTransferPoint != discr->nPoints &&
+            numDataTransferPoint > 1) {
+          AIM_ERROR(aimInfo, "Developer error!! %d != %d", numDataTransferPoint, discr->nPoints);
+          status = CAPS_MISMATCH;
+          goto cleanup;
+        }
 
-            for (j = 0; j < numDataTransferPoint; j++) {
+        for (i = 0; i < discr->nPoints; i++) {
 
-                globalNodeID = dataTransferDiscreteObj->tessGlobal[2*j+1];
-                for (k = 0; k < numOutDataPoint; k++) {
+          ibody   = discr->tessGlobal[2*i+0];
+          iglobal = discr->tessGlobal[2*i+1];
 
-                    // If the global node IDs match store the displacement values in the dataOutMatrix
-                    if (globalNodeID  == (int) dataOutMatrix[3][k]) {
+          status = EG_getGlobal(discr->bodys[ibody-1].tess,
+                                iglobal, &ptype, &pindex, xyz);
+          AIM_STATUS(aimInfo, status);
 
-                        // Used nodes are only truely "used nodes" - To keep with the moving_bodying input
-                        // we will assume used nodes are all inviscid and viscous surfaces instead (see above)
-//                        usedNode[k] = (int) true;
-
-                        // A rank of 3 should have already been checked
-                        // Delta displacements
-                        dataOutMatrix[4][k] = dataTransferData[3*j+0];
-                        dataOutMatrix[5][k] = dataTransferData[3*j+1];
-                        dataOutMatrix[6][k] = dataTransferData[3*j+2];
-                        break;
-                    }
-                }
+          // Find the disc tessellation in the original list of tessellations
+          for (j = 0; j < meshRef->nmap; j++) {
+            if (discr->bodys[ibody-1].tess == meshRef->maps[j].tess) {
+              break;
             }
-        } // End dataTransferDiscreteObj loop
-
-        // Update surface coordinates based on displacements
-        for (i = 0; i < numOutDataPoint; i++ ) {
-
-            // Coordinates + displacements at nodes
-            dataOutMatrix[0][i] = dataOutMatrix[0][i] + dataOutMatrix[4][i]; // x
-            dataOutMatrix[1][i] = dataOutMatrix[1][i] + dataOutMatrix[5][i]; // y
-            dataOutMatrix[2][i] = dataOutMatrix[2][i] + dataOutMatrix[6][i]; // z
-        }
-
-        // Remove unused nodes
-        numUsedNode = numOutDataPoint;
-        numUsedConnectivity = numOutDataConnect;
-        status = fun3d_removeUnused(numOutVariable, &numUsedNode, usedNode,
-                                    &dataOutMatrix, &numUsedConnectivity,
-                                    &dataConnectMatrix);
-        if (status != CAPS_SUCCESS) goto cleanup;
-
-        stringLength = strlen(projectName) + strlen(fileExtBody) +strlen(fileExt) +1;
-        filename = (char *) EG_alloc((stringLength +1)*sizeof(char));
-        if (filename == NULL) {
-            status = EGADS_MALLOC;
+          }
+          if (j == meshRef->nmap) {
+            AIM_ERROR(aimInfo, "Could not find matching tessellation!");
+            status = CAPS_MISMATCH;
             goto cleanup;
+          }
+
+          if (numDataTransferPoint == 1) {
+            // A single point means this is an initialization phase
+
+            // Apply delta displacements
+            dataOutMatrix[0][globalOffset[j]+iglobal-1] += dataTransferData[0];
+            dataOutMatrix[1][globalOffset[j]+iglobal-1] += dataTransferData[1];
+            dataOutMatrix[2][globalOffset[j]+iglobal-1] += dataTransferData[2];
+
+            // save delta displacements
+            dataOutMatrix[4][globalOffset[j]+iglobal-1] = dataTransferData[0];
+            dataOutMatrix[5][globalOffset[j]+iglobal-1] = dataTransferData[1];
+            dataOutMatrix[6][globalOffset[j]+iglobal-1] = dataTransferData[2];
+
+          } else {
+            // Apply delta displacements
+            dataOutMatrix[0][globalOffset[j]+iglobal-1] += dataTransferData[3*i+0];
+            dataOutMatrix[1][globalOffset[j]+iglobal-1] += dataTransferData[3*i+1];
+            dataOutMatrix[2][globalOffset[j]+iglobal-1] += dataTransferData[3*i+2];
+
+            dataOutMatrix[4][globalOffset[j]+iglobal-1] = dataTransferData[3*i+0];
+            dataOutMatrix[5][globalOffset[j]+iglobal-1] = dataTransferData[3*i+1];
+            dataOutMatrix[6][globalOffset[j]+iglobal-1] = dataTransferData[3*i+2];
+          }
         }
+      } // End numBoundName loop
 
-        strcpy(filename, projectName);
-        strcat(filename, fileExtBody);
-        strcat(filename, fileExt);
+      // Remove unused nodes
+      numUsedNode = numOutDataPoint;
+      numUsedConnectivity = numOutDataConnect;
+      AIM_NOTNULL(usedNode, aimInfo, status);
+      status = fun3d_removeUnused(aimInfo, numOutVariable, &numUsedNode, usedNode,
+                                  &dataOutMatrix, &numUsedConnectivity,
+                                  dataConnectMatrix);
+      AIM_STATUS(aimInfo, status);
 
-        filename[stringLength] = '\0';
+      stringLength = strlen(projectName) + strlen(fileExtBody) + strlen(fileExt) + 1;
+      AIM_ALLOC(filename, stringLength+1, char, aimInfo, status);
 
-        // Write out displacement in tecplot file
-/*@-nullpass@*/
-        status = tecplot_writeFEPOINT(filename,
-                                      "FUN3D AeroLoads",
-                                      NULL,
-                                      numOutVariable,
-                                      (char **) dataOutName,
-                                      numUsedNode, // numOutDataPoint,
-                                      dataOutMatrix,
-                                      dataOutFormat,
-                                      numUsedConnectivity, //numOutDataConnect, // numConnectivity
-                                      dataConnectMatrix, // connectivity matrix
-                                      NULL); // Solution time
-/*@+nullpass@*/
-        EG_free(filename);
-        filename = NULL;
-        if (status != CAPS_SUCCESS) goto cleanup;
+      strcpy(filename, projectName);
+      strcat(filename, fileExtBody);
+      strcat(filename, fileExt);
+      filename[stringLength] = '\0';
+
+      // Write out displacement in tecplot file
+      /*@-nullpass@*/
+      status = tecplot_writeFEPOINT(aimInfo, filename,
+                                    "FUN3D AeroLoads",
+                                    NULL,
+                                    numOutVariable,
+                                    (char **)dataOutName,
+                                    numUsedNode, // numOutDataPoint,
+                                    dataOutMatrix,
+                                    dataOutFormat,
+                                    numUsedConnectivity, //numOutDataConnect, // numConnectivity
+                                    dataConnectMatrix, // connectivity matrix
+                                    NULL); // Solution time
+      /*@+nullpass@*/
+      AIM_STATUS(aimInfo, status);
+      AIM_FREE(filename);
     } // End if found displacements
 
     // Re-loop through transfers - if we are doing eigen-vectors
     if ((foundEigenVector == (int) true) && (eigenVector != NULL)) {
 
-        for (eigenIndex = 0; eigenIndex < eigenVector->numEigenValue; eigenIndex++) {
+      for (eigenIndex = 0; eigenIndex < eigenVector->numEigenValue; eigenIndex++) {
 
-            // Zero out the eigen-vectors each time we are writing out a new one
-            for (i = 0; i < numOutDataPoint; i++ ) {
+        // Zero out the eigen-vectors each time we are writing out a new one
+        for (i = 0; i < numOutDataPoint; i++ ) {
 
-                // Delta eigen-vectors
-                dataOutMatrix[4][i] = 0;
-                dataOutMatrix[5][i] = 0;
-                dataOutMatrix[6][i] = 0;
+          // Delta eigen-vectors
+          dataOutMatrix[4][i] = 0;
+          dataOutMatrix[5][i] = 0;
+          dataOutMatrix[6][i] = 0;
+        }
+
+        for (ibound = 0; ibound < numBoundName; ibound++) {
+          AIM_NOTNULL(boundName, aimInfo, status);
+
+          status = aim_getDiscr(aimInfo, boundName[ibound], &discr);
+          if (status != CAPS_SUCCESS) continue;
+
+          status = aim_getDataSet(discr,
+                                  eigenVector->eigenValue[eigenIndex].name,
+                                  &dataTransferMethod,
+                                  &numDataTransferPoint,
+                                  &dataTransferRank,
+                                  &dataTransferData,
+                                  &units);
+          if (status != CAPS_SUCCESS) continue; // If no elements in this object skip to next transfer name
+
+          if (numDataTransferPoint != discr->nPoints &&
+              numDataTransferPoint > 1) {
+            AIM_ERROR(aimInfo, "Developer error!! %d != %d", numDataTransferPoint, discr->nPoints);
+            status = CAPS_MISMATCH;
+            goto cleanup;
+          }
+
+          for (i = 0; i < discr->nPoints; i++) {
+
+            ibody   = discr->tessGlobal[2*i+0];
+            iglobal = discr->tessGlobal[2*i+1];
+
+            // Find the disc tessellation in the original list of tessellations
+            for (j = 0; j < meshRef->nmap; j++) {
+              if (discr->bodys[ibody-1].tess == meshRef->maps[j].tess) {
+                break;
+              }
+            }
+            if (j == meshRef->nmap) {
+              AIM_ERROR(aimInfo, "Could not find matching tessellation!");
+              status = CAPS_MISMATCH;
+              goto cleanup;
             }
 
-            for (i = 0; i < numTransferName; i++) {
+            if (numDataTransferPoint == 1) {
+              // A single point means this is an initialization phase
 
-                status = aim_getDiscr(aimInfo, transferName[i], &dataTransferDiscreteObj);
-                if (status != CAPS_SUCCESS) continue;
+              // save Eigen-vector
+              dataOutMatrix[4][globalOffset[j]+iglobal-1] = dataTransferData[0];
+              dataOutMatrix[5][globalOffset[j]+iglobal-1] = dataTransferData[1];
+              dataOutMatrix[6][globalOffset[j]+iglobal-1] = dataTransferData[2];
 
-
-                status = aim_getDataSet(dataTransferDiscreteObj,
-                                        eigenVector->eigenValue[eigenIndex].name,
-                                        &dataTransferMethod,
-                                        &numDataTransferPoint,
-                                        &dataTransferRank,
-                                        &dataTransferData);
-                if (status != CAPS_SUCCESS) continue; // If no elements in this object skip to next transfer name
-
-                for (j = 0; j < numDataTransferPoint; j++) {
-
-                    globalNodeID = dataTransferDiscreteObj->tessGlobal[2*j+1];
-                    for (k = 0; k < numOutDataPoint; k++) {
-
-                        // If the global node IDs match store the displacement values in the dataOutMatrix
-                        if (globalNodeID  == (int) dataOutMatrix[3][k]) {
-
-                            // Used nodes are only truely "used nodes" - To keep with the moving_bodying input
-                            // we will assume used nodes are all inviscid and viscous surfaces instead (see above)
-    //                        usedNode[k] = (int) true;
-
-                            // A rank of 3 should have already been checked
-                            // Eigen-vector
-                            dataOutMatrix[4][k] = dataTransferData[3*j+0];
-                            dataOutMatrix[5][k] = dataTransferData[3*j+1];
-                            dataOutMatrix[6][k] = dataTransferData[3*j+2];
-                            break;
-                        }
-                    }
-                }
-            } // End dataTransferDiscreteObj loop
-
-            // Remove unused nodes
-            numUsedNode = numOutDataPoint;
-
-            if (eigenIndex == 0) {
-                numUsedConnectivity = numOutDataConnect;
-                status = fun3d_removeUnused(numOutVariable, &numUsedNode,
-                                            usedNode, &dataOutMatrix,
-                                            &numUsedConnectivity, &dataConnectMatrix);
-                if (status != CAPS_SUCCESS) goto cleanup;
             } else {
-                status = fun3d_removeUnused(numOutVariable, &numUsedNode,
-                                            usedNode, &dataOutMatrix, NULL, NULL);
-                if (status != CAPS_SUCCESS) goto cleanup;
+              // save Eigen-vector
+              dataOutMatrix[4][globalOffset[j]+iglobal-1] = dataTransferData[3*i+0];
+              dataOutMatrix[5][globalOffset[j]+iglobal-1] = dataTransferData[3*i+1];
+              dataOutMatrix[6][globalOffset[j]+iglobal-1] = dataTransferData[3*i+2];
             }
+          }
+        } // End dataTransferDiscreteObj loop
 
-            stringLength = strlen(projectName) +
-                           strlen(fileExtBody) +
-                           strlen(fileExtMode) +
-                           strlen(fileExt) + 5;
+        // Remove unused nodes
+        numUsedNode = numOutDataPoint;
+        AIM_NOTNULL(usedNode, aimInfo, status);
 
-            filename = (char *) EG_alloc((stringLength +1)*sizeof(char));
-            if (filename == NULL) {
-                status = EGADS_MALLOC;
-                goto cleanup;
-            }
+        if (eigenIndex == 0) {
+          numUsedConnectivity = numOutDataConnect;
+          status = fun3d_removeUnused(aimInfo, numOutVariable, &numUsedNode,
+                                      usedNode, &dataOutMatrix,
+                                      &numUsedConnectivity, dataConnectMatrix);
+          AIM_STATUS(aimInfo, status);
+        } else {
+          status = fun3d_removeUnused(aimInfo, numOutVariable, &numUsedNode,
+                                      usedNode, &dataOutMatrix, NULL, NULL);
+          AIM_STATUS(aimInfo, status);
+        }
 
-            sprintf(filename, "%s%s%s%d%s",
-                    projectName,
-                    fileExtBody,
-                    fileExtMode,  // Change modeNumber so it always starts at 1!
-                    eigenIndex+1, // eigenVector->eigenValue[eigenIndex].modeNumber,
-                    fileExt);
+        stringLength = strlen(projectName) +
+                       strlen(fileExtBody) +
+                       strlen(fileExtMode) +
+                       strlen(fileExt) + 5;
 
-            // Write out eigen-vector in tecplot file
-/*@-nullpass@*/
-            status = tecplot_writeFEPOINT(filename,
-                                          "FUN3D Modal",
-                                          NULL,
-                                          numOutVariable,
-                                          (char **) dataOutName,
-                                          numUsedNode, //numOutDataPoint,
-                                          dataOutMatrix,
-                                          dataOutFormat,
-                                          numUsedConnectivity, //numOutDataConnect, // numConnectivity
-                                          dataConnectMatrix, // connectivity matrix
-                                          NULL); // Solution time
-/*@+nullpass@*/
-            EG_free(filename);
-            filename = NULL;
-            if (status != CAPS_SUCCESS) goto cleanup;
+        AIM_ALLOC(filename, stringLength+1, char, aimInfo, status);
 
-        } // End eigenvector names
+        sprintf(filename, "%s%s%s%d%s",
+                projectName,
+                fileExtBody,
+                fileExtMode,  // Change modeNumber so it always starts at 1!
+                eigenIndex+1, // eigenVector->eigenValue[eigenIndex].modeNumber,
+                fileExt);
+
+        // Write out eigen-vector in tecplot file
+        /*@-nullpass@*/
+        status = tecplot_writeFEPOINT(aimInfo,
+                                      filename,
+                                      "FUN3D Modal",
+                                      NULL,
+                                      numOutVariable,
+                                      (char **)dataOutName,
+                                      numUsedNode, //numOutDataPoint,
+                                      dataOutMatrix,
+                                      dataOutFormat,
+                                      numUsedConnectivity, //numOutDataConnect, // numConnectivity
+                                      dataConnectMatrix, // connectivity matrix
+                                      NULL); // Solution time
+        /*@+nullpass@*/
+        AIM_STATUS(aimInfo, status);
+        AIM_FREE(filename);
+
+      } // End eigenvector names
     } // End if found eigenvectors
 
     status = CAPS_SUCCESS;
@@ -886,32 +1174,29 @@ int fun3d_dataTransfer(void *aimInfo,
     // Clean-up
 cleanup:
 
-    if (status != CAPS_SUCCESS) printf("Error: Premature exit in fun3d_dataTransfer status = %d\n", status);
-
-    (void) destroy_meshStruct(&surfaceMesh);
+    if (status != CAPS_SUCCESS &&
+        status != CAPS_NOTFOUND) printf("Error: Premature exit in fun3d_dataTransfer status = %d\n", status);
 
     if (dataOutMatrix != NULL) {
-        for (i = 0; i < numOutVariable; i++) {
-            if (dataOutMatrix[i] != NULL)  EG_free(dataOutMatrix[i]);
-        }
+      for (i = 0; i < numOutVariable; i++) {
+        AIM_FREE(dataOutMatrix[i]);
+      }
     }
 
-    if (dataOutMatrix != NULL) EG_free(dataOutMatrix);
-    if (dataOutFormat != NULL) EG_free(dataOutFormat);
-    if (dataConnectMatrix != NULL) EG_free(dataConnectMatrix);
+    AIM_FREE(faces);
+    AIM_FREE(dataOutMatrix);
+    AIM_FREE(dataConnectMatrix);
 
-    if (filename != NULL) EG_free(filename);
-
-    if (transferName != NULL) EG_free(transferName);
-
-    if (usedNode != NULL) EG_free(usedNode);
+    AIM_FREE(filename);
+    AIM_FREE(boundName);
+    AIM_FREE(usedNode);
 
     return status;
 }
 
 
 // Write FUN3D fun3d.nml file
-int fun3d_writeNML(capsValue *aimInputs, cfdBoundaryConditionStruct bcProps)
+int fun3d_writeNML(void *aimInfo, capsValue *aimInputs, cfdBoundaryConditionStruct bcProps)
 {
 
     int status; // Function return status
@@ -919,28 +1204,24 @@ int fun3d_writeNML(capsValue *aimInputs, cfdBoundaryConditionStruct bcProps)
     int i; // Indexing
 
     FILE *fnml = NULL;
-    char *filename = NULL;
+    char filename[PATH_MAX];
     char fileExt[] ="fun3d.nml";
 
-    int stringLength;
-
     printf("Writing fun3d.nml\n");
-
-    stringLength = strlen(fileExt) + 1;
-
-    filename = (char *) EG_alloc((stringLength +1)*sizeof(char));
-    if (filename == NULL) {
-        status =  EGADS_MALLOC;
-        goto cleanup;
+    if (aimInputs[Design_Functional-1].nullVal == NotNull ||
+        aimInputs[Design_SensFile-1].vals.integer == (int)true) {
+#ifdef WIN32
+        snprintf(filename, PATH_MAX, "Flow\\%s", fileExt);
+#else
+        snprintf(filename, PATH_MAX, "Flow/%s", fileExt);
+#endif
+    } else {
+        strcpy(filename, fileExt);
     }
 
-    strcpy(filename, fileExt);
-
-    filename[stringLength] = '\0';
-
-    fnml = fopen(filename, "w");
+    fnml = aim_fopen(aimInfo, filename, "w");
     if (fnml == NULL) {
-        printf("Unable to open file - %s\n", filename);
+        AIM_ERROR(aimInfo, "Unable to open file - %s\n", filename);
         status = CAPS_IOERR;
         goto cleanup;
     }
@@ -953,12 +1234,15 @@ int fun3d_writeNML(capsValue *aimInputs, cfdBoundaryConditionStruct bcProps)
 
     // &raw_grid
     fprintf(fnml,"&raw_grid\n");
-    fprintf(fnml," grid_format = \"%s\"\n",
-            aimInputs[Mesh_Format-1].vals.string);
+    //fprintf(fnml," grid_format = \"%s\"\n",
+    //        aimInputs[Mesh_Format-1].vals.string);
 
-    if (aimInputs[Mesh_ASCII_Flag-1].vals.integer == (int) true) {
-        fprintf(fnml," data_format = \"ascii\"\n");
-    } else fprintf(fnml," data_format = \"stream\"\n");
+//    if (aimInputs[Mesh_ASCII_Flag-1].vals.integer == (int) true) {
+//        fprintf(fnml," data_format = \"ascii\"\n");
+//    } else fprintf(fnml," data_format = \"stream\"\n");
+
+    fprintf(fnml," grid_format = \"AFLR3\"\n");
+    fprintf(fnml," data_format = \"stream\"\n");
 
     if (aimInputs[Two_Dimensional-1].vals.integer == (int) true) {
         fprintf(fnml," twod_mode = .true.\n");
@@ -984,6 +1268,14 @@ int fun3d_writeNML(capsValue *aimInputs, cfdBoundaryConditionStruct bcProps)
 
     if (aimInputs[Beta-1].nullVal != IsNull) {
         fprintf(fnml," angle_of_yaw = %f\n", aimInputs[Beta-1].vals.real);
+    }
+
+    if (aimInputs[Reference_Temperature-1].nullVal != IsNull) {
+            fprintf(fnml," temperature = %f\n", aimInputs[Reference_Temperature-1].vals.real);
+
+            if (aimInputs[Reference_Temperature-1].units != NULL) {
+                fprintf(fnml," temperature_units = \'%s\'\n", aimInputs[Reference_Temperature-1].units);
+            }
     }
 
     fprintf(fnml,"/\n\n");
@@ -1194,14 +1486,12 @@ cleanup:
 
     if (fnml != NULL) fclose(fnml);
 
-    if (filename != NULL) EG_free(filename);
-
     return status;
 }
 
 
 // Write FUN3D movingbody.input file
-int fun3d_writeMovingBody(double fun3dVersion, cfdBoundaryConditionStruct bcProps,
+int fun3d_writeMovingBody(void *aimInfo, double fun3dVersion, cfdBoundaryConditionStruct bcProps,
                           cfdModalAeroelasticStruct *modalAeroelastic)
 {
 
@@ -1220,19 +1510,14 @@ int fun3d_writeMovingBody(double fun3dVersion, cfdBoundaryConditionStruct bcProp
 
     stringLength = strlen(fileExt) + 1;
 
-    filename = (char *) EG_alloc((stringLength +1)*sizeof(char));
-    if (filename == NULL) {
-        status =  EGADS_MALLOC;
-        goto cleanup;
-    }
+    AIM_ALLOC(filename,stringLength +1, char, aimInfo, status);
 
     strcpy(filename, fileExt);
-
     filename[stringLength] = '\0';
 
-    fp = fopen(filename, "w");
+    fp = aim_fopen(aimInfo, filename, "w");
     if (fp == NULL) {
-        printf("Unable to open file - %s\n", filename);
+        AIM_ERROR(aimInfo, "Unable to open file - %s\n", filename);
         status = CAPS_IOERR;
         goto cleanup;
     }
@@ -1328,12 +1613,11 @@ cleanup:
 
 
 // Write FUN3D parameterization/sensitivity file
-int  fun3d_writeParameterization(int numDesignVariable,
+int  fun3d_writeParameterization(void *aimInfo,
+                                 int numDesignVariable,
                                  cfdDesignVariableStruct designVariable[],
-                                 void *aimInfo,
-                                 /*@null@*/ meshStruct *volumeMesh,
-                                 int numGeomIn,
-                                 /*@null@*/ capsValue *geomInVal)
+                                 int writeSensitivity,
+                                 aimMeshRef *meshRef)
 {
 
     int status; // Function return status
@@ -1341,24 +1625,35 @@ int  fun3d_writeParameterization(int numDesignVariable,
     int i, j, k, m, row, col; // Indexing
 
     int stringLength = 7;
-    meshStruct *surfaceMesh; // Temporary holder for the reference mesh
 
     // Data transfer Out variables
-    char **dataOutName= NULL; //= {"x","y","z", "id", "dx", "dy", "dz"};
+    char **dataOutName= NULL;
 
-    double **dataOutMatrix = NULL;
+    double ***dataOutMatrix = NULL;
     int *dataOutFormat = NULL;
     int *dataConnectMatrix = NULL;
 
-    int numOutVariable = 4; // x, y, z, id
+    int numOutVariable = 4; // x, y, z, id, ... + 3* active GeomIn
     int numOutDataPoint = 0;
     int numOutDataConnect = 0;
 
-    int nodeOffSet = 0; //Keep track of global node indexing offset due to combining multiple surface meshes
+    // Variables used in global node mapping
+    int ptype, pindex;
+    double xyz[3];
 
     const char *geomInName;
     int numPoint;
-    double *xyz = NULL;
+    double *dxyz = NULL;
+
+    int index;
+    int iface, iglobal;
+    int state, nFace;
+    ego body, *faces=NULL;
+
+    int alen, ntri, atype, itri, ielem;
+    const double *face_xyz, *face_uv, *reals;
+    const int *face_ptype, *face_pindex, *face_tris, *face_tric, *nquad=NULL;
+    const char *string;
 
     char message[100];
     char filePre[] = "model.tec.";
@@ -1367,78 +1662,56 @@ int  fun3d_writeParameterization(int numDesignVariable,
     char folder[]  = "Rubberize";
     char zoneTitle[100];
 
+    capsValue *geomInVal;
     int *geomSelect = NULL;
 
-    ego body; int stat; int npts;
-
-    if ((numGeomIn == 0) || (geomInVal == NULL)) {
-        return CAPS_NULLVALUE;
-    }
-
-    geomSelect = (int *) EG_alloc(numGeomIn*sizeof(int));
-    if (geomSelect == NULL) {
-        status = EGADS_MALLOC;
-        goto cleanup;
-    }
+    AIM_ALLOC(geomSelect, numDesignVariable, int, aimInfo, status);
 
     // Determine number of geometry input variables
-    for (i = 0; i < numGeomIn; i++) {
+
+    for (i = 0; i < numDesignVariable; i++) {
         geomSelect[i] = (int) false;
 
-        status = aim_getName(aimInfo, i+1, GEOMETRYIN, &geomInName);
-        if (status != CAPS_SUCCESS) goto cleanup;
-
-        for (j = 0; j < numDesignVariable; j++) {
-            if (strcasecmp(designVariable[j].name, geomInName) != 0) continue;
-            break;
+        index = aim_getIndex(aimInfo, designVariable[i].name, GEOMETRYIN);
+        if (index == CAPS_NOTFOUND) continue;
+        if (index < CAPS_SUCCESS ) {
+          status = index;
+          AIM_STATUS(aimInfo, status);
         }
 
-        if (j >= numDesignVariable) continue; // Don't want this geomIn
-
-        if(aim_getGeomInType(aimInfo, i+1) == EGADS_OUTSIDE) {
-            printf("GeometryIn value %s is a configuration parameter and not a valid design parameter - can't get sensitivity\n",
-                   geomInName);
+        if(aim_getGeomInType(aimInfo, index) != 0) {
+            AIM_ERROR(aimInfo, "GeometryIn value %s is a configuration parameter and not a valid design parameter - can't get sensitivity\n",
+                      designVariable[i].name);
             status = CAPS_BADVALUE;
             goto cleanup;
         }
 
-        geomSelect[i] = (int) true;
+        // Fun3D always requires rubberize files, but don't compute sensitivities if not needed
+        geomSelect[i] = writeSensitivity;
 
-        numOutVariable += 3*geomInVal[i].length; // xD1, yD1, zD1, ...
+        if (writeSensitivity == (int)true) {
+          status = aim_getValue(aimInfo, index, GEOMETRYIN, &geomInVal);
+          AIM_STATUS(aimInfo, status);
+
+          numOutVariable += 3*geomInVal->length; // xD1, yD1, zD1, ...
+        }
     }
 
-    if (numOutVariable == 0) {
-        printf("No geometryIn values were selected for design.\n");
-        status = CAPS_SUCCESS;
-        goto cleanup;
-    }
-
-    if (numOutVariable > 99999) {
-        printf("Array of design variable names will be over-run!");
+    if (numOutVariable > 99999999) {
+        AIM_ERROR(aimInfo, "Array of design variable names will be over-run!");
         status = CAPS_RANGEERR;
         goto cleanup;
     }
 
     // Allocate our names
-    dataOutName = (char **) EG_alloc(numOutVariable*sizeof(char *));
-    if (dataOutName == NULL) {
-        status = EGADS_MALLOC;
-        goto cleanup;
-    }
+    AIM_ALLOC(dataOutName, numOutVariable, char*, aimInfo, status);
+    for (i = 0; i < numOutVariable; i++) dataOutName[i] = NULL;
 
-    stringLength = 7;
+    stringLength = 11;
     j = 1;
     k = 1;
     for (i = 0; i < numOutVariable; i++) {
-        dataOutName[i] = (char *) EG_alloc((stringLength+1)*sizeof(char));
-
-        if (dataOutName[i] == NULL) {
-
-            (void) string_freeArray(i, &dataOutName);
-
-            status = EGADS_MALLOC;
-            goto cleanup;
-        }
+        AIM_ALLOC(dataOutName[i], stringLength+1, char, aimInfo, status);
 
         // Set names
         if      (i == 0) sprintf(dataOutName[i], "%s", "x");
@@ -1454,21 +1727,11 @@ int  fun3d_writeParameterization(int numDesignVariable,
                 j = 0;
                 k += 1;
             }
-
             j += 1;
         }
     }
 
-    // Allocate data arrays that are going to be output
-    dataOutMatrix = (double **) EG_alloc(numOutVariable*sizeof(double));
-    dataOutFormat = (int *)     EG_alloc(numOutVariable*sizeof(int));
-
-    if (dataOutMatrix == NULL || dataOutFormat == NULL) {
-        status = EGADS_MALLOC;
-        goto cleanup;
-    }
-
-    for (i = 0; i < numOutVariable; i++) dataOutMatrix[i] = NULL;
+    AIM_ALLOC(dataOutFormat, numOutVariable, int, aimInfo, status);
 
     // Set data out formatting
     for (i = 0; i < numOutVariable; i++) {
@@ -1479,327 +1742,288 @@ int  fun3d_writeParameterization(int numDesignVariable,
         }
     }
 
-    // Write sensitivity files for each surface mesh
-/*@-nullderef@*/
-    for (i = 0; i < volumeMesh->numReferenceMesh; i++) {
-        surfaceMesh = &volumeMesh->referenceMesh[i];
-/*@+nullderef@*/
-        if (surfaceMesh->meshType != SurfaceMesh) {
-            status = CAPS_BADVALUE;
-            printf("Error: Reference mesh is not a surface mesh!\n");
-            goto cleanup;
-        }
+    // Allocate data arrays that are going to be output
+    AIM_ALLOC(dataOutMatrix, meshRef->nmap, double**, aimInfo, status);
+    for (i = 0; i < meshRef->nmap; i++) dataOutMatrix[i] = NULL;
 
-        // Right now we are just going to output a body containing all surface nodes
-        numOutDataPoint = surfaceMesh->numNode;
+    for (i = 0; i < meshRef->nmap; i++) {
+      AIM_ALLOC(dataOutMatrix[i], numOutVariable, double*, aimInfo, status);
+      for (j = 0; j < numOutVariable; j++) dataOutMatrix[i][j] = NULL;
+    }
 
-        numOutDataConnect = 0;
-        status = mesh_retrieveNumMeshElements(surfaceMesh->numElement,
-                                              surfaceMesh->element,
-                                              Triangle,
-                                              &j);
-        if (status != CAPS_SUCCESS) goto cleanup;
-        numOutDataConnect += j;
+    for (i = 0; i < meshRef->nmap; i++) {
+      status = EG_statusTessBody(meshRef->maps[i].tess, &body, &state, &numOutDataPoint);
+      AIM_STATUS(aimInfo, status);
 
-        status = mesh_retrieveNumMeshElements(surfaceMesh->numElement,
-                                              surfaceMesh->element,
-                                              Quadrilateral,
-                                              &j);
-        if (status != CAPS_SUCCESS) goto cleanup;
-        numOutDataConnect += j;
+      // allocate data arrays
+      for (j = 0; j < numOutVariable; j++) {
+        AIM_ALLOC(dataOutMatrix[i][j], numOutDataPoint, double, aimInfo, status);
+      }
 
-        // Allocate data arrays that are going to be output
-        dataConnectMatrix = (int *) EG_reall(dataConnectMatrix,
-                                             4*numOutDataConnect*sizeof(int));
+      for (iglobal = 0; iglobal < numOutDataPoint; iglobal++) {
+        status = EG_getGlobal(meshRef->maps[i].tess,
+                              iglobal+1, &ptype, &pindex, xyz);
+        AIM_STATUS(aimInfo, status);
 
-        if (dataConnectMatrix == NULL) {
-            status = EGADS_MALLOC;
-            goto cleanup;
-        }
+        // First just set the Coordinates
+        dataOutMatrix[i][0][iglobal] = xyz[0];
+        dataOutMatrix[i][1][iglobal] = xyz[1];
+        dataOutMatrix[i][2][iglobal] = xyz[2];
 
-        for (j = 0; j < numOutVariable; j++) {
+        // Volume mesh node ID
+        dataOutMatrix[i][3][iglobal] = meshRef->maps[i].map[iglobal];
+      }
+    }
 
-            dataOutMatrix[j] = (double *) EG_reall(dataOutMatrix[j],
-                                                   numOutDataPoint*sizeof(double));
-            if (dataOutMatrix[j] == NULL) { // If allocation failed ....
-                status =  EGADS_MALLOC;
-                goto cleanup;
-            }
-        }
+    // Loop over the geometry in values and compute sensitivities for all bodies
+    m = 4;
+    for (j = 0; j < numDesignVariable; j++) {
 
-        // Populate nodal coordinates and global id
-        for (j = 0; j < surfaceMesh->numNode; j++) {
+      if (geomSelect[j] == (int) false) continue;
 
+      geomInName = designVariable[j].name;
+      index = aim_getIndex(aimInfo, geomInName, GEOMETRYIN);
 
-            dataOutMatrix[0][j] = surfaceMesh->node[j].xyz[0]; // x
-            dataOutMatrix[1][j] = surfaceMesh->node[j].xyz[1]; // y
-            dataOutMatrix[2][j] = surfaceMesh->node[j].xyz[2]; // z
+      status = aim_getValue(aimInfo, index, GEOMETRYIN, &geomInVal);
+      AIM_STATUS(aimInfo, status);
 
-            dataOutMatrix[3][j] = surfaceMesh->node[j].nodeID + nodeOffSet; // global ID
-        }
+      for (row = 0; row < geomInVal->nrow; row++) {
+        for (col = 0; col < geomInVal->ncol; col++) {
 
-        // Populate connectivity
-        k = 0;
-        for (j = 0; j < surfaceMesh->numElement; j++) {
-
-            if (surfaceMesh->element[j].elementType == Triangle) {
-
-                dataConnectMatrix[4*k+ 0] = surfaceMesh->element[j].connectivity[0];
-                dataConnectMatrix[4*k+ 1] = surfaceMesh->element[j].connectivity[1];
-                dataConnectMatrix[4*k+ 2] = surfaceMesh->element[j].connectivity[2];
-                dataConnectMatrix[4*k+ 3] = surfaceMesh->element[j].connectivity[2];
-
-            } else if (surfaceMesh->element[j].elementType == Quadrilateral) {
-
-                dataConnectMatrix[4*k+ 0] = surfaceMesh->element[j].connectivity[0];
-                dataConnectMatrix[4*k+ 1] = surfaceMesh->element[j].connectivity[1];
-                dataConnectMatrix[4*k+ 2] = surfaceMesh->element[j].connectivity[2];
-                dataConnectMatrix[4*k+ 3] = surfaceMesh->element[j].connectivity[3];
-
-            } else {
-                printf("Warning: Invalid elementType, %d\n", surfaceMesh->element[j].elementType );
-                continue;
-            }
-
-            k += 1;
-        }
-
-        // Loop over the geometry in values
-        m = 4;
-        for (j = 0; j < numGeomIn; j++) {
-
-            if (geomSelect[j] == (int) false) continue;
-
-            if(aim_getGeomInType(aimInfo, j+1) == EGADS_OUTSIDE) continue;
-
-            status = aim_getName(aimInfo, j+1, GEOMETRYIN, &geomInName);
-            if (status != CAPS_SUCCESS) goto cleanup;
-
-            printf("Geometric sensitivity name = %s\n", geomInName);
-
-            if (xyz != NULL) EG_free(xyz);
-            xyz = NULL;
-
-            if (geomInVal[j].length == 1) {
-
-                status = EG_statusTessBody(surfaceMesh->bodyTessMap.egadsTess, &body, &stat, &npts);
-                if (status != EGADS_SUCCESS) {
-                    printf("Status from EG_statusTessBody %d, %d\n", status, stat);
-                    goto cleanup;
-                }
-
-                status = aim_sensitivity(aimInfo,
+          for (i = 0; i < meshRef->nmap; i++) {
+            status = aim_tessSensitivity(aimInfo,
                                          geomInName,
-                                         1, 1,
-                                         surfaceMesh->bodyTessMap.egadsTess,
-                                         &numPoint, &xyz);
-                if ((status == CAPS_NOTFOUND) || (xyz == NULL)) {
-                    numPoint = surfaceMesh->numNode;
-                    xyz = (double *) EG_reall(xyz, 3*numPoint*sizeof(double));
-                    if (xyz == NULL) {
-                        status = EGADS_MALLOC;
-                        goto cleanup;
-                    }
-                    for (k = 0; k < 3*numPoint; k++) xyz[k] = 0.0;
-                    printf("Warning: Sensitivity not found for %s, defaulting to 0.0s\n",
-                           geomInName);
-                } else if (status != CAPS_SUCCESS) {
-                    printf("Error: Occurred for geometric sensitivity name = %s\n", geomInName);
-                    printf("Error: Premature exit in aim_sensitivity status = %d\n", status);
-                    goto cleanup;
-                }
+                                         row+1, col+1, // row, col
+                                         meshRef->maps[i].tess,
+                                         &numPoint, &dxyz);
+            AIM_STATUS(aimInfo, status, "Sensitivity for: %s\n", geomInName);
+            AIM_NOTNULL(dxyz, aimInfo, status);
 
-                if (numPoint != surfaceMesh->numNode) {
-                    printf("Error: the number of nodes returned by aim_senitivity does NOT match the surface mesh!\n");
-                    status = CAPS_MISMATCH;
-                    goto cleanup;
-                }
-
-                for (k = 0; k < surfaceMesh->numNode; k++) {
-
-                    if (surfaceMesh->node[k].nodeID != k+1) {
-                        printf("Error: Node Id %d is out of order (%d). No current fix!\n",
-                               surfaceMesh->node[k].nodeID, k+1);
-                        status = CAPS_MISMATCH;
-                        goto cleanup;
-                    }
-
-                    dataOutMatrix[m+0][k] = xyz[3*k + 0]; // x
-                    dataOutMatrix[m+1][k] = xyz[3*k + 1]; // y
-                    dataOutMatrix[m+2][k] = xyz[3*k + 2]; // z
-                }
-
-                m += 3;
-
-            } else {
-
-                for (row = 0; row < geomInVal[j].nrow; row++) {
-                    for (col = 0; col < geomInVal[j].ncol; col++) {
-
-                        if (xyz != NULL) EG_free(xyz);
-                        xyz = NULL;
-
-                        status = aim_sensitivity(aimInfo,
-                                                 geomInName,
-                                                 row+1, col+1, // row, col
-                                                 surfaceMesh->bodyTessMap.egadsTess,
-                                                 &numPoint, &xyz);
-                        if ((status == CAPS_NOTFOUND) || (xyz == NULL)) {
-                            numPoint = surfaceMesh->numNode;
-                            xyz = (double *) EG_reall(xyz, 3*numPoint*sizeof(double));
-                            if (xyz == NULL) {
-                                status = EGADS_MALLOC;
-                                goto cleanup;
-                            }
-                            for (k = 0; k < 3*numPoint; k++) xyz[k] = 0.0;
-                            printf("Warning: Sensitivity not found for %s, defaulting to 0.0s\n",
-                                   geomInName);
-
-                        } else if (status != CAPS_SUCCESS) {
-
-                            printf("Error: Occurred for geometric sensitivity name = %s, row = %d, col = %d\n",
-                                   geomInName, row, col);
-                            printf("Error: Premature exit in aim_sensitivity status = %d\n",
-                                   status);
-
-                            goto cleanup;
-
-                        }
-
-                        if (numPoint != surfaceMesh->numNode) {
-                            printf("Error: the number of nodes returned by aim_senitivity does NOT match the surface mesh!\n");
-                            status = CAPS_MISMATCH;
-                            goto cleanup;
-                        }
-
-                        for (k = 0; k < surfaceMesh->numNode; k++) {
-
-                            if (surfaceMesh->node[k].nodeID != k+1) {
-                                printf("Error: Node Id %d is out of order (%d). No current fix!\n", surfaceMesh->node[k].nodeID, k+1);
-                                status = CAPS_MISMATCH;
-                                goto cleanup;
-                            }
-
-                            dataOutMatrix[m+0][k] = xyz[3*k + 0]; // x
-                            dataOutMatrix[m+1][k] = xyz[3*k + 1]; // y
-                            dataOutMatrix[m+2][k] = xyz[3*k + 2]; // z
-                        }
-
-                        m += 3;
-                    }
-                }
+            for (k = 0; k < numPoint; k++) {
+              dataOutMatrix[i][m+0][k] = dxyz[3*k + 0]; // dx/dGeomIn
+              dataOutMatrix[i][m+1][k] = dxyz[3*k + 1]; // dy/dGeomIn
+              dataOutMatrix[i][m+2][k] = dxyz[3*k + 2]; // dz/dGeomIn
             }
+            AIM_FREE(dxyz);
+          }
+          m += 3;
+        }
+      }
+    }
+
+    // Write sensitivity files for each body tessellation
+
+    for (i = 0; i < meshRef->nmap; i++) {
+      status = EG_statusTessBody(meshRef->maps[i].tess, &body, &state, &numOutDataPoint);
+      AIM_STATUS(aimInfo, status);
+
+      // check if the tessellation has a mixture of quad and tess
+      status = EG_attributeRet(meshRef->maps[i].tess, ".mixed",
+                               &atype, &alen, &nquad, &reals, &string);
+      if (status != EGADS_SUCCESS &&
+          status != EGADS_NOTFOUND) AIM_STATUS(aimInfo, status);
+
+      status = EG_getBodyTopos(body, NULL, FACE, &nFace, &faces);
+      AIM_STATUS(aimInfo, status);
+
+      ielem = 0;
+      numOutDataConnect = 0;
+      for (iface = 0; iface < nFace; iface++) {
+        // get the face tessellation
+        status = EG_getTessFace(meshRef->maps[i].tess, iface+1, &alen, &face_xyz, &face_uv,
+                                &face_ptype, &face_pindex, &ntri, &face_tris, &face_tric);
+        AIM_STATUS(aimInfo, status);
+
+        if (nquad == NULL) { // all triangles
+
+          // re-allocate data arrays
+          AIM_REALL(dataConnectMatrix, 4*(numOutDataConnect + ntri), int, aimInfo, status);
+
+          for (itri = 0; itri < ntri; itri++, ielem++) {
+            for (j = 0; j < 3; j++) {
+              status = EG_localToGlobal(meshRef->maps[i].tess, iface+1, face_tris[3*itri+j], &iglobal);
+              AIM_STATUS(aimInfo, status);
+              dataConnectMatrix[4*ielem+j] = iglobal;
+            }
+            // repeat the last node for triangles
+            dataConnectMatrix[4*ielem+3] = dataConnectMatrix[4*ielem+2];
+          }
+
+          numOutDataConnect += ntri;
+
+        } else { // mixture of tri and quad elements
+
+          // re-allocate data arrays
+          AIM_REALL(dataConnectMatrix, 4*(numOutDataConnect + ntri-nquad[iface]), int, aimInfo, status);
+
+          // process triangles
+          for (itri = 0; itri < ntri-2*nquad[iface]; itri++, ielem++) {
+            for (j = 0; j < 3; j++) {
+              status = EG_localToGlobal(meshRef->maps[i].tess, iface+1, face_tris[3*itri+j], &iglobal);
+              AIM_STATUS(aimInfo, status);
+              dataConnectMatrix[4*ielem+j] = iglobal;
+            }
+            // repeat the last node for triangle
+            dataConnectMatrix[4*ielem+3] = dataConnectMatrix[4*ielem+2];
+          }
+          // process quads
+          for (; itri < ntri; itri++, ielem++) {
+            for (j = 0; j < 3; j++) {
+              status = EG_localToGlobal(meshRef->maps[i].tess, iface+1, face_tris[3*itri+j], &iglobal);
+              AIM_STATUS(aimInfo, status);
+              dataConnectMatrix[4*ielem+j] = iglobal;
+            }
+
+            // add the last node from the 2nd triangle to make the quad
+            itri++;
+            status = EG_localToGlobal(meshRef->maps[i].tess, iface+1, face_tris[3*itri+2], &iglobal);
+            AIM_STATUS(aimInfo, status);
+            dataConnectMatrix[4*ielem+3] = iglobal;
+          }
+
+          numOutDataConnect += ntri-nquad[iface];
         }
 
+      }
+      AIM_FREE(faces);
+
+      if (writeSensitivity == (int)true)
         sprintf(message,"%s %d,", "sensitivity file for body", i+1);
+      else
+        sprintf(message,"%s %d,", "mesh file for body", i+1);
 
-        stringLength = strlen(folder) + 1 + strlen(filePre) + 7 + strlen(fileExt) + 1 ;
+      stringLength = strlen(folder) + 1 + strlen(filePre) + 7 + strlen(fileExt) + 1 ;
 
-        filename = (char *) EG_reall(filename, stringLength*sizeof(char));
-        if (filename == NULL) {
-            status = EGADS_MALLOC;
-            goto cleanup;
-        }
+      AIM_REALL(filename, stringLength, char, aimInfo, status);
 
 #ifdef WIN32
-        sprintf(filename, "%s\\%s%d%s", folder, filePre, i+1, fileExt);
+      sprintf(filename, "%s\\%s%d%s", folder, filePre, i+1, fileExt);
 #else
-        sprintf(filename, "%s/%s%d%s",  folder, filePre, i+1, fileExt);
+      sprintf(filename, "%s/%s%d%s",  folder, filePre, i+1, fileExt);
 #endif
 
-        sprintf(zoneTitle, "%s_%d", "Body", i+1);
-/*@-nullpass@*/
-        status = tecplot_writeFEPOINT(filename,
-                                      message,
-                                      zoneTitle,
-                                      numOutVariable,
-                                      dataOutName,
-                                      numOutDataPoint,
-                                      dataOutMatrix,
-                                      dataOutFormat,
-                                      numOutDataConnect,
-                                      dataConnectMatrix,
-                                      NULL);
-/*@+nullpass@*/
-        if (status != CAPS_SUCCESS) goto cleanup;
-
-        nodeOffSet += surfaceMesh->numNode;
+      sprintf(zoneTitle, "%s_%d", "Body", i+1);
+      /*@-nullpass@*/
+      status = tecplot_writeFEPOINT(aimInfo,
+                                    filename,
+                                    message,
+                                    zoneTitle,
+                                    numOutVariable,
+                                    dataOutName,
+                                    numOutDataPoint,
+                                    dataOutMatrix[i],
+                                    dataOutFormat,
+                                    numOutDataConnect,
+                                    dataConnectMatrix,
+                                    NULL);
+      /*@+nullpass@*/
+      AIM_STATUS(aimInfo, status);
     }
 
     status = CAPS_SUCCESS;
 
 cleanup:
-    if (status != CAPS_SUCCESS)
-        printf("Error: Premature exit in fun3d_writeParameterization status = %d\n",
-               status);
     (void) string_freeArray(numOutVariable, &dataOutName);
 #ifdef S_SPLINT_S
     EG_free(dataOutName);
 #endif
 
     if (dataOutMatrix != NULL) {
-        for (i = 0; i < numOutVariable; i++) {
-            if (dataOutMatrix[i] != NULL)  EG_free(dataOutMatrix[i]);
+        for (i = 0; i < meshRef->nmap; i++) {
+          if (dataOutMatrix[i] != NULL) {
+              for (j = 0; j < numOutVariable; j++) {
+                  AIM_FREE(dataOutMatrix[i][j]);
+              }
+          }
+          AIM_FREE(dataOutMatrix[i]);
         }
     }
 
-    if (dataOutMatrix != NULL) EG_free(dataOutMatrix);
-    if (dataOutFormat != NULL) EG_free(dataOutFormat);
-    if (dataConnectMatrix != NULL) EG_free(dataConnectMatrix);
+    AIM_FREE(dataOutMatrix);
+    AIM_FREE(dataOutFormat);
+    AIM_FREE(dataConnectMatrix);
+    AIM_FREE(faces);
 
-    if (xyz != NULL) EG_free(xyz);
-
-    if (filename != NULL) EG_free(filename);
-
-    if (geomSelect != NULL) EG_free(geomSelect);
+    AIM_FREE(dxyz);
+    AIM_FREE(filename);
+    AIM_FREE(geomSelect);
 
     return status;
 }
 
 
-static int _writeObjective(FILE *fp, cfdDesignObjectiveStruct *objective)
+static int _writeFunctinoalComponent(void *aimInfo, FILE *fp, cfdDesignFunctionalCompStruct *comp)
 {
+    int status = CAPS_SUCCESS;
 
-    int status;
+    const char *names[] = {"cl", "cd",                   // Lift, drag coefficients
+                           "clp", "cdp",                 // Lift, drag coefficients: pressure contributions
+                           "clv", "cdv",                 // Lift, drag coefficients: shear contributions
+                           "cmx", "cmy", "cmz",          // x/y/z-axis moment coefficients
+                           "cmxp", "cmyp", "cmzp",       // x/y/z-axis moment coefficients: pressure contributions
+                           "cmxv", "cmyv", "cmzv",       // x/y/z-axis moment coefficients: shear contributions
+                           "cx", "cy", "cz",             // x/y/z-axis force coefficients
+                           "cxp", "cyp", "czp",          // x/y/z-axis force coefficients: pressure contributions
+                           "cxv", "cyv", "czv",          // x/y/z-axis force coefficients: shear contributions
+                           "powerx", "powery", "powerz", // x/y/z-axis power coefficients
+                           "clcd",                       // Lift-to-drag ratio
+                           "fom"    ,                    // Rotorcraft figure of merit
+                           "propeff",                    // Rotorcraft propulsive efficiency
+                           "rtr"    ,                    // thrust Rotorcraft thrust function
+                           "pstag"  ,                    // RMS of stagnation pressure in cutting plane disk
+                           "distort",                    // Engine inflow distortion
+                           "boom"   ,                    // targ Near-field p/p∞ pressure target
+                           "sboom"  ,                    // Coupled sBOOM ground-based noise metrics
+                           "ae"     ,                    // Supersonic equivalent area target distribution
+                           "press"  ,                    // box RMS of pressure in user-defined box, also pointwise dp/dt, dρ/dt
+                           "cpstar" ,                    // Target pressure distributions
+                           "sgen"                        // Entropy generation
+                          };
 
-    const char *name;
+    int i, found = (int)false;
+    char *function=NULL, *c=NULL;
 
-    if      (objective->objectiveType == ObjectiveCl)   name = "cl";
-    else if (objective->objectiveType == ObjectiveCd)   name = "cd";
-    else if (objective->objectiveType == ObjectiveCmx)  name = "cmx";
-    else if (objective->objectiveType == ObjectiveCmy)  name = "cmy";
-    else if (objective->objectiveType == ObjectiveCmz)  name = "cmz";
-    else if (objective->objectiveType == ObjectiveClCd) name = "clcd";
-    else if (objective->objectiveType == ObjectiveCx)   name = "cx";
-    else if (objective->objectiveType == ObjectiveCy)   name = "cy";
-    else if (objective->objectiveType == ObjectiveCz)   name = "cz";
-    else {
-        printf("ObjectiveType (%d) not recognized for objective '%s'\n",
-               objective->objectiveType, objective->name);
+    for (i = 0; i < sizeof(names)/sizeof(char*); i++)
+        if ( strcasecmp(names[i], comp->name) == 0 ) {
+            found = (int)true;
+            break;
+        }
+
+    if (found == (int) false) {
+        AIM_ERROR(aimInfo, "Unknown function: '%s'", comp->name);
+        AIM_ADDLINE(aimInfo, "Available functions:");
+        for (i = 0; i < sizeof(names)/sizeof(char*); i++)
+            AIM_ADDLINE(aimInfo, "'%s'", names[i]);
         status = CAPS_BADVALUE;
         goto cleanup;
     }
 
+    // make the name lower case
+    AIM_STRDUP(function, comp->name, aimInfo, status);
+    for (c = function; *c != '\0'; ++c) *c = tolower(*c);
+
     // fprintf(fp, "Components of function   1: boundary id (0=all)/name/value/weight/target/power\n");
-    fprintf(fp, "0 %s          %f %f %f %f\n", name,
-                                               0.0,
-                                               objective->weight,
-                                               objective->target,
-                                               objective->power);
+    fprintf(fp, " %d %s          %f %f %f %f\n", comp->bcID,
+                                                 function,
+                                                 0.0,
+                                                 comp->weight,
+                                                 comp->target,
+                                                 comp->power);
 
     status = CAPS_SUCCESS;
 
 cleanup:
+    AIM_FREE(function);
     return status;
 }
 
 
 // Write FUN3D  rubber.data file
-int fun3d_writeRubber(cfdDesignStruct design,
+int fun3d_writeRubber(void *aimInfo,
+                      cfdDesignStruct design,
                       double fun3dVersion,
-                      /*@null@*/ meshStruct *volumeMesh)
+                      aimMeshRef *meshRef)
 {
-
     int status; // Function return status
 
     int i, j, k, m; // Indexing
@@ -1810,33 +2034,24 @@ int fun3d_writeRubber(cfdDesignStruct design,
     FILE *fp = NULL;
 
     printf("Writing %s \n", file);
-    if (volumeMesh == NULL) return CAPS_NULLVALUE;
+    if (meshRef == NULL) return CAPS_NULLVALUE;
 
     // Open file
-    fp = fopen(file, "w");
+    fp = aim_fopen(aimInfo, file, "w");
     if (fp == NULL) {
-        printf("Unable to open file: %s\n", file);
+        AIM_ERROR(aimInfo, "Unable to open file: %s\n", file);
         status = CAPS_IOERR;
         goto cleanup;
     }
 
-    numBody = volumeMesh->numReferenceMesh;
-
-    for (i = 0; i < volumeMesh->numReferenceMesh; i++) {
-
-        if (volumeMesh->referenceMesh[i].meshType != SurfaceMesh) {
-            status = CAPS_BADVALUE;
-            printf("Error: Reference mesh is not a surface mesh!\n");
-            goto cleanup;
-        }
-    }
+    numBody = meshRef->nmap;
 
     // Determine number of geometry input variables
     for (i = 0; i < design.numDesignVariable; i++) {
 
         if (design.designVariable[i].type != DesignVariableGeometry) continue;
 
-        numShapeVar += design.designVariable[i].length; // xD1, yD1, zD1, ...
+        numShapeVar += design.designVariable[i].var->length; // xD1, yD1, zD1, ...
     }
 
     fprintf(fp, "################################################################################\n");
@@ -1849,35 +2064,35 @@ int fun3d_writeRubber(cfdDesignStruct design,
 
         if (strcasecmp(design.designVariable[i].name, "Mach") != 0) continue;
 
-        if (design.designVariable[i].length < 1) {
+        if (design.designVariable[i].var->length < 1) {
             status = CAPS_RANGEERR;
             goto cleanup;
         }
 
-        fprintf(fp, "Mach    1   %.15E  %.15E  %.15E\n", design.designVariable[i].initialValue[0],
+        fprintf(fp, "Mach    1   %.15E  %.15E  %.15E\n", design.designVariable[i].value[0],
                                                          design.designVariable[i].lowerBound[0],
                                                          design.designVariable[i].upperBound[0]);
         break;
     }
 
-    if (i >= design.numDesignVariable) fprintf(fp, "Mach    0   0.000000000000000E+00  0.000000000000000E+00  1.200000000000000E+00\n");
+    if (i >= design.numDesignVariable) fprintf(fp, "Mach    0   0.000000000000000E+00  0.000000000000000E+00  0.000000000000000E+00\n");
 
     for (i = 0; i < design.numDesignVariable; i++) {
 
         if (strcasecmp(design.designVariable[i].name, "Alpha") != 0) continue;
 
-        if (design.designVariable[i].length < 1) {
+        if (design.designVariable[i].var->length < 1) {
             status = CAPS_RANGEERR;
             goto cleanup;
         }
 
-        fprintf(fp, "AOA     1   %.15E  %.15E  %.15E\n", design.designVariable[i].initialValue[0],
+        fprintf(fp, "AOA     1   %.15E  %.15E  %.15E\n", design.designVariable[i].value[0],
                                                          design.designVariable[i].lowerBound[0],
                                                          design.designVariable[i].upperBound[0]);
         break;
     }
 
-    if (i >= design.numDesignVariable) fprintf(fp, "AOA     0   0.000000000000000E+00  0.000000000000000E+00  10.00000000000000E+00\n");
+    if (i >= design.numDesignVariable) fprintf(fp, "AOA     0   0.000000000000000E+00  0.000000000000000E+00  0.00000000000000E+00\n");
 
 
     if (fun3dVersion > 12.4) {
@@ -1887,69 +2102,69 @@ int fun3d_writeRubber(cfdDesignStruct design,
 
             if (strcasecmp(design.designVariable[i].name, "Beta") != 0) continue;
 
-            if (design.designVariable[i].length < 1) {
+            if (design.designVariable[i].var->length < 1) {
                 status = CAPS_RANGEERR;
                 goto cleanup;
             }
 
-            fprintf(fp, "Yaw     1   %.15E  %.15E  %.15E\n", design.designVariable[i].initialValue[0],
+            fprintf(fp, "Yaw     1   %.15E  %.15E  %.15E\n", design.designVariable[i].value[0],
                                                              design.designVariable[i].lowerBound[0],
                                                              design.designVariable[i].upperBound[0]);
             break;
         }
 
-        if (i >= design.numDesignVariable) fprintf(fp, "Yaw     0   0.000000000000000E+00  0.000000000000000E+00  10.00000000000000E+00\n");
+        if (i >= design.numDesignVariable) fprintf(fp, "Yaw     0   0.000000000000000E+00  0.000000000000000E+00  0.00000000000000E+00\n");
 
         for (i = 0; i < design.numDesignVariable; i++) {
 
             if (strcasecmp(design.designVariable[i].name, "NonInertial_Rotation_Rate") != 0) continue;
 
-            if (design.designVariable[i].length < 3) {
+            if (design.designVariable[i].var->length < 3) {
                 status = CAPS_RANGEERR;
                 goto cleanup;
             }
 
-            fprintf(fp, "xrate   1   %.15E  %.15E  %.15E\n", design.designVariable[i].initialValue[0],
+            fprintf(fp, "xrate   1   %.15E  %.15E  %.15E\n", design.designVariable[i].value[0],
                                                              design.designVariable[i].lowerBound[0],
                                                              design.designVariable[i].upperBound[0]);
             break;
         }
 
-        if (i >= design.numDesignVariable) fprintf(fp, "xrate   0   0.000000000000000E+00  0.000000000000000E+00  10.00000000000000E+00\n");
+        if (i >= design.numDesignVariable) fprintf(fp, "xrate   0   0.000000000000000E+00  0.000000000000000E+00  0.00000000000000E+00\n");
 
         for (i = 0; i < design.numDesignVariable; i++) {
 
             if (strcasecmp(design.designVariable[i].name, "NonInertial_Rotation_Rate") != 0) continue;
 
-            if (design.designVariable[i].length < 3) {
+            if (design.designVariable[i].var->length < 3) {
                 status = CAPS_RANGEERR;
                 goto cleanup;
             }
 
-            fprintf(fp, "yrate   1   %.15E  %.15E  %.15E\n", design.designVariable[i].initialValue[1],
+            fprintf(fp, "yrate   1   %.15E  %.15E  %.15E\n", design.designVariable[i].value[1],
                                                              design.designVariable[i].lowerBound[1],
                                                              design.designVariable[i].upperBound[1]);
             break;
         }
 
-        if (i >= design.numDesignVariable) fprintf(fp, "yrate   0   0.000000000000000E+00  0.000000000000000E+00  10.00000000000000E+00\n");
+        if (i >= design.numDesignVariable) fprintf(fp, "yrate   0   0.000000000000000E+00  0.000000000000000E+00  0.00000000000000E+00\n");
 
         for (i = 0; i < design.numDesignVariable; i++) {
 
             if (strcasecmp(design.designVariable[i].name, "NonInertial_Rotation_Rate") != 0) continue;
 
-            if (design.designVariable[i].length < 3) {
+            if (design.designVariable[i].var->length < 3) {
                 status = CAPS_RANGEERR;
                 goto cleanup;
             }
 
-            fprintf(fp, "zrate   1   %.15E  %.15E  %.15E\n", design.designVariable[i].initialValue[2],
+            fprintf(fp, "zrate   1   %.15E  %.15E  %.15E\n", design.designVariable[i].value[2],
                                                              design.designVariable[i].lowerBound[2],
                                                              design.designVariable[i].upperBound[2]);
             break;
         }
 
-        if (i >= design.numDesignVariable) fprintf(fp, "zrate   0   0.000000000000000E+00  0.000000000000000E+00  10.00000000000000E+00\n");
+        if (i >= design.numDesignVariable) fprintf(fp, "zrate   0   0.000000000000000E+00  0.000000000000000E+00  0.00000000000000E+00\n");
     }
 
     fprintf(fp, "Number of bodies\n");
@@ -1991,9 +2206,11 @@ int fun3d_writeRubber(cfdDesignStruct design,
 
             if (design.designVariable[j].type != DesignVariableGeometry) continue;
 
-            for (k = 0; k < design.designVariable[j].length; k++ ) {
+            for (k = 0; k < design.designVariable[j].var->length; k++ ) {
 
-                fprintf(fp, "%d    1   %.15E  0.000000000000000E+00  0.000000000000000E+00\n", m, design.designVariable[j].initialValue[k]);
+                fprintf(fp, "%d    1   %.15E  %.15E  %.15E\n", m, design.designVariable[j].value[k],
+                                                                  design.designVariable[j].lowerBound[k],
+                                                                  design.designVariable[j].upperBound[k]);
 
                 m += 1;
             }
@@ -2004,26 +2221,29 @@ int fun3d_writeRubber(cfdDesignStruct design,
     fprintf(fp, "############################### Function Information ###########################\n");
     fprintf(fp, "################################################################################\n");
     fprintf(fp, "Number of composite functions for design problem statement\n");
-    fprintf(fp, "%d\n", design.numDesignObjective);
+    fprintf(fp, "%d\n", design.numDesignFunctional);
 
-    for (i = 0; i < design.numDesignObjective; i++) {
+    for (i = 0; i < design.numDesignFunctional; i++) {
         fprintf(fp, "################################################################################\n");
         fprintf(fp, "Cost function (1) or constraint (2)\n");
         fprintf(fp, "1\n");
         fprintf(fp, "If constraint, lower and upper bounds\n");
         fprintf(fp, "0.0 0.0\n");
-        fprintf(fp, "Number of components for function   %d\n", i);
-        fprintf(fp, "1\n");
+        fprintf(fp, "Number of components for function   %d\n", i+1);
+        fprintf(fp, "%d\n", design.designFunctional[i].numComponent);
         fprintf(fp, "Physical timestep interval where function is defined\n");
         fprintf(fp, "1 1\n");
         fprintf(fp, "Composite function weight, target, and power\n");
         fprintf(fp, "1.0 0.0 1.0\n");
-        fprintf(fp, "Components of function   %d: boundary id (0=all)/name/value/weight/target/power\n", i);
+        fprintf(fp, "Components of function   %d: boundary id (0=all)/name/value/weight/target/power\n", i+1);
 
-        status = _writeObjective(fp, &design.designObjective[i]); //fprintf(fp, "0 clcd          0.000000000000000    1.000   10.00000 2.000\n");
-        if (status != CAPS_SUCCESS) goto cleanup;
+        for (j = 0; j < design.designFunctional[i].numComponent; j++) {
+            //fprintf(fp, "0 clcd          0.000000000000000    1.000   10.00000 2.000\n");
+            status = _writeFunctinoalComponent(aimInfo, fp, &design.designFunctional[i].component[j]);
+            if (status != CAPS_SUCCESS) goto cleanup;
+        }
 
-        fprintf(fp, "Current value of function   %d\n", i);
+        fprintf(fp, "Current value of function   %d\n", i+1);
         fprintf(fp, "0.000000000000000\n");
         fprintf(fp, "Current derivatives of function wrt global design variables\n");
         fprintf(fp, "0.000000000000000\n");
@@ -2060,7 +2280,7 @@ int fun3d_writeRubber(cfdDesignStruct design,
 
                 if (design.designVariable[k].type != DesignVariableGeometry) continue;
 
-                for (m = 0; m < design.designVariable[k].length; m++ ) fprintf(fp, "0.000000000000000\n");
+                for (m = 0; m < design.designVariable[k].var->length; m++ ) fprintf(fp, "0.000000000000000\n");
             }
         }
     }
@@ -2068,13 +2288,13 @@ int fun3d_writeRubber(cfdDesignStruct design,
     status = CAPS_SUCCESS;
 
 cleanup:
-        if (status != CAPS_SUCCESS)
-            printf("Error: Premature exit in fun3d_writeRubber status = %d\n",
-                   status);
+    if (status != CAPS_SUCCESS)
+        printf("Error: Premature exit in fun3d_writeRubber status = %d\n",
+               status);
 
-        if (fp != NULL) fclose(fp);
+    if (fp != NULL) fclose(fp);
 
-        return status;
+    return status;
 
     /* Version 13.1 - template
 	################################################################################
@@ -2082,9 +2302,9 @@ cleanup:
 	################################################################################
 	Global design variables (Mach number, AOA, Yaw, Noninertial rates)
 	Var Active         Value               Lower Bound            Upper Bound
-	Mach    0   0.800000000000000E+00  0.000000000000000E+00  0.900000000000000E+00
-	AOA    1   1.000000000000000E+00  0.000000000000000E+00  5.000000000000000E+00
-	Yaw    0   0.000000000000000E+00  0.000000000000000E+00  0.000000000000000E+00
+	 Mach    0   0.800000000000000E+00  0.000000000000000E+00  0.900000000000000E+00
+	  AOA    1   1.000000000000000E+00  0.000000000000000E+00  5.000000000000000E+00
+	  Yaw    0   0.000000000000000E+00  0.000000000000000E+00  0.000000000000000E+00
 	xrate    0   0.000000000000000E+00  0.000000000000000E+00  0.000000000000000E+00
 	yrate    0   0.000000000000000E+00  0.000000000000000E+00  0.000000000000000E+00
 	zrate    0   0.000000000000000E+00  0.000000000000000E+00  0.000000000000000E+00
@@ -2269,15 +2489,239 @@ cleanup:
      */
 }
 
-
-// Make FUN3D directory structure/tree
-int fun3d_makeDirectory()
+// Finds a line in rubber.data that matches header
+static int findHeader(const char *header, char **line, size_t *nline, int *iline, FILE *fp)
 {
+    int i;
+    while (getline(line, nline, fp) != -1) {
+        (*iline)++;
+        if (nline == 0) continue;
+        if ((*line)[0] == '#') continue;
+        i = 0;
+        while ((*line)[i] == ' ' && (*line)[i] != '\0') i++;
+        if (strncasecmp(header, &(*line)[i], strlen(header)) == 0)
+          break;
+    }
+    if (feof(fp)) return CAPS_IOERR;
 
+    return CAPS_SUCCESS;
+}
+
+
+// Read objective value and derivatives from FUN3D rubber.data file
+int fun3d_readRubber(void *aimInfo,
+                     cfdDesignStruct design,
+                     double fun3dVersion)
+{
     int status; // Function return status
 
-    int stringLength;
-    char *filename = NULL;
+    int i, j, k, ibody; // Indexing
+
+    size_t nline;
+    int iline=0;
+    char *line=NULL;
+    char file[] = "rubber.data";
+    double dfun_dvar = 0;
+    FILE *fp = NULL;
+
+    int numBody;
+    const char *intents;
+    ego *bodies;
+
+    // Get AIM bodies
+    status = aim_getBodies(aimInfo, &intents, &numBody, &bodies);
+    AIM_STATUS(aimInfo, status);
+
+    printf("Reading %s \n", file);
+
+    // Open file
+    fp = aim_fopen(aimInfo, file, "r");
+    if (fp == NULL) {
+        AIM_ERROR(aimInfo, "Unable to open file: %s\n", file);
+        status = CAPS_IOERR;
+        goto cleanup;
+    }
+
+    for (i = 0; i < design.numDesignFunctional; i++) {
+        status = findHeader("Current value of function", &line, &nline, &iline, fp);
+        AIM_STATUS(aimInfo, status, "rubber.data line %d", iline);
+
+        // Get the line with the objective value
+        status = getline(&line, &nline, fp); iline++;
+        if (status == -1) status = CAPS_IOERR; else status = CAPS_SUCCESS;
+        AIM_STATUS(aimInfo, status, "rubber.data line %d", iline);
+        AIM_NOTNULL(line, aimInfo, status);
+
+        status = sscanf(line, "%lf", &design.designFunctional[i].value);
+        if (status != 1) status = CAPS_IOERR; else status = CAPS_SUCCESS;
+        AIM_STATUS(aimInfo, status, "rubber.data line %d", iline);
+
+        // skip: Current derivatives of function wrt rigid motion design variables of
+        status = getline(&line, &nline, fp); iline++;
+        if (status == -1) status = CAPS_IOERR; else status = CAPS_SUCCESS;
+        AIM_STATUS(aimInfo, status, "rubber.data line %d", iline);
+        AIM_NOTNULL(line, aimInfo, status);
+
+        // read the dFun/dMach
+        status = getline(&line, &nline, fp); iline++;
+        if (status == -1) status = CAPS_IOERR; else status = CAPS_SUCCESS;
+        AIM_STATUS(aimInfo, status, "rubber.data line %d", iline);
+        AIM_NOTNULL(line, aimInfo, status);
+
+        for (j = 0; j < design.designFunctional[i].numDesignVariable; j++) {
+
+            if (strcasecmp(design.designFunctional[i].dvar[j].name, "Mach") != 0) continue;
+
+            status = sscanf(line, "%lf", &design.designFunctional[i].dvar[j].value[0]);
+            if (status != 1) status = CAPS_IOERR; else status = CAPS_SUCCESS;
+            AIM_STATUS(aimInfo, status, "rubber.data line %d", iline);
+            break;
+        }
+
+        // read the dFun/dAOA
+        status = getline(&line, &nline, fp); iline++;
+        if (status == -1) status = CAPS_IOERR; else status = CAPS_SUCCESS;
+        AIM_STATUS(aimInfo, status, "rubber.data line %d", iline);
+        AIM_NOTNULL(line, aimInfo, status);
+
+        for (j = 0; j < design.numDesignVariable; j++) {
+
+            if (strcasecmp(design.designFunctional[i].dvar[j].name, "Alpha") != 0) continue;
+
+            status = sscanf(line, "%lf", &design.designFunctional[i].dvar[j].value[0]);
+            if (status != 1) status = CAPS_IOERR; else status = CAPS_SUCCESS;
+            AIM_STATUS(aimInfo, status, "rubber.data line %d", iline);
+            break;
+        }
+
+        if (fun3dVersion > 12.4) {
+            // FUN3D version 13.1 - version 12.4 doesn't have these available
+
+            // read the dFun/dBeta
+            status = getline(&line, &nline, fp); iline++;
+            if (status == -1) status = CAPS_IOERR; else status = CAPS_SUCCESS;
+            AIM_STATUS(aimInfo, status, "rubber.data line %d", iline);
+            AIM_NOTNULL(line, aimInfo, status);
+
+            for (j = 0; j < design.designFunctional[i].numDesignVariable; j++) {
+
+                if (strcasecmp(design.designFunctional[i].dvar[j].name, "Beta") != 0) continue;
+
+                status = sscanf(line, "%lf", &design.designFunctional[i].dvar[j].value[0]);
+                if (status != 1) status = CAPS_IOERR; else status = CAPS_SUCCESS;
+                AIM_STATUS(aimInfo, status, "rubber.data line %d", iline);
+                break;
+            }
+
+            // read the dFun/dNonInertial_Rotation_Rate[0]
+            status = getline(&line, &nline, fp); iline++;
+            if (status == -1) status = CAPS_IOERR; else status = CAPS_SUCCESS;
+            AIM_STATUS(aimInfo, status, "rubber.data line %d", iline);
+            AIM_NOTNULL(line, aimInfo, status);
+
+            for (j = 0; j < design.designFunctional[i].numDesignVariable; j++) {
+
+                if (strcasecmp(design.designFunctional[i].dvar[j].name, "NonInertial_Rotation_Rate") != 0) continue;
+
+                status = sscanf(line, "%lf", &design.designFunctional[i].dvar[j].value[0]);
+                if (status != 1) status = CAPS_IOERR; else status = CAPS_SUCCESS;
+                AIM_STATUS(aimInfo, status, "rubber.data line %d", iline);
+                break;
+            }
+
+            // read the dFun/dNonInertial_Rotation_Rate[1]
+            status = getline(&line, &nline, fp); iline++;
+            if (status == -1) status = CAPS_IOERR; else status = CAPS_SUCCESS;
+            AIM_STATUS(aimInfo, status, "rubber.data line %d", iline);
+            AIM_NOTNULL(line, aimInfo, status);
+
+            for (j = 0; j < design.designFunctional[i].numDesignVariable; j++) {
+
+                if (strcasecmp(design.designFunctional[i].dvar[j].name, "NonInertial_Rotation_Rate") != 0) continue;
+
+                status = sscanf(line, "%lf", &design.designFunctional[i].dvar[j].value[1]);
+                if (status != 1) status = CAPS_IOERR; else status = CAPS_SUCCESS;
+                AIM_STATUS(aimInfo, status, "rubber.data line %d", iline);
+                break;
+            }
+
+            // read the dFun/dNonInertial_Rotation_Rate[2]
+            status = getline(&line, &nline, fp); iline++;
+            if (status == -1) status = CAPS_IOERR; else status = CAPS_SUCCESS;
+            AIM_STATUS(aimInfo, status, "rubber.data line %d", iline);
+            AIM_NOTNULL(line, aimInfo, status);
+
+            for (j = 0; j < design.designFunctional[i].numDesignVariable; j++) {
+
+                if (strcasecmp(design.designFunctional[i].dvar[j].name, "NonInertial_Rotation_Rate") != 0) continue;
+
+                status = sscanf(line, "%lf", &design.designFunctional[i].dvar[j].value[2]);
+                if (status != 1) status = CAPS_IOERR; else status = CAPS_SUCCESS;
+                AIM_STATUS(aimInfo, status, "rubber.data line %d", iline);
+                break;
+            }
+        }
+
+
+        // zero out previous derivatives
+        for (j = 0; j < design.designFunctional[i].numDesignVariable; j++) {
+            if (design.designFunctional[i].dvar[j].type != DesignVariableGeometry) continue;
+            for (k = 0; k < design.designVariable[j].var->length; k++ ) {
+              design.designFunctional[i].dvar[j].value[k] = 0;
+            }
+        }
+
+        for (ibody = 0; ibody < numBody; ibody++) {
+
+          // Rigid motion design variables
+          status = findHeader("Current derivatives of", &line, &nline, &iline, fp);
+          AIM_STATUS(aimInfo, status, "rubber.data line %d", iline);
+
+          // Skip reading rigid motion design variables for now
+          
+          // Read shape design variables
+          status = findHeader("Current derivatives of", &line, &nline, &iline, fp);
+          AIM_STATUS(aimInfo, status, "rubber.data line %d", iline);
+
+          for (j = 0; j < design.designFunctional[i].numDesignVariable; j++) {
+
+              if (design.designFunctional[i].dvar[j].type != DesignVariableGeometry) continue;
+
+              for (k = 0; k < design.designVariable[j].var->length; k++ ) {
+
+                  // read the dFun/dDesignVar[k]
+                  status = getline(&line, &nline, fp); iline++;
+                  if (status == -1) status = CAPS_IOERR; else status = CAPS_SUCCESS;
+                  AIM_STATUS(aimInfo, status, "rubber.data line %d", iline);
+                  AIM_NOTNULL(line, aimInfo, status);
+
+                  status = sscanf(line, "%lf", &dfun_dvar);
+                  if (status != 1) status = CAPS_IOERR; else status = CAPS_SUCCESS;
+                  AIM_STATUS(aimInfo, status, "rubber.data line %d", iline);
+
+                  // accumulate derivatives across bodies
+                  design.designFunctional[i].dvar[j].value[k] += dfun_dvar;
+              }
+          }
+        }
+    }
+
+    status = CAPS_SUCCESS;
+
+cleanup:
+
+    if (line != NULL) free(line); // Must use free!
+    if (fp   != NULL) fclose(fp);
+
+    return status;
+}
+
+// Make FUN3D directory structure/tree
+int fun3d_makeDirectory(void *aimInfo)
+{
+    int status; // Function return status
+
+    char filename[PATH_MAX];
 
     char flow[] = "Flow";
     char datafile[] = "datafiles";
@@ -2286,89 +2730,25 @@ int fun3d_makeDirectory()
 
     printf("Creating FUN3D directory tree\n");
 
-    stringLength =  strlen(rubber) + 1 + strlen(datafile) + 1;
-
-    filename = (char *) EG_alloc(stringLength*sizeof(char));
-    if (filename == NULL) {
-        status = EGADS_MALLOC;
-        goto cleanup;
-    }
-
     // Flow
-#ifdef WIN32
-    status = _mkdir(flow);
-#else
-    status = mkdir(flow, S_IRWXU);
-#endif
-
-    if (status != 0) {
-/*@-unrecog@*/
-        if (errno != EEXIST) {
-/*@+unrecog@*/
-            printf("Unable to make %s folder!\n", flow);
-            status = CAPS_IOERR;
-            goto cleanup;
-        }
-    }
+    status = aim_mkDir(aimInfo, flow);
+    AIM_STATUS(aimInfo, status);
 
     // Datafiles
-#ifdef WIN32
-    sprintf(filename, "%s\\%s", flow, datafile);
-    status = _mkdir(filename);
-#else
     sprintf(filename, "%s/%s", flow, datafile);
-    status = mkdir(filename, S_IRWXU);
-#endif
-
-    if (status != 0) {
-        if (errno != EEXIST) {
-
-            printf("Unable to make %s folder!\n", datafile);
-            status = CAPS_IOERR;
-            goto cleanup;
-        }
-    }
+    status = aim_mkDir(aimInfo, filename);
+    AIM_STATUS(aimInfo, status);
 
     // Adjoint
-#ifdef WIN32
-    status = _mkdir(adjoint);
-#else
-    status = mkdir(adjoint, S_IRWXU);
-#endif
-
-    if (status != 0) {
-        if (errno != EEXIST) {
-
-            printf("Unable to make %s folder!\n", adjoint);
-            status = CAPS_IOERR;
-            goto cleanup;
-        }
-    }
+    status = aim_mkDir(aimInfo, adjoint);
+    AIM_STATUS(aimInfo, status);
 
     // Rubber
-#ifdef WIN32
-    status = _mkdir(rubber);
-#else
-    status = mkdir(rubber, S_IRWXU);
-#endif
-
-    if (status != 0) {
-        if (errno != EEXIST) {
-
-            printf("Unable to make %s folder!\n", rubber);
-            status = CAPS_IOERR;
-            goto cleanup;
-        }
-    }
+    status = aim_mkDir(aimInfo, rubber);
+    AIM_STATUS(aimInfo, status);
 
     status = CAPS_SUCCESS;
 
 cleanup:
-    if (status != CAPS_SUCCESS)
-        printf("Error: Premature exit in fun3d_makeDirectory status = %d\n",
-               status);
-
-    if (filename != NULL) EG_free(filename);
-
     return status;
 }

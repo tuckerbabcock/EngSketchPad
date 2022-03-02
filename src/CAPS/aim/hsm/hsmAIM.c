@@ -16,14 +16,7 @@
  *
  * An outline of the AIM's inputs and outputs are provided in \ref aimInputsHSM and \ref aimOutputsHSM, respectively.
  *
- *
- * Details of the AIM's shareable data structures are outlined in \ref sharableDataHSM if connecting this AIM to other AIMs in a
- * parent-child like manner.
- *
  */
-
-//The accepted and expected geometric representation and analysis intentions are detailed in \ref geomRepIntentHSM.
- // The HSM AIM provides the CAPS users with the ability to generate .......
 
 // Header functions
 #include <string.h>
@@ -190,6 +183,8 @@ typedef struct {
     // Project name
     char *projectName; // Project names
 
+    feaUnitsStruct units; // units system
+
     feaProblemStruct feaProblem;
 
     // Attribute to index map
@@ -229,6 +224,9 @@ static int initiate_aimStorage(aimStorage *hsmInstance)
 
     // Set initial values for hsmInstance
     hsmInstance->projectName = NULL;
+
+    status = initiate_feaUnitsStruct(&hsmInstance->units);
+    if (status != CAPS_SUCCESS) return status;
 
     // Container for attribute to index map
     status = initiate_mapAttrToIndexStruct(&hsmInstance->attrMap);
@@ -272,6 +270,11 @@ static int destroy_aimStorage(aimStorage *hsmInstance)
 {
     int status;
     int i;
+
+    status = destroy_feaUnitsStruct(&hsmInstance->units);
+    if (status != CAPS_SUCCESS)
+      printf("Error: Status %d during destroy_feaUnitsStruct!\n", status);
+
     // Attribute to index map
     status = destroy_mapAttrToIndexStruct(&hsmInstance->attrMap);
     if (status != CAPS_SUCCESS)
@@ -301,7 +304,7 @@ static int destroy_aimStorage(aimStorage *hsmInstance)
               printf("Error: Status %d during destroy_meshStruct!\n", status);
         }
 
-        EG_free(hsmInstance->feaMesh);
+        AIM_FREE(hsmInstance->feaMesh);
     }
 
     hsmInstance->feaMesh = NULL;
@@ -511,15 +514,14 @@ static int createMesh(void *aimInfo, aimStorage *hsmInstance)
             if (feaMeshList[body] != (int) true) continue;
 
             hsmInstance->numMesh += 1;
-            AIM_REALL(tempMesh, hsmInstance->numMesh, meshStruct, aimInfo, status);
-
-            hsmInstance->feaMesh = tempMesh;
+            AIM_REALL(hsmInstance->feaMesh, hsmInstance->numMesh, meshStruct, aimInfo, status);
 
             status = initiate_meshStruct(&hsmInstance->feaMesh[hsmInstance->numMesh-1]);
             AIM_STATUS(aimInfo, status);
 
             // Get FEA Problem from EGADs body
-            status = hsm_bodyToBEM(bodies[body], // (in)  EGADS Body
+            status = hsm_bodyToBEM(aimInfo,
+                                   bodies[body], // (in)  EGADS Body
                                    tessParam,    // (in)  Tessellation parameters
                                    edgePointMin, // (in)  minimum points along any Edge
                                    edgePointMax, // (in)  maximum points along any Edge
@@ -549,7 +551,6 @@ static int createMesh(void *aimInfo, aimStorage *hsmInstance)
         if (hsmInstance->numMesh > 1) printf("Combining multiple FEA meshes!\n");
         // Combine fea meshes into a single mesh for the problem
 /*@-nullpass@*/
-/*@-nullderef@*/
         status = mesh_combineMeshStruct(hsmInstance->numMesh,
                                         hsmInstance->feaMesh,
                                         &hsmInstance->feaProblem.feaMesh);
@@ -559,10 +560,10 @@ static int createMesh(void *aimInfo, aimStorage *hsmInstance)
         AIM_ALLOC(hsmInstance->feaProblem.feaMesh.referenceMesh, hsmInstance->numMesh, meshStruct, aimInfo, status);
         hsmInstance->feaProblem.feaMesh.numReferenceMesh = hsmInstance->numMesh;
 
+        AIM_NOTNULL(hsmInstance->feaMesh, aimInfo, status);
         for (body = 0; body < hsmInstance->numMesh; body++) {
             hsmInstance->feaProblem.feaMesh.referenceMesh[body] = hsmInstance->feaMesh[body];
         }
-/*@+nullderef@*/
 /*@+nullpass@*/
     }
     status = CAPS_SUCCESS;
@@ -579,11 +580,13 @@ cleanup:
 
 // ********************** Exposed AIM Functions *****************************
 
-int aimInitialize(int inst, /*@unused@*/ const char *unitSys, void **instStore,
-                  /*@unused@*/ int *major, /*@unused@*/ int *minor,
-                  int *nIn, int *nOut, int *nFields, char ***fnames, int **ranks)
+int aimInitialize(int inst, /*@null@*/ /*@unused@*/ const char *unitSys, void *aimInfo,
+                  void **instStore, /*@unused@*/ int *major,
+                  /*@unused@*/ int *minor, int *nIn, int *nOut,
+                  int *nFields, char ***fnames, int **franks, int **fInOut)
 {
-    aimStorage *hsmInstance;
+    int status = CAPS_SUCCESS;
+    aimStorage *hsmInstance=NULL;
 
 #ifdef DEBUG
     printf("\n hsmAIM/aimInitialize   instance = %d!\n", inst);
@@ -594,19 +597,21 @@ int aimInitialize(int inst, /*@unused@*/ const char *unitSys, void **instStore,
     *nOut    = 0;
     if (inst == -1) return CAPS_SUCCESS;
 
-    // Specify the field variables this analysis can generate
+    /* specify the field variables this analysis can generate and consume */
     *nFields = 0;
-    *ranks   = NULL;
     *fnames  = NULL;
+    *franks  = NULL;
+    *fInOut  = NULL;
 
     // Allocate hsmInstance
-    hsmInstance = (aimStorage *) EG_alloc(sizeof(aimStorage));
-    if (hsmInstance == NULL) return EGADS_MALLOC;
+    AIM_ALLOC(hsmInstance, 1, aimStorage, aimInfo, status);
     *instStore = hsmInstance;
 
     // Set initial values for hsmInstance
+    status = initiate_aimStorage(hsmInstance);
 
-    return initiate_aimStorage(hsmInstance);
+cleanup:
+    return status;
 }
 
 
@@ -614,6 +619,7 @@ int aimInitialize(int inst, /*@unused@*/ const char *unitSys, void **instStore,
 int aimInputs(void *instStore, /*@unused@*/ void *aimInfo, int index,
               char **ainame, capsValue *defval)
 {
+    int status = CAPS_SUCCESS;
     aimStorage *hsmInstance;
   
     /*! \page aimInputsHSM AIM Inputs
@@ -644,12 +650,11 @@ int aimInputs(void *instStore, /*@unused@*/ void *aimInfo, int index,
         *ainame               = EG_strdup("Tess_Params");
         defval->type          = Double;
         defval->dim           = Vector;
-        defval->length        = 3;
         defval->nrow          = 3;
         defval->ncol          = 1;
         defval->units         = NULL;
         defval->lfixed        = Fixed;
-        defval->vals.reals    = (double *) EG_alloc(defval->length*sizeof(double));
+        defval->vals.reals    = (double *) EG_alloc(defval->nrow*sizeof(double));
         if (defval->vals.reals != NULL) {
             defval->vals.reals[0] = 0.025;
             defval->vals.reals[1] = 0.001;
@@ -692,7 +697,6 @@ int aimInputs(void *instStore, /*@unused@*/ void *aimInfo, int index,
         *ainame               = EG_strdup("Edge_Point_Max");
         defval->type          = Integer;
         defval->vals.integer  = 50;
-        defval->length        = 1;
         defval->lfixed        = Fixed;
         defval->nrow          = 1;
         defval->ncol          = 1;
@@ -769,9 +773,27 @@ int aimInputs(void *instStore, /*@unused@*/ void *aimInfo, int index,
          * - <B> Load = NULL</B> <br>
          * Load tuple used to input load information for the model, see \ref feaLoad for additional details.
          */
+    } else if (index == Mesh) {
+        *ainame             = AIM_NAME(Mesh);
+        defval->type        = Pointer;
+        defval->dim         = Vector;
+        defval->lfixed      = Change;
+        defval->sfixed      = Change;
+        defval->vals.AIMptr = NULL;
+        defval->nullVal     = IsNull;
+        AIM_STRDUP(defval->units, "meshStruct", aimInfo, status);
+
+        /*! \page aimInputsAstros
+         * - <B>Mesh = NULL</B> <br>
+         * A Mesh link.
+         */
     }
 
-    return CAPS_SUCCESS;
+    AIM_NOTNULL(*ainame, aimInfo, status);
+
+cleanup:
+    if (status != CAPS_SUCCESS) AIM_FREE(*ainame);
+    return status;
 }
 
 
@@ -878,7 +900,8 @@ int aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
 
         strcpy(filename, hsmInstance->projectName);
 
-        status = mesh_writeNASTRAN(filename,
+        status = mesh_writeNASTRAN(aimInfo,
+                                   filename,
                                    1,
                                    &hsmInstance->feaProblem.feaMesh,
                                    SmallField,
@@ -895,8 +918,10 @@ int aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
 
     // Set material properties
     if (aimInputs[Material-1].nullVal == NotNull) {
-        status = fea_getMaterial(aimInputs[Material-1].length,
+        status = fea_getMaterial(aimInfo,
+                                 aimInputs[Material-1].length,
                                  aimInputs[Material-1].vals.tuple,
+                                 &hsmInstance->units,
                                  &hsmInstance->feaProblem.numMaterial,
                                  &hsmInstance->feaProblem.feaMaterial);
         if (status != CAPS_SUCCESS) return status;
@@ -904,9 +929,11 @@ int aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
 
     // Set property properties
     if (aimInputs[Property-1].nullVal == NotNull) {
-        status = fea_getProperty(aimInputs[Property-1].length,
+        status = fea_getProperty(aimInfo,
+                                 aimInputs[Property-1].length,
                                  aimInputs[Property-1].vals.tuple,
                                  &hsmInstance->attrMap,
+                                 &hsmInstance->units,
                                  &hsmInstance->feaProblem);
         if (status != CAPS_SUCCESS) return status;
 
@@ -1040,6 +1067,8 @@ int aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
                            &maxAdjacency, &xadj, &adj);
     if (status != CAPS_SUCCESS) goto cleanup;
     printf("Max Adjacency set to = %d\n", maxAdjacency);
+    AIM_NOTNULL(xadj, aimInfo, status);
+    AIM_NOTNULL( adj, aimInfo, status);
 
     // Count the number of BC nodes - for Constraints
     for (i = 0; i < hsmInstance->feaProblem.feaMesh.numNode; i++) {
@@ -1088,17 +1117,15 @@ int aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
                   + hsmInstance->feaProblem.feaMesh.meshQuickRef.numQuadrilateral;
 
 #ifdef HSM_RCM
-    permutation = (int *) EG_alloc(hsmInstance->feaProblem.feaMesh.numNode*sizeof(int));
-/*@-nullderef@*/
+    AIM_ALLOC(permutation, hsmInstance->feaProblem.feaMesh.numNode, int, aimInfo, status);
 /*@-nullpass@*/
     genrcmi(hsmInstance->feaProblem.feaMesh.numNode,
             xadj[hsmInstance->feaProblem.feaMesh.numNode]-1,
             xadj, adj,
             permutation);
 /*@+nullpass@*/
-/*+nullderef@*/
-    EG_free(xadj); xadj = NULL;
-    EG_free(adj);  adj = NULL;
+    AIM_FREE(xadj);
+    AIM_FREE(adj);
 
     // Convert to 1-based indexing
     //for (i = 0; i < hsmInstance->feaProblem.feaMesh.numNode; i++)
@@ -1619,7 +1646,7 @@ int aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
 
 //#define WRITE_MATRIX_MARKET
 #ifdef WRITE_MATRIX_MARKET
-    FILE *file = fopen("B.mtx", "w");
+    FILE *file = aim_fopen(aimInfo, "B.mtx", "w");
 
     //Write the banner
     fprintf(file, "%%%%MatrixMarket matrix coordinate real general\n");
@@ -1735,7 +1762,8 @@ int aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
                 &hsmInstance->feaProblem.feaMesh.numElement, &nddim, &nmdim);
          */
 /*@-nullpass@*/
-        status = hsm_writeTecplot(hsmInstance->projectName,
+        status = hsm_writeTecplot(aimInfo,
+                                  hsmInstance->projectName,
                                   hsmInstance->feaProblem.feaMesh,
                                   &hsmMemory, permutation);
 /*@+nullpass@*/

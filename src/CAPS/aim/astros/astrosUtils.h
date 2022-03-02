@@ -128,7 +128,8 @@ int astros_writeGeomParametrization(FILE *fp, void *aimInfo,
                                     feaFileFormatStruct *feaFileFormat);
 
 // Write a mesh contained in the mesh structure in Astros format (*.bdf)
-int astros_writeMesh(char *fname,
+int astros_writeMesh(void *aimInfo,
+                     char *fname,
                      int asciiFlag, // 0 for binary, anything else for ascii
                      meshStruct *mesh,
                      feaFileTypeEnum gridFileType,

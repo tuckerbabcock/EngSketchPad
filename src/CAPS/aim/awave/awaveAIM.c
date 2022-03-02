@@ -3,7 +3,7 @@
  *
  *             Awave AIM
  *
- *      Copyright 2014-2021, Massachusetts Institute of Technology
+ *      Copyright 2014-2022, Massachusetts Institute of Technology
  *      Licensed under The GNU Lesser General Public License, version 2.1
  *      See http://www.opensource.org/licenses/lgpl-2.1.php
  *
@@ -62,12 +62,9 @@ enum aimOutputs
  *
  *
  * Upon running preAnalysis the AIM generates a single file, "awaveInput.txt" which contains the input
- * information and control sequence for Awave to execute.
- * An example execution for Awave looks like (Linux and OSX executable being used - see \ref AwaveModification):
+ * information and control sequence for Awave to execute (see \ref AwaveModification).
  *
- * \code{.sh}
- * awave awaveInput.txt
- * \endcode
+ * The Awave AIM can automatically execute Awave, with details provided in \ref aimExecuteAwave.
  *
  * \section AwaveModification Awave Modifications
  * The AIM assumes that a modified version of Awave is being used. The modified version allows for longer input
@@ -132,11 +129,6 @@ enum aimOutputs
  *
  */
 
-// * The accepted and expected geometric representation and analysis intentions are detailed
-// * in \ref geomRepIntentAwave.
-// *  - <b> capsAIM</b> This attribute is a CAPS requirement to indicate the analysis fidelity the geometry
-// * representation supports.
-
 typedef struct {
     const char *name;
     const char *attribute;
@@ -159,6 +151,10 @@ typedef struct {
   const double *pxyz, *pt;
 } tessStorage;
 
+typedef struct {
+    // Inidicate if input angle should have units
+    int withUnits;
+} aimStorage;
 
 
 /* ****************** Awave AIM Helper Functions ************************** */
@@ -786,11 +782,17 @@ cleanup:
 /* ********************** Exposed AIM Functions ***************************** */
 
 // ********************** AIM Function Break *****************************
-int aimInitialize(int inst, /*@unused@*/ /*@null@*/ const char *unitSys,
-                  /*@unused@*/ void **aimStore, /*@unused@*/ int *major,
-                  /*@unused@*/ int *minor, int *nIn, int *nOut, int *nFields,
-                  char ***fnames, int **ranks)
+int aimInitialize(int inst, /*@unused@*/ const char *unitSys, /*@unused@*/ void *aimInfo,
+                  /*@unused@*/ void **instStore, /*@unused@*/ int *major,
+                  /*@unused@*/ int *minor, int *nIn, int *nOut,
+                  int *nFields, char ***fnames, int **franks, int **fInOut)
 {
+    int status = CAPS_SUCCESS;
+    const char *keyWord;
+    char *keyValue = NULL, *angle = NULL;
+    double real = 1;
+
+    aimStorage *awaveInstance=NULL;
 
     #ifdef DEBUG
         printf("\n awaveAIM/aimInitialize   instance = %d!\n", inst);
@@ -801,26 +803,79 @@ int aimInitialize(int inst, /*@unused@*/ /*@null@*/ const char *unitSys,
     *nOut    = NUMOUTPUT;   // CDwave, MachOut, AoAOut
     if (inst == -1) return CAPS_SUCCESS;
 
-    // Number of geometry fidelities that are required by the AIM and what they are
-    // specify the field variables this analysis can generate
-  
+    /* specify the field variables this analysis can generate and consume */
     *nFields = 0;
-    *ranks   = NULL;
     *fnames  = NULL;
+    *franks  = NULL;
+    *fInOut  = NULL;
 
-    return CAPS_SUCCESS;
+    // Allocate su2Instance
+    AIM_ALLOC(awaveInstance, 1, aimStorage, aimInfo, status);
+    *instStore = awaveInstance;
+    awaveInstance->withUnits = (int)false;
+
+    /*! \page aimUnitsAwave AIM Units
+     *  A unit system may be optionally specified during AIM instance initiation. If
+     *  a unit system is provided, all AIM  input values which have associated units must be specified as well.
+     *  If no unit system is used, AIM inputs, which otherwise would require units, will be assumed
+     *  unit consistent. A unit system may be specified via a JSON string dictionary for example:
+     *  unitSys = "{"angle": "deg"}"
+     */
+    if (unitSys != NULL) {
+
+      // Do we have a json string?
+      if (strncmp( unitSys, "{", 1) != 0) {
+        AIM_ERROR(aimInfo, "unitSys ('%s') is expected to be a JSON string dictionary", unitSys);
+        return CAPS_BADVALUE;
+      }
+
+      /*! \page aimUnitsAwave
+       *  \section jsonStringAwave JSON String Dictionary
+       *  The key arguments of the dictionary are described in the following:
+       *
+       *  <ul>
+       *  <li> <B>angle = "None"</B> </li> <br>
+       *  Angle units - e.g. "degree", "deg", "rad", ...
+       *  </ul>
+       */
+      keyWord = "angle";
+      status  = search_jsonDictionary(unitSys, keyWord, &keyValue);
+      if (status == CAPS_SUCCESS) {
+        angle = string_removeQuotation(keyValue);
+        real = 1;
+        status = aim_convert(aimInfo, 1, angle, &real, "degree", &real);
+        AIM_STATUS(aimInfo, status, "unitSys ('%s'): %s is not a %s unit", unitSys, angle, keyWord);
+      } else {
+        AIM_ERROR(aimInfo, "unitSys ('%s') does not contain '%s'", unitSys, keyWord);
+        status = CAPS_BADVALUE;
+        goto cleanup;
+      }
+
+      awaveInstance->withUnits = (int)true;
+    }
+
+cleanup:
+    AIM_FREE(keyValue);
+    AIM_FREE(angle);
+
+    return status;
 }
 
 // ********************** AIM Function Break *****************************
 int aimInputs(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
               int index, char **ainame, capsValue *defval)
 {
+  aimStorage *awaveInstance;
 
-	/*! \page aimInputsAwave AIM Inputs
-	 * The following list outlines the Awave inputs along with their default value available
-	 * through the AIM interface.  All inputs to the Awave AIM are variable length arrays.
-	 * <B> All inputs must be the same length</B>.
-	 */
+  *ainame = NULL;
+
+  awaveInstance = (aimStorage *) instStore;
+
+  /*! \page aimInputsAwave AIM Inputs
+   * The following list outlines the Awave inputs along with their default value available
+   * through the AIM interface.  All inputs to the Awave AIM are variable length arrays.
+   * <B> All inputs must be the same length</B>.
+   */
 
 #ifdef DEBUG
   printf(" awaveAIM/aimInputs  index = %d!\n",  index);
@@ -833,20 +888,21 @@ int aimInputs(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
 
 
         /*! \page aimInputsAwave
-    	 * - <B> Mach = double </B> <br> OR
-    	 * - <B> Mach = [double, ... , double] </B> <br>
-    	 *  Mach number.
-    	 */
+         * - <B> Mach = double </B> <br> OR
+         * - <B> Mach = [double, ... , double] </B> <br>
+         *  Mach number.
+         */
 
     } else if (index == inAlpha) {
         *ainame               = EG_strdup("Alpha");
-        defval->units         = EG_strdup("degree");
+        if (awaveInstance != NULL && awaveInstance->withUnits == (int)true)
+          defval->units       = EG_strdup("degree");
 
         /*! \page aimInputsAwave
-    	 * - <B> Alpha = double </B> <br> OR
-    	 * - <B> Alpha = [double, ... , double] </B> <br>
-    	 *  Angle of attack [degree].
-    	 */
+         * - <B> Alpha = double </B> <br> OR
+         * - <B> Alpha = [double, ... , double] </B> <br>
+         *  Angle of attack [degree].
+         */
 
     }
 
@@ -1007,10 +1063,10 @@ int aimPreAnalysis(/*@unused@*/ void *instStore, void *aimInfo,
 
     printf("Writing Awave input file\n");
 
-    fp = fopen("awaveInput.txt","w");
+    fp = aim_fopen(aimInfo, "awaveInput.txt","w");
 
     if (fp == NULL) {
-      printf(" awaveAIM/aimPreAnalysis Cannot Open File: awaveInput.txt!\n");
+      AIM_ERROR(aimInfo, " awaveAIM/aimPreAnalysis Cannot Open File: awaveInput.txt!\n");
       status = CAPS_IOERR;
       goto cleanup;
     }
@@ -2040,53 +2096,97 @@ int aimPreAnalysis(/*@unused@*/ void *instStore, void *aimInfo,
 
     status = CAPS_SUCCESS;
 
-    goto cleanup;
+// Free memory
+cleanup:
 
-    // Free memory
-    cleanup:
+    if (status != CAPS_SUCCESS)
+      printf("Premature exit in awaveAIM preAnalysis status = %d\n", status);
 
-        if (status != CAPS_SUCCESS)
-          printf("Premature exit in awaveAIM preAnalysis status = %d\n", status);
+    if (fp != NULL) fclose(fp);
 
-        if (fp != NULL) fclose(fp);
+    if (locPod  != NULL) EG_free(locPod);
+    if (locCan  != NULL) EG_free(locCan);
+    if (locFin  != NULL) EG_free(locFin);
+    if (locFuse != NULL) EG_free(locFuse);
+    if (locWing != NULL) EG_free(locWing);
+    if (iloc    != NULL) EG_free(iloc);
+    if (xFuse   != NULL) EG_free(xFuse);
+    if (zFuse   != NULL) EG_free(zFuse);
+    if (aFuse   != NULL) EG_free(aFuse);
 
-        if (locPod  != NULL) EG_free(locPod);
-        if (locCan  != NULL) EG_free(locCan);
-        if (locFin  != NULL) EG_free(locFin);
-        if (locFuse != NULL) EG_free(locFuse);
-        if (locWing != NULL) EG_free(locWing);
-        if (iloc    != NULL) EG_free(iloc);
-        if (xFuse   != NULL) EG_free(xFuse);
-        if (zFuse   != NULL) EG_free(zFuse);
-        if (aFuse   != NULL) EG_free(aFuse);
+    if (xPod != NULL) EG_free(xPod);
+    if (rPod != NULL) EG_free(rPod);
 
-        if (xPod != NULL) EG_free(xPod);
-        if (rPod != NULL) EG_free(rPod);
+    if (surfaces != NULL) {
 
-        if (surfaces != NULL) {
-
-            for (i = 0; i < nbody; i++) {
-                (void) destroy_Section(&surfaces[i]);
-            }
-
-            EG_free(surfaces);
+        for (i = 0; i < nbody; i++) {
+            (void) destroy_Section(&surfaces[i]);
         }
 
-        if (awaveType != NULL) EG_free(awaveType);
+        EG_free(surfaces);
+    }
 
-        if (nodes != NULL) EG_free(nodes);
-        if (faces != NULL) EG_free(faces);
+    if (awaveType != NULL) EG_free(awaveType);
 
-        return status;
+    if (nodes != NULL) EG_free(nodes);
+    if (faces != NULL) EG_free(faces);
+
+    return status;
 }
 
 
 // ********************** AIM Function Break *****************************
+int aimExecute(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
+               int *state)
+{
+  /*! \page aimExecuteAwave AIM Execution
+   *
+   * If auto execution is enabled when creating an awave AIM,
+   * the AIM will execute awave just-in-time with the command line:
+   *
+   * \code{.sh}
+   * awave awaveInput.txt > awaveOutput.txt
+   * \endcode
+   *
+   * where preAnalysis generated the file "dealundoInput.txt" which contains the input information.
+   *
+   * The analysis can be also be explicitly executed with caps_execute in the C-API
+   * or via Analysis.runAnalysis in the pyCAPS API.
+   *
+   * Calling preAnalysis and postAnalysis is NOT allowed when auto execution is enabled.
+   *
+   * Auto execution can also be disabled when creating an awave AIM object.
+   * In this mode, caps_execute and Analysis.runAnalysis can be used to run the analysis,
+   * or awave can be executed by calling preAnalysis, system call, and posAnalysis as demonstrated
+   * below with a pyCAPS example:
+   *
+   * \code{.py}
+   * print ("\n\preAnalysis......")
+   * awave.preAnalysis()
+   *
+   * print ("\n\nRunning......")
+   * awave.system("awave awaveInput.txt > awaveOutput.txt"); # Run via system call
+   *
+   * print ("\n\postAnalysis......")
+   * awave.postAnalysis()
+   * \endcode
+   */
 
-/* no longer optional and needed for restart */
-int aimPostAnalysis(/*@unused@*/ void *instStore, /*@unused@*/ void *aimStruc,
+  *state = 0;
+  return aim_system(aimInfo, NULL, "awave awaveInput.txt > awaveOutput.txt");
+}
+
+
+// ********************** AIM Function Break *****************************
+int aimPostAnalysis(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
                     /*@unused@*/ int restart, /*@unused@*/ capsValue *inputs)
 {
+  // check the awave output file
+  if (aim_isFile(aimInfo, "cdwave.txt") != CAPS_SUCCESS) {
+    AIM_ERROR(aimInfo, "awave execution did not produce cdwave.txt");
+    return CAPS_EXECERR;
+  }
+
   return CAPS_SUCCESS;
 }
 
@@ -2141,7 +2241,6 @@ int aimOutputs(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
     form->lfixed = Change;
     form->sfixed = Fixed;
     form->dim    = Vector;
-    form->length = 1;
     form->nrow   = 1;
     form->ncol   = 1;
     form->vals.real = 0.0;
@@ -2169,26 +2268,17 @@ int aimCalcOutput(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
     printf(" awaveAIM/aimCalcOutput instance = %d  index = %d!\n", inst, index);
 #endif
 
-    if (val->length > 1) {
-        if (val->vals.reals != NULL) EG_free(val->vals.reals);
-        val->vals.reals = NULL;
-    } else {
-        val->vals.real = 0.0;
-    }
-
     val->nrow = 1;
     val->ncol = 1;
-    val->length = val->nrow*val->ncol;
 
     // ****************************************************************** //
     // PARSE OUTPUT DATA FILE //
     // ****************************************************************** //
 
     // Open the Awave output file
-    fp = fopen("cdwave.txt", "r"); // EJA mod specific
+    fp = aim_fopen(aimInfo, "cdwave.txt", "r"); // EJA mod specific
     if (fp == NULL) {
-        printf(" awaveAIM/aimCalcOutput Cannot open Output file!\n");
-
+        AIM_ERROR(aimInfo, " awaveAIM/aimCalcOutput Cannot open Output file!\n");
         status = CAPS_IOERR;
         goto cleanup;
     }
@@ -2223,7 +2313,8 @@ int aimCalcOutput(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
                 status = sscanf(line,"%*s %lf", &tmp);
 
                 if (status == 0) {
-                    status = CAPS_NOTFOUND;
+                    AIM_ERROR(aimInfo, "Failed to parse: %s\n", line);
+                    status = CAPS_IOERR;
                     goto cleanup;
                 }
 
@@ -2241,7 +2332,8 @@ int aimCalcOutput(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
 
                 status = sscanf(line,"%*s %lf", &tmp);
                 if (status == 0) {
-                    status = CAPS_NOTFOUND;
+                    AIM_ERROR(aimInfo, "Failed to parse: %s\n", line);
+                    status = CAPS_IOERR;
                     goto cleanup;
                 }
 
@@ -2259,7 +2351,8 @@ int aimCalcOutput(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
 
                 status = sscanf(line,"%*s %lf", &tmp);
                 if (status == 0) {
-                    status = CAPS_NOTFOUND;
+                    AIM_ERROR(aimInfo, "Failed to parse: %s\n", line);
+                    status = CAPS_IOERR;
                     goto cleanup;
                 }
 
@@ -2277,17 +2370,13 @@ int aimCalcOutput(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
     }
 
     if (cnt < 1) {
-#ifdef DEBUG
-        printf(" awaveAIM/aimCalcOutput Cannot find %s in Output file!\n", str);
-#endif
-
+        AIM_ERROR(aimInfo, "Cannot find '%s' in Output file!\n", str);
         status = CAPS_NOTFOUND;
         goto cleanup;
     }
 
     val->nrow = cnt;
     val->ncol = 1;
-    val->length = val->nrow*val->ncol;
 
     if (cnt == 1) {
         if (index == outCDwave) val->vals.real = Cd[0];
@@ -2296,12 +2385,7 @@ int aimCalcOutput(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
 
     } else if (cnt > 1) {
 
-        val->vals.reals = (double *) EG_alloc(val->length*sizeof(double));
-
-        if (val->vals.reals == NULL) {
-            status = EGADS_MALLOC;
-            goto cleanup;
-        }
+        AIM_ALLOC(val->vals.reals, val->nrow, double, aimInfo, status);
 
         for (i = 0; i < cnt; i++) {
 
@@ -2315,12 +2399,8 @@ int aimCalcOutput(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
     status = CAPS_SUCCESS;
 
 cleanup:
-    if (status != CAPS_SUCCESS)
-      printf("Premature exit in AwaveAIM aimCalcOutput status = %d\n", status);
-
     if (fp != NULL) fclose(fp);
-
-    if (line != NULL) EG_free(line);
+    if (line != NULL) free(line); // must use free
 
     return status;
 }
@@ -2333,4 +2413,5 @@ void aimCleanup(/*@unused@*/ void *aimStore)
     printf(" awaveAIM/aimCleanup!\n");
 #endif
 
+    EG_free(aimStore);
 }

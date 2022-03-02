@@ -3,7 +3,7 @@
  *
  *             FRICTION AIM
  *
- *      Copyright 2014-2021, Massachusetts Institute of Technology
+ *      Copyright 2014-2022, Massachusetts Institute of Technology
  *      Licensed under The GNU Lesser General Public License, version 2.1
  *      See http://www.opensource.org/licenses/lgpl-2.1.php
  *
@@ -63,13 +63,10 @@ enum aimOutputs
  *
  *
  * Upon running preAnalysis the AIM generates a single file, "frictionInput.txt" which contains the input
- * information and control sequence for FRICTION to execute.
+ * information and control sequence for FRICTION to execute (see \ref frictionModification).
  * To populate output data the AIM expects a file, "frictionOutput.txt", to exist after running FRICTION.
- * An example execution for FRICTION looks like (Linux and OSX executable being used - see \ref frictionModification):
+ * The FRICTION AIM can automatically execute FRICTION, with details provided in \ref aimExecuteFRICTION.
  *
- * \code{.sh}
- * friction frictionInput.txt frictionOutput.txt
- * \endcode
  *
  * \section frictionModification FRICTION Modifications
  * While FRICTION is available from,
@@ -351,11 +348,10 @@ cleanup:
 
 
 // ********************** AIM Function Break *****************************
-int
-aimInitialize(int inst, /*@unused@*/ /*@null@*/ const char *unitSys,
-              /*@unused@*/ void **aimStore, /*@unused@*/ int *major,
-              /*@unused@*/ int *minor, int *nIn, int *nOut, int *nFields,
-              char ***fnames, int **ranks)
+int aimInitialize(int inst, /*@unused@*/ const char *unitSys, /*@unused@*/ void *aimInfo,
+                  /*@unused@*/ void **instStore, /*@unused@*/ int *major,
+                  /*@unused@*/ int *minor, int *nIn, int *nOut,
+                  int *nFields, char ***fnames, int **franks, int **fInOut)
 {
 
 #ifdef DEBUG
@@ -367,10 +363,11 @@ aimInitialize(int inst, /*@unused@*/ /*@null@*/ const char *unitSys,
     *nOut    = NUMOUT;      // CDtotal, CDform, CDfric
     if (inst == -1) return CAPS_SUCCESS;
 
-    // specify the field variables this analysis can generate
+    /* specify the field variables this analysis can generate and consume */
     *nFields = 0;
-    *ranks   = NULL;
     *fnames  = NULL;
+    *franks  = NULL;
+    *fInOut  = NULL;
 
     return CAPS_SUCCESS;
 }
@@ -425,7 +422,6 @@ int aimInputs(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
         *ainame               = EG_strdup("BL_Transition");
         defval->type          = Double;
         defval->dim           = Vector;
-        defval->length        = 1;
         defval->nrow          = 1;
         defval->ncol          = 1;
         defval->units         = NULL;
@@ -495,10 +491,7 @@ int aimPreAnalysis(/*@unused@*/ void *instStore, void *aimInfo,
 
     // Get EGADS bodies
     status = aim_getBodies(aimInfo, &intents, &numBody, &bodies);
-    if (status != CAPS_SUCCESS) {
-        printf(" frictionAIM/aimPreAnalysis getBodies = %d!\n", status);
-        return status;
-    }
+    AIM_STATUS(aimInfo, status);
 
     if (inputs == NULL) {
 #ifdef DEBUG
@@ -527,14 +520,14 @@ int aimPreAnalysis(/*@unused@*/ void *instStore, void *aimInfo,
     if (inputs[inMach-1].nullVal == IsNull ||
         inputs[inAltitude-1].nullVal == IsNull) {
 
-        printf("Either input Mach or Altitude has not been set!\n");
+        AIM_ERROR(aimInfo, "Either input Mach or Altitude has not been set!\n");
         status = CAPS_NULLVALUE;
         goto cleanup;
     }
 
     if (inputs[inMach-1].length != inputs[inAltitude-1].length) {
 
-        printf("Inputs Mach and Altitude must be the same length\n");
+        AIM_ERROR(aimInfo, "Inputs Mach and Altitude must be the same length\n");
         status = CAPS_MISMATCH;
         goto cleanup;
     }
@@ -579,10 +572,10 @@ int aimPreAnalysis(/*@unused@*/ void *instStore, void *aimInfo,
 
                 Sref = (double) reals[0];
 
-                status = aim_convert(aimInfo, lengthUnitsIn, Sref, "ft", &Sref); // Convert twice for area
+                status = aim_convert(aimInfo, 1, lengthUnitsIn, &Sref, "ft", &Sref); // Convert twice for area
                 if (status != CAPS_SUCCESS) goto cleanup;
 
-                status = aim_convert(aimInfo, lengthUnitsIn, Sref, "ft", &Sref);
+                status = aim_convert(aimInfo, 1, lengthUnitsIn, &Sref, "ft", &Sref);
                 if (status != CAPS_SUCCESS) goto cleanup;
 
 
@@ -609,7 +602,7 @@ int aimPreAnalysis(/*@unused@*/ void *instStore, void *aimInfo,
 
             if (atype != ATTRSTRING) {
 
-                printf("capsType should be followed by a single string!\n");
+                printf("capsType should be a single string!\n");
                 status = EGADS_ATTRERR;
                 goto cleanup;
             }
@@ -756,17 +749,17 @@ int aimPreAnalysis(/*@unused@*/ void *instStore, void *aimInfo,
                     calculate_distance(surfaces[i-1].xyzLE, surfaces[i-1].xyzTE,
                                        surfaces[i].xyzLE, &dist);
 
-                    status = aim_convert(aimInfo, lengthUnitsIn, dist, "ft", &dist);
+                    status = aim_convert(aimInfo, 1, lengthUnitsIn, &dist, "ft", &dist);
                     if (status != CAPS_SUCCESS) goto cleanup;
 
                     refLength = (surfaces[i].chordLength + surfaces[i-1].chordLength) / 2.0;
                     refArea   = (dist * (surfaces[i].arcLength + surfaces[i-1].arcLength)) / 2.0;
 
-                    status = aim_convert(aimInfo, lengthUnitsIn, refLength, "ft",
+                    status = aim_convert(aimInfo, 1, lengthUnitsIn, &refLength, "ft",
                                          &secLift[nsec].refLength);
                     if (status != CAPS_SUCCESS) goto cleanup;
 
-                    status = aim_convert(aimInfo, lengthUnitsIn, refArea, "ft",
+                    status = aim_convert(aimInfo, 1, lengthUnitsIn, &refArea, "ft",
                                          &secLift[nsec].swet);
                     if (status != CAPS_SUCCESS) goto cleanup;
 
@@ -839,7 +832,7 @@ int aimPreAnalysis(/*@unused@*/ void *instStore, void *aimInfo,
             if (nsecrevNewSec[i] == 1) {
                 if (i > 0) { // last body section is finished, onto the next one
 
-                    status = aim_convert(aimInfo, lengthUnitsIn, SREF, "ft", &SREF);
+                    status = aim_convert(aimInfo, 1, lengthUnitsIn, &SREF, "ft", &SREF);
                     if (status != CAPS_SUCCESS) goto cleanup;
 
                     secBody[nsecrev].thickOverChord = secBody[nsecrev].refLength / SREF;
@@ -858,15 +851,14 @@ int aimPreAnalysis(/*@unused@*/ void *instStore, void *aimInfo,
                 dist = fabs(surfaces[nsecrevidreal[i]].xyzLE[0] -
                             surfaces[nsecrevidreal[i-1]].xyzLE[0]); // aligned with flow direction X - global axis
 
-                status = aim_convert(aimInfo, lengthUnitsIn, dist, "ft", &dist);
+                status = aim_convert(aimInfo, 1, lengthUnitsIn, &dist, "ft", &dist);
                 if (status != CAPS_SUCCESS) goto cleanup;
 
                 secBody[nsecrev].refLength = secBody[nsecrev].refLength + dist; // keep adding on each length component to the body ref
                 refArea   = (surfaces[nsecrevidreal[i]].arcLength +
                              surfaces[nsecrevidreal[i-1]].arcLength);
 
-                status = aim_convert(aimInfo, lengthUnitsIn, refArea, "ft",
-                                     &refArea);
+                status = aim_convert(aimInfo, 1, lengthUnitsIn, &refArea, "ft", &refArea);
                 if (status != CAPS_SUCCESS) goto cleanup;
 
                 secBody[nsecrev].swet = secBody[nsecrev].swet +
@@ -874,8 +866,7 @@ int aimPreAnalysis(/*@unused@*/ void *instStore, void *aimInfo,
                 refLength = (surfaces[nsecrevidreal[i]].chordLength +
                              surfaces[nsecrevidreal[i-1]].chordLength) / 2.0; // ref diameter
 
-                status = aim_convert(aimInfo, lengthUnitsIn, refLength, "ft",
-                                     &refLength);
+                status = aim_convert(aimInfo, 1, lengthUnitsIn, &refLength, "ft", &refLength);
                 if (status != CAPS_SUCCESS) goto cleanup;
 
                 if (surfaces[nsecrevidreal[i]].chordLength > SREF) {
@@ -885,7 +876,7 @@ int aimPreAnalysis(/*@unused@*/ void *instStore, void *aimInfo,
 
             if (i==tmp-1) {
 
-                status = aim_convert(aimInfo, lengthUnitsIn, SREF, "ft", &SREF);
+                status = aim_convert(aimInfo, 1, lengthUnitsIn, &SREF, "ft", &SREF);
                 if (status != CAPS_SUCCESS) goto cleanup;
 
                 secBody[nsecrev].thickOverChord = SREF / secBody[nsecrev].refLength;
@@ -906,7 +897,7 @@ int aimPreAnalysis(/*@unused@*/ void *instStore, void *aimInfo,
 /*@+bufferoverflowhigh@*/
 
     // Create input file for friction
-    fp = fopen("frictionInput.txt","w");
+    fp = aim_fopen(aimInfo, "frictionInput.txt","w");
     if (fp == NULL) {
         status =  CAPS_IOERR;
         goto cleanup;
@@ -1071,11 +1062,58 @@ cleanup:
 
 
 // ********************** AIM Function Break *****************************
+int aimExecute(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
+               int *state)
+{
+  /*! \page aimExecuteFRICTION AIM Execution
+   *
+   * If auto execution is enabled when creating an FRICTION AIM,
+   * the AIM will execute FRICTION just-in-time with the command line:
+   *
+   * \code{.sh}
+   * friction frictionInput.txt frictionOutput.txt > Info.out
+   * \endcode
+   *
+   * where preAnalysis generated the file "frictionInput.txt" which contains the input information.
+   *
+   * The analysis can be also be explicitly executed with caps_execute in the C-API
+   * or via Analysis.runAnalysis in the pyCAPS API.
+   *
+   * Calling preAnalysis and postAnalysis is NOT allowed when auto execution is enabled.
+   *
+   * Auto execution can also be disabled when creating an FRICTION AIM object.
+   * In this mode, caps_execute and Analysis.runAnalysis can be used to run the analysis,
+   * or FRICTION can be executed by calling preAnalysis, system call, and posAnalysis as demonstrated
+   * below with a pyCAPS example:
+   *
+   * \code{.py}
+   * print ("\n\preAnalysis......")
+   * friction.preAnalysis()
+   *
+   * print ("\n\nRunning......")
+   * friction.system("friction frictionInput.txt frictionOutput.txt > Info.out"); # Run via system call
+   *
+   * print ("\n\postAnalysis......")
+   * friction.postAnalysis()
+   * \endcode
+   */
 
-/* no longer optional and needed for restart */
-int aimPostAnalysis(/*@unused@*/ void *instStore, /*@unused@*/ void *aimStruc,
+  *state = 0;
+  return aim_system(aimInfo, NULL,
+                    "friction frictionInput.txt frictionOutput.txt > Info.out");
+}
+
+
+// ********************** AIM Function Break *****************************
+int aimPostAnalysis(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
                     /*@unused@*/ int restart, /*@unused@*/ capsValue *inputs)
 {
+  // check the friction output file
+  if (aim_isFile(aimInfo, "frictionOutput.txt") != CAPS_SUCCESS) {
+    AIM_ERROR(aimInfo, "friction execution did not produce frictionOutput.txt");
+    return CAPS_EXECERR;
+  }
+
   return CAPS_SUCCESS;
 }
 
@@ -1121,7 +1159,6 @@ int aimOutputs(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
     form->lfixed = Change;
     form->sfixed = Fixed;
     form->dim    = Vector;
-    form->length = 1;
     form->nrow   = 1;
     form->ncol   = 1;
     form->vals.real = 0.0;
@@ -1153,19 +1190,11 @@ int aimCalcOutput(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
     printf(" frictionAIM/aimCalcOutput  index = %d!\n", index);
 #endif
 
-    if (val->length > 1) {
-        if (val->vals.reals != NULL) EG_free(val->vals.reals);
-        val->vals.reals = NULL;
-    } else {
-        val->vals.real = 0.0;
-    }
-
     val->nrow = 1;
     val->ncol = 1;
-    val->length = val->nrow*val->ncol;
 
     // Open the friction output file
-    fp = fopen("frictionOutput.txt", "r");
+    fp = aim_fopen(aimInfo, "frictionOutput.txt", "r");
     if (fp == NULL) {
 #ifdef DEBUG
         printf(" frictionAIM/aimCalcOutput Cannot open Output file!\n");
@@ -1229,7 +1258,6 @@ int aimCalcOutput(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
 
     val->nrow = valueCount;
     val->ncol = 1;
-    val->length = val->nrow*val->ncol;
 
     if (valueCount == 1) {
         if (index == outCDtotal) val->vals.real = Tot[0];
@@ -1238,7 +1266,7 @@ int aimCalcOutput(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
 
     } else if (valueCount > 1) {
 
-        val->vals.reals = (double *) EG_alloc(val->length*sizeof(double));
+        val->vals.reals = (double *) EG_alloc(val->nrow*sizeof(double));
 
         if (val->vals.reals == NULL) {
             status = EGADS_MALLOC;

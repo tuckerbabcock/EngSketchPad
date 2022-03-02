@@ -21,15 +21,10 @@
  * used "to generate a tetrahedral/pentahedral/hexahedral BL grid adjacent to" specified surfaces.
  *
  * An outline of the AIM's inputs and outputs are provided in \ref aimInputsAFLR3 and \ref aimOutputsAFLR3, respectively.
- * The complete AFLR documentation is available at the <a href="http://www.simcenter.msstate.edu/software/downloads/doc/system/index.html">SimCenter</a>.
- *
- * The accepted and expected geometric representation and analysis intentions are detailed in \ref geomRepIntentAFLR3.
- *
- * Details of the AIM's shareable data structures are outlined in \ref sharableDataAFLR3 if connecting this AIM to other AIMs in a
- * parent-child like manner.
+ * The complete AFLR documentation is available at the <a href="https://www.simcenter.msstate.edu/software/documentation/system/index.html">SimCenter</a>.
  *
  * Example volumes meshes:
- *  \image html multiBodyAFRL3.png "AFLR3 meshing example - Multiple Airfoils with Boundary Layer" width=20px
+ *  \image html multiBodyAFRL3.png "AFLR3 meshing example - Multiple Airfoils with Boundary Layer" width=500px
  *  \image latex multiBodyAFRL3.png "AFLR3 meshing example - Multiple Airfoils with Boundary Layer" width=5cm
  *
  * \section clearanceAFLR3 Clearance Statement
@@ -40,6 +35,7 @@
 #include <math.h>
 #include "capsTypes.h"
 #include "aimUtil.h"
+#include "aimMesh.h"
 
 #include "meshUtils.h"       // Collection of helper functions for meshing
 #include "miscUtils.h"
@@ -59,21 +55,19 @@
 
 enum aimOutputs
 {
-  Volume_Mesh = 1,             /* index is 1-based */
+  NumberOfElement = 1,         /* index is 1-based */
+  NumberOfNode,
+  Volume_Mesh,
   NUMOUT = Volume_Mesh         /* Total number of outputs */
 };
 
+#define NODATATRANSFER "noDataTransfer.%d"
 
 ////// Global variables //////
 typedef struct {
 
-    // Container for volume mesh
-    int numVolumeMesh;
-    meshStruct *volumeMesh;
-
     int numSurfaceMesh;
     meshStruct *surfaceMesh;
-    int surfaceMeshInherited;
 
     // Attribute to index map
     mapAttrToIndexStruct groupMap;
@@ -82,6 +76,10 @@ typedef struct {
 
     // Container for mesh input
     meshInputStruct meshInput;
+
+    // Mesh references for link
+    int numMeshRef;
+    aimMeshRef *meshRef;
 
 } aimStorage;
 
@@ -173,36 +171,9 @@ static int destroy_aimStorage(aimStorage *aflr3Instance)
     if (status != CAPS_SUCCESS)
       printf("Status = %d, aflr3AIM meshInput cleanup!!!\n", status);
 
-    // Destroy surfaceMesh allocated arrays
-    if (aflr3Instance->surfaceMeshInherited == (int) false) { // Did the parent aim already destroy the surfaces?
-
-        for (i = 0; i < aflr3Instance->numSurfaceMesh; i++) {
-            status = destroy_meshStruct(&aflr3Instance->surfaceMesh[i]);
-            if (status != CAPS_SUCCESS)
-              printf("Status = %d, aflr3AIM destroy_meshStruct cleanup!!!\n", status);
-        }
-        if (aflr3Instance->surfaceMesh != NULL) EG_free(aflr3Instance->surfaceMesh);
-
-    }
-
+    // Surface meshes are always referenced
     aflr3Instance->numSurfaceMesh = 0;
-    aflr3Instance->surfaceMeshInherited = (int) false;
     aflr3Instance->surfaceMesh = NULL;
-
-    // Destroy volumeMesh allocated arrays
-    if (aflr3Instance->volumeMesh != NULL) {
-        for (i = 0; i < aflr3Instance->numVolumeMesh; i++) {
-            status = destroy_meshStruct(&aflr3Instance->volumeMesh[i]);
-            if (status != CAPS_SUCCESS)
-              printf("Status = %d, aflr3AIM destroy_meshStruct cleanup!!!\n",
-                     status);
-        }
-
-        EG_free(aflr3Instance->volumeMesh);
-    }
-
-    aflr3Instance->numVolumeMesh = 0;
-    aflr3Instance->volumeMesh = NULL;
 
     // Destroy attribute to index map
     status = destroy_mapAttrToIndexStruct(&aflr3Instance->groupMap);
@@ -215,19 +186,24 @@ static int destroy_aimStorage(aimStorage *aflr3Instance)
       printf("Status = %d, aflr3AIM destroy_mapAttrToIndexStruct cleanup!!!\n",
              status);
 
-    return CAPS_SUCCESS;
+    // Free the meshRef
+    for (i = 0; i < aflr3Instance->numMeshRef; i++)
+      aim_freeMeshRef(&aflr3Instance->meshRef[i]);
+    AIM_FREE(aflr3Instance->meshRef);
+
+    return status;
 }
 
 
 /* ********************** Exposed AIM Functions ***************************** */
 
-int aimInitialize(int inst, /*@unused@*/ const char *unitSys, void **instStore,
-                  /*@unused@*/ int *major, /*@unused@*/ int *minor, int *nIn,
-                  int *nOut, int *nFields, char ***fnames, int **ranks)
+int aimInitialize(int inst, /*@unused@*/ const char *unitSys, void *aimInfo,
+                  /*@unused@*/ void **instStore, /*@unused@*/ int *major,
+                  /*@unused@*/ int *minor, int *nIn, int *nOut,
+                  int *nFields, char ***fnames, int **franks, int **fInOut)
 {
-    int status; // Function status return
-
-    aimStorage *aflr3Instance;
+    int status = CAPS_SUCCESS; // Function status return
+    aimStorage *aflr3Instance=NULL;
 
 #ifdef WIN32
     #if  _MSC_VER >= 1900
@@ -246,51 +222,40 @@ int aimInitialize(int inst, /*@unused@*/ const char *unitSys, void **instStore,
     *nOut    = NUMOUT;
     if (inst == -1) return CAPS_SUCCESS;
 
-    /* specify the field variables this analysis can generate */
+    /* specify the field variables this analysis can generate and consume */
     *nFields = 0;
-    *ranks   = NULL;
     *fnames  = NULL;
+    *franks   = NULL;
+    *fInOut   = NULL;
 
     // Allocate aflr3Instance
-    aflr3Instance = (aimStorage *) EG_alloc(sizeof(aimStorage));
-    if (aflr3Instance == NULL) return EGADS_MALLOC;
+    AIM_ALLOC(aflr3Instance, 1, aimStorage, aimInfo, status);
+    *instStore = aflr3Instance;
 
     // Set initial values for aflr3Instance
-
-    // Container for volume mesh
-    aflr3Instance->numVolumeMesh = 0;
-    aflr3Instance->volumeMesh = NULL;
 
     // Container for surface meshes
     aflr3Instance->numSurfaceMesh = 0;
     aflr3Instance->surfaceMesh = NULL;
-    aflr3Instance->surfaceMeshInherited = (int) false;
+
+    // Mesh reference passed to solver
+    aflr3Instance->numMeshRef = 0;
+    aflr3Instance->meshRef = NULL;
 
     // Container for attribute to index map
     status = initiate_mapAttrToIndexStruct(&aflr3Instance->groupMap);
-    if (status != CAPS_SUCCESS) {
-        EG_free(aflr3Instance);
-        return status;
-    }
+    AIM_STATUS(aimInfo, status);
 
     status = initiate_mapAttrToIndexStruct(&aflr3Instance->meshMap);
-    if (status != CAPS_SUCCESS) {
-        destroy_mapAttrToIndexStruct(&aflr3Instance->groupMap);
-        EG_free(aflr3Instance);
-        return status;
-    }
+    AIM_STATUS(aimInfo, status);
 
     // Container for mesh input
     status = initiate_meshInputStruct(&aflr3Instance->meshInput);
-    if (status != CAPS_SUCCESS) {
-        destroy_mapAttrToIndexStruct(&aflr3Instance->meshMap);
-        destroy_mapAttrToIndexStruct(&aflr3Instance->groupMap);
-        EG_free(aflr3Instance);
-        return status;
-    }
+    AIM_STATUS(aimInfo, status);
 
-    *instStore = aflr3Instance;
-    return CAPS_SUCCESS;
+cleanup:
+    if (status != CAPS_SUCCESS) AIM_FREE(*instStore);
+    return status;
 }
 
 
@@ -299,8 +264,7 @@ int aimInputs(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
 {
     /*! \page aimInputsAFLR3 AIM Inputs
      * The following list outlines the AFLR3 meshing options along with their default value available
-     * through the AIM interface. By default, these values will be linked to any parent AIMs with variables
-     * of the same name, with the exception of the ...
+     * through the AIM interface.
      */
 
     int status = CAPS_SUCCESS;
@@ -323,35 +287,6 @@ int aimInputs(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
          * This corresponds to the output name of the mesh. If left NULL, the mesh is not written to a file.
          */
 
-    } else if (index == Tess_Params) {
-        *ainame               = EG_strdup("Tess_Params");
-        defval->type          = Double;
-        defval->dim           = Vector;
-        defval->length        = 3;
-        defval->nrow          = 3;
-        defval->ncol          = 1;
-        defval->units         = NULL;
-        defval->lfixed        = Fixed;
-        defval->vals.reals    = (double *) EG_alloc(defval->length*sizeof(double));
-        if (defval->vals.reals != NULL) {
-            defval->vals.reals[0] = 0.025;
-            defval->vals.reals[1] = 0.001;
-            defval->vals.reals[2] = 15.00;
-        } else return EGADS_MALLOC;
-
-        /*! \page aimInputsAFLR3
-         * - <B> Tess_Params = [0.025, 0.001, 15.0]</B> <br>
-         * Body tessellation parameters. Tess_Params[0] and Tess_Params[1] get scaled by the bounding
-         * box of the body. (From the EGADS manual) A set of 3 parameters that drive the EDGE discretization
-         * and the FACE triangulation. The first is the maximum length of an EDGE segment or triangle side
-         * (in physical space). A zero is flag that allows for any length. The second is a curvature-based
-         * value that looks locally at the deviation between the centroid of the discrete object and the
-         * underlying geometry. Any deviation larger than the input value will cause the tessellation to
-         * be enhanced in those regions. The third is the maximum interior dihedral angle (in degrees)
-         * between triangle facets (or Edge segment tangents for a WIREBODY tessellation), note that a
-         * zero ignores this phase.
-         */
-
     } else if (index == Mesh_Quiet_Flag) {
         *ainame               = EG_strdup("Mesh_Quiet_Flag");
         defval->type          = Boolean;
@@ -366,7 +301,6 @@ int aimInputs(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
         *ainame               = EG_strdup("Mesh_Format");
         defval->type          = String;
         defval->vals.string   = EG_strdup("AFLR3"); // AFLR3, SU2, VTK
-        defval->lfixed        = Change;
 
         /*! \page aimInputsAFLR3
          * - <B> Mesh_Format = "AFLR3"</B> <br>
@@ -399,15 +333,15 @@ int aimInputs(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
          */
 
     } else if (index == Multiple_Mesh) {
-          *ainame               = EG_strdup("Multiple_Mesh");
-          defval->type          = Boolean;
-          defval->vals.integer  = (int) false;
+        *ainame               = EG_strdup("Multiple_Mesh");
+        defval->type          = Boolean;
+        defval->vals.integer  = (int) false;
 
-          /*! \page aimInputsAFLR3
-           * - <B> Multiple_Mesh = False</B> <br>
-           * If set to True a volume will be generated for each body. When set to False (default value) only a single volume
-           * mesh will be created.
-           */
+        /*! \page aimInputsAFLR3
+         * - <B> Multiple_Mesh = False</B> <br>
+         * If set to True a volume will be generated for each body. When set to False (default value) only a single volume
+         * mesh will be created.
+         */
 
     } else if (index == Mesh_Sizing) {
         *ainame              = EG_strdup("Mesh_Sizing");
@@ -485,9 +419,10 @@ int aimInputs(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
         defval->lfixed      = Change;
         defval->sfixed      = Change;
         defval->vals.AIMptr = NULL;
+        defval->nullVal     = IsNull;
         AIM_STRDUP(defval->units, "meshStruct", aimInfo, status);
 
-        /*! \page aimInputsSU2
+        /*! \page aimInputsAFLR3
          * - <B>Surface_Mesh = NULL</B> <br>
          * A Surface_Mesh link.
          */
@@ -508,7 +443,7 @@ cleanup:
 
 int aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
 {
-    int i, propIndex, bodyIndex, pointIndex[4] = {-1,-1,-1,-1}, meshIndex; // Indexing
+    int i, j, propIndex, ibody, pointIndex[4] = {-1,-1,-1,-1}, meshIndex; // Indexing
 
     int status; // Return status
 
@@ -518,7 +453,11 @@ int aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
     ego *bodies = NULL, body;
     int numBody = 0;
 
-    int tempInt1, tempInt2;
+    int tempInt1, tempInt2, numElementCheck;
+
+    // Container for volume mesh
+    int numVolumeMesh=0;
+    meshStruct *volumeMesh=NULL;
 
     // Mesh attribute parameters
     int numMeshProp = 0;
@@ -540,7 +479,9 @@ int aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
 
     // Output grid
     char *filename = NULL;
-    char bodyIndexNumber[11];
+    char bodyNumberFile[42];
+    char aimFile[PATH_MAX];
+    FILE *fp;
 
     // Get AIM bodies
     status = aim_getBodies(aimInfo, &intents, &numBody, &bodies);
@@ -556,9 +497,15 @@ int aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
 #endif
         return CAPS_SOURCEERR;
     }
-  
+
     aflr3Instance = (aimStorage *) instStore;
     if (aimInputs == NULL) return CAPS_NULLVALUE;
+
+    // remove previous meshes
+    for (ibody = 0; ibody < aflr3Instance->numMeshRef; ibody++) {
+      status = aim_deleteMeshes(aimInfo, &aflr3Instance->meshRef[ibody]);
+      AIM_STATUS(aimInfo, status);
+    }
 
     // Cleanup previous aimStorage for the instance in case this is the second time through preAnalysis for the same instance
     status = destroy_aimStorage(aflr3Instance);
@@ -581,9 +528,9 @@ int aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
     // Setup meshing input structure
 
     // Get Tessellation parameters -Tess_Params
-    aflr3Instance->meshInput.paramTess[0] = aimInputs[Tess_Params-1].vals.reals[0];
-    aflr3Instance->meshInput.paramTess[1] = aimInputs[Tess_Params-1].vals.reals[1];
-    aflr3Instance->meshInput.paramTess[2] = aimInputs[Tess_Params-1].vals.reals[2];
+    aflr3Instance->meshInput.paramTess[0] = 0;
+    aflr3Instance->meshInput.paramTess[1] = 0;
+    aflr3Instance->meshInput.paramTess[2] = 0;
 
     aflr3Instance->meshInput.quiet = aimInputs[Mesh_Quiet_Flag-1].vals.integer;
     aflr3Instance->meshInput.outputASCIIFlag = aimInputs[Mesh_ASCII_Flag-1].vals.integer;
@@ -606,13 +553,15 @@ int aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
     // Get mesh sizing parameters
     if (aimInputs[Mesh_Sizing-1].nullVal != IsNull) {
 
-        status = deprecate_SizingAttr(aimInputs[Mesh_Sizing-1].length,
+        status = deprecate_SizingAttr(aimInfo,
+                                      aimInputs[Mesh_Sizing-1].length,
                                       aimInputs[Mesh_Sizing-1].vals.tuple,
                                       &aflr3Instance->meshMap,
                                       &aflr3Instance->groupMap);
         AIM_STATUS(aimInfo, status);
 
-        status = mesh_getSizingProp(aimInputs[Mesh_Sizing-1].length,
+        status = mesh_getSizingProp(aimInfo,
+                                    aimInputs[Mesh_Sizing-1].length,
                                     aimInputs[Mesh_Sizing-1].vals.tuple,
                                     &aflr3Instance->meshMap,
                                     &numMeshProp,
@@ -621,7 +570,7 @@ int aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
     }
 
     // Get surface mesh
-    if (aimInputs[Surface_Mesh-1].vals.AIMptr == NULL) {
+    if (aimInputs[Surface_Mesh-1].nullVal == IsNull) {
         AIM_ANALYSISIN_ERROR(aimInfo, Surface_Mesh, "'Surface_Mesh' input must be linked to an output 'Surface_Mesh'");
         status = CAPS_BADVALUE;
         goto cleanup;
@@ -630,7 +579,6 @@ int aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
     // Get mesh
     aflr3Instance->numSurfaceMesh = aimInputs[Surface_Mesh-1].length;
     aflr3Instance->surfaceMesh    = (meshStruct *)aimInputs[Surface_Mesh-1].vals.AIMptr;
-    aflr3Instance->surfaceMeshInherited = (int) true;
 
     if (aflr3Instance->numSurfaceMesh != numBody) {
         AIM_ANALYSISIN_ERROR(aimInfo, Surface_Mesh, "Number of linked surface meshes (%d) does not match the number of bodies (%d)!",
@@ -644,22 +592,22 @@ int aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
 
         // Determine which body is the bounding body based on size
         if (numBody > 1) {
-            for (bodyIndex = 0; bodyIndex < numBody; bodyIndex++) {
+            for (ibody = 0; ibody < numBody; ibody++) {
 
                 // Get bounding box for the body
-                status = EG_getBoundingBox(bodies[bodyIndex], box);
+                status = EG_getBoundingBox(bodies[ibody], box);
                 if (status != EGADS_SUCCESS) {
                     printf(" EG_getBoundingBox = %d\n\n", status);
                     return status;
                 }
 
                 // Just copy the box coordinates on the first go around
-                if (bodyIndex == 0) {
+                if (ibody == 0) {
 
                     memcpy(boxMax, box, sizeof(box));
 
                     // Set body as the bounding box (ie. farfield)
-                    boundingBoxIndex = bodyIndex;
+                    boundingBoxIndex = ibody;
 
                     // Else compare with the "max" box size
                 } else if (boxMax[0] >= box[0] &&
@@ -673,7 +621,7 @@ int aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
                     memcpy(boxMax, box, sizeof(box));
 
                     // Set body as the bounding box (ie. farfield)
-                    boundingBoxIndex = bodyIndex;
+                    boundingBoxIndex = ibody;
                 }
             }
         }
@@ -705,7 +653,7 @@ int aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
     }
 
     // Loop through surface meshes to set boundary layer parameters
-    for (bodyIndex = 0; bodyIndex < aflr3Instance->numSurfaceMesh && createBL == (int) false; bodyIndex++) {
+    for (ibody = 0; ibody < aflr3Instance->numSurfaceMesh && createBL == (int) false; ibody++) {
 
         // Loop through meshing properties and see if boundaryLayerThickness and boundaryLayerSpacing have been specified
         for (propIndex = 0; propIndex < numMeshProp && createBL == (int) false; propIndex++) {
@@ -749,22 +697,22 @@ int aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
     }
 
     // Loop through surface meshes to set boundary layer parameters
-    for (bodyIndex = 0; bodyIndex < aflr3Instance->numSurfaceMesh; bodyIndex++) {
+    for (ibody = 0; ibody < aflr3Instance->numSurfaceMesh; ibody++) {
         // Allocate blThickness and blSpacing
-        AIM_REALL(blThickness, aflr3Instance->surfaceMesh[bodyIndex].numNode+nodeOffSet, double, aimInfo, status);
-        AIM_REALL(blSpacing  , aflr3Instance->surfaceMesh[bodyIndex].numNode+nodeOffSet, double, aimInfo, status);
+        AIM_REALL(blThickness, aflr3Instance->surfaceMesh[ibody].numNode+nodeOffSet, double, aimInfo, status);
+        AIM_REALL(blSpacing  , aflr3Instance->surfaceMesh[ibody].numNode+nodeOffSet, double, aimInfo, status);
 
         // Set default to globals
-        for (i = 0; i < aflr3Instance->surfaceMesh[bodyIndex].numNode; i++) {
+        for (i = 0; i < aflr3Instance->surfaceMesh[ibody].numNode; i++) {
             blThickness[i + nodeOffSet] = globalBLThickness*capsMeshLength;
             blSpacing  [i + nodeOffSet] = globalBLSpacing*capsMeshLength;
         }
 
         // Allocate blFlag
-        AIM_REALL(blFlag, aflr3Instance->surfaceMesh[bodyIndex].numElement+elementOffSet, int, aimInfo, status);
+        AIM_REALL(blFlag, aflr3Instance->surfaceMesh[ibody].numElement+elementOffSet, int, aimInfo, status);
 
         // Set BL flag
-        for (i = 0; i < aflr3Instance->surfaceMesh[bodyIndex].numElement; i++) {
+        for (i = 0; i < aflr3Instance->surfaceMesh[ibody].numElement; i++) {
 
             // Set default value to non-viscous
             blFlag[i + elementOffSet] = 0;
@@ -772,9 +720,9 @@ int aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
             if (globalBLThickness != 0.0 &&
                 globalBLSpacing   != 0.0) {
 
-                if (bodyIndex == boundingBoxIndex) {
+                if (ibody == boundingBoxIndex) {
                     if (i == 0) {
-                        printf("Global boundary layer parameters will not be specified on surface %d as it is the bounding box!\n", bodyIndex+1);
+                        printf("Global boundary layer parameters will not be specified on surface %d as it is the bounding box!\n", ibody+1);
                     }
                     continue;
                 }
@@ -785,7 +733,7 @@ int aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
         }
 
         // Get the body for the surface mesh from the tessellation
-        status = EG_statusTessBody(aflr3Instance->surfaceMesh[bodyIndex].bodyTessMap.egadsTess,
+        status = EG_statusTessBody(aflr3Instance->surfaceMesh[ibody].egadsTess,
                                    &body, &tempInt1, &tempInt2);
         AIM_STATUS(aimInfo, status);
 
@@ -798,11 +746,11 @@ int aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
                     meshProp[propIndex].boundaryLayerSpacing   == 0) continue;
 
             // Loop through Elements and see if marker match
-            for (i = 0; i < aflr3Instance->surfaceMesh[bodyIndex].numElement; i++) {
+            for (i = 0; i < aflr3Instance->surfaceMesh[ibody].numElement; i++) {
 
                 status = get_MeshIndex(&aflr3Instance->meshMap,
                                        body,
-                                       &aflr3Instance->surfaceMesh[bodyIndex].element[i],
+                                       &aflr3Instance->surfaceMesh[ibody].element[i],
                                        &meshIndex);
                 AIM_STATUS(aimInfo, status);
 
@@ -813,113 +761,107 @@ int aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
                 // Set face "bl" flag
                 blFlag[i + elementOffSet] = -1;
 
-                if (aflr3Instance->surfaceMesh[bodyIndex].element[i].elementType != Triangle &&
-                    aflr3Instance->surfaceMesh[bodyIndex].element[i].elementType != Quadrilateral) continue;
+                if (aflr3Instance->surfaceMesh[ibody].element[i].elementType != Triangle &&
+                    aflr3Instance->surfaceMesh[ibody].element[i].elementType != Quadrilateral) continue;
 
                 // Get face indexing for Triangles - 1 bias
-                if (aflr3Instance->surfaceMesh[bodyIndex].element[i].elementType == Triangle) {
-                    pointIndex[0] = aflr3Instance->surfaceMesh[bodyIndex].element[i].connectivity[0] -1;
-                    pointIndex[1] = aflr3Instance->surfaceMesh[bodyIndex].element[i].connectivity[1] -1;
-                    pointIndex[2] = aflr3Instance->surfaceMesh[bodyIndex].element[i].connectivity[2] -1;
-                    pointIndex[3] = aflr3Instance->surfaceMesh[bodyIndex].element[i].connectivity[2] -1; //Repeat last point for simplicity
+                if (aflr3Instance->surfaceMesh[ibody].element[i].elementType == Triangle) {
+                    pointIndex[0] = aflr3Instance->surfaceMesh[ibody].element[i].connectivity[0] -1;
+                    pointIndex[1] = aflr3Instance->surfaceMesh[ibody].element[i].connectivity[1] -1;
+                    pointIndex[2] = aflr3Instance->surfaceMesh[ibody].element[i].connectivity[2] -1;
+                    pointIndex[3] = aflr3Instance->surfaceMesh[ibody].element[i].connectivity[2] -1; //Repeat last point for simplicity
 
                 }
 
-                if (aflr3Instance->surfaceMesh[bodyIndex].element[i].elementType == Quadrilateral) {
-                    pointIndex[0] = aflr3Instance->surfaceMesh[bodyIndex].element[i].connectivity[0] -1;
-                    pointIndex[1] = aflr3Instance->surfaceMesh[bodyIndex].element[i].connectivity[1] -1;
-                    pointIndex[2] = aflr3Instance->surfaceMesh[bodyIndex].element[i].connectivity[2] -1;
-                    pointIndex[3] = aflr3Instance->surfaceMesh[bodyIndex].element[i].connectivity[3] -1;
+                if (aflr3Instance->surfaceMesh[ibody].element[i].elementType == Quadrilateral) {
+                    pointIndex[0] = aflr3Instance->surfaceMesh[ibody].element[i].connectivity[0] -1;
+                    pointIndex[1] = aflr3Instance->surfaceMesh[ibody].element[i].connectivity[1] -1;
+                    pointIndex[2] = aflr3Instance->surfaceMesh[ibody].element[i].connectivity[2] -1;
+                    pointIndex[3] = aflr3Instance->surfaceMesh[ibody].element[i].connectivity[3] -1;
                 }
 
                 // Set boundary layer spacing
                 if (meshProp == NULL) continue;
-                blSpacing[pointIndex[0] + nodeOffSet] =
-                        meshProp[propIndex].boundaryLayerSpacing*capsMeshLength;
-                blSpacing[pointIndex[1] + nodeOffSet] =
-                        meshProp[propIndex].boundaryLayerSpacing*capsMeshLength;
-                blSpacing[pointIndex[2] + nodeOffSet] =
-                        meshProp[propIndex].boundaryLayerSpacing*capsMeshLength;
-                blSpacing[pointIndex[3] + nodeOffSet] =
-                        meshProp[propIndex].boundaryLayerSpacing*capsMeshLength;
+                blSpacing[pointIndex[0] + nodeOffSet] = meshProp[propIndex].boundaryLayerSpacing*capsMeshLength;
+                blSpacing[pointIndex[1] + nodeOffSet] = meshProp[propIndex].boundaryLayerSpacing*capsMeshLength;
+                blSpacing[pointIndex[2] + nodeOffSet] = meshProp[propIndex].boundaryLayerSpacing*capsMeshLength;
+                blSpacing[pointIndex[3] + nodeOffSet] = meshProp[propIndex].boundaryLayerSpacing*capsMeshLength;
 
                 // Set boundary layer thickness
-                blThickness[pointIndex[0] + nodeOffSet] =
-                      meshProp[propIndex].boundaryLayerThickness*capsMeshLength;
-                blThickness[pointIndex[1] + nodeOffSet] =
-                      meshProp[propIndex].boundaryLayerThickness*capsMeshLength;
-                blThickness[pointIndex[2] + nodeOffSet] =
-                      meshProp[propIndex].boundaryLayerThickness*capsMeshLength;
-                blThickness[pointIndex[3] + nodeOffSet] =
-                      meshProp[propIndex].boundaryLayerThickness*capsMeshLength;
-
+                blThickness[pointIndex[0] + nodeOffSet] = meshProp[propIndex].boundaryLayerThickness*capsMeshLength;
+                blThickness[pointIndex[1] + nodeOffSet] = meshProp[propIndex].boundaryLayerThickness*capsMeshLength;
+                blThickness[pointIndex[2] + nodeOffSet] = meshProp[propIndex].boundaryLayerThickness*capsMeshLength;
+                blThickness[pointIndex[3] + nodeOffSet] = meshProp[propIndex].boundaryLayerThickness*capsMeshLength;
             }
         }
 
-        elementOffSet += aflr3Instance->surfaceMesh[bodyIndex].numElement;
-        nodeOffSet    += aflr3Instance->surfaceMesh[bodyIndex].numNode;
+        elementOffSet += aflr3Instance->surfaceMesh[ibody].numElement;
+        nodeOffSet    += aflr3Instance->surfaceMesh[ibody].numNode;
     }
 
     // Create/setup volume meshes
     if (aimInputs[Multiple_Mesh-1].vals.integer == (int) true) {
 
-        AIM_ALLOC(aflr3Instance->volumeMesh, numBody, meshStruct, aimInfo, status);
-        aflr3Instance->numVolumeMesh = numBody;
+        AIM_ALLOC(volumeMesh, numBody, meshStruct, aimInfo, status);
+        numVolumeMesh = numBody;
 
-        for (bodyIndex = 0; bodyIndex < aflr3Instance->numVolumeMesh; bodyIndex++) {
-            status = initiate_meshStruct(&aflr3Instance->volumeMesh[bodyIndex]);
-            AIM_STATUS(aimInfo, status);
-
+        for (ibody = 0; ibody < numVolumeMesh; ibody++) {
             // Set reference mesh - One surface per body
-            AIM_ALLOC(aflr3Instance->volumeMesh[bodyIndex].referenceMesh, 1, meshStruct, aimInfo, status);
-            aflr3Instance->volumeMesh[bodyIndex].numReferenceMesh = 1;
+            AIM_ALLOC(volumeMesh[ibody].referenceMesh, 1, meshStruct, aimInfo, status);
+            volumeMesh[ibody].numReferenceMesh = 1;
 
-            aflr3Instance->volumeMesh[bodyIndex].referenceMesh[0] = aflr3Instance->surfaceMesh[bodyIndex];
+            volumeMesh[ibody].referenceMesh[0] = aflr3Instance->surfaceMesh[ibody];
         }
 
     } else {
 
-        AIM_ALLOC(aflr3Instance->volumeMesh, 1, meshStruct, aimInfo, status);
-        aflr3Instance->numVolumeMesh = 1;
+        AIM_ALLOC(volumeMesh, 1, meshStruct, aimInfo, status);
+        numVolumeMesh = 1;
 
-        status = initiate_meshStruct(&aflr3Instance->volumeMesh[0]);
+        status = initiate_meshStruct(&volumeMesh[0]);
         AIM_STATUS(aimInfo, status);
 
-        // Combine mesh - temporary story the combined mesh in the volume mesh
+        // Combine mesh - temporary store the combined mesh in the volume mesh
         status = mesh_combineMeshStruct(aflr3Instance->numSurfaceMesh,
                                         aflr3Instance->surfaceMesh,
-                                        &aflr3Instance->volumeMesh[0]);
+                                        &volumeMesh[0]);
         AIM_STATUS(aimInfo, status);
 
         // Set reference meshes - All surfaces
-        aflr3Instance->volumeMesh[0].numReferenceMesh = aflr3Instance->numSurfaceMesh;
-        AIM_ALLOC(aflr3Instance->volumeMesh[0].referenceMesh, aflr3Instance->volumeMesh[0].numReferenceMesh, meshStruct, aimInfo, status);
+        volumeMesh[0].numReferenceMesh = aflr3Instance->numSurfaceMesh;
+        AIM_ALLOC(volumeMesh[0].referenceMesh, volumeMesh[0].numReferenceMesh, meshStruct, aimInfo, status);
 
-        for (bodyIndex = 0; bodyIndex < aflr3Instance->numSurfaceMesh; bodyIndex++) {
-            aflr3Instance->volumeMesh[0].referenceMesh[bodyIndex] =
-                                          aflr3Instance->surfaceMesh[bodyIndex];
+        for (ibody = 0; ibody < aflr3Instance->numSurfaceMesh; ibody++) {
+            volumeMesh[0].referenceMesh[ibody] = aflr3Instance->surfaceMesh[ibody];
         }
 
         // Report surface mesh
         printf("Number of surface nodes - %d\n",
-               aflr3Instance->volumeMesh[0].numNode);
+               volumeMesh[0].numNode);
         printf("Number of surface elements - %d\n",
-               aflr3Instance->volumeMesh[0].numElement);
+               volumeMesh[0].numElement);
 
     }
 
     // Run AFLR3
     elementOffSet = 0;
     nodeOffSet    = 0;
-    for (i = 0; i < aflr3Instance->numVolumeMesh; i++) {
+    for (i = 0; i < numVolumeMesh; i++) {
 
-        if (aflr3Instance->numVolumeMesh > 1) {
+        snprintf(bodyNumberFile, 42, "aflr3_%d", i);
+        status = aim_file(aimInfo, bodyNumberFile, aimFile);
+        AIM_STATUS(aimInfo, status);
+
+        if (numVolumeMesh > 1) {
+            AIM_NOTNULL(blFlag, aimInfo, status);
+            AIM_NOTNULL(blSpacing, aimInfo, status);
+            AIM_NOTNULL(blThickness, aimInfo, status);
             printf("Getting volume mesh for body %d (of %d)\n",
-                   i+1, aflr3Instance->numVolumeMesh);
-/*@-nullderef@*/
+                   i+1, numVolumeMesh);
 /*@-nullpass@*/
             status = aflr3_Volume_Mesh(aimInfo, aimInputs,
                                        aflr3Instance->meshInput,
+                                       aimFile,
                                        createBL,
                                        &blFlag[elementOffSet],
                                        &blSpacing[nodeOffSet],
@@ -927,18 +869,17 @@ int aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
                                        capsMeshLength,
                                        numMeshProp,
                                        meshProp,
-                                       &aflr3Instance->volumeMesh[i].referenceMesh[0],
-                                       &aflr3Instance->volumeMesh[i]);
-/*@+nullderef@*/
+                                       &volumeMesh[i].referenceMesh[0],
+                                       &volumeMesh[i]);
 /*@+nullpass@*/
-            elementOffSet += aflr3Instance->volumeMesh[i].referenceMesh[0].numElement;
-            nodeOffSet    += aflr3Instance->volumeMesh[i].referenceMesh[0].numNode;
+            elementOffSet += volumeMesh[i].referenceMesh[0].numElement;
+            nodeOffSet    += volumeMesh[i].referenceMesh[0].numNode;
         } else {
             printf("Getting volume mesh\n");
-/*@-nullderef@*/
 /*@-nullpass@*/
             status = aflr3_Volume_Mesh(aimInfo, aimInputs,
                                        aflr3Instance->meshInput,
+                                       aimFile,
                                        createBL,
                                        blFlag,
                                        blSpacing,
@@ -946,106 +887,153 @@ int aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
                                        capsMeshLength,
                                        numMeshProp,
                                        meshProp,
-                                       &aflr3Instance->volumeMesh[i],
-                                       &aflr3Instance->volumeMesh[i]);
-/*@+nullderef@*/
+                                       &volumeMesh[i],
+                                       &volumeMesh[i]);
 /*@+nullpass@*/
         }
 
-        if (status != CAPS_SUCCESS) {
-            printf("Problem during volume meshing of bodyIndex %d\n", i+1);
-            goto cleanup;
-        }
+        AIM_STATUS(aimInfo, status, "Problem during volume meshing of bodyIndex %d\n", i+1);
 
-        if (aflr3Instance->numVolumeMesh > 1) {
+        if (numVolumeMesh > 1) {
             printf("Volume mesh for body %d (of %d):\n",
-                   i+1, aflr3Instance->numVolumeMesh);
+                   i+1, numVolumeMesh);
         } else {
             printf("Volume mesh:\n");
         }
         printf("\tNumber of nodes = %d\n",
-               aflr3Instance->volumeMesh[i].numNode);
+               volumeMesh[i].numNode);
         printf("\tNumber of elements = %d\n",
-               aflr3Instance->volumeMesh[i].numElement);
+               volumeMesh[i].numElement);
         printf("\tNumber of triangles = %d\n",
-               aflr3Instance->volumeMesh[i].meshQuickRef.numTriangle);
+               volumeMesh[i].meshQuickRef.numTriangle);
         printf("\tNumber of quadrilatarals = %d\n",
-               aflr3Instance->volumeMesh[i].meshQuickRef.numQuadrilateral);
+               volumeMesh[i].meshQuickRef.numQuadrilateral);
         printf("\tNumber of tetrahedrals = %d\n",
-               aflr3Instance->volumeMesh[i].meshQuickRef.numTetrahedral);
+               volumeMesh[i].meshQuickRef.numTetrahedral);
         printf("\tNumber of pyramids= %d\n",
-               aflr3Instance->volumeMesh[i].meshQuickRef.numPyramid);
+               volumeMesh[i].meshQuickRef.numPyramid);
         printf("\tNumber of prisms= %d\n",
-               aflr3Instance->volumeMesh[i].meshQuickRef.numPrism);
+               volumeMesh[i].meshQuickRef.numPrism);
         printf("\tNumber of hexahedrals= %d\n",
-               aflr3Instance->volumeMesh[i].meshQuickRef.numHexahedral);
-
+               volumeMesh[i].meshQuickRef.numHexahedral);
     }
+
+    for (i = 0; i < numVolumeMesh; i++) {
+
+        // Check to make sure the volume mesher didn't add any unaccounted for points/faces
+        numElementCheck = 0;
+        for (j = 0; j < volumeMesh[i].numReferenceMesh; j++) {
+          numElementCheck += volumeMesh[i].referenceMesh[j].numElement;
+        }
+
+        if (volumeMesh[i].meshQuickRef.useStartIndex == (int) false &&
+            volumeMesh[i].meshQuickRef.useListIndex  == (int) false) {
+
+          status = mesh_retrieveNumMeshElements(volumeMesh[i].numElement,
+                                                volumeMesh[i].element,
+                                                Triangle,
+                                                &volumeMesh[i].meshQuickRef.numTriangle);
+          AIM_STATUS(aimInfo, status);
+
+          status = mesh_retrieveNumMeshElements(volumeMesh[i].numElement,
+                                                volumeMesh[i].element,
+                                                Quadrilateral,
+                                                &volumeMesh[i].meshQuickRef.numQuadrilateral);
+          AIM_STATUS(aimInfo, status);
+
+        }
+
+        snprintf(bodyNumberFile, 42, NODATATRANSFER, i);
+        status = aim_rmFile(aimInfo, bodyNumberFile);
+        AIM_STATUS(aimInfo, status);
+
+        if (numElementCheck != volumeMesh[i].meshQuickRef.numTriangle +
+                               volumeMesh[i].meshQuickRef.numQuadrilateral) {
+
+            fp = aim_fopen(aimInfo, bodyNumberFile,"w");
+            if (fp == NULL) {
+                AIM_ERROR(aimInfo, "Failed to open '%s'", bodyNumberFile);
+                status = CAPS_IOERR;
+                goto cleanup;
+            }
+            fprintf(fp, "shucks...");
+            fclose(fp);  fp = NULL;
+
+            printf("Volume mesher added surface elements - data transfer will NOT be possible.\n");
+        }
+    }
+
 
     // If filename is not NULL write the mesh
     if (aflr3Instance->meshInput.outputFileName != NULL) {
 
-        for (bodyIndex = 0; bodyIndex < aflr3Instance->numVolumeMesh; bodyIndex++) {
+        for (ibody = 0; ibody < numVolumeMesh; ibody++) {
 
             if (aimInputs[Multiple_Mesh-1].vals.integer == (int) true) {
-                sprintf(bodyIndexNumber, "%d", bodyIndex);
-                filename = (char *) EG_alloc((strlen(aflr3Instance->meshInput.outputFileName) +
-                                              2+strlen("_Vol")+strlen(bodyIndexNumber))*sizeof(char));
+                sprintf(bodyNumberFile, "%d", ibody);
+                AIM_ALLOC(filename, strlen(aflr3Instance->meshInput.outputFileName) +
+                                    2+strlen("_Vol")+strlen(bodyNumberFile), char, aimInfo, status);
             } else {
-                filename = (char *) EG_alloc((strlen(aflr3Instance->meshInput.outputFileName) +
-                                              2)*sizeof(char));
-            }
-
-            if (filename == NULL) {
-                status = EGADS_MALLOC;
-                goto cleanup;
+                AIM_ALLOC(filename, strlen(aflr3Instance->meshInput.outputFileName) +
+                                           2, char, aimInfo, status);
             }
 
             strcpy(filename, aflr3Instance->meshInput.outputFileName);
 
             if (aimInputs[Multiple_Mesh-1].vals.integer == (int) true) {
                 strcat(filename,"_Vol");
-                strcat(filename,bodyIndexNumber);
+                strcat(filename,bodyNumberFile);
             }
 
             if (strcasecmp(aflr3Instance->meshInput.outputFormat, "AFLR3") == 0) {
 
-                status = mesh_writeAFLR3(filename,
+                status = mesh_writeAFLR3(aimInfo,
+                                         filename,
                                          aflr3Instance->meshInput.outputASCIIFlag,
-                                         &aflr3Instance->volumeMesh[bodyIndex],
+                                         &volumeMesh[ibody],
                                          1.0);
+                AIM_STATUS(aimInfo, status);
 
             } else if (strcasecmp(aflr3Instance->meshInput.outputFormat, "VTK") == 0) {
 
-                status = mesh_writeVTK(filename,
+                status = mesh_writeVTK(aimInfo,
+                                       filename,
                                        aflr3Instance->meshInput.outputASCIIFlag,
-                                       &aflr3Instance->volumeMesh[bodyIndex],
+                                       &volumeMesh[ibody],
                                        1.0);
+                AIM_STATUS(aimInfo, status);
 
             } else if (strcasecmp(aflr3Instance->meshInput.outputFormat, "SU2") == 0) {
 
-                status = mesh_writeSU2(filename,
+                status = mesh_writeSU2(aimInfo,
+                                       filename,
                                        aflr3Instance->meshInput.outputASCIIFlag,
-                                       &aflr3Instance->volumeMesh[bodyIndex],
+                                       &volumeMesh[ibody],
                                        aflr3Instance->meshInput.bndConds.numBND,
                                        aflr3Instance->meshInput.bndConds.bndID,
                                        1.0);
+                AIM_STATUS(aimInfo, status);
 
             } else if (strcasecmp(aflr3Instance->meshInput.outputFormat, "Tecplot") == 0) {
 
-                status = mesh_writeTecplot(filename,
+                status = mesh_writeTecplot(aimInfo,
+                                           filename,
                                            aflr3Instance->meshInput.outputASCIIFlag,
-                                           &aflr3Instance->volumeMesh[bodyIndex],
+                                           &volumeMesh[ibody],
                                            1.0);
+                AIM_STATUS(aimInfo, status);
 
 
             } else if (strcasecmp(aflr3Instance->meshInput.outputFormat, "Nastran") == 0) {
 
-                status = mesh_writeNASTRAN(filename,
+                status = mesh_writeNASTRAN(aimInfo,
+                                           filename,
                                            aflr3Instance->meshInput.outputASCIIFlag,
-                                           &aflr3Instance->volumeMesh[bodyIndex],
+                                           &volumeMesh[ibody],
                                            LargeField,
                                            1.0);
+                AIM_STATUS(aimInfo, status);
+
             } else {
                 printf("Unrecognized mesh format, \"%s\", the volume mesh will not be written out\n",
                        aflr3Instance->meshInput.outputFormat);
@@ -1058,23 +1046,24 @@ int aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
         printf("No project name (\"Proj_Name\") provided - A volume mesh will not be written out\n");
     }
 
-    AIM_STATUS(aimInfo, status);
-
     status = CAPS_SUCCESS;
 
 cleanup:
 
+    // Destroy volumeMesh allocated arrays
+    if (volumeMesh != NULL) {
+        for (i = 0; i < numVolumeMesh; i++) {
+            (void) destroy_meshStruct(&volumeMesh[i]);
+        }
+    }
+    AIM_FREE(volumeMesh);
+
     // Clean up meshProps
     if (meshProp != NULL) {
-
         for (i = 0; i < numMeshProp; i++) {
-
             (void) destroy_meshSizingStruct(&meshProp[i]);
         }
-
-        EG_free(meshProp);
-
-        meshProp = NULL;
+        AIM_FREE(meshProp);
     }
 
     // Free filename
@@ -1099,10 +1088,109 @@ int aimExecute(/*@unused@*/ void *instStore, /*@unused@*/ void *aimStruc,
 
 
 /* no longer optional and needed for restart */
-int aimPostAnalysis(/*@unused@*/ void *instStore, /*@unused@*/ void *aimStruc,
-                    /*@unused@*/ int restart, /*@unused@*/ capsValue *inputs)
+int aimPostAnalysis(void *instStore, void *aimInfo,
+                    /*@unused@*/ int restart, capsValue *aimInputs)
 {
-  return CAPS_SUCCESS;
+    int status = CAPS_SUCCESS;
+
+    // Incoming bodies
+    const char *intents;
+    ego *bodies = NULL;
+    int numBody = 0;
+
+    // Container for volume mesh
+    int numSurfaceMesh=0;
+    meshStruct *surfaceMesh=NULL;
+
+    int i, ibody, nodeOffSet;
+    int noDataTransfer = (int)false;
+
+    char bodyNumberFile[42];
+    char aimFile[PATH_MAX];
+
+    aimStorage *aflr3Instance;
+
+    aflr3Instance = (aimStorage *) instStore;
+
+    AIM_NOTNULL(aimInputs, aimInfo, status);
+
+    // Get AIM bodies
+    status = aim_getBodies(aimInfo, &intents, &numBody, &bodies);
+    AIM_STATUS(aimInfo, status);
+
+    // Get mesh
+    numSurfaceMesh = aimInputs[Surface_Mesh-1].length;
+    surfaceMesh    = (meshStruct *)aimInputs[Surface_Mesh-1].vals.AIMptr;
+    AIM_NOTNULL(surfaceMesh, aimInfo, status);
+
+    // Create/setup volume meshes
+    if (aimInputs[Multiple_Mesh-1].vals.integer == (int) true) {
+
+        AIM_ALLOC(aflr3Instance->meshRef, numBody, aimMeshRef, aimInfo, status);
+        aflr3Instance->numMeshRef = numBody;
+
+        for (ibody = 0; ibody < numBody; ibody++) {
+          status = aim_initMeshRef(aflr3Instance->meshRef);
+          AIM_STATUS(aimInfo, status);
+        }
+
+        for (ibody = 0; ibody < numBody; ibody++) {
+            snprintf(bodyNumberFile, 42, "aflr3_%d", ibody);
+            status = aim_file(aimInfo, bodyNumberFile, aimFile);
+            AIM_STATUS(aimInfo, status);
+            AIM_STRDUP(aflr3Instance->meshRef[ibody].fileName, aimFile, aimInfo, status);
+
+            aflr3Instance->meshRef[ibody].maps[0].tess = surfaceMesh[ibody].egadsTess;
+
+            snprintf(bodyNumberFile, 42, NODATATRANSFER, ibody);
+            if (aim_isFile(aimInfo, bodyNumberFile) == CAPS_SUCCESS) continue;
+
+            aflr3Instance->meshRef[0].nmap = 1;
+            AIM_ALLOC(aflr3Instance->meshRef[ibody].maps[0].map, surfaceMesh[ibody].numNode, int, aimInfo, status);
+            for (i = 0; i < surfaceMesh[ibody].numNode; i++)
+              aflr3Instance->meshRef[ibody].maps[0].map[i] = i+1;
+        }
+
+    } else {
+
+        AIM_ALLOC(aflr3Instance->meshRef, 1, aimMeshRef, aimInfo, status);
+        aflr3Instance->numMeshRef = 1;
+        ibody = 0;
+
+        status = aim_initMeshRef(aflr3Instance->meshRef);
+        AIM_STATUS(aimInfo, status);
+
+        // set the filename without extensions where the grid is written for solvers
+        snprintf(bodyNumberFile, 42, "aflr3_%d", ibody);
+        status = aim_file(aimInfo, bodyNumberFile, aimFile);
+        AIM_STATUS(aimInfo, status);
+        AIM_STRDUP(aflr3Instance->meshRef[0].fileName, aimFile, aimInfo, status);
+
+        snprintf(bodyNumberFile, 42, NODATATRANSFER, ibody);
+        if (aim_isFile(aimInfo, bodyNumberFile) == CAPS_SUCCESS) {
+            noDataTransfer = (int)true;
+        }
+
+        AIM_ALLOC(aflr3Instance->meshRef[0].maps, numSurfaceMesh, aimMeshTessMap, aimInfo, status);
+        aflr3Instance->meshRef[0].nmap = numSurfaceMesh;
+
+        nodeOffSet = 0;
+        for (ibody = 0; ibody < numSurfaceMesh; ibody++) {
+            aflr3Instance->meshRef[0].maps[ibody].tess = surfaceMesh[ibody].egadsTess;
+            aflr3Instance->meshRef[0].maps[ibody].map = NULL;
+
+            if (noDataTransfer == (int)true) continue;
+
+            AIM_ALLOC(aflr3Instance->meshRef[0].maps[ibody].map, surfaceMesh[ibody].numNode, int, aimInfo, status);
+            for (i = 0; i < surfaceMesh[ibody].numNode; i++)
+              aflr3Instance->meshRef[0].maps[ibody].map[i] = nodeOffSet + i+1;
+
+            nodeOffSet += surfaceMesh[ibody].numNode;
+        }
+    }
+
+cleanup:
+    return status;
 }
 
 
@@ -1119,16 +1207,35 @@ int aimOutputs(/*@unused@*/ void *instStore, /*@unused@*/ void *aimStruc,
     printf(" aflr3AIM/aimOutputs index = %d!\n", index);
 #endif
 
-    if (index == Volume_Mesh) {
+    if (index == NumberOfElement) {
+        *aoname = EG_strdup("NumberOfElement");
+        form->type = Integer;
+        form->vals.integer = 0;
+
+        /*! \page aimOutputsAFLR3
+         * - <B> NumberOfElement </B> <br>
+         * Number of elements in the surface mesh
+         */
+
+    } else if (index == NumberOfNode) {
+        *aoname = EG_strdup("NumberOfNode");
+        form->type = Integer;
+        form->vals.integer = 0;
+
+        /*! \page aimOutputsAFLR3
+         * - <B> NumberOfNode </B> <br>
+         * Number of vertices in the surface mesh
+         */
+
+    } else if (index == Volume_Mesh) {
 
         *aoname           = AIM_NAME(Volume_Mesh);
-        form->type        = Pointer;
+        form->type        = PointerMesh;
         form->dim         = Vector;
         form->lfixed      = Change;
-        form->sfixed      = Change;
+        form->sfixed      = Fixed;
         form->vals.AIMptr = NULL;
         form->nullVal     = IsNull;
-        AIM_STRDUP(form->units, "meshStruct", aimStruc, status);
 
         /*! \page aimOutputsAFLR3
          * - <B> Volume_Mesh </B> <br>
@@ -1151,19 +1258,76 @@ cleanup:
 int aimCalcOutput(void *instStore, /*@unused@*/ void *aimInfo,
                   /*@unused@*/ int index, capsValue *val)
 {
-    int        status = CAPS_SUCCESS;
+    int        i, status = CAPS_SUCCESS;
+    int        numElement, numNodes;
+    int        nVertex, nTri, nQuad, nTet, nPyramid, nPrism, nHex;
     aimStorage *aflr3Instance;
+    aimMesh    mesh;
 
 #ifdef DEBUG
     printf(" aflr3AIM/aimCalcOutput index = %d!\n", index);
 #endif
     aflr3Instance = (aimStorage *) instStore;
 
-    if (Volume_Mesh == index) {
+    if (NumberOfElement == index) {
 
-        // Return the volume meshes
-        val->nrow        = aflr3Instance->numVolumeMesh;
-        val->vals.AIMptr = aflr3Instance->volumeMesh;
+        // Count the total number of surface elements
+        numElement = 0;
+        for (i = 0; i < aflr3Instance->numMeshRef; i++) {
+            status = aim_readBinaryUgridHeader(aimInfo, &aflr3Instance->meshRef[i],
+                                               &nVertex, &nTri, &nQuad,
+                                               &nTet, &nPyramid, &nPrism, &nHex);
+            AIM_STATUS(aimInfo, status);
+
+            numElement += nTri + nQuad + nTet + nPyramid + nPrism + nHex;
+        }
+
+        val->vals.integer = numElement;
+
+    } else if (NumberOfNode == index) {
+
+        // Count the total number of surface vertices
+        numNodes = 0;
+        for (i = 0; i < aflr3Instance->numMeshRef; i++) {
+             status = aim_readBinaryUgridHeader(aimInfo, &aflr3Instance->meshRef[i],
+                                                &nVertex, &nTri, &nQuad,
+                                                &nTet, &nPyramid, &nPrism, &nHex);
+             AIM_STATUS(aimInfo, status);
+
+             numNodes += nVertex;
+        }
+
+        val->vals.integer = numNodes;
+
+    } else if (Volume_Mesh == index) {
+
+        for (i = 0; i < aflr3Instance->numMeshRef; i++) {
+            status = aim_queryMeshes( aimInfo, Volume_Mesh, &aflr3Instance->meshRef[i] );
+            if (status > 0) {
+/*@-immediatetrans@*/
+                mesh.meshData = NULL;
+                mesh.meshRef = &aflr3Instance->meshRef[i];
+/*@+immediatetrans@*/
+
+                status = aim_readBinaryUgrid(aimInfo, &mesh);
+                AIM_STATUS(aimInfo, status);
+
+                status = aim_writeMeshes(aimInfo, Volume_Mesh, &mesh);
+                AIM_STATUS(aimInfo, status);
+
+                status = aim_freeMeshData(mesh.meshData);
+                AIM_STATUS(aimInfo, status);
+                AIM_FREE(mesh.meshData);
+            }
+            else
+              AIM_STATUS(aimInfo, status);
+        }
+
+/*@-immediatetrans@*/
+        // Return the volume mesh references
+        val->nrow        = aflr3Instance->numMeshRef;
+        val->vals.AIMptr = aflr3Instance->meshRef;
+/*@+immediatetrans@*/
 
     } else {
 

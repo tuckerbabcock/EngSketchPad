@@ -155,7 +155,7 @@ int hsm_Adjacency(meshStruct *feaMesh,
 
 //#define WRITE_MATRIX_MARKET
 #ifdef WRITE_MATRIX_MARKET
-    FILE *file = fopen("A.mtx", "w");
+    FILE *file = aim_fopen(aimInfo, "A.mtx", "w");
 
     //Write the banner
     fprintf(file, "%%%%MatrixMarket matrix coordinate real general\n");

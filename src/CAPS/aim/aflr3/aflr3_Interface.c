@@ -341,8 +341,10 @@ cleanup:
 }
 
 
-int aflr3_Volume_Mesh (/*@unused@*/ void *aimInfo, capsValue *aimInputs,
+int aflr3_Volume_Mesh (void *aimInfo,
+                       capsValue *aimInputs,
                        meshInputStruct meshInput,
+                       const char *fileName,
                        int createBL,
                        int blFlag[],
                        double blSpacing[],
@@ -362,6 +364,7 @@ int aflr3_Volume_Mesh (/*@unused@*/ void *aimInfo, capsValue *aimInputs,
     char **prog_argv = NULL; // String arrays
     char *meshInputString = NULL;
     char *rest = NULL, *token = NULL;
+    char aimFile[PATH_MAX];
 
     INT_ bcType;
     INT_ nbl, nbldiff;
@@ -495,7 +498,7 @@ int aflr3_Volume_Mesh (/*@unused@*/ void *aimInfo, capsValue *aimInputs,
 
     // Set and register program parameter functions.
 
-    ug_set_prog_param_n_dim (3);
+    ug_set_prog_param_code (3);
 
     ug_set_prog_param_function1 (ug_initialize_aflr_param);
     ug_set_prog_param_function1 (ug_gq_initialize_param); // optional
@@ -507,8 +510,7 @@ int aflr3_Volume_Mesh (/*@unused@*/ void *aimInfo, capsValue *aimInputs,
     // Register routines for BL mode
 
 #ifdef _ENABLE_BL_
-    aflr3_register_anbl3(anbl3_grid_generator, anbl3_initialize_param,
-                         anbl3_reset_ibcibf);
+    aflr3_register_anbl3(anbl3_grid_generator, anbl3_initialize_param);
 #endif
 
     // Register external routines for evaluation of the distribution function,
@@ -599,7 +601,7 @@ int aflr3_Volume_Mesh (/*@unused@*/ void *aimInfo, capsValue *aimInputs,
     //for (i = 0; i <prog_argc ; i++) printf("Arg %d = %s\n", i, prog_argv[i]);
 
     // Set meshInputs
-    if (meshInput.quiet ==1 ) Message_Flag = 0;
+    if (meshInput.quiet == 1) Message_Flag = 0;
     else Message_Flag = 1;
 
     // check that all the inputs
@@ -974,16 +976,31 @@ int aflr3_Volume_Mesh (/*@unused@*/ void *aimInfo, capsValue *aimInputs,
                 (Surf_Grid_BC_Flag != NULL)) {
 
                 bcType = (createBL == (int)true) ? -STD_UG3_GBC : STD_UG3_GBC;
-                if      (strncasecmp(meshProp[propIndex].bcType, "Farfield"  ,  8) == 0)
+                if      (strncasecmp(meshProp[propIndex].bcType, "Farfield"             ,  8) == 0 ||
+                         strncasecmp(meshProp[propIndex].bcType, "Freestream"           , 10) == 0 ||
+                         strncasecmp(meshProp[propIndex].bcType, "FARFIELD_UG3_GBC"     , 16) == 0)
                     bcType = FARFIELD_UG3_GBC;
-                else if (strncasecmp(meshProp[propIndex].bcType, "Freestream", 10) == 0)
-                    bcType = FARFIELD_UG3_GBC;
-                else if (strncasecmp(meshProp[propIndex].bcType, "Viscous"   ,  7) == 0)
+                else if (strncasecmp(meshProp[propIndex].bcType, "Viscous"              ,  7) == 0 ||
+                         strncasecmp(meshProp[propIndex].bcType, "-STD_UG3_GBC"         , 12) == 0)
                     bcType = -STD_UG3_GBC;
-                else if (strncasecmp(meshProp[propIndex].bcType, "Inviscid"  ,  8) == 0)
+                else if (strncasecmp(meshProp[propIndex].bcType, "Inviscid"             ,  8) == 0 ||
+                         strncasecmp(meshProp[propIndex].bcType, "STD_UG3_GBC"          , 11) == 0)
                     bcType = STD_UG3_GBC;
-                else if (strncasecmp(meshProp[propIndex].bcType, "Symmetry"  ,  8) == 0)
+                else if (strncasecmp(meshProp[propIndex].bcType, "Symmetry"             ,  8) == 0 ||
+                         strncasecmp(meshProp[propIndex].bcType, "BL_INT_UG3_GBC"       , 14) == 0)
                     bcType = BL_INT_UG3_GBC;
+                else if (strncasecmp(meshProp[propIndex].bcType, "TRANSP_SRC_UG3_GBC"   , 18) == 0)
+                    bcType = TRANSP_SRC_UG3_GBC;
+                else if (strncasecmp(meshProp[propIndex].bcType, "TRANSP_BL_INT_UG3_GBC", 21) == 0)
+                    bcType = TRANSP_BL_INT_UG3_GBC;
+                else if (strncasecmp(meshProp[propIndex].bcType, "TRANSP_UG3_GBC"       , 14) == 0)
+                    bcType = TRANSP_UG3_GBC;
+                else if (strncasecmp(meshProp[propIndex].bcType, "-TRANSP_UG3_GBC"      , 15) == 0)
+                    bcType = -TRANSP_UG3_GBC;
+                else if (strncasecmp(meshProp[propIndex].bcType, "TRANSP_INTRNL_UG3_GBC", 20) == 0)
+                    bcType = TRANSP_INTRNL_UG3_GBC;
+                else if (strncasecmp(meshProp[propIndex].bcType, "FIXED_BL_INT_UG3_GBC" , 19) == 0)
+                    bcType = FIXED_BL_INT_UG3_GBC;
 
                 // Set face BC flag
                 Surf_Grid_BC_Flag[i+1] = bcType;
@@ -992,7 +1009,7 @@ int aflr3_Volume_Mesh (/*@unused@*/ void *aimInfo, capsValue *aimInputs,
             if ((surfaceMesh->element[i].elementType != Triangle &&
                  surfaceMesh->element[i].elementType != Quadrilateral) ||
                 createBL == (int)false) continue;
-          
+
             // Get face indexing for Triangles - 1 bias
             if (surfaceMesh->element[i].elementType == Triangle) {
                 pointIndex[0] = surfaceMesh->element[i].connectivity[0];
@@ -1031,7 +1048,7 @@ int aflr3_Volume_Mesh (/*@unused@*/ void *aimInfo, capsValue *aimInputs,
                 BL_Thickness[pointIndex[3]] =
                       meshProp[propIndex].boundaryLayerThickness*capsMeshLength;
             }
-       
+
             // Set face BC flag if not already set
             if (Surf_Grid_BC_Flag != NULL)
                 if (Surf_Grid_BC_Flag[i+1] == 0 &&
@@ -1357,7 +1374,9 @@ int aflr3_Volume_Mesh (/*@unused@*/ void *aimInfo, capsValue *aimInputs,
                                             Surf_ID_Flag,
                                             Surf_Tria_Connectivity,
                                             Coordinates);
-            fp = fopen("aflr3_surf_debug.tec", "w");
+            strcpy(aimFile, "aflr3_surf_debug.tec");
+
+            fp = fopen(aimFile, "w");
             if (fp == NULL) goto cleanup;
             fprintf(fp, "VARIABLES = X, Y, Z, BC, ID\n");
 
@@ -1395,8 +1414,10 @@ int aflr3_Volume_Mesh (/*@unused@*/ void *aimInfo, capsValue *aimInputs,
                     fprintf(fp, "%d %d %d\n", Surf_Tria_Connectivity[i+1][0],
                                               Surf_Tria_Connectivity[i+1][1],
                                               Surf_Tria_Connectivity[i+1][2]);
-
+/*@-dependenttrans@*/
             fclose(fp);
+/*@+dependenttrans@*/
+            AIM_ERROR(aimInfo, "AFLR3 Grid generation error. The input surfaces mesh has been written to: %s", aimFile);
             goto cleanup;
         }
 
@@ -1482,8 +1503,36 @@ int aflr3_Volume_Mesh (/*@unused@*/ void *aimInfo, capsValue *aimInputs,
         ug_set_int (1, Number_of_Vol_Elems, -123456, Vol_ID_Flag);
     }*/
 
-    // Transfer grid to volumeMesh
+    // Write the mesh to disk
     if (status == 0) {
+
+        snprintf(aimFile, PATH_MAX, "%s.lb8.ugrid", fileName);
+
+        status = ug_io_write_grid_file(aimFile,
+                                       Message_Flag,
+                                       Number_of_BL_Vol_Tets,
+                                       Number_of_Nodes,
+                                       Number_of_Surf_Quads,
+                                       Number_of_Surf_Trias,
+                                       Number_of_Vol_Hexs,
+                                       Number_of_Vol_Pents_5,
+                                       Number_of_Vol_Pents_6,
+                                       Number_of_Vol_Tets,
+                                       Surf_Grid_BC_Flag,
+                                       Surf_ID_Flag,
+                                       Surf_Reconnection_Flag,
+                                       Surf_Quad_Connectivity,
+                                       Surf_Tria_Connectivity,
+                                       Vol_Hex_Connectivity,
+                                       Vol_ID_Flag,
+                                       Vol_Pent_5_Connectivity,
+                                       Vol_Pent_6_Connectivity,
+                                       Vol_Tet_Connectivity,
+                                       Coordinates,
+                                       Initial_Normal_Spacing,
+                                       BL_Thickness);
+        AIM_STATUS(aimInfo, status);
+
         status = aflr3_to_MeshStruct(Number_of_Nodes,
                                      Number_of_Surf_Trias,
                                      Number_of_Surf_Quads,
@@ -1520,8 +1569,10 @@ int aflr3_Volume_Mesh (/*@unused@*/ void *aimInfo, capsValue *aimInputs,
                           Vol_Pent_5_Connectivity, Vol_Pent_6_Connectivity,
                           Vol_Tet_Connectivity, Coordinates);*/
 
-    status = CAPS_SUCCESS;
+    // Remove the temporary grid created by AFLR
+    remove(".tmp.b8.ugrid");
 
+    status = CAPS_SUCCESS;
 cleanup:
 
     if (status != CAPS_SUCCESS)
