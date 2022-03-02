@@ -3,7 +3,7 @@
 # pyEGADS --- Python version of EGADS API                                 #
 #                                                                         #
 #                                                                         #
-#      Copyright 2011-2021, Massachusetts Institute of Technology         #
+#      Copyright 2011-2022, Massachusetts Institute of Technology         #
 #      Licensed under The GNU Lesser General Public License, version 2.1  #
 #      See http://www.opensource.org/licenses/lgpl-2.1.php                #
 #                                                                         #
@@ -32,7 +32,10 @@ if sys.platform.startswith('darwin'):
 elif sys.platform.startswith('linux'):
     _egads = ctypes.CDLL(_ESP_ROOT + "/lib/libegads.so")
 elif sys.platform.startswith('win32'):
-    _egads = ctypes.CDLL(_ESP_ROOT + "/lib/egads.dll")
+    if version_info.major == 3 and version_info.minor < 8:
+        _egads = ctypes.CDLL(_ESP_ROOT + "\\lib\\egads.dll")
+    else:
+        _egads = ctypes.CDLL(_ESP_ROOT + "\\lib\\egads.dll", winmode=0)
 else:
     raise IOError("Unknown platform: " + sys.platform)
 
@@ -897,10 +900,18 @@ class Context:
             self._finalize = finalize(self, _close_context, self._context)
 
 #=============================================================================-
-    def py_to_c(self):
+    def py_to_c(self, takeOwnership=False):
         """
         Returns the c_ego pointer
+        
+        Parameters
+        ----------
+        takeOwnership:
+            if True, pyEGADS will no longer close the returned c_ego Context during garbage collection
         """
+        if takeOwnership:
+            self._finalize.detach()
+            self._finalize = None
         return self._context
 
 #=============================================================================-
@@ -1152,8 +1163,10 @@ class Context:
             (PCURVES follow)
 
         senses:
-            a list of integer senses for the children (required for FACES
-            & LOOPs only)
+            a list of integer senses for the children (required for FACEs
+            & LOOPs only). For LOOPs, the senses are SFORWARD or SREVERSE
+            for each EDGE. For FACEs, the senses are SOUTER or SINNER for
+            (may be None for 1 child).
 
         Returns
         -------
@@ -1222,7 +1235,7 @@ class Context:
 
         nsenses = 0
         psenses = None
-        if oclass == LOOP:
+        if oclass == LOOP or (oclass == FACE and nchildren > 1):
             nsenses = len(senses)
             psenses = (c_int * nsenses)()
             for i in range(nsenses):
@@ -1469,10 +1482,18 @@ class ego:
             raise EGADSError("obj must be a c_ego instance")
 
 #=============================================================================-
-    def py_to_c(self):
+    def py_to_c(self, takeOwnership=False):
         """
         Returns the c_ego pointer
+        
+        Parameters
+        ----------
+        takeOwnership:
+            if True, pyEGADS will no longer delete the returned c_ego during garbage collection
         """
+        if takeOwnership:
+            self._finalize.detach()
+            self._finalize = None
         return self._obj
 
 #=============================================================================-
@@ -1497,7 +1518,9 @@ class ego:
 #=============================================================================-
     def __del__(self):
         #if hasattr(self, "name"):
-        #    print("delete", self.name, self._reference, self.context)
+        #    print("delete", self.name, self._finalize, self._refs, self.context)
+        #else:
+        #    print("delete no name", self._finalize, self._refs, self.context)
         if self._finalize is not None:
             self._finalize()
 
@@ -2449,9 +2472,6 @@ class ego:
 
         Returns
         -------
-        geo:
-            The reference geometry object (if none this is returned as None)
-
         oclass:
             is NODE, EGDE, LOOP, FACE, SHELL, BODY or MODEL
 
@@ -2461,6 +2481,9 @@ class ego:
             for FACE is either SFORWARD or SREVERSE
             for SHELL is OPEN or CLOSED
             BODY is either WIREBODY, FACEBODY, SHEETBODY or SOLIDBODY
+
+        geom:
+            The reference geometry object (if none this is returned as None)
 
         reals:
             will retrieve at most 4 doubles:
@@ -2510,7 +2533,7 @@ class ego:
 
         geom = ego(c_ego(geo.contents), self.context) if geo else None
 
-        return geom, oclass, mtype, reals, children, senses
+        return oclass, mtype, geom, reals, children, senses
 
 #=============================================================================-
     def getBodyTopos(self, oclass, ref=None):

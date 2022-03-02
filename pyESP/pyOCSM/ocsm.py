@@ -6,7 +6,7 @@
 #                                                                 #
 ###################################################################
 
-# Copyright (C) 2021  John F. Dannenhoffer, III (Syracuse University)
+# Copyright (C) 2022  John F. Dannenhoffer, III (Syracuse University)
 #
 # This library is free software; you can redistribute it and/or
 #    modify it under the terms of the GNU Lesser General Public
@@ -42,11 +42,14 @@ if sys.platform.startswith('darwin'):
 elif sys.platform.startswith('linux'):
     _ocsm = ctypes.CDLL(_ESP_ROOT + "/lib/libocsm.so")
 elif sys.platform.startswith('win32'):
-    _ocsm = ctypes.CDLL(_ESP_ROOT + "/lib/ocsm.dll")
+    if sys.version_info.major == 3 and sys.version_info.minor < 8:
+        _ocsm = ctypes.CDLL(_ESP_ROOT + "\\lib\\ocsm.dll")
+    else:
+        _ocsm = ctypes.CDLL(_ESP_ROOT + "\\lib\\ocsm.dll", winmode=0)
 else:
     raise IOError("Unknown platform: " + sys.platform)
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
 def Version():
     """
@@ -70,11 +73,11 @@ def Version():
 
     return (imajor.value, iminor.value)
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
 def SetOutLevel(ilevel):
     """
-    pyOCSM.SetOutLevel - set output level
+    ocsm.SetOutLevel - set output level
 
     inputs:
         ilevel      0  errors only
@@ -91,11 +94,11 @@ def SetOutLevel(ilevel):
 
     return
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
 def PrintEgo(theEgo):
     """
-    pyOCSM.PrintEgo - print the contents of an EGADS ego
+    ocsm.PrintEgo - print the contents of an EGADS ego
 
     inputs:
         theEgo      the EGADS ego
@@ -108,11 +111,11 @@ def PrintEgo(theEgo):
 
     return
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
 def _ocsmFree(modl=None):
     """
-    pyOCSM._ocsmFree - free a MODL (private method)
+    ocsm._ocsmFree - free a MODL (private method)
 
     inputs:
         (None)
@@ -127,9 +130,9 @@ def _ocsmFree(modl=None):
 
     return
 
-#-----------------------------------------------------------------------
-# pyOCSM constants
-#-----------------------------------------------------------------------
+# ======================================================================
+# ocsm constants
+# ======================================================================
 
 # Branch activities
 ACTIVE       = 300
@@ -157,9 +160,9 @@ EDGE         = 601
 FACE         = 602
 BODY         = 603
 
-#-----------------------------------------------------------------------
+# ======================================================================
 # Ocsm class
-#-----------------------------------------------------------------------
+# ======================================================================
 
 class Ocsm(object):
     """
@@ -168,12 +171,12 @@ class Ocsm(object):
     written by John Dannenhoffer (author of OpenCSM)
     """
 
-    def __init__(self, filename):
+    def __init__(self, init):
         """
-        pyOCSM.Load - create a MODL by reading a .csm file
+        ocsm.Load - create a MODL by reading a .csm file
 
         inputs:
-            filename    file to be read (with .csm)
+            init        file to be read (with .csm) or pointer to MODL
         output:
             (None)
         """
@@ -181,28 +184,59 @@ class Ocsm(object):
                                    ctypes.POINTER(ctypes.c_void_p)]
         _ocsm.ocsmLoad.restype  =  ctypes.c_int
 
-        if (isinstance(filename, str)):
-            filename = filename.encode()
+        _ocsm.ocsmLoadFromModel.argtypes = [ctypes.c_void_p,
+                                            ctypes.POINTER(ctypes.c_void_p)]
+        _ocsm.ocsmLoadFromModel.restype  =  ctypes.c_int
 
-        self._modl    = ctypes.c_void_p()
-        self._mesgCB  = None
-        self._sizeCB  = None
-        self._context = None
-        status        = _ocsm.ocsmLoad(filename, self._modl)
-        _processStatus(status, "Load")
+        if (isinstance(init, str)):
+            filename = init.encode()
 
-        # create finalizaer to ensure _ocsmFree is called during garbage collection
-        self._finalize = egads.finalize(self, _ocsmFree, self._modl)
+            self._modl    = ctypes.c_void_p()
+            self._mesgCB  = None
+            self._sizeCB  = None
+            self._context = None
+            status        = _ocsm.ocsmLoad(filename, self._modl)
+            _processStatus(status, "Load")
+
+            # create finalizer to ensure _ocsmFree is called during garbage collection
+            self._pyowned  = True
+            self._finalize = egads.finalize(self, _ocsmFree, self._modl)
+
+        elif (isinstance(init, egads.ego)):
+            emodel = init.py_to_c()
+
+            self._modl    = ctypes.cast(emodel, ctypes.c_void_p)
+            self._mesgCB  = None
+            self._sizeCB  = None
+            self._context = None
+            status        = _ocsm.ocsmLoadFromModel(emodel, self._modl)
+            _processStatus(status, "LoadFromModel")
+
+            # create finalizer to ensure _ocsmFree is called during garbage collection
+            self._pyowned  = True
+            self._finalize = egads.finalize(self, _ocsmFree, self._modl)
+
+        else:
+            self._modl    = ctypes.c_void_p()
+            self._mesgCB  = None
+            self._sizeCB  = None
+            self._context = None
+
+            self._modl = init
+
+            # we do not want to call _ocsmFree since we do not own the MODL
+            self._pyowned  = False
+            self._finalize = None
 
         return
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def __del__(self):
         """
-        pyOCSM.__del__ - free up the MODL
+        ocsm.__del__ - free up the MODL
 
-        Note: good programming practice would be to call pyOCSM.Free()
+        Note: good programming practice would be to call ocsm.Free()
               yourself rather than waiting for Python to do the
               garbage collection for you!!!
         """
@@ -213,35 +247,35 @@ class Ocsm(object):
 
         return
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def __copy__(self):
         """
-        pyOCSM.__copy__ - do not use this.  Use pyOCSM.Copy to make a partial copy
+        ocsm.__copy__ - do not use this.  Use ocsm.Copy to make a partial copy
         """
-        raise OcsmError("Do not use this.  Use pyOCSM.Copy to make a partial copy to inputs only", "__copy__")
+        raise OcsmError("Do not use this.  Use ocsm.Copy to make a partial copy to inputs only", "__copy__")
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def __deepcopy__(self):
         """
-        pyOCSM.__deepcopy__ - do not use this.  Use pyOCSM.Copy to make a partial copy
+        ocsm.__deepcopy__ - do not use this.  Use ocsm.Copy to make a partial copy
         """
-        raise OcsmError("Do not use this.  Use pyOCSM.Copy to make a partial copy to inputs only", "__deepcopy__")
+        raise OcsmError("Do not use this.  Use ocsm.Copy to make a partial copy to inputs only", "__deepcopy__")
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def Load(self, filename):
         """
-        pyOCSM.Load - create a MODL by using __init__ method
+        ocsm.Load - create a MODL by using __init__ method
         """
         raise OcsmError("Use __init__ method instead", "Load")
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def LoadDict(self, dictname):
         """
-        pyOCSM.LoadDist - load dictionary from dictname
+        ocsm.LoadDist - load dictionary from dictname
 
         inputs:
             dictname    file that contains dictionary
@@ -260,11 +294,11 @@ class Ocsm(object):
 
         return
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def UpdateDespmtrs(self, filename):
         """
-        pyOCSM.UpdateDespmtrs - update CFGPMTRs and DESPMTRs from filename
+        ocsm.UpdateDespmtrs - update CFGPMTRs and DESPMTRs from filename
 
         inputs:
             filename    file that contains DESPMTRs
@@ -283,11 +317,11 @@ class Ocsm(object):
 
         return
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def GetFilelist(self):
         """
-        pyOCSM.GetFilelist - get a list of all .csm, .cpc, and .udc files
+        ocsm.GetFilelist - get a list of all .csm, .cpc, and .udc files
 
         inputs:
             filelist    bar-separated list of files
@@ -308,11 +342,11 @@ class Ocsm(object):
 
         return filelist
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def Save(self, filename):
         """
-        pyOCSM.Save - save a MODL to a file
+        ocsm.Save - save a MODL to a file
 
         inputs:
             filename    file to be written (with extension)
@@ -331,11 +365,11 @@ class Ocsm(object):
 
         return
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def SaveDespmtrs(self, filename):
         """
-        pyOCSM.SaveDespmtrs - save CFGPMTRs and DESPMTRs to file
+        ocsm.SaveDespmtrs - save CFGPMTRs and DESPMTRs to file
 
         inputs:
             filename    file to be written
@@ -354,11 +388,11 @@ class Ocsm(object):
 
         return
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def Copy(self):
         """
-        pyOCSM.Copy - copy a MODL (but not the Bodys)
+        ocsm.Copy - copy a MODL (but not the Bodys)
 
         inputs:
             (None)
@@ -381,17 +415,19 @@ class Ocsm(object):
         newModl._mesgCB  = self._mesgCB
         newModl._sizeCB  = self._sizeCB
         newModl._context = self._context
+        newModl._pyowned = True
 
         # create a new finalizer for the new Ocsm instance
-        newModl._finalize = egads.finalize(newModl, _ocsmFree, newModl._modl)
+        if (self._finalize is not None):
+            newModl._finalize = egads.finalize(newModl, _ocsmFree, newModl._modl)
 
         return newModl
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def Free(self):
         """
-        pyOCSM.Free - free up all strorage associated with a MODL
+        ocsm.Free - free up all strorage associated with a MODL
 
         inputs:
             (None)
@@ -406,14 +442,15 @@ class Ocsm(object):
         self._finalize = None
         self._modl     = None
         self._context  = None
+        self._pyowned  = False
 
         return
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def Info(self):
         """
-        pyOCSM.Info - get info about a MODL
+        ocsm.Info - get info about a MODL
 
         inputs:
             (None)
@@ -436,11 +473,11 @@ class Ocsm(object):
 
         return (nbrch.value, npmtr.value, nbody.value)
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def Check(self):
         """
-        pyOCSM.Check - check that Branches are properly ordered
+        ocsm.Check - check that Branches are properly ordered
 
         inputs:
             (None)
@@ -455,11 +492,11 @@ class Ocsm(object):
 
         return
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def RegMesgCB(self, callback):
         """
-        pyOCSM.RegMesgCB - register a callback function for exporting messages
+        ocsm.RegMesgCB - register a callback function for exporting messages
 
         inputs:
             callback    callback function (modl, text)
@@ -478,11 +515,11 @@ class Ocsm(object):
 
         return
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def RegSizeCB(self, callback):
         """
-        pyOCSM.RegSizeCB - register a callback function for DESPMTR size changes
+        ocsm.RegSizeCB - register a callback function for DESPMTR size changes
 
         inputs:
             callback    callback function (modl, ipmtr, nrow, ncol)
@@ -501,11 +538,11 @@ class Ocsm(object):
 
         return
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def Build(self, buildTo, nbody):
         """
-        pyOCSM.Build - build Bodys by executing the MODL up to a given Branch
+        ocsm.Build - build Bodys by executing the MODL up to a given Branch
 
         inputs:
             buildTo     last Branch to execute (or 0 for all, or -1 for no recycling)
@@ -533,7 +570,7 @@ class Ocsm(object):
         status = _ocsm.ocsmBuild(self._modl, buildTo, builtTo, nbody_, body)
         _processStatus(status, "Build")
 
-        if (self._context is None):
+        if (self._context is None and self._pyowned == True):
 
             # create an egads.Context that owns the ego and which will be properly
             #    closed when the self._context is garbage collected
@@ -543,7 +580,7 @@ class Ocsm(object):
             if (self._finalize is not None):
                 self._finalize.detach()
 
-            self._finalize = egads.finalize(self, _ocsmFree, self._modl)
+                self._finalize = egads.finalize(self, _ocsmFree, self._modl)
 
         # if Bodys are returned, convert into a list
         if (body is not None):
@@ -551,11 +588,11 @@ class Ocsm(object):
 
         return (builtTo.value, nbody_.value, body)
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def Perturb(self, npmtrs, ipmtrs, irows, icols, values):
         """
-        pyOCSM.Perturb - create a perturbed MODL
+        ocsm.Perturb - create a perturbed MODL
 
         inputs:
             npmtrs   number of perturbed Parameters (or 0 to remove)
@@ -588,11 +625,11 @@ class Ocsm(object):
 
         return
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def UpdateTess(self, ibody, filename):
         """
-        pyOCSM.UpdateTess - update a tessellation from a file
+        ocsm.UpdateTess - update a tessellation from a file
 
         inputs:
             filename    name of .tess file
@@ -612,11 +649,11 @@ class Ocsm(object):
 
         return
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def NewBrch(self, iafter, type, filename, linenum, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9):
         """
-        pyOCSM.NewBrch - create a new Branch
+        ocsm.NewBrch - create a new Branch
 
         inputs:
             iafter      Branch index (0-nbrch) after which to add
@@ -677,11 +714,11 @@ class Ocsm(object):
 
         return
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def GetBrch(self, ibrch):
         """
-        pyOCSM.GetBrch - get info about a Branch
+        ocsm.GetBrch - get info about a Branch
 
         inputs:
             ibrch       Branch index (1:nbrch)
@@ -721,11 +758,11 @@ class Ocsm(object):
 
         return (type.value, bclass.value, actv.value, ichld.value, ileft.value, irite.value, narg.value, nattr.value)
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def SetBrch(self, ibrch, actv):
         """
-        pyOCSM.SetBrch - set activity for a Branch
+        ocsm.SetBrch - set activity for a Branch
 
         inputs:
             ibrch       Branch index (1:nbrch)
@@ -743,11 +780,11 @@ class Ocsm(object):
 
         return
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def DelBrch(self,ibrch):
         """
-        pyOCSM.DelBrch - delete a Branch (or whole Sketch if SKBEG)
+        ocsm.DelBrch - delete a Branch (or whole Sketch if SKBEG)
 
         inputs:
             ibrch       Branch index (1:nbrch)
@@ -763,11 +800,11 @@ class Ocsm(object):
 
         return
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def PrintBrchs(self, filename):
         """
-        pyOCSM.PrintBrchs - print Branches to a file
+        ocsm.PrintBrchs - print Branches to a file
 
         inputs:
             filename    file to which output is appended (or "" for stdout)
@@ -786,11 +823,11 @@ class Ocsm(object):
 
         return
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def GetArg(self, ibrch, iarg):
         """
-        pyOCSM.GetArg - get an Argument for a Branch
+        ocsm.GetArg - get an Argument for a Branch
 
         inputs:
             ibrch       Branch   index (1:nbrch)
@@ -817,11 +854,11 @@ class Ocsm(object):
 
         return (defn.value.decode("utf-8"), value.value, dot.value)
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def SetArg(self, ibrch, iarg, defn):
         """
-        pyOCSM.SetArg - set an Argument for a Branch
+        ocsm.SetArg - set an Argument for a Branch
 
         inputs:
             ibrch       Branch   index (1:nbrch)
@@ -844,11 +881,11 @@ class Ocsm(object):
 
         return
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def RetAttr(self, ibrch, iattr):
         """
-        pyOCSM.RetAttr - return an Attribute for a Branch by index
+        ocsm.RetAttr - return an Attribute for a Branch by index
 
         inputs:
             ibrch       Branch    index (1:nbrch)
@@ -872,11 +909,11 @@ class Ocsm(object):
 
         return (aname.value.decode("utf-8"), avalue.value.decode("utf-8"))
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def GetAttr(self, ibrch, aname):
         """
-        pyOCSM.RetAttr - return an Attribute for a Branch by name
+        ocsm.RetAttr - return an Attribute for a Branch by name
 
         inputs:
             ibrch       Branch    index (1:nbrch)
@@ -900,11 +937,11 @@ class Ocsm(object):
 
         return avalue.value.decode("utf-8")
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def SetAttr(self, ibrch, aname, avalue):
         """
-        pyOCSM.SetAttr - set an Attribute for a Branch
+        ocsm.SetAttr - set an Attribute for a Branch
 
         inputs:
             ibrch       Branch index (1:nbrch) or 0 for global
@@ -929,11 +966,11 @@ class Ocsm(object):
 
         return
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def RetCsys(self, ibrch, icsys):
         """
-        pyOCSM.RetCsys - return a Csystem for a Branch by index
+        ocsm.RetCsys - return a Csystem for a Branch by index
 
         inputs:
             ibrch       Branch  index (1:nbrch)
@@ -957,11 +994,11 @@ class Ocsm(object):
 
         return (cname.value.decode("utf-8"), cvalue.value.decode("utf-8"))
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def GetCsys(self, ibrch, cname):
         """
-        pyOCSM.GetCsys - return a Csystem for a Branch by name
+        ocsm.GetCsys - return a Csystem for a Branch by name
 
         inputs:
             ibrch       Branch index  (1:nbrch)
@@ -985,11 +1022,11 @@ class Ocsm(object):
 
         return cvalue.value.decode("utf-8")
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def SetCsys(self, ibrch, cname, cvalue):
         """
-        pyOCSM.SetCsys - set a Csystem for a Branch
+        ocsm.SetCsys - set a Csystem for a Branch
 
         inputs:
             ibrch       Branch index (1:nbrch)
@@ -1014,11 +1051,11 @@ class Ocsm(object):
 
         return
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def PrintAttrs(self, filename):
         """
-        pyOCSM.PrintAttrs - print global Attributes to file
+        ocsm.PrintAttrs - print global Attributes to file
 
         inputs:
             filename    file to which output is appended (or "" for stdout)
@@ -1037,11 +1074,11 @@ class Ocsm(object):
 
         return
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def GetName(self, ibrch):
         """
-        pyOCSM.GetName - get the name of a Branch
+        ocsm.GetName - get the name of a Branch
 
         inputs:
             ibrch       Branch index (1:nbrch)
@@ -1049,7 +1086,8 @@ class Ocsm(object):
             name        Brchch name
         """
         _ocsm.ocsmGetName.argtypes = [ctypes.c_void_p,
-                                      ctypes.c_int]
+                                      ctypes.c_int,
+                                      ctypes.c_char_p]
         _ocsm.ocsmGetName.restype  =  ctypes.c_int
 
         name = ctypes.create_string_buffer(257)
@@ -1059,11 +1097,11 @@ class Ocsm(object):
 
         return name.value.decode("utf-8")
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def SetName(self, ibrch, name):
         """
-        pyOCSM.SetName - set the name for a Branch
+        ocsm.SetName - set the name for a Branch
 
         inputs:
             ibrch       Branch index (1:nbrch)
@@ -1084,11 +1122,11 @@ class Ocsm(object):
 
         return
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def GetSketch(self, ibrch, maxlen):
         """
-        pyOCSM.GetSketch - get string data associated with a Sketch
+        ocsm.GetSketch - get string data associated with a Sketch
 
         not implemented
         """
@@ -1105,11 +1143,11 @@ class Ocsm(object):
 
         return # (begs, vars, cons, segs)
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def SolveSketch(self, vars_in, cons, vars_out):
         """
-        pyOCSM.SolveSketch - solve for new Sketch variables
+        ocsm.SolveSketch - solve for new Sketch variables
 
         not implemented
         """
@@ -1123,11 +1161,11 @@ class Ocsm(object):
 
         return # vars_out
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def SaveSketch(self, ibrch, vars, cons, segs):
         """
-        pyOCSM.SaveSketch - overwrite Branches associated with a Sketch
+        ocsm.SaveSketch - overwrite Branches associated with a Sketch
 
         not implemented
         """
@@ -1142,19 +1180,19 @@ class Ocsm(object):
 
         return
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def NewPmtr(self, name, type, nrow, ncol):
         """
-        pyOCSM.NewPmtr - create a new Parameter
+        ocsm.NewPmtr - create a new Parameter
 
         inputs:
             name        Parameter name
-            type        pyOCSM.DESPMTR
-                        pyOCSM.CFGPMTR
-                        pyOCSM.CONPMTR
-                        pyOCSM.LOCALVAR
-                        pyOCSM.OUTPMTR
+            type        ocsm.DESPMTR
+                        ocsm.CFGPMTR
+                        ocsm.CONPMTR
+                        ocsm.LOCALVAR
+                        ocsm.OUTPMTR
             nrow        number of rows
             ncol        number of columns
         outputs:
@@ -1176,11 +1214,11 @@ class Ocsm(object):
 
         return
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def DelPmtr(self, ipmtr):
         """
-        pyOCSM.DelPmtr = delete a Parameter
+        ocsm.DelPmtr = delete a Parameter
 
         inputs:
             ipmtr       Parameter index (1:npmtr)
@@ -1196,19 +1234,19 @@ class Ocsm(object):
 
         return
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def FindPmtr(self, name, type, nrow, ncol):
         """
-        pyOCSM.FindPmtr - find (or create) a Parameter
+        ocsm.FindPmtr - find (or create) a Parameter
 
         inputs:
             name        Parameter name
-            type        pyOCSM.DESPMTR
-                        pyOCSM.CFGPMTR
-                        pyOCSM.CONPMTR
-                        pyOCSM.LOCALVAR
-                        pyOCSM.OUTPMTR
+            type        ocsm.DESPMTR
+                        ocsm.CFGPMTR
+                        ocsm.CONPMTR
+                        ocsm.LOCALVAR
+                        ocsm.OUTPMTR
             nrow        number of rows
             ncol        number of columns
         outputs:
@@ -1231,17 +1269,17 @@ class Ocsm(object):
 
         return ipmtr.value
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def GetPmtr(self, ipmtr):
         """
-        pyOCSM.GetPmtr - get info about a Parameter
+        ocsm.GetPmtr - get info about a Parameter
 
         inputs:
             ipmtr       Parameter index (1:npmtr)
         outputs:
-            type        pyOCSM.DESPMTR, pyOCSM.CFGPMTR, pyOCSM.CONPMTR,
-                            pyOCSM.LOCALVAL, or pyOCSM.OUTPMTR
+            type        ocsm.DESPMTR, ocsm.CFGPMTR, ocsm.CONPMTR,
+                            ocsm.LOCALVAL, or ocsm.OUTPMTR
             nrow        number of rows
             ncol        number of columns
             name        Parameter name
@@ -1263,11 +1301,11 @@ class Ocsm(object):
 
         return (type.value, nrow.value, ncol.value, name.value.decode("utf-8"))
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def PrintPmtrs(self, filename):
         """
-        pyOCSM.PrintPmtrs - print DESPMTRs and OUTPMTRs to file
+        ocsm.PrintPmtrs - print DESPMTRs and OUTPMTRs to file
 
         inputs:
             filename    file to which output is appended (or "" for stdout)
@@ -1286,11 +1324,11 @@ class Ocsm(object):
 
         return
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def GetValu(self, ipmtr, irow, icol):
         """
-        pyOCSM.GetValue - get the Value of a Parameter
+        ocsm.GetValue - get the Value of a Parameter
 
         inputs:
             ipmtr       Parameter index (1:npmtr)
@@ -1315,11 +1353,11 @@ class Ocsm(object):
 
         return (value.value, dot.value)
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def GetValuS(self, ipmtr):
         """
-        pyOCSM.GetValue - get the Value of a string Parameter
+        ocsm.GetValue - get the Value of a string Parameter
 
         inputs:
             ipmtr       Parameter index (1:npmtr)
@@ -1338,11 +1376,11 @@ class Ocsm(object):
 
         return str.value.decode("utf-8")
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def SetValu(self, ipmtr, irow, icol, defn):
         """
-        pyOCSM.SetValu - set a Value for a Parameter
+        ocsm.SetValu - set a Value for a Parameter
 
         inputs:
             ipmtr       Parameter index (1:npmtr)
@@ -1367,11 +1405,11 @@ class Ocsm(object):
 
         return
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def SetValuD(self, ipmtr, irow, icol, value):
         """
-        pyOCSM.SetValuD - set the (double) value of a Parameter
+        ocsm.SetValuD - set the (double) value of a Parameter
 
         inputs:
             ipmtr       Parameter index (1:npmtr)
@@ -1393,11 +1431,11 @@ class Ocsm(object):
 
         return
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def GetBnds(self, ipmtr, irow, icol):
         """
-        pyOCSM.GetBnds - get the Bounds of a Parameter
+        ocsm.GetBnds - get the Bounds of a Parameter
 
         inputs:
             ipmtr       Parameter index (1:npmtr)
@@ -1423,11 +1461,11 @@ class Ocsm(object):
 
         return (lbound.value, ubound.value)
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def SetBnds(self, ipmtr, irow, icol, lbound, ubound):
         """
-        pyOCSM.SetBnds - set teh Bounds of a Parameter
+        ocsm.SetBnds - set teh Bounds of a Parameter
 
         inputs:
             ipmtr       Parameter index (1:npmtr)
@@ -1451,11 +1489,11 @@ class Ocsm(object):
 
         return
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def SetDtime(self, dtime):
         """
-        pyOCSM.SetDtime - set sensitivity FD time step (or select analytic)
+        ocsm.SetDtime - set sensitivity FD time step (or select analytic)
 
         inputs:
             dtime       time step (or 0 to choose analytic)
@@ -1471,11 +1509,11 @@ class Ocsm(object):
 
         return
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def SetVel(self, ipmtr, irow, icol, defn):
         """
-        pyOCSM.SetVel - set the velocity for a Parameter
+        ocsm.SetVel - set the velocity for a Parameter
 
         inputs:
             ipmtr       Parameter index (1:npmtr)
@@ -1500,11 +1538,11 @@ class Ocsm(object):
 
         return
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def SetVelD(self, ipmtr, irow, icol, dot):
         """
-        pyOCSM.SetVelD - set the (double) velocity for a Parameter
+        ocsm.SetVelD - set the (double) velocity for a Parameter
 
         inputs:
             ipmtr       Parameter index (1:npmtr)
@@ -1526,15 +1564,15 @@ class Ocsm(object):
 
         return
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def GetUV(self, ibody, seltype, iselect, npnt, xyz):
         """
-        pyOCSM.GetUV - get the parametric coordinates on an Edge or Face
+        ocsm.GetUV - get the parametric coordinates on an Edge or Face
 
         inputs:
             ibody       Body index (1:nbody)
-            seltype     pyOCSM.EDGE or pyOCSM.FACE
+            seltype     ocsm.EDGE or ocsm.FACE
             iselect     iedge or iface
             npnt        number of points
             xyz         x[0], y[0], z[0], x[1], ... z[npnt-1]
@@ -1561,19 +1599,23 @@ class Ocsm(object):
         else:
             return list(uv[0:2*npnt])
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def GetEgo(self, ibody, seltype, iselect):
         """
-        pyOCSM.GetEgo - get the EGO associated with the Body or its parts
+        ocsm.GetEgo - get the EGO associated with the Body or its parts
 
         inputs:
             ibody       Body index (1:nbody)
-            seltype     pyOCSM.BODY, pyOCSM.NODE, pyOCSM.EDGE, or pyOCSM.FACE
-            iselect     if pyOCSM.BODY, 0 for Body, 1 for Tessellation, 2 for context
-                        if pyOCSM.NODE, Node index (1:nnode)
-                        if pyOCSM.EDGE, Node index (1:nedge)
-                        if pyOCSM.FACE, Node index (1:nface)
+            seltype     ocsm.BODY, ocsm.NODE, ocsm.EDGE, or ocsm.FACE
+            iselect     if ocsm.BODY, 0 for Body
+                                      1 for Tessellation
+                                      2 for context
+                                      3 for EBody
+                                      4 for Tessellation on EBody
+                        if ocsm.NODE, Node index (1:nnode)
+                        if ocsm.EDGE, Node index (1:nedge)
+                        if ocsm.FACE, Node index (1:nface)
         outputs:
             theEgo      associated EGO
         """
@@ -1588,24 +1630,44 @@ class Ocsm(object):
         status = _ocsm.ocsmGetEgo(self._modl, ibody, seltype, iselect, ctypes.byref(theEgo))
         _processStatus(status, "GetEgo")
 
-        # do not automatically delete the context
-        if (seltype == BODY and iselect == 2):
-            return egads.c_to_py(theEgo, deleteObject=False)
+        # since this is a reference, pyEGADS does not need to manage its memory
+        return egads.c_to_py(theEgo, deleteObject=False)
 
-        else:
-            # the egads.ego will reference self._context, which prevents self._context
-            #     from bing garbage collected until the egads.ego is deleted
-            return egads.c_to_py(theEgo, deleteObject=True, context=self._context)
+# ======================================================================
 
-#-----------------------------------------------------------------------
-
-    def FindEnt(self, ibody, seltype, entID):
+    def SetEgo(self, ibody, iselect, theEgo):
         """
-        pyOCSM.FindEnt - find entity number given faceID or edgeID */
+        ocsm.SetEgo - set a tessellation or EBody for a Body
 
         inputs:
             ibody       Body index (1:nbody)
-            seltype     pyOCSM.EDGE or pyOCSM.FACE
+            iselect     1 for Tessellation
+                        3 for EBody
+                        4 for Tessellation on EBody
+            theEgo      associated EGO
+        outputs:
+            (None)
+        """
+        _ocsm.ocsmSetEgo.argtypes = [ctypes.c_void_p,
+                                     ctypes.c_int,
+                                     ctypes.c_int,
+                                     egads.c_ego]
+        _ocsm.ocsmSetEgo.restype  =  ctypes.c_int
+
+        status = _ocsm.ocsmSetEgo(self._modl, ibody, iselect, theEgo.py_to_c(takeOwnership=True))
+        _processStatus(status, "SetEgo")
+
+        return
+
+# ======================================================================
+
+    def FindEnt(self, ibody, seltype, entID):
+        """
+        ocsm.FindEnt - find entity number given faceID or edgeID */
+
+        inputs:
+            ibody       Body index (1:nbody)
+            seltype     ocsm.EDGE or ocsm.FACE
             entID       edgeID or faceID
         outputs:
             ient        entity number
@@ -1625,15 +1687,15 @@ class Ocsm(object):
 
         return ient.value
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def GetXYZ(self, ibody, seltype, iselect, npnt, uv):
         """
-        pyOCSM.GetXYZ - get the coordinates of a Node, Edge, or Face
+        ocsm.GetXYZ - get the coordinates of a Node, Edge, or Face
 
         inputs:
             ibody       Body index (1:nbody)
-            seltype     pyOCSM.NODE, pyOCSM.EDGE, or pyOCSM.FACE
+            seltype     ocsm.NODE, ocsm.EDGE, or ocsm.FACE
             iselect     inode, iedge, or iface
             npnt        number of points
             uv          u[0], v[0], u[1], ... v[npnt-1]
@@ -1663,11 +1725,11 @@ class Ocsm(object):
 
         return list(xyz[0:3*npnt])
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def GetNorm(self, ibody, iface, npnt, uv):
         """
-        pyOCSM.GetNorm - get the unit normals for a Face
+        ocsm.GetNorm - get the unit normals for a Face
 
         inputs:
             ibody       Body index (1:nbody)
@@ -1693,15 +1755,15 @@ class Ocsm(object):
 
         return list(norm[0:3*npnt])
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def GetVel(self, ibody, seltype, iselect, npnt, uv):
         """
-        pyOCSM.GetVel - get the velocities on a Node, Edge, or Face
+        ocsm.GetVel - get the velocities on a Node, Edge, or Face
 
         inputs:
             ibody       Body index (1:nbody)
-            seltype     pyOCSM.NODE, pyOCSM.EDGE, or pyOCSM.FACE
+            seltype     ocsm.NODE, ocsm.EDGE, or ocsm.FACE
             iselect     inode, iedge, or iface
             npnt        number of points
             uv          u[0], v[0], u[1], ... v[npnt-1]
@@ -1737,26 +1799,26 @@ class Ocsm(object):
 
         return list(vel[0:3*npnt])
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def SetEgg(self, eggname):
         """
-        pyOCSM.SetEgg - set up alternative tessellation by an external grid generator
+        ocsm.SetEgg - set up alternative tessellation by an external grid generator
 
         not implemented
         """
 
         return
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def GetTessNpnt(self, ibody, seltype, iselect):
         """
-        pyOCSM.GetTessNpnt - get the number of tess points in an Edge or Face
+        ocsm.GetTessNpnt - get the number of tess points in an Edge or Face
 
         inputs:
             ibody       Body index (1:nbody)
-            seltype     pyOCSM.EDGE or pyOCSM.FACE
+            seltype     ocsm.EDGE or ocsm.FACE
             iselect     Edge or Face index (bias-1)
         outputs:
             npnt        number of points
@@ -1775,15 +1837,15 @@ class Ocsm(object):
 
         return npnt.value
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def GetTessVel(self, ibody, seltype, iselect):
         """
-        pyOCSM.GetTessVel - get the tessellation velocities on a Node, Edge, or Face
+        ocsm.GetTessVel - get the tessellation velocities on a Node, Edge, or Face
 
         inputs:
             ibody       Body index (1:nbody)
-            seltype     pyOCSM.NODE, pyOCSM.EDGE, or pyOCSM.FACE
+            seltype     ocsm.NODE, ocsm.EDGE, or ocsm.FACE
             iselect     Node, Edge, or Face index (bias-1)
         outputs:
             dxyz        velocities
@@ -1811,11 +1873,11 @@ class Ocsm(object):
 
         return list(dxyz[0:3*npnt])
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def GetBody(self, ibody):
         """
-        pyOCSM.GetBody - get info about a Body
+        ocsm.GetBody - get info about a Body
 
         inputs:
             ibody       Body index (1:nbody)
@@ -1857,11 +1919,11 @@ class Ocsm(object):
 
         return (type.value, ichld.value, ileft.value, irite.value, outvals, nnode.value, nedge.value, nface.value)
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def PrintBodys(self, filename):
         """
-        pyOCSM.PrintBodys - print all Bodys to file
+        ocsm.PrintBodys - print all Bodys to file
 
         inputs:
             filename    file to which output is appended (or "" for stdout)
@@ -1880,11 +1942,11 @@ class Ocsm(object):
 
         return
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def PrintBrep(self, ibody, filename):
         """
-        pyOCSM.PrintBrep - print the BRep associated with a specific Body
+        ocsm.PrintBrep - print the BRep associated with a specific Body
 
         inputs:
             ibody       Body index (1-nbody)
@@ -1905,11 +1967,11 @@ class Ocsm(object):
 
         return
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def EvalExpr(self, express):
         """
-        pyOCSM.EvalExpr - evaluate an expression
+        ocsm.EvalExpr - evaluate an expression
 
         inputs:
             express     expression
@@ -1937,11 +1999,11 @@ class Ocsm(object):
 
         return (value.value, dot.value, string.value.decode("utf-8"))
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def GetText(self, code):
         """
-        pyOCSM.GetText - convert an OCSM numeric code to text
+        ocsm.GetText - convert an OCSM numeric code to text
 
         inputs:
             code        code to look up
@@ -1955,11 +2017,11 @@ class Ocsm(object):
 
         return text.decode("utf-8")
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
     def GetCode(self, text):
         """
-        pyOCSM.GetCode - convert text to an OCSM numeric code
+        ocsm.GetCode - convert text to an OCSM numeric code
 
         inputs:
             text        text string
@@ -1976,9 +2038,9 @@ class Ocsm(object):
 
         return code
 
-#-----------------------------------------------------------------------
+# ======================================================================
 # Helper routines
-#-----------------------------------------------------------------------
+# ======================================================================
 
 def _processStatus(status, routine):
     """
@@ -2169,15 +2231,15 @@ def _processStatus(status, routine):
     elif (status == -299):
         raise OcsmError("INTERNAL_ERROR",              routine)
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
 # cleanup udp storage by calling _ocsm.ocsmFree(None) at exit
 
 atexit.register(_ocsmFree)
 
-#-----------------------------------------------------------------------
+# ======================================================================
 # OcsmError class
-#-----------------------------------------------------------------------
+# ======================================================================
 
 class OcsmError(Exception):
 
@@ -2190,10 +2252,10 @@ class OcsmError(Exception):
     def __str__(self):
         return("OcsmError: "+repr(self.value)+" detected during call to "+self.routine)
 
-#-----------------------------------------------------------------------
+# ======================================================================
 
 # print version number
-(imajor, iminor) = Version()
-print("\npyOCSM version {0:d}.{1:d} has been loaded\n".format(imajor,iminor))
-del imajor
-del iminor
+#(imajor, iminor) = Version()
+#print("\nocsm version {0:d}.{1:d} has been loaded\n".format(imajor,iminor))
+#del imajor
+#del iminor

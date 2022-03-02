@@ -1,7 +1,10 @@
 import unittest
 
 import os
+import glob
 import math
+import shutil
+import __main__
 
 from sys import version_info as pyVersion
 from sys import version_info
@@ -16,18 +19,29 @@ class TestAnalysis(unittest.TestCase):
         cls.file = "unitGeom.csm"
         cls.fileWrite = "unitGeomAnalysis.egads"
         cls.analysisDir = "UnitTest"
+        cls.projectName = "testProblem"
         cls.iDir = 1
+        cls.iProb = 1
+        cls.cleanUp()
 
     @classmethod
     def tearDownClass(cls):
+        cls.cleanUp()
+
+    @classmethod
+    def cleanUp(cls):
 
         # Remove analysis directories
-        if os.path.exists(cls.analysisDir):
-            os.rmdir(cls.analysisDir)
+        dirs = glob.glob( cls.projectName + '*')
+        for dir in dirs:
+            if os.path.isdir(dir):
+                shutil.rmtree(dir)
 
-        for i in range(1, cls.iDir):
-            if os.path.exists(cls.analysisDir+str(i)):
-                os.rmdir(cls.analysisDir+str(i))
+        # Remove default projectName
+        base = os.path.basename(__main__.__file__)
+        projectName = os.path.splitext(base)[0]
+        if os.path.isdir(projectName):
+            shutil.rmtree(projectName)
 
         # Remove created files
         if os.path.isfile("unitGeom.egads"):
@@ -40,16 +54,13 @@ class TestAnalysis(unittest.TestCase):
 #=============================================================================-
     # Same AIM twice
     def test_makeAnalysis(self):
-        problem = caps.open("TestProblem", self.file)
+        problem = caps.open(self.projectName+str(self.iProb), None, caps.oFlag.oFileName, self.file, 0); self.__class__.iProb += 1
 
-        analysis1 = problem.makeAnalysis("fun3dAIM", name = None, unitSys=None,
-                                         analysisDir = self.analysisDir);
-        analysis2 = problem.makeAnalysis("fun3dAIM", name = None, unitSys=None,
-                                         analysisDir = self.analysisDir + str(self.iDir)); self.__class__.iDir += 1
+        analysis1 = problem.makeAnalysis("fun3dAIM", name = self.analysisDir);
+        analysis2 = problem.makeAnalysis("fun3dAIM", name = self.analysisDir + str(self.iDir)); self.__class__.iDir += 1
 
         with self.assertRaises(caps.CAPSError) as e:
-            analysis3 = problem.makeAnalysis("fun3dAIM", name = None, unitSys=None,
-                                              analysisDir = self.analysisDir)
+            analysis3 = problem.makeAnalysis("fun3dAIM", name = self.analysisDir)
 
         self.assertEqual(e.exception.errorName, "CAPS_BADNAME")
  
@@ -67,20 +78,17 @@ class TestAnalysis(unittest.TestCase):
 #=============================================================================-
     # Multiple intents
     def test_multipleIntents(self):
-        problem = caps.open("TestProblem", self.file)
-        problem.setOutLevel(0)
+        problem = caps.open(self.projectName+str(self.iProb), None, caps.oFlag.oFileName, self.file, 0); self.__class__.iProb += 1
 
         analysis = None
-        analysis = problem.makeAnalysis("fun3dAIM", name = None, unitSys = None,
-                                        analysisDir = self.analysisDir + str(self.iDir),
+        analysis = problem.makeAnalysis("fun3dAIM", name = self.analysisDir + str(self.iDir),
                                         intent = ["OML"]); self.__class__.iDir += 1
 
         self.assertNotEqual(analysis, None)
         self.assertEqual(2, analysis.size(caps.oType.BODIES, caps.sType.NONE))
 
         analysis = None
-        analysis = problem.makeAnalysis("fun3dAIM", name = None, unitSys = None,
-                                        analysisDir = self.analysisDir + str(self.iDir),
+        analysis = problem.makeAnalysis("fun3dAIM", name = self.analysisDir + str(self.iDir),
                                         intent = ["CFD"]); self.__class__.iDir += 1
 
         self.assertNotEqual(analysis, None)
@@ -89,42 +97,45 @@ class TestAnalysis(unittest.TestCase):
 #=============================================================================-
     # get all bodies in the analysis
     def test_getBodies(self):
-        problem = caps.open("TestProblem", self.file)
+        problem = caps.open(self.projectName+str(self.iProb), None, caps.oFlag.oFileName, self.file, 0); self.__class__.iProb += 1
 
-        analysis = problem.makeAnalysis("fun3dAIM", name = None, unitSys=None,
-                                        analysisDir = self.analysisDir);
+        analysis = problem.makeAnalysis("fun3dAIM", name = self.analysisDir);
 
         bodies = analysis.getBodies()
 
-        self.assertEqual(3, len(bodies))
+        self.assertEqual(4, len(bodies))
  
 #=============================================================================-
     # Set analysis value with units
-    def test_setAnalysisValUnits(self):
-        problem = caps.open("TestProblem", self.file)
-        problem.setOutLevel(0)
+    def test_setInputUnits(self):
+        problem = caps.open(self.projectName+str(self.iProb), None, caps.oFlag.oFileName, self.file, 0); self.__class__.iProb += 1
         
-        deg = caps.unit("degree")
-        rad = caps.unit("radian")
+        
+        deg = caps.Unit("degree")
+        rad = caps.Unit("radian")
+
+        m    = caps.Unit("meter")
+        kg   = caps.Unit("kg")
+        s    = caps.Unit("s")
+        K    = caps.Unit("Kelvin")
+
+        unitSystem={"mass":kg, "length":m, "time":s, "temperature":K}
  
-        analysis = problem.makeAnalysis("fun3dAIM", name = None, unitSys = None,
-                                        analysisDir = self.analysisDir + str(self.iDir)); self.__class__.iDir += 1
+        analysis = problem.makeAnalysis("su2AIM", name = self.analysisDir + str(self.iDir), unitSys=unitSystem); self.__class__.iDir += 1
  
         betaObj = analysis.childByName(caps.oType.VALUE, caps.sType.ANALYSISIN, "Beta")
         betaObj.setValue(10.*math.pi/180. * rad)
         beta = betaObj.getValue()
 
         self.assertAlmostEqual(10, beta._value, 5) # Should be converted to degree
-        self.assertEqual("degree", beta._units)
+        self.assertEqual(caps.Unit("degree"), beta._units)
 
 #=============================================================================-
     # Set/Unset analysis value
-    def test_setUnsetAnalysisVal(self):
-        problem = caps.open("TestProblem", self.file)
-        problem.setOutLevel(0)
+    def test_setUnsetInput(self):
+        problem = caps.open(self.projectName+str(self.iProb), None, caps.oFlag.oFileName, self.file, 0); self.__class__.iProb += 1
  
-        analysis = problem.makeAnalysis("fun3dAIM", name = None, unitSys = None,
-                                        analysisDir = self.analysisDir + str(self.iDir)); self.__class__.iDir += 1
+        analysis = problem.makeAnalysis("fun3dAIM", name = self.analysisDir + str(self.iDir)); self.__class__.iDir += 1
 
         machObj = analysis.childByName(caps.oType.VALUE, caps.sType.ANALYSISIN, "Mach")
         
@@ -142,11 +153,9 @@ class TestAnalysis(unittest.TestCase):
 #=============================================================================-
     # Get a string and add it to another string -> Make sure byte<->str<->unicode is correct between Python 2 and 3
     def test_AnalysisString(self):
-        problem = caps.open("TestProblem", self.file)
-        problem.setOutLevel(0)
+        problem = caps.open(self.projectName+str(self.iProb), None, caps.oFlag.oFileName, self.file, 0); self.__class__.iProb += 1
  
-        analysis = problem.makeAnalysis("fun3dAIM", name = None, unitSys = None,
-                                        analysisDir = self.analysisDir + str(self.iDir)); self.__class__.iDir += 1
+        analysis = problem.makeAnalysis("fun3dAIM", name = self.analysisDir + str(self.iDir)); self.__class__.iDir += 1
 
         Proj_NameObj = analysis.childByName(caps.oType.VALUE, caps.sType.ANALYSISIN, "Proj_Name")
 
@@ -160,11 +169,9 @@ class TestAnalysis(unittest.TestCase):
     # Get analysis out values
     def test_getAnalysisOutVal(self):
   
-        problem = caps.open("TestProblem", self.file)
-        problem.setOutLevel(0)
+        problem = caps.open(self.projectName+str(self.iProb), None, caps.oFlag.oFileName, self.file, 0); self.__class__.iProb += 1
  
-        analysis = problem.makeAnalysis("fun3dAIM", name = None, unitSys = None,
-                                        analysisDir = self.analysisDir + str(self.iDir)); self.__class__.iDir += 1
+        analysis = problem.makeAnalysis("fun3dAIM", name = self.analysisDir + str(self.iDir)); self.__class__.iDir += 1
 
         CLtotObj = analysis.childByName(caps.oType.VALUE, caps.sType.ANALYSISOUT, "CLtot")
 
@@ -177,19 +184,13 @@ class TestAnalysis(unittest.TestCase):
 #=============================================================================-
     def test_parent1(self):
         
-        problem = caps.open("TestProblem", self.file)
-        problem.setOutLevel(0)
+        problem = caps.open(self.projectName+str(self.iProb), None, caps.oFlag.oFileName, self.file, 0); self.__class__.iProb += 1
 
-        analysis1 = problem.makeAnalysis("egadsTessAIM", name = None, unitSys = None,
-                                         analysisDir = self.analysisDir + str(self.iDir)); self.__class__.iDir += 1
+        analysis1 = problem.makeAnalysis("egadsTessAIM", name = self.analysisDir + str(self.iDir)); self.__class__.iDir += 1
 
-        analysis2 = problem.makeAnalysis("tetgenAIM", name = None, unitSys = None,
-                                         parents = analysis1, 
-                                         analysisDir = self.analysisDir + str(self.iDir)); self.__class__.iDir += 1
+        analysis2 = problem.makeAnalysis("tetgenAIM", name = self.analysisDir + str(self.iDir)); self.__class__.iDir += 1
  
-        analysis3 = problem.makeAnalysis("fun3dAIM", name = None, unitSys = None,
-                                         parents = [analysis1, analysis2],
-                                         analysisDir = self.analysisDir + str(self.iDir)); self.__class__.iDir += 1
+        analysis3 = problem.makeAnalysis("fun3dAIM", name = self.analysisDir + str(self.iDir)); self.__class__.iDir += 1
  
         self.assertNotEqual(None, analysis3)
 
@@ -277,27 +278,23 @@ class TestAnalysis(unittest.TestCase):
     # Get analysis info
     def test_getAnalysisInfo(self):
  
-        problem = caps.open("TestProblem", self.file)
-        problem.setOutLevel(0)
+        problem = caps.open(self.projectName+str(self.iProb), None, caps.oFlag.oFileName, self.file, 0); self.__class__.iProb += 1
 
-        analysis = problem.makeAnalysis("fun3dAIM", name = None, unitSys = None,
+        analysis = problem.makeAnalysis("fun3dAIM", 
                                         intent = ["CFD", "OML"],
-                                        analysisDir = self.analysisDir + str(self.iDir)); self.__class__.iDir += 1
+                                        name = self.analysisDir + str(self.iDir)); self.__class__.iDir += 1
 
-        # EnCAPS
-        #dir, unitSys, major, minor, intent, nfields, fnames, ranks, execute, status = analysis.analysisInfo()
-        # CAPS
-        dir, unitSys, intent, parents, fnames, ranks, execute, status = analysis.analysisInfo()
-        self.assertEqual(self.analysisDir + str(self.iDir-1), dir)
+        dir, unitSys, major, minor, intent, fnames, franks, fInOut, execute, status = analysis.analysisInfo()
+        self.assertTrue(os.path.isdir(dir))
         self.assertEqual(None, unitSys)
-        self.assertEqual([], parents)
+
         self.assertEqual(["CFD", "OML"], intent)
-        self.assertEqual(['Pressure', 'P', 'Cp', 'CoefficientOfPressure'], fnames)
-        self.assertEqual([1,1,1,1], ranks)
+        self.assertEqual(['Pressure', 'P', 'Cp', 'CoefficientOfPressure', 'Displacement', 'EigenVector', 'EigenVector_#'], fnames)
+        self.assertEqual([1,1,1,1,3,3,3], franks)
+        self.assertEqual([caps.fType.FieldOut,caps.fType.FieldOut,caps.fType.FieldOut,caps.fType.FieldOut,caps.fType.FieldIn,caps.fType.FieldIn,caps.fType.FieldIn], fInOut)
         self.assertEqual(0, execute)
         self.assertEqual(3, status)
-        #end CAPS
- 
+
 #=============================================================================-
 #     # Get analysis info with a NULL intent
 #     def test_getAnalysisInfoIntent(self):
@@ -364,11 +361,9 @@ class TestAnalysis(unittest.TestCase):
     # Save geometry
     def test_writeGeometry(self):
          
-        problem = caps.open("TestProblem", self.file)
-        problem.setOutLevel(0)
+        problem = caps.open(self.projectName+str(self.iProb), None, caps.oFlag.oFileName, self.file, 0); self.__class__.iProb += 1
  
-        analysis = problem.makeAnalysis("fun3dAIM", name = None, unitSys = None,
-                                        analysisDir = self.analysisDir + str(self.iDir)); self.__class__.iDir += 1
+        analysis = problem.makeAnalysis("fun3dAIM", name = self.analysisDir + str(self.iDir)); self.__class__.iDir += 1
 
         analysis.writeGeometry(self.fileWrite)
         self.assertTrue(os.path.isfile(self.fileWrite))

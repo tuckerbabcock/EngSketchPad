@@ -1,24 +1,31 @@
 ###########################################################################
 #                                                                         #
-# pyCAPS --- Python version of CAPS API                                 #
+#   pyCAPS --- Python version of CAPS API                                 #
 #                                                                         #
 #                                                                         #
-#      Copyright 2011-2021, Massachusetts Institute of Technology         #
+#      Copyright 2011-2022, Massachusetts Institute of Technology         #
 #      Licensed under The GNU Lesser General Public License, version 2.1  #
 #      See http://www.opensource.org/licenses/lgpl-2.1.php                #
 #                                                                         #
 ###########################################################################
 
 import ctypes
-from ctypes import POINTER, c_short, c_int, c_ulong, c_size_t, c_double, c_void_p, c_char, c_char_p
+from ctypes import POINTER, c_short, c_int, c_ulong, c_ulonglong, c_double, c_void_p, c_char_p
 import os
 import sys
 import json
 import copy
+import signal
+import functools
 from sys import version_info
 #import xml.etree.ElementTree as xmlElementTree
 
 from pyEGADS import egads
+
+try:
+    import numpy
+except ImportError:
+    numpy = None
 
 # get the value of _ESP_ROOT
 try:
@@ -32,17 +39,27 @@ if sys.platform.startswith('darwin'):
 elif sys.platform.startswith('linux'):
     _caps = ctypes.CDLL(_ESP_ROOT + "/lib/libcaps.so")
 elif sys.platform.startswith('win32'):
-    _caps = ctypes.CDLL(_ESP_ROOT + "/lib/caps.dll")
+    if version_info.major == 3 and version_info.minor < 8:
+        _caps = ctypes.CDLL(_ESP_ROOT + "\\lib\\caps.dll")
+    else:
+        _caps = ctypes.CDLL(_ESP_ROOT + "\\lib\\caps.dll", winmode=0)
 else:
     raise IOError("Unknown platform: " + sys.platform)
 
 __all__ = []
 
 # =============================================================================
+if sys.platform.startswith('win32'):
+    CAPSLONG = c_ulonglong
+else:
+    CAPSLONG = c_ulong
+
+# =============================================================================
 # alias for clarification
 enum_capsoType   = c_int
 enum_capssType   = c_int
 enum_capsvType   = c_int
+enum_capsfType   = c_int
 enum_capsFixed   = c_int
 enum_capsNull    = c_int
 enum_capstMethod = c_int
@@ -69,6 +86,7 @@ class c_capsOwn(ctypes.Structure):
     pass
 
 c_capsOwn.__slots__ = [
+    'index',
     'pname',
     'pID',
     'user',
@@ -76,11 +94,12 @@ c_capsOwn.__slots__ = [
     'sNum',
 ]
 c_capsOwn._fields_ = [
+    ('index', c_int),
     ('pname', c_char_p),
     ('pID', c_char_p),
     ('user', c_char_p),
     ('datetime', c_short * int(6)),
-    ('sNum', c_ulong),
+    ('sNum', CAPSLONG),
 ]
 
 # =============================================================================
@@ -92,10 +111,13 @@ c_capsObject.__slots__ = [
     'magicnumber',
     'type',
     'subtype',
-    'sn',
+    'delMark',
     'name',
     'attrs',
     'blind',
+    'flist',
+    'nHistory',
+    'history',
     'last',
     'parent',
 ]
@@ -103,10 +125,13 @@ c_capsObject._fields_ = [
     ('magicnumber', c_int),
     ('type', c_int),
     ('subtype', c_int),
-    ('sn', c_int),
+    ('delMark', c_int),
     ('name', c_char_p),
     ('attrs', POINTER(egads.c_egAttrs)),
-    ('blind', POINTER(None)),
+    ('blind', c_void_p),
+    ('flist', c_void_p),
+    ('nHistory', c_int),
+    ('history', POINTER(c_capsOwn)),
     ('last', c_capsOwn),
     ('parent', POINTER(c_capsObject)),
 ]
@@ -149,19 +174,19 @@ c_capsErrs._fields_ = [
 ]
 
 # =============================================================================
-# define c_capsDot structure
-class c_capsDot(ctypes.Structure):
+# define c_capsDeriv structure
+class c_capsDeriv(ctypes.Structure):
     pass
 
-c_capsDot.__slots__ = [
+c_capsDeriv.__slots__ = [
     'name',
     'rank',
-    'dot',
+    'deriv',
 ]
-c_capsDot._fields_ = [
+c_capsDeriv._fields_ = [
     ('name', c_char_p),
     ('rank', c_int),
-    ('dot', POINTER(c_double)),
+    ('deriv', POINTER(c_double)),
 ]
 
 # =============================================================================
@@ -176,8 +201,6 @@ union_capsValue_vals.__slots__ = [
     'reals',
     'string',
     'tuple',
-    'object',
-    'objects',
     'AIMptr',
 ]
 union_capsValue_vals._fields_ = [
@@ -187,8 +210,6 @@ union_capsValue_vals._fields_ = [
     ('reals', POINTER(c_double)),
     ('string', c_char_p),
     ('tuple', POINTER(c_capsTuple)),
-    ('object', POINTER(c_capsObject)),
-    ('objects', POINTER(POINTER(c_capsObject))),
     ('AIMptr', POINTER(None)),
 ]
 
@@ -216,6 +237,7 @@ c_capsValue.__slots__ = [
     'lfixed',
     'sfixed',
     'nullVal',
+    'index',
     'pIndex',
     'gInType',
     'vals',
@@ -224,8 +246,8 @@ c_capsValue.__slots__ = [
     'link',
     'linkMethod',
     'partial',
-    'ndot',
-    'dots',
+    'nderiv',
+    'derivs',
 ]
 c_capsValue._fields_ = [
     ('type', c_int),
@@ -236,6 +258,7 @@ c_capsValue._fields_ = [
     ('lfixed', c_int),
     ('sfixed', c_int),
     ('nullVal', c_int),
+    ('index', c_int),
     ('pIndex', c_int),
     ('gInType', c_int),
     ('vals', union_capsValue_vals),
@@ -244,8 +267,8 @@ c_capsValue._fields_ = [
     ('link', POINTER(c_capsObject)),
     ('linkMethod', c_int),
     ('partial', POINTER(c_int)),
-    ('ndot', c_int),
-    ('dots', POINTER(c_capsDot)),
+    ('nderiv', c_int),
+    ('derivs', POINTER(c_capsDeriv)),
 ]
 
 
@@ -254,6 +277,8 @@ c_capsValue._fields_ = [
 # caps.h functions
 #
 # =============================================================================
+
+# base-level object functions
 
 _caps.caps_revision.argtypes = [POINTER(c_int), POINTER(c_int)]
 _caps.caps_revision.restype = None
@@ -267,25 +292,24 @@ _caps.caps_size.restype = c_int
 _caps.caps_childByIndex.argtypes = [c_capsObj, enum_capsoType, enum_capssType, c_int, POINTER(c_capsObj)]
 _caps.caps_childByIndex.restype = c_int
 
-_caps.caps_childByName.argtypes = [c_capsObj, enum_capsoType, enum_capssType, c_char_p, POINTER(c_capsObj)]
+_caps.caps_childByName.argtypes = [c_capsObj, enum_capsoType, enum_capssType, c_char_p, POINTER(c_capsObj), POINTER(c_int), POINTER(POINTER(c_capsErrs))]
 _caps.caps_childByName.restype = c_int
 
 _caps.caps_bodyByIndex.argtypes = [c_capsObj, c_int, POINTER(egads.c_ego), POINTER(c_char_p)]
 _caps.caps_bodyByIndex.restype = c_int
 
-_caps.caps_ownerInfo.argtypes = [c_capsOwn, POINTER(c_char_p), POINTER(c_char_p), POINTER(c_char_p), POINTER(c_short), POINTER(c_ulong)]
+_caps.caps_ownerInfo.argtypes = [c_capsObj, c_capsOwn, POINTER(c_char_p), 
+                                 POINTER(c_char_p), POINTER(c_char_p), POINTER(c_char_p), POINTER(c_int), 
+                                 POINTER(POINTER(c_char_p)), POINTER(c_short), POINTER(CAPSLONG)]
 _caps.caps_ownerInfo.restype = c_int
 
-_caps.caps_setOwner.argtypes = [c_capsObj, c_char_p, POINTER(c_capsOwn)]
-_caps.caps_setOwner.restype = c_int
-
-_caps.caps_freeOwner.argtypes = [POINTER(c_capsOwn)]
-_caps.caps_freeOwner.restype = None
+# _caps.caps_getHistory.argtypes = [c_capsObj, POINTER(c_int), POINTER(POINTER(c_capsOwn))]
+# _caps.caps_getHistory.restype = c_int
 
 _caps.caps_delete.argtypes = [c_capsObj]
 _caps.caps_delete.restype = c_int
 
-_caps.caps_errorInfo.argtypes = [POINTER(c_capsErrs), c_int, POINTER(c_capsObj), POINTER(c_int), POINTER(POINTER(c_char_p))]
+_caps.caps_errorInfo.argtypes = [POINTER(c_capsErrs), c_int, POINTER(POINTER(c_capsObj)), POINTER(c_int), POINTER(c_int), POINTER(POINTER(c_char_p))]
 _caps.caps_errorInfo.restype = c_int
 
 _caps.caps_freeError.argtypes = [POINTER(c_capsErrs)]
@@ -293,6 +317,8 @@ _caps.caps_freeError.restype = c_int
 
 _caps.caps_freeValue.argtypes = [POINTER(c_capsValue)]
 _caps.caps_freeValue.restype = None
+
+# I/O functions 
 
 _caps.caps_writeParameters.argtypes = [c_capsObj, c_char_p]
 _caps.caps_writeParameters.restype = c_int
@@ -302,6 +328,8 @@ _caps.caps_readParameters.restype = c_int
 
 _caps.caps_writeGeometry.argtypes = [c_capsObj, c_int, c_char_p, POINTER(c_int), POINTER(POINTER(c_capsErrs))]
 _caps.caps_writeGeometry.restype = c_int
+
+# attribute functions 
 
 _caps.caps_attrByName.argtypes = [c_capsObj, c_char_p, POINTER(c_capsObj)]
 _caps.caps_attrByName.restype = c_int
@@ -315,25 +343,35 @@ _caps.caps_setAttr.restype = c_int
 _caps.caps_deleteAttr.argtypes = [c_capsObj, c_char_p]
 _caps.caps_deleteAttr.restype = c_int
 
-_caps.caps_open.argtypes = [c_char_p, c_char_p, POINTER(c_capsObj)]
+# problem functions 
+
+_caps.caps_phaseState.argtypes = [c_char_p, c_char_p, POINTER(c_int)]
+_caps.caps_phaseState.restype = c_int
+
+_caps.caps_journalState.argtypes = [c_capsObj]
+_caps.caps_journalState.restype = c_int
+
+_caps.caps_open.argtypes = [c_char_p, c_char_p, c_int, c_void_p, c_int, POINTER(c_capsObj), POINTER(c_int), POINTER(POINTER(c_capsErrs))]
 _caps.caps_open.restype = c_int
 
-_caps.caps_save.argtypes = [c_capsObj, c_char_p]
-_caps.caps_save.restype = c_int
-
-_caps.caps_close.argtypes = [c_capsObj]
+_caps.caps_close.argtypes = [c_capsObj, c_int, c_char_p]
 _caps.caps_close.restype = c_int
 
 _caps.caps_outLevel.argtypes = [c_capsObj, c_int]
 _caps.caps_outLevel.restype = c_int
 
-_caps.caps_sensitivity.argtypes = [c_capsObj, c_int, c_int, c_int, POINTER(c_int), POINTER(POINTER(c_capsErrs))]
-_caps.caps_sensitivity.restype = c_int
+_caps.caps_getRootPath.argtypes = [c_capsObj, POINTER(c_char_p)]
+_caps.caps_getRootPath.restype = c_int
+
+_caps.caps_intentPhrase.argtypes = [c_capsObj, c_int, POINTER(c_char_p)]
+_caps.caps_intentPhrase.restype = c_int
+
+# analysis functions 
 
 _caps.caps_queryAnalysis.argtypes = [c_capsObj, c_char_p, POINTER(c_int), POINTER(c_int), POINTER(c_int)]
 _caps.caps_queryAnalysis.restype = c_int
 
-_caps.caps_getBodies.argtypes = [c_capsObj, POINTER(c_int), POINTER(POINTER(egads.c_ego))]
+_caps.caps_getBodies.argtypes = [c_capsObj, POINTER(c_int), POINTER(POINTER(egads.c_ego)), POINTER(c_int), POINTER(POINTER(c_capsErrs))]
 _caps.caps_getBodies.restype = c_int
 
 _caps.caps_getInput.argtypes = [c_capsObj, c_char_p, c_int, POINTER(c_char_p), POINTER(c_capsValue)]
@@ -345,23 +383,34 @@ _caps.caps_getOutput.restype = c_int
 _caps.caps_AIMbackdoor.argtypes = [c_capsObj, c_char_p, POINTER(c_char_p)]
 _caps.caps_AIMbackdoor.restype = c_int
 
-_caps.caps_makeAnalysis.argtypes = [c_capsObj, c_char_p, c_char_p, c_char_p, c_char_p, c_int, POINTER(c_capsObj), POINTER(c_capsObj)]
+_caps.caps_makeAnalysis.argtypes = [c_capsObj, c_char_p, c_char_p, c_char_p, c_char_p, POINTER(c_int), POINTER(c_capsObj), POINTER(c_int), POINTER(POINTER(c_capsErrs))]
 _caps.caps_makeAnalysis.restype = c_int
 
-_caps.caps_dupAnalysis.argtypes = [c_capsObj, c_char_p, c_int, POINTER(c_capsObj), POINTER(c_capsObj)]
+_caps.caps_dupAnalysis.argtypes = [c_capsObj, c_char_p, POINTER(c_capsObj)]
 _caps.caps_dupAnalysis.restype = c_int
+
+_caps.caps_resetAnalysis.argtypes = [c_capsObj, POINTER(c_int), POINTER(POINTER(c_capsErrs))]
+_caps.caps_resetAnalysis.restype = c_int
 
 _caps.caps_dirtyAnalysis.argtypes = [c_capsObj, POINTER(c_int), POINTER(POINTER(c_capsObj))]
 _caps.caps_dirtyAnalysis.restype = c_int
 
-_caps.caps_analysisInfo.argtypes = [c_capsObj, POINTER(c_char_p), POINTER(c_char_p), POINTER(c_char_p), POINTER(c_int), POINTER(POINTER(c_capsObj)), POINTER(c_int), POINTER(POINTER(c_char_p)), POINTER(POINTER(c_int)), POINTER(c_int), POINTER(c_int)]
+_caps.caps_analysisInfo.argtypes = [c_capsObj, POINTER(c_char_p), POINTER(c_char_p), POINTER(c_int), POINTER(c_int), POINTER(c_char_p), POINTER(c_int), POINTER(POINTER(c_char_p)), POINTER(POINTER(c_int)), POINTER(POINTER(c_int)), POINTER(c_int), POINTER(c_int)]
 _caps.caps_analysisInfo.restype = c_int
 
 _caps.caps_preAnalysis.argtypes = [c_capsObj, POINTER(c_int), POINTER(POINTER(c_capsErrs))]
 _caps.caps_preAnalysis.restype = c_int
 
-_caps.caps_postAnalysis.argtypes = [c_capsObj, c_capsOwn, POINTER(c_int), POINTER(POINTER(c_capsErrs))]
+_caps.caps_system.argtypes = [c_capsObj, c_char_p, c_char_p]
+_caps.caps_system.restype = c_int
+
+_caps.caps_execute.argtypes = [c_capsObj, POINTER(c_int), POINTER(c_int), POINTER(POINTER(c_capsErrs))]
+_caps.caps_execute.restype = c_int
+
+_caps.caps_postAnalysis.argtypes = [c_capsObj, POINTER(c_int), POINTER(POINTER(c_capsErrs))]
 _caps.caps_postAnalysis.restype = c_int
+
+# bound, vertexset and dataset functions
 
 _caps.caps_makeBound.argtypes = [c_capsObj, c_int, c_char_p, POINTER(c_capsObj)]
 _caps.caps_makeBound.restype = c_int
@@ -369,13 +418,10 @@ _caps.caps_makeBound.restype = c_int
 _caps.caps_boundInfo.argtypes = [c_capsObj, POINTER(enum_capsState), POINTER(c_int), POINTER(c_double)]
 _caps.caps_boundInfo.restype = c_int
 
-_caps.caps_completeBound.argtypes = [c_capsObj]
-_caps.caps_completeBound.restype = c_int
+_caps.caps_closeBound.argtypes = [c_capsObj]
+_caps.caps_closeBound.restype = c_int
 
-_caps.caps_fillVertexSets.argtypes = [c_capsObj, POINTER(c_int), POINTER(POINTER(c_capsErrs))]
-_caps.caps_fillVertexSets.restype = c_int
-
-_caps.caps_makeVertexSet.argtypes = [c_capsObj, c_capsObj, c_char_p, POINTER(c_capsObj)]
+_caps.caps_makeVertexSet.argtypes = [c_capsObj, c_capsObj, c_char_p, POINTER(c_capsObj), POINTER(c_int), POINTER(POINTER(c_capsErrs))]
 _caps.caps_makeVertexSet.restype = c_int
 
 _caps.caps_vertexSetInfo.argtypes = [c_capsObj, POINTER(c_int), POINTER(c_int), POINTER(c_capsObj), POINTER(c_capsObj)]
@@ -387,26 +433,34 @@ _caps.caps_outputVertexSet.restype = c_int
 _caps.caps_fillUnVertexSet.argtypes = [c_capsObj, c_int, POINTER(c_double)]
 _caps.caps_fillUnVertexSet.restype = c_int
 
-_caps.caps_makeDataSet.argtypes = [c_capsObj, c_char_p, enum_capsdMethod, c_int, POINTER(c_capsObj)]
+_caps.caps_makeDataSet.argtypes = [c_capsObj, c_char_p, enum_capsfType, c_int, POINTER(c_capsObj), POINTER(c_int), POINTER(POINTER(c_capsErrs))]
 _caps.caps_makeDataSet.restype = c_int
 
-_caps.caps_initDataSet.argtypes = [c_capsObj, c_int, POINTER(c_double)]
+_caps.caps_dataSetInfo.argtypes = [c_capsObj, POINTER(enum_capsfType), POINTER(c_capsObj), POINTER(enum_capsdMethod)]
+_caps.caps_dataSetInfo.restype = c_int
+
+_caps.caps_linkDataSet.argtypes = [c_capsObj, enum_capsdMethod, c_capsObj, POINTER(c_int), POINTER(POINTER(c_capsErrs))];
+_caps.caps_linkDataSet.restype = c_int
+
+_caps.caps_initDataSet.argtypes = [c_capsObj, c_int, POINTER(c_double), POINTER(c_int), POINTER(POINTER(c_capsErrs))]
 _caps.caps_initDataSet.restype = c_int
 
-_caps.caps_setData.argtypes = [c_capsObj, c_int, c_int, POINTER(c_double), c_char_p]
+_caps.caps_setData.argtypes = [c_capsObj, c_int, c_int, POINTER(c_double), c_char_p, POINTER(c_int), POINTER(POINTER(c_capsErrs))]
 _caps.caps_setData.restype = c_int
 
-_caps.caps_getData.argtypes = [c_capsObj, POINTER(c_int), POINTER(c_int), POINTER(POINTER(c_double)), POINTER(c_char_p)]
+_caps.caps_getData.argtypes = [c_capsObj, POINTER(c_int), POINTER(c_int), POINTER(POINTER(c_double)), POINTER(c_char_p), POINTER(c_int), POINTER(POINTER(c_capsErrs))]
 _caps.caps_getData.restype = c_int
-
-_caps.caps_getHistory.argtypes = [c_capsObj, POINTER(c_capsObj), POINTER(c_int), POINTER(POINTER(c_capsOwn))]
-_caps.caps_getHistory.restype = c_int
 
 _caps.caps_getDataSets.argtypes = [c_capsObj, c_char_p, POINTER(c_int), POINTER(POINTER(c_capsObj))]
 _caps.caps_getDataSets.restype = c_int
 
-_caps.caps_triangulate.argtypes = [c_capsObj, POINTER(c_int), POINTER(POINTER(c_int)), POINTER(c_int), POINTER(POINTER(c_int))]
-_caps.caps_triangulate.restype = c_int
+_caps.caps_getTriangles.argtypes = [c_capsObj, POINTER(c_int), POINTER(POINTER(c_int)), 
+                                               POINTER(c_int), POINTER(POINTER(c_int)),
+                                               POINTER(c_int), POINTER(POINTER(c_int)),
+                                               POINTER(c_int), POINTER(POINTER(c_int))]
+_caps.caps_getTriangles.restype = c_int
+
+# value functions 
 
 _caps.caps_getValue.argtypes = [c_capsObj, POINTER(enum_capsvType), POINTER(c_int), POINTER(c_int), POINTER(POINTER(None)), POINTER(POINTER(c_int)), POINTER(c_char_p), POINTER(c_int), POINTER(POINTER(c_capsErrs))]
 _caps.caps_getValue.restype = c_int
@@ -420,13 +474,13 @@ _caps.caps_setValue.restype = c_int
 _caps.caps_getLimits.argtypes = [c_capsObj, POINTER(enum_capsvType), POINTER(POINTER(None)), POINTER(c_char_p)]
 _caps.caps_getLimits.restype = c_int
 
-_caps.caps_setLimits.argtypes = [c_capsObj, enum_capsvType, POINTER(None), c_char_p]
+_caps.caps_setLimits.argtypes = [c_capsObj, enum_capsvType, POINTER(None), c_char_p, POINTER(c_int), POINTER(POINTER(c_capsErrs))]
 _caps.caps_setLimits.restype = c_int
 
 _caps.caps_getValueProps.argtypes = [c_capsObj, POINTER(c_int), POINTER(c_int), POINTER(enum_capsFixed), POINTER(enum_capsFixed), POINTER(enum_capsNull)]
 _caps.caps_getValueProps.restype = c_int
 
-_caps.caps_setValueProps.argtypes = [c_capsObj, c_int, enum_capsFixed, enum_capsFixed, enum_capsNull]
+_caps.caps_setValueProps.argtypes = [c_capsObj, c_int, enum_capsFixed, enum_capsFixed, enum_capsNull, POINTER(c_int), POINTER(POINTER(c_capsErrs))]
 _caps.caps_setValueProps.restype = c_int
 
 _caps.caps_convertValue.argtypes = [c_capsObj, c_double, c_char_p, POINTER(c_double)]
@@ -435,19 +489,28 @@ _caps.caps_convertValue.restype = c_int
 _caps.caps_transferValues.argtypes = [c_capsObj, enum_capstMethod, c_capsObj, POINTER(c_int), POINTER(POINTER(c_capsErrs))]
 _caps.caps_transferValues.restype = c_int
 
-_caps.caps_makeLinkage.argtypes = [c_capsObj, enum_capstMethod, c_capsObj]
-_caps.caps_makeLinkage.restype = c_int
+_caps.caps_linkValue.argtypes = [c_capsObj, enum_capstMethod, c_capsObj, POINTER(c_int), POINTER(POINTER(c_capsErrs))]
+_caps.caps_linkValue.restype = c_int
 
-_caps.caps_hasDot.argtypes = [c_capsObj, POINTER(c_int), POINTER(POINTER(c_char_p))]
-_caps.caps_hasDot.restype = c_int
+_caps.caps_hasDeriv.argtypes = [c_capsObj, POINTER(c_int), POINTER(POINTER(c_char_p)), POINTER(c_int), POINTER(POINTER(c_capsErrs))]
+_caps.caps_hasDeriv.restype = c_int
 
-_caps.caps_getDot.argtypes = [c_capsObj, c_char_p, POINTER(c_int), POINTER(c_int), POINTER(POINTER(c_double)), POINTER(c_int), POINTER(POINTER(c_capsErrs))]
-_caps.caps_getDot.restype = c_int
+_caps.caps_getDeriv.argtypes = [c_capsObj, c_char_p, POINTER(c_int), POINTER(c_int), POINTER(POINTER(c_double)), POINTER(c_int), POINTER(POINTER(c_capsErrs))]
+_caps.caps_getDeriv.restype = c_int
 
 # units
 
-_caps.caps_convert.argtypes = [c_char_p, c_double, c_char_p, POINTER(c_double)]
+_caps.caps_convert.argtypes = [c_int, c_char_p, POINTER(c_double), c_char_p, POINTER(c_double)]
 _caps.caps_convert.restype = c_int
+
+_caps.caps_unitParse.argtypes = [c_char_p]
+_caps.caps_unitParse.restype = c_int
+
+_caps.caps_unitConvertible.argtypes = [c_char_p, c_char_p]
+_caps.caps_unitConvertible.restype = c_int
+
+_caps.caps_unitCompare.argtypes = [c_char_p, c_char_p, POINTER(c_int)]
+_caps.caps_unitCompare.restype = c_int
 
 _caps.caps_unitMultiply.argtypes = [c_char_p, c_char_p, POINTER(c_char_p)]
 _caps.caps_unitMultiply.restype = c_int
@@ -455,16 +518,33 @@ _caps.caps_unitMultiply.restype = c_int
 _caps.caps_unitDivide.argtypes = [c_char_p, c_char_p, POINTER(c_char_p)]
 _caps.caps_unitDivide.restype = c_int
 
+_caps.caps_unitRaise.argtypes = [c_char_p, c_int, POINTER(c_char_p)]
+_caps.caps_unitRaise.restype = c_int
+
+_caps.caps_unitOffset.argtypes = [c_char_p, c_double, POINTER(c_char_p)]
+_caps.caps_unitOffset.restype = c_int
+
 # others
 
-_caps.printObjects.argtypes = [c_capsObj, c_int]
-_caps.printObjects.restype = None
+_caps.caps_externSignal.argtypes = []
+_caps.caps_externSignal.restype = None
+
+_caps.caps_rmLock.argtypes = []
+_caps.caps_rmLock.restype = None
+
+_caps.caps_printObjects.argtypes = [c_capsObj, c_capsObj, c_int]
+_caps.caps_printObjects.restype = None
+
+_caps.caps_outputObjects.argtypes = [c_capsObj, POINTER(c_char_p)]
+_caps.caps_outputObjects.restype = c_int
+
 
 # =============================================================================
 
 # Extract CAPS error codes
 _caps_error_codes = {}
 globalDict = globals()
+minErr = 0
 with open(os.path.join(_ESP_ROOT,"include","capsErrors.h")) as fp:
     lines = fp.readlines()
     for line in lines:
@@ -474,11 +554,23 @@ with open(os.path.join(_ESP_ROOT,"include","capsErrors.h")) as fp:
         _caps_error_codes[int(define[2])] = define[1]
         globalDict[define[1]] = int(define[2])
         __all__.append(define[1])
+        minErr = min(int(define[2]), minErr)
+globalDict["CAPS_CLOSED"] = minErr
 del fp
 del lines
 del define
+del globalDict
+del minErr
 
 # Extract CAPS enums
+class oFlag:   
+    oFileName  = 0
+    oMODL      = 1
+    oEGO       = 2
+    oPhaseName = 3
+    oContinue  = 4
+    oReload    = 5
+
 __all__.append("oType")
 class oType:
      BODIES     = -2
@@ -493,18 +585,18 @@ class oType:
 
 __all__.append("sType")
 class sType:
-    NONE        = 0
-    STATIC      = 1
-    PARAMETRIC  = 2
-    GEOMETRYIN  = 3
-    GEOMETRYOUT = 4
-    BRANCH      = 5
-    PARAMETER   = 6
-    USER        = 7
-    ANALYSISIN  = 8
-    ANALYSISOUT = 9
-    CONNECTED   = 10
-    UNCONNECTED = 11
+    NONE         = 0
+    STATIC       = 1
+    PARAMETRIC   = 2
+    GEOMETRYIN   = 3
+    GEOMETRYOUT  = 4
+    PARAMETER    = 5
+    USER         = 6
+    ANALYSISIN   = 7
+    ANALYSISOUT  = 8
+    CONNECTED    = 9
+    UNCONNECTED  = 10
+    ANALYSISDYNO = 11
 
 __all__.append("eType")
 class eType:
@@ -514,6 +606,15 @@ class eType:
     CERROR       =  2
     CSTAT        =  3
 
+__all__.append("fType")
+class fType:
+    FieldIn     = 0
+    FieldOut    = 1
+    GeomSens    = 2
+    TessSens    = 3
+    User        = 4
+    BuiltIn     = 5
+
 __all__.append("vType")
 class vType:
     Boolean   = 0
@@ -522,9 +623,9 @@ class vType:
     String    = 3
     Tuple     = 4
     Value     = 5
-    DoubleDot = 6
+    DoubleDeriv = 6
     # extra value for Python API
-    Dict      = 7
+    JsonDict  = 7
     Null      = 8
 
 __all__.append("vDim")
@@ -553,12 +654,8 @@ class tMethod:
 
 __all__.append("dMethod")
 class dMethod:
-    BuiltIn     = 0
-    Sensitivity = 1
-    Analysis    = 2
-    Interpolate = 3
-    Conserve    = 4
-    User        = 5
+    Interpolate = 0
+    Conserve    = 1
 
 __all__.append("State")
 class State:
@@ -588,6 +685,33 @@ del fp
 del lines
 del define
 del code
+
+# =============================================================================
+
+class UnitTupleEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, Quantity):
+            return self.default( (obj._value, str(obj._units)) )
+        return obj
+
+class UnitStringEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, Unit):
+            return self.default( str(obj) )
+        return obj
+# =============================================================================
+
+def signal_handler(sig, frame):
+    _caps.caps_rmLock()
+    sys.exit(sig)
+
+_caps.caps_externSignal()
+signal.signal(signal.SIGSEGV, signal_handler)
+signal.signal(signal.SIGINT , signal_handler)
+signal.signal(signal.SIGABRT, signal_handler)
+if not sys.platform.startswith('win32'):
+    signal.signal(signal.SIGHUP , signal_handler)
+    signal.signal(signal.SIGBUS , signal_handler)
 
 # =============================================================================
 
@@ -663,7 +787,7 @@ class CAPSError(Exception):
 def _raiseStatus(status, msg=None, errors=None):
     # Check status flag returned by CAPS
     
-    if status >= CAPS_SUCCESS: return
+    if status >= CAPS_SUCCESS and status <= CAPS_NOTFOUND: return
 
     raise CAPSError(status, msg=msg, errors=errors)
 
@@ -687,21 +811,13 @@ def _raiseStatus(status, msg=None, errors=None):
 #     else:
 #         raise CAPSError(msg='c_obj must be a c_capsObj, c_capsOwn, or c_capsErrs instance')
 
-# =============================================================================
-
-# Free CAPS owner.
-def _caps_freeOwner(owner):
-    
-    stat = _caps.caps_freeOwner(owner)
-    if stat: _raiseStatus(stat, msg = "while freeing CAPS capsOwner")
-
-#=============================================================================-
+#==============================================================================
 __all__.append("capsOwn")
 class capsOwn:
     """
     Wrapper to represent a capsOwn structure
     """
-    def __init__(self, owner, freeOwner=False):
+    def __init__(self, owner, problemObj):
         """
         Constructor for internal use only
 
@@ -710,22 +826,13 @@ class capsOwn:
         owner: 
             c_capsOwn instance
 
-        freeOwner: 
-            if true, caps_freeOwner is called during garbage collection
+        problemObj:
+            capsObj Problem Object
         """
-        self._finalize = None
-        if not isinstance(owner, c_capsOwn): raise CAPSError(msg=CAPSError.InternalError+"owner must be type c_capsOwn")
         self._owner = owner
-        if freeOwner:
-            self._finalize = egads.finalize(self, _caps_freeOwner, self._owner)
+        self._problemObj = problemObj
 
-#=============================================================================-
-    def __del__(self):
-        # free the owner
-        if self._finalize is not None:
-            self._finalize()
-
-#=============================================================================-
+#==============================================================================
     def info(self):
         """
         Retrieve owner information
@@ -751,45 +858,33 @@ class capsOwn:
         sNum:
             the sequence number (always increasing)
         """
+        if self.problemObj._obj is None:
+            _raiseStatus(CAPS_CLOSED, "The CAPS Problem object has been closed")
+
+        phase  = c_char_p()
         pname  = c_char_p()
         pID    = c_char_p()
         userID = c_char_p()
         nLines = c_int()
-        plines  = POINTER(c_char_p)()
+        plines = POINTER(c_char_p)()
         pdatetime = (c_short*6)()
-        sNum   = c_ulong()
-        # EnCAPS
-#         stat = _caps.caps_ownerInfo(self._owner, ctypes.byref(pname), ctypes.byref(pID),
-#                                     ctypes.byref(userID), ctypes.byref(nLines), ctypes.byref(plines),
-#                                     pdatetime, ctypes.byref(sNum))
-#         if stat: _raiseStatus(stat)
-# 
-#         name   = _decode(pname.value)
-#         pID    = pID.value.decode()
-#         userID = userID.value.decode()
-#         lines = []
-#         for i in range(nLines.value):
-#             lines.append(plines[i].value.decode())
-#         datetime = list(pdatetime[:])
-#         sNum     = sNum.value
-# 
-#         return name, pID, userID, lines, datetime, sNum
-
-        # CAPS
-        stat = _caps.caps_ownerInfo(self._owner, ctypes.byref(pname), ctypes.byref(pID),
-                                    ctypes.byref(userID), 
-                                    pdatetime, ctypes.byref(sNum))
+        sNum   = CAPSLONG()
+        stat = _caps.caps_ownerInfo(self._problemObj._obj, self._owner, ctypes.byref(phase),
+                                    ctypes.byref(pname), ctypes.byref(pID), ctypes.byref(userID), ctypes.byref(nLines), 
+                                    ctypes.byref(plines), pdatetime, ctypes.byref(sNum))
         if stat: _raiseStatus(stat)
-
-        name     = _decode(pname.value)
-        pID      = _decode(pID.value)
-        userID   = _decode(userID.value)
+ 
+        phase  = _decode(phase.value)
+        pname  = _decode(pname.value)
+        pID    = _decode(pID.value)
+        userID = _decode(userID.value)
+        lines  = []
+        for i in range(nLines.value):
+            lines.append(_decode(plines[i].value))
         datetime = list(pdatetime[:])
         sNum     = sNum.value
-
-        return name, pID, userID, datetime, sNum
-        # end CAPS
-
+ 
+        return pname, pID, userID, lines, datetime, sNum
 
 # =============================================================================
 
@@ -799,13 +894,13 @@ def _caps_freeError(errors):
     stat = _caps.caps_freeError(errors)
     if stat: _raiseStatus(stat, msg = "while freeing CAPS capsErrs structure")
 
-#=============================================================================-
+#==============================================================================
 __all__.append("capsErrs")
 class capsErrs:
     """
     Wrapper to represent a list of c_capsErrs structures
     """
-    def __init__(self, nErr, errors, errObj):
+    def __init__(self, nErr, errors):
         """
         Constructor for internal use only
 
@@ -815,27 +910,22 @@ class capsErrs:
             c_int number of errors
             
         errors:
-            ctypes.POINTER(c_capsErrs) instance of errors
-
-        errObj:
-            c_capsObj offending CAPS object
+            POINTER(c_capsErrs) instance of errors
         """
         self._finalize = None
         if not isinstance(nErr, c_int): raise CAPSError(msg=CAPSError.InternalError+"nErr must be type c_int")
-        if not isinstance(errors, ctypes.POINTER(c_capsErrs)): raise CAPSError(msg=CAPSError.InternalError+"errors must be type ctypes.POINTER(c_capsErr)")
-        if not isinstance(errObj, c_capsObj): raise CAPSError(msg=CAPSError.InternalError+"obj must be type c_capsObj")
+        if not isinstance(errors, POINTER(c_capsErrs)): raise CAPSError(msg=CAPSError.InternalError+"errors must be type POINTER(c_capsErr)")
         self._nErr = nErr.value
         self._errors = errors
-        self._errObj = errObj
         self._finalize = egads.finalize(self, _caps_freeError, self._errors)
 
-#=============================================================================-
+#==============================================================================
     def __del__(self):
         # free the errors
         if self._finalize is not None:
             self._finalize()
 
-#=============================================================================-
+#==============================================================================
     def info(self):
         """
         Retrieve error information
@@ -846,9 +936,11 @@ class capsErrs:
         """
         lines = []
         for i in range(self._nErr):
+            eType = c_int()
             nLines = c_int()
-            plines  = ctypes.POINTER(c_char_p)()
-            stat = _caps.caps_errorInfo(self._errors, c_int(i+1), self._errObj,
+            plines = POINTER(c_char_p)()
+            perrObj = POINTER(c_capsObj)()
+            stat = _caps.caps_errorInfo(self._errors, c_int(i+1), ctypes.byref(perrObj), ctypes.byref(eType), 
                                         ctypes.byref(nLines), ctypes.byref(plines))
             if stat: _raiseStatus(stat)
             
@@ -860,62 +952,133 @@ class capsErrs:
 # =============================================================================
 
 # Close a CAPS problem.
-def _close_capsProblem(problemObj):
+def _close_capsProblem(obj, problemState):
     
-    stat = _caps.caps_close(problemObj)
+    stat = _caps.caps_close(obj, 0, None)
     if stat: _raiseStatus(stat, msg = "while closing CAPS Problem")
+    problemState.closed = True
 
-#=============================================================================-
+#==============================================================================
 
 # free a CAPS Object (only User defined Value and Bound Objects)
-def _caps_delete(obj):
+def _caps_delete(obj, problemState):
     
-    stat = _caps.caps_delete(obj)
-    if stat: _raiseStatus(stat, msg = "while deleting CAPS Object")
+    # Check to see if the capsProblem has already been closed and freed this object
+    if problemState.closed: return
+    
+    #stat = _caps.caps_delete(obj)
+    #if stat: _raiseStatus(stat, msg = "while deleting CAPS Object")
 
-#=============================================================================-
-__all__.extend("open")
-def open(pname, ptr):
+# =============================================================================
+def checkClosed(func):
+    """Checks if the problem object has already been closed"""
+    @functools.wraps(func)
+    def wrapper_checkClosed(*args, **kwargs):
+        self = args[0]
+        if self.problemObj()._obj is None:
+            _raiseStatus(CAPS_CLOSED, "The CAPS Problem object has been closed")
+        return func(*args, **kwargs)
+    return wrapper_checkClosed
+
+#==============================================================================
+__all__.append("phaseState")
+def phaseState(prName, phName):
+    """
+    Check State of CAPS Problem Phase
+
+    Parameters
+    ----------
+    prName:
+        path ending with the CAPS problem name
+
+    phName:
+        the current phase name (None is equivalent to 'Scratch')
+
+    Returns
+    -------
+    bitFlag:
+       the returned state (additive): 1 – locked, 2 – closed
+    """
+    prName = prName.encode() if isinstance(prName, str) else prName
+    phName = phName.encode() if isinstance(phName, str) else phName
+
+    bitFlag = c_int()
+    stat = _caps.caps_phaseState(prName, phName, ctypes.byref(bitFlag))
+    if stat: _raiseStatus(stat)
+
+    return bitFlag.value
+
+#==============================================================================
+__all__.append("open")
+def open(prName, phName, flag, ptr, outLevel=1):
     """
     Open a CAPS Problem Object
 
     Parameters
     ----------
-    pname:
-        the full-path ending with the CAPS problem name
+    prName:
+        path ending with the CAPS problem name
         if exists the stored data initializes the problem, 
         otherwise the directory is created
 
+    phName:
+        the current phase name (None is equivalent to 'Scratch')
+
     ptr:
-        the full-path input file name (not needed when restarting) - based on file extension: 
+        path input file name (not needed when restarting) - based on file extension: 
         *.csm initialize the project using the specified OpenCSM file
         *.egads initialize the project based on the static geometry
         - or - 
         pointer to an OpenCSM Model Structure - left open after caps_close
-    """    
-    pname = pname.encode() if isinstance(pname, str) else pname
-    if isinstance(ptr,(str, bytes)):
-        ptr = ptr.encode()
-        flag = 0
-        # EnCAPS
-        #ptr = ctypes.cast(ptr, c_void_p)
 
+    flag:
+        oFlag.oFileName  – ptr is a filename, 
+        oFlag.oMODL      – ptr is an OpenCSM Model Structure, 
+        oFlag.oEGO       – ptr is a Model ego, 
+        oFlag.oPhaseName – ptr is the starting phase name, 
+        oFlag.oContinue  – continuation (ptr can be NULL)
+        oFlag.oReload    – ptr is the starting phase name with reloading of OpenCSM file
+
+    outLevel:
+        0 - minimal, 1 - standard (default), 2 - debug
+        
+    Returns
+    -------
+        a capsObj CAPS Problem Object
+    """
+    prName = prName.encode() if isinstance(prName, str) else prName
+    phName = phName.encode() if isinstance(phName, str) else phName
+    if isinstance(ptr, (str, bytes)) or \
+       (version_info.major <= 2 and isinstance(ptr, unicode)):
+        pptr = c_char_p(ptr if isinstance(ptr, bytes) else ptr.encode())
+        pptr = ctypes.cast(pptr, c_void_p)
+    elif hasattr(ptr, "_modl"):
+        flag=oFlag.oMODL
+        if not isinstance(ptr._modl, c_void_p):
+            raise CAPSError(CAPS_BADVALUE, "ptr has _modl that is not a ctypes.c_void_p. Is it an intance of pyOCSM.Ocsm? ptr = {!r}".format(ptr))
+        pptr = ctypes.cast(ptr._modl, c_void_p)
+    else:
+        raise CAPSError(CAPS_BADVALUE, "ptr type should be str, bytes, or pyOCSM.Ocsm: ptr = {!r}".format(ptr))
+
+    nErr = c_int()
+    errs = POINTER(c_capsErrs)()
     problemObj = c_capsObj()
-    # EnCAPS
-    #stat = _caps.caps_open(pname, c_int(flag), ptr, ctypes.byref(self._obj))
-    # CAPS
-    stat = _caps.caps_open(ptr, pname, ctypes.byref(problemObj))
-    # end CAPS
-    if stat: _raiseStatus(stat)
+    stat = _caps.caps_open(prName, phName, c_int(flag), pptr, c_int(outLevel), ctypes.byref(problemObj), 
+                           ctypes.byref(nErr), ctypes.byref(errs))
+    if stat:
+        msg = "Failed to open Problem with prName={!r}, phName={!r}, flag={!r}".format(_decode(prName),_decode(phName),flag)
+        if flag != oFlag.oMODL:
+            msg += ", and ptr={!r}".format(ptr)
+        _raiseStatus(stat, msg=msg, errors=capsErrs(nErr, errs))
 
     return capsObj(problemObj, None, deleteFunction=_close_capsProblem)
 
-#=============================================================================-
+#==============================================================================
 class capsObj:
     """
     Base class Wrapper to represent a CAPS Object
     """
-#=============================================================================-
+#==============================================================================
     def __init__(self, obj, problemObj, deleteFunction):
         """
         Constructor only intended for internal use.
@@ -936,34 +1099,81 @@ class capsObj:
         if not isinstance(obj, c_capsObj): raise CAPSError(msg=CAPSError.InternalError+"obj must be type c_capsObj")
         self._obj = obj
         self._problemObj = problemObj
-        if deleteFunction is not None:
-            self._finalize = egads.finalize(self, deleteFunction, self._obj)
+                
+        if problemObj is not None:
+            problemState = problemObj._problemState
+        else:
+            class ProblemState:
+                pass
+            self._problemState = ProblemState()
+            self._problemState.closed = False
+            problemState = self._problemState
 
-#=============================================================================-
+        if deleteFunction is not None:
+            self._finalize = egads.finalize(self, deleteFunction, obj, problemState)
+
+#==============================================================================
     def __del__(self):
-        # free the value object
+        # free the object
         if self._finalize is not None:
             self._finalize()
+        self._obj = None
+        self._finalize = None
+        self._problemObj = None
 
-#=============================================================================-
+#==============================================================================
+    @checkClosed
+    def close(self, complete = 0, phName = None):
+        """
+        Closes a Problem object
+        
+        Parameters
+        ----------
+        self:
+           a CAPS Problem Object
+
+        complete:
+            0 – the phase is not complete, 1 – the phase is completed and should not be modified
+
+        phName:
+            Phase Name of the Scratch phase is closed as complete
+        """
+        # detach the finalizer
+        if self._finalize is not None:
+            self._finalize.detach()
+
+        phName   = phName.encode() if isinstance(phName, str) else phName
+
+        stat = _caps.caps_close(self._obj, c_int(complete), phName)
+        if stat: _raiseStatus(stat, msg = "while closing CAPS Problem")
+
+        self._obj = None
+        self._finalize = None
+        self._problemObj = None
+        self._problemState.closed = True
+
+#==============================================================================
+    @checkClosed
     def __eq__(self, obj):
         """
         checks pointer equality of underlying c_capsObj memory address
         """
         return isinstance(obj, capsObj) and ctypes.addressof(obj._obj.contents) == ctypes.addressof(self._obj.contents)
 
-#=============================================================================-
+#==============================================================================
+    @checkClosed
     def __ne__(self, obj):
         return not self == obj
 
-#=============================================================================-
+#==============================================================================
     def problemObj(self):
         """
         Returns the problemObj associated with this capsObj (self of self is a problemObj)
         """
         return self if self._problemObj is None else self._problemObj
 
-#=============================================================================-
+#==============================================================================
+    @checkClosed
     def info(self):
         """
         Return information about the object
@@ -1003,11 +1213,12 @@ class capsObj:
         stype  = stype.value
         link   = capsObj(link  , self.problemObj(), None) if link   else None
         parent = capsObj(parent, self.problemObj(), None) if parent else None
-        last   = capsOwn(last)                            if last   else None
+        last   = capsOwn(last, self.problemObj())         if last   else None
         
         return name, otype, stype, link, parent, last
 
-#=============================================================================-
+#==============================================================================
+    @checkClosed
     def size(self, type, stype):
         """
         Children sizing information from a Patent Object
@@ -1029,10 +1240,11 @@ class capsObj:
         errs = POINTER(c_capsErrs)()
         stat = _caps.caps_size(self._obj, c_int(type), c_int(stype), ctypes.byref(size), 
                                ctypes.byref(nErr), ctypes.byref(errs))
-        if stat: _raiseStatus(stat, errors=capsErrs(nErr, errs, self._obj))
+        if stat: _raiseStatus(stat, errors=capsErrs(nErr, errs))
         return size.value
 
-#=============================================================================-
+#==============================================================================
+    @checkClosed
     def childByName(self, otype, stype, name):
         """
         Retrieve a CAPS child object by name
@@ -1056,12 +1268,16 @@ class capsObj:
         name   = name.encode() if isinstance(name,str) else name
         child  = c_capsObj()
         units  = c_char_p()
+        nErr = c_int()
+        errs = POINTER(c_capsErrs)()
         stat = _caps.caps_childByName(self._obj, c_int(otype), c_int(stype), 
-                                      c_char_p(name), ctypes.byref(child))
-        if stat: _raiseStatus(stat)
+                                      c_char_p(name), ctypes.byref(child),
+                                      ctypes.byref(nErr), ctypes.byref(errs))
+        if stat: _raiseStatus(stat, errors=capsErrs(nErr, errs))
         return capsObj(child, self.problemObj(), None)
 
-#=============================================================================-
+#==============================================================================
+    @checkClosed
     def childByIndex(self, otype, stype, index):
         """
         Retrieve a CAPS child object by name
@@ -1089,41 +1305,28 @@ class capsObj:
         if stat: _raiseStatus(stat)
         return capsObj(child, self.problemObj(), None)
 
-#=============================================================================-
-    def getHistory(self):
-        """
-        Retrieve history of a CAPS Object
+#==============================================================================
+    # @checkClosed
+    # def getHistory(self):
+    #     """
+    #     Retrieve history of a CAPS Object
+    #
+    #     Returns
+    #     -------
+    #         list of capsOwn structures
+    #     """
+    #     nhist = c_int()
+    #     phist = POINTER(c_capsOwn)()
+    #     stat = _caps.caps_getHistory(self._obj, ctypes.byref(nhist), ctypes.byref(phist))
+    #     if stat: _raiseStatus(stat)
+    #
+    #     nhist = nhist.value
+    #     hist = [capsOwn(phist[i]) for i in range(nhist)]
+    #
+    #     return hist
 
-        Returns
-        -------
-            list of capsOwn structures
-        """
-        nhist = c_int()
-        phist  = ctypes.POINTER(c_capsOwn)()
-        stat = _caps.caps_getHistory(self._obj, ctypes.byref(nhist), ctypes.byref(phist))
-        if stat: _raiseStatus(stat)
-        
-        nhist = nhist.value
-        hist = [None]*nhist
-        for i in range(nhist):
-            hist[i] = capsOwn(phist[i])
-
-        return hist
-
-#=============================================================================-
-    def addHistory(self, hist):
-        """
-        Add history to a CAPS Object
-
-        Parameters
-        ----------
-        hist:
-            a CAPS capsOwn structure to add to the history for the Object 
-        """
-        stat = _caps.caps_addHistory(self._obj, hist._owner)
-        if stat: _raiseStatus(stat)
-
-#=============================================================================-
+#==============================================================================
+    @checkClosed
     def attrByName(self, name):
         """
         Retrieve an attribute by name
@@ -1148,7 +1351,8 @@ class capsObj:
 
         return capsObj(attr, self.problemObj(), deleteFunction=deleteFunc)
 
-#=============================================================================-
+#==============================================================================
+    @checkClosed
     def attrByIndex(self, index):
         """
         Retrieve an Attribute by index
@@ -1171,7 +1375,8 @@ class capsObj:
 
         return capsObj(attr, self.problemObj(), deleteFunction=deleteFunc)
 
-#=============================================================================-
+#==============================================================================
+    @checkClosed
     def setAttr(self, attr, name=None):
         """
         Set an Attribute
@@ -1191,7 +1396,8 @@ class capsObj:
         stat = _caps.caps_setAttr(self._obj, name, attr._obj)
         if stat: _raiseStatus(stat)
 
-#=============================================================================-
+#==============================================================================
+    @checkClosed
     def deleteAttr(self, name):
         """
         Set an Attribute
@@ -1207,7 +1413,30 @@ class capsObj:
         stat = _caps.caps_deleteAttr(self._obj, name)
         if stat: _raiseStatus(stat)
 
-#=============================================================================-
+#==============================================================================
+    @checkClosed
+    def journalState(self):
+        """
+        Get the journal state for a problem object
+        
+        Note: Needed to determine if restarting when explicitly executing analyses.
+
+        Parameters
+        ----------
+        self:
+           a CAPS Problem Object
+
+        Returns
+        -------
+        True if Journaling False otherwise
+        """
+        stat = _caps.caps_journalState(self._obj)
+        if stat == 0: return False
+        if stat == 4: return True
+        _raiseStatus(stat)
+
+#==============================================================================
+    @checkClosed
     def setOutLevel(self, outlevel=1):
         """
         Sets the CAPS verbosity level
@@ -1225,7 +1454,51 @@ class capsObj:
         if stat < 0: _raiseStatus(stat)
         return stat
 
-#=============================================================================-
+#==============================================================================
+    @checkClosed
+    def getRootPath(self):
+        """
+        Get Problem root
+
+        Parameters
+        ----------
+        self: 
+            a CAPS Problem Object
+
+        Returns
+        -------
+            the file path to find the root of the Problem/Phase directory structure 
+            if on Windows it will contain the drive
+        """
+        root  = c_char_p()
+        stat = _caps.caps_getRootPath(self._obj, ctypes.byref(root))
+        if stat: _raiseStatus(stat)
+        return _decode(root.value)
+
+#==============================================================================
+    # @checkClosed
+    def intentPhrase(self, lines):
+        """
+        Get Problem root
+    
+        Parameters
+        ----------
+        self: 
+            a CAPS Problem Object
+    
+        lines:
+            List of intent phrases for history tracking
+        """
+        nlines = len(lines)
+        plines = (c_char_p*nlines)()
+        for i in range(nlines):
+            plines[i] = lines[i].encode() if isinstance(lines[i], str) else lines[i]
+    
+        stat = _caps.caps_intentPhrase(self._obj, c_int(nlines), plines)
+        if stat: _raiseStatus(stat)
+
+#==============================================================================
+    @checkClosed
     def bodyByIndex(self, index):
         """
         Retrived an EGADS body ego based on index
@@ -1241,17 +1514,18 @@ class capsObj:
             the returned EGADS Body Object
         
         units:
-            the string declaring the length units - None for unitless values
+            the Unit declaring the length units - None for unitless values
         """
         body   = egads.c_ego()
         units  = c_char_p()
         stat = _caps.caps_bodyByIndex(self._obj, c_int(index), 
                                       ctypes.byref(body), ctypes.byref(units))
         if stat: _raiseStatus(stat)
-        if units: units = _decode(units.value)
+        if units: units = Unit(_decode(units.value))
         return egads.c_to_py(body), units
 
-#=============================================================================-
+#==============================================================================
+    @checkClosed
     def getBodies(self):
         """
         Retrived EGADS ego bodies from an Analysis Object
@@ -1264,31 +1538,17 @@ class capsObj:
         nbody  = c_int()
         pbodies = POINTER(egads.c_ego)()
         units  = c_char_p()
-        stat = _caps.caps_getBodies(self._obj, ctypes.byref(nbody), ctypes.byref(pbodies))
-        if stat: _raiseStatus(stat)
+        nErr = c_int()
+        errs = POINTER(c_capsErrs)()
+        stat = _caps.caps_getBodies(self._obj, ctypes.byref(nbody), ctypes.byref(pbodies), ctypes.byref(nErr), ctypes.byref(errs))
+        if stat: _raiseStatus(stat, errors=capsErrs(nErr, errs))
         
         bodies = [egads.ego(egads.c_ego(pbodies[i].contents)) for i in range(nbody.value)]
         
         return bodies
 
-#=============================================================================-
-    def getRootPath(self):
-        """
-        Retrieve the problem root path
-
-        Note: All other uses of path is relative to this point.
-        
-        Returns
-        -------
-            the root path
-        """
-        fullPath = c_char_p()
-        stat = _caps.caps_getRootPath(self._obj, ctypes.byref(fullPath))
-        if stat: _raiseStatus(stat)
-        
-        return _decode(fullPath.value)
-
-#=============================================================================-
+#==============================================================================
+    @checkClosed
     def convertValue(self, inVal, inUnit):
         """
         Perform unit conversion
@@ -1313,17 +1573,19 @@ class capsObj:
         
         return outVal.value
 
-#=============================================================================-
+#==============================================================================
+    @checkClosed
     def reset(self):
         """
         Reset the problem. This is equivalent to a clean slate restart.
         """
         nErr = c_int()
-        errs = ctypes.POINTER(c_capsErrs)()
+        errs = POINTER(c_capsErrs)()
         stat = _caps.caps_reset(self._obj, ctypes.byref(nErr), ctypes.byref(errs))
-        if stat: _raiseStatus(stat, errors=capsErrs(nErr, errs, self._obj))
+        if stat: _raiseStatus(stat, errors=capsErrs(nErr, errs))
 
-#=============================================================================-
+#==============================================================================
+    @checkClosed
     def writeParameters(self, fileName):
         """
         This outputs an OpenCSM Design Parameter file.
@@ -1338,7 +1600,8 @@ class capsObj:
         stat = _caps.caps_writeParameters(self._obj, fileName)
         if stat: _raiseStatus(stat)
 
-#=============================================================================-
+#==============================================================================
+    @checkClosed
     def readParameters(self, fileName):
         """
         This reads an OpenCSM Design Parameter file and overwrites (makes dirty) 
@@ -1354,10 +1617,11 @@ class capsObj:
         stat = _caps.caps_readParameters(self._obj, fileName)
         if stat: _raiseStatus(stat)
 
-#=============================================================================-
-    def writeGeometry(self, fileName):
+#==============================================================================
+    @checkClosed
+    def writeGeometry(self, fileName, flag = 1):
         """
-        Writes all bodies in the Problem Object to a file
+        Writes all bodies in the Problem/Analysis Object to a file
         
         Parameters
         ----------
@@ -1367,43 +1631,20 @@ class capsObj:
             step/stp - STEP File
             brep - OpenCASCADE File
             egads - EGADS file (which includes attribution)
+            
+        flag:
+            the write flag: 0 -- no additional output,  1 -- also write Tessellation Objects for
+            EGADS output (only for Analysis Objects)
         """
         fileName = fileName.encode() if isinstance(fileName,str) else fileName
 
         nErr = c_int()
-        errs = ctypes.POINTER(c_capsErrs)()
-        stat = _caps.caps_writeGeometry(self._obj, c_int(0), fileName, ctypes.byref(nErr), ctypes.byref(errs))
-        if stat: _raiseStatus(stat, errors=capsErrs(nErr, errs, self._obj))
+        errs = POINTER(c_capsErrs)()
+        stat = _caps.caps_writeGeometry(self._obj, c_int(flag), fileName, ctypes.byref(nErr), ctypes.byref(errs))
+        if stat: _raiseStatus(stat, errors=capsErrs(nErr, errs))
 
-#=============================================================================-
-    def setOwner(self, pname, lines, owner):
-        """
-        Sets owner data
-        
-        This increases the Problem's sequence number
-
-        Parameters
-        ----------
-        pname:
-            a pointer to the process name character string 
-
-        lines:
-            a list of strings with the description
-            
-        owner:
-            a capsOwn structure
-        """
-        pname = pname.encode() if isinstance(pname,str) else pname
-        
-        nLines = len(lines)
-        plines = (c_char_p*nLines)()
-        for i in range(nLines):
-            plines[i] = lines[i].encode() if isinstance(lines[i],str) else lines[i]
-
-        stat = _caps.caps_setOwner(self._obj, pname, c_int(nLines), plines, owner._owner)
-        if stat: _raiseStatus(stat)
-
-#=============================================================================-
+#==============================================================================
+    @checkClosed
     def makeValue(self, vname, stype, data):
         """
         Create a value object
@@ -1417,16 +1658,16 @@ class capsObj:
             the Object subtype: Parameter or User
              
         data:
-            the data (may be Units instances) to store in the Value Object
+            the data (may be Unit instances) to store in the Value Object
             if data is string and units is "PATH" - slashes are converted automatically
 
         Returns
         -------
             the CAPS Value Object
         """
-        if isinstance(data, Units):
-            units = data._units
-            data  = data._value
+        if isinstance(data, Quantity):
+            units = str(data._units)
+            data  =     data._value
         else:
             units = None
 
@@ -1452,7 +1693,8 @@ class capsObj:
 
         return capsObj(val, self.problemObj(), deleteFunction=deleteFunc)
 
-#=============================================================================-
+#==============================================================================
+    @checkClosed
     def queryAnalysis(self, aname):
         """
         Query Analysis -- Does not 'load' or create an object
@@ -1491,27 +1733,27 @@ class capsObj:
 
         return nIn, nOut, execute
 
-#=============================================================================-
+#==============================================================================
+    @checkClosed
     def getInput(self):
         raise CAPSError(msg="Implement")
 
-#=============================================================================-
+#==============================================================================
+    @checkClosed
     def getOutput(self):
         raise CAPSError(msg="Implement")
 
-#=============================================================================-
-    def makeAnalysis(self, aname, name, unitSys, intent=None, execute=2, 
-                     # Legacy CAPS arguments
-                     analysisDir=".", parents=None):
+#==============================================================================
+    @checkClosed
+    def makeAnalysis(self, aname, name, unitSys=None, intent=None, execute=1):
         """
         Load Analysis into the Problem
 
         Notes: 
             This causes the the DLL/Shared-Object to be loaded (if not already resident)
 
-            If execute is 2 and the AIM has aimExecute, aimExecute automatically runs after preAnalysis
+            If execute is 1 and the AIM has aimExecute, aimExecute automatically runs after preAnalysis
             and if the execution is not asynchronous aimPostAnalysis is automatically run. 
-            Any errors can be retrieved via a call to checkAnalysis.
 
         Parameters
         ----------
@@ -1529,15 +1771,22 @@ class capsObj:
             the intent string used to pass Bodies to the AIM, None - no filtering
 
         execute: 
-            the execution flag:  0 - no exec, 1 - AIM Execute performs analysis, 2 - Auto Exec
+            the execution flag:  0 - No auto execution, 1 - Auto execute if available
 
         Returns
         -------
             the Analysis Object
         """
         aname   = aname.encode()   if isinstance(aname  ,str) else aname
+        name    = name.encode()    if isinstance(name   ,str) else name
         unitSys = unitSys.encode() if isinstance(unitSys,str) else unitSys
         
+        if unitSys:
+            if isinstance(unitSys,dict):
+                unitSys = json.dumps(unitSys, cls=UnitStringEncoder).encode()
+            else:
+                _raiseStatus(CAPS_UNITERR, "unitSys must be a dictionary: unitSys = {!r}".format(unitSys))
+                
         if isinstance(intent, (str, bytes)):
             intent = intent.encode() if isinstance(intent, str) else intent
         elif isinstance(intent, list):
@@ -1545,54 +1794,23 @@ class capsObj:
 
         if intent == b"": intent = None 
         analysis = c_capsObj()
+        execute = c_int(execute)
         nErr = c_int()
-        errs = ctypes.POINTER(c_capsErrs)()
+        errs = POINTER(c_capsErrs)()
 
-        # EnCAPS
-        #stat = _caps.caps_makeAnalysis(self._obj, aname, unitSys, intent,
-        #                               c_int(execute), ctypes.byref(analysis), 
-        #                               ctypes.byref(nErr), ctypes.byref(errs))
-        #if stat: _raiseStatus(stat, errors=capsErrs(nErr, errs, self._obj))
-        # CAPS
-        
-        # Check to see if directory exists
-        if not os.path.isdir(analysisDir):
-            print("Analysis directory does not currently exist - it will be made automatically")
-            os.makedirs(analysisDir)
+        stat = _caps.caps_makeAnalysis(self._obj, aname, name, unitSys, intent,
+                                       ctypes.byref(execute), ctypes.byref(analysis), 
+                                       ctypes.byref(nErr), ctypes.byref(errs))
+        if stat:
+            msg = "Failed to make AIM '" + _decode(aname) + "'"
+            if name is not None:
+                msg += " with name '" + _decode(name) + "'"
+            _raiseStatus(stat, msg=msg, errors=capsErrs(nErr, errs))
 
-        if parents is None:
-            nparent = 0
-            pparents = None
-        else:
-            if not isinstance(parents, list): parents = [parents]
-            nparent = len(parents)
-            pparents = (c_capsObj*nparent)()
-            for i in range(nparent):
-                pparents[i] = parents[i]._obj
-        analysisDir = analysisDir.encode() if isinstance(analysisDir,str) else analysisDir
-        stat = _caps.caps_makeAnalysis(self._obj, aname, analysisDir, unitSys, intent,
-                                       c_int(nparent), pparents, ctypes.byref(analysis))
-        if stat: _raiseStatus(stat, msg="Failed to load AIM: " + _decode(aname))
-        # end CAPS
-        
         return capsObj(analysis, self.problemObj(), None)
 
-#=============================================================================-
-    def dirtyAnalysis(self):
-        """
-        Resturns the list of dirty Analysis Objects
-        """
-
-        nAobj = c_int()
-        aobjs = POINTER(c_capsObj())
-        stat = _caps.caps_dirtyAnalysis(self._obj, ctypes.byref(aobjs), ctypes.byref(aobjs))
-        if stat: _raiseStatus(stat)
-
-        anlysis = [Analysis(c_capsObj(aobjs[i].contents)) for i in range(nAobj.value)]
- 
-        return anlysis
-
-#=============================================================================-
+#==============================================================================
+    @checkClosed
     def makeBound(self, dim, bname):
         """
         Creates an Bound Object
@@ -1617,7 +1835,8 @@ class capsObj:
 
         return capsObj(bound, self.problemObj(), deleteFunction=_caps_delete)
 
-#=============================================================================-
+#==============================================================================
+    @checkClosed
     def getValue(self):
         """
         Returns the data in the Value Object
@@ -1626,9 +1845,6 @@ class capsObj:
         ----------
         data:
             the data stored in the Value Object
-            
-        units:
-            pointer to the string declaring the units
         """
         vtype   = c_int()
         nrow    = c_int()
@@ -1643,52 +1859,49 @@ class capsObj:
                                    ctypes.byref(nrow), ctypes.byref(ncol), 
                                    ctypes.byref(pdata), ctypes.byref(partial), 
                                    ctypes.byref(units), ctypes.byref(nErr), ctypes.byref(errs))
-        if stat: _raiseStatus(stat, errors=capsErrs(nErr, errs, self._obj))
-        
+        if stat: _raiseStatus(stat, errors=capsErrs(nErr, errs))
+
         vtype = vtype.value
         nrow = nrow.value
         ncol = ncol.value
         units = _decode(units.value) if units else None
 
         if not pdata:
-            return _withUnits(None, units)
+            return None
+
+        # Transpose for column vector
+        if ncol == 1 and nrow > 1:
+            ncol = nrow
+            nrow = 1
 
         if vtype == vType.String:
-            
-            #if nrow*ncol == 1:
-            pdata = ctypes.cast(pdata, c_char_p)
-            data = _decode(pdata.value)
-            return _withUnits(data, units)
+            size = ctypes.sizeof(ctypes.c_char)
+            slen = 0
 
-            #pdata = ctypes.cast(pdata, POINTER(c_char_p))
-
-            #data = [None]*nrow
-            #for i in range(nrow):
-            #    data[i] = [None]*ncol
-            #    for j in range(ncol):
-            #        data[i][j] = _decode(pdata[i*ncol+j])
-
-        if vtype == vType.Boolean or \
-           vtype == vType.Integer or \
-           vtype == vType.Double  or \
-           vtype == vType.DoubleDot:
-            
-            if vtype == vType.Double or vtype == vType.DoubleDot:
-                pdata = ctypes.cast(pdata, ctypes.POINTER(c_double))
-            else:
-                pdata = ctypes.cast(pdata, ctypes.POINTER(c_int))
-        
             data = [None]*nrow
             for i in range(nrow):
                 data[i] = [None]*ncol
                 for j in range(ncol):
-                    data[i][j] = pdata[i*ncol+j]
+                    chars = ctypes.cast(c_void_p(pdata.value + slen*size), c_char_p)
+                    slen += len(chars.value)+1
+                    data[i][j] = _decode(chars.value)
+
+        if vtype == vType.Boolean or \
+           vtype == vType.Integer or \
+           vtype == vType.Double  or \
+           vtype == vType.DoubleDeriv:
+            
+            if vtype == vType.Double or vtype == vType.DoubleDeriv:
+                pdata = ctypes.cast(pdata, POINTER(c_double))
+            else:
+                pdata = ctypes.cast(pdata, POINTER(c_int))
+                
+            data = [[pdata[i*ncol+j] for j in range(ncol)] for i in range(nrow)]
 
         elif vtype == vType.Tuple:
-            pdata = ctypes.cast(pdata, ctypes.POINTER(c_capsTuple))
-            data = [None]*nrow
+            pdata = ctypes.cast(pdata, POINTER(c_capsTuple))
+            data = {}
             for i in range(nrow):
-                data[i] = [None]*ncol
                 for j in range(ncol):
                     
                     name = _decode(pdata[i*ncol+j].name)
@@ -1698,35 +1911,77 @@ class capsObj:
                     except:
                         pass
 
-                    data[i][j] = (name, valu)
+                    if partial and partial[i*ncol+j] == Null.IsNull:
+                        data[name] = None
+                    else:
+                        data[name] = valu
+
+            return data
+
+        if partial:
+            data = [[data[i][j] if partial[i*ncol+j] == Null.NotNull else None for j in range(ncol)] for i in range(nrow)]
 
         if nrow == 1 and ncol == 1:
             data = data[0][0]
-        elif ncol == 1:
-            for i in range(nrow):
-                data[i] = data[i][0]
-        elif nrow == 1:
-            for i in range(nrow):
-                data = data[0][:]
+        elif nrow == 1 or ncol == 1:
+            data = data[0]
 
         return _withUnits(data, units)
 
-#=============================================================================-
+#==============================================================================
+    @checkClosed
+    def getValueUnit(self):
+        """
+        Returns the unit in the Value Object
+        
+        Returns
+        ----------
+        units:
+            Unit instance of the units or None
+        """
+        vtype   = c_int()
+        nrow    = c_int()
+        ncol    = c_int()
+        partial = POINTER(c_int)()
+        pdata   = c_void_p()
+        units   = c_char_p()
+        nErr    = c_int()
+        errs    = POINTER(c_capsErrs)()
+
+        stat = _caps.caps_getValue(self._obj, ctypes.byref(vtype), 
+                                   ctypes.byref(nrow), ctypes.byref(ncol), 
+                                   ctypes.byref(pdata), ctypes.byref(partial), 
+                                   ctypes.byref(units), ctypes.byref(nErr), ctypes.byref(errs))
+        if stat: _raiseStatus(stat, errors=capsErrs(nErr, errs))
+        
+        units = _decode(units.value) if units else None
+        
+        if units is None:
+            return None
+        
+        return Unit(units)
+
+#==============================================================================
     # Determine the equivalent CAPS value object type for a Python object     
-    def _getType(self, data):
+    def _getType(self, data, level = 0):
     
         # If we have a list loop back in to see what type of value the element is 
-        if isinstance(data, list):
-            vtype = self._getType(data[0])
+        if isinstance(data, list) or \
+           isinstance(data, tuple):
+            vtype = self._getType(data[0], level+1)
             for i in range(1,len(data)):
                 # Allow convertsion from Integer to Double
                 vtypei = self._getType(data[i])
+                if vtype == vType.Null:
+                    vtype = vtypei
+                if vtypei == vType.Null:
+                    vtypei = vtype
                 if vtype == vType.Integer and vtypei == vType.Double:
                     vtype = vType.Double
                 if vtypei == vType.Integer and vtype == vType.Double:
                     vtypei = vType.Double
                 if vtype != vtypei:
-                    raise CAPSError(CAPS_BADVALUE, "List entries must all be same type!")
+                    raise CAPSError(CAPS_BADVALUE, "List entries must all be same type! data: {!r}".format(data))
             return vtype
 
         if isinstance(data, bool) and (str(data) == 'True' or str(data) == 'False'):
@@ -1734,41 +1989,50 @@ class capsObj:
         
         if isinstance(data, int):
             return vType.Integer
-        
+
+        if numpy and (isinstance(data, numpy.int32) or isinstance(data, numpy.int64)):
+            return vType.Integer
+
         if isinstance(data, float):
             return vType.Double
-        
-        if isinstance(data, tuple):
-            return vType.Tuple
 
-        if isinstance(data, tuple):
-            return vType.Tuple
+        if numpy and (isinstance(data, numpy.float32) or isinstance(data, numpy.float64)):
+            return vType.Double
+
+        if numpy and isinstance(data, numpy.ndarray):
+            return self._getType(data[0], level+1)
 
         if isinstance(data, str):
             return vType.String
 
         # dictionaries are converted to json strings
         if isinstance(data, dict):
-            return vType.Dict
+            if level == 0:
+                return vType.Tuple
+            else:
+                return vType.JsonDict
 
         if data is None:
             return vType.Null
 
-        raise CAPSError(CAPS_BADVALUE, "Unsupported data type!")
+        raise CAPSError(CAPS_BADVALUE, "Unsupported data type! type: {!r}, data: {!r}".format(type(data), data))
 
-#=============================================================================-
-    def _getShape(self, data):
+#==============================================================================
+    def _getShape(self, vtype, data):
         
-        nrow = 0
-        ncol = 0
-        
-        if not isinstance(data, list):
-            data = [data] # Convert to list
-                
         nrow = len(data)
-            
-        if isinstance(data[0], list):
-            ncol = len(data[0]) 
+        ncol = 1
+        
+        if isinstance(data, dict):
+            return nrow, ncol
+        elif isinstance(data[0], list) or \
+           isinstance(data[0], tuple):
+            ncol = len(data[0])
+        elif numpy and isinstance(data, numpy.ndarray):
+            if len(data.shape) == 1:
+                return data.shape[0], 1
+            else:
+                return data.shape
         else:
             ncol = 1
             
@@ -1776,28 +2040,33 @@ class capsObj:
         if ncol != 1:
             for i in range(nrow):
                 if len(data[i]) != ncol:
-                    raise CAPSError(CAPS_BADVALUE, "Inconsistent list sizes!")
+                    raise CAPSError(CAPS_BADVALUE, "Inconsistent column sizes!")
         
         return nrow, ncol
 
-#=============================================================================-
+#==============================================================================
     def _convertData(self, data):
 
         vtype = self._getType(data)
         
         # Convert data to list 
-        if not isinstance(data, list):
+        if  not (isinstance(data, list) or 
+                 isinstance(data, tuple) or 
+                (numpy and isinstance(data, numpy.ndarray)) or 
+                 isinstance(data, dict)):
             data = [data] # Convert to list
-        
-        nrow, ncol = self._getShape(data)
-            
+
+        nrow, ncol = self._getShape(vtype, data)
+
         length = nrow*ncol
         partial = None
 
         # Boolean, Integer, or Double
         if vtype == vType.Boolean or vtype == vType.Integer or vtype == vType.Double:
             
-            partial = (enum_capsNull*(length))(Null.NotNull)
+            partial = (enum_capsNull*(length))()
+            for i in range(length):
+                partial[i] = Null.NotNull
             isPartial = False
 
             if vtype == vType.Double:
@@ -1807,7 +2076,7 @@ class capsObj:
         
             for i in range(nrow):
                 for j in range(ncol):
-                    if ncol == 1:
+                    if not hasattr(data[i], "__len__"):
                         if data[i] is None:
                             partial[i*ncol+j] = Null.IsNull
                             val[i*ncol+j] = 0.0
@@ -1828,39 +2097,28 @@ class capsObj:
 
         # String
         elif vtype == vType.String:
-            if nrow*ncol != 1:
-                raise CAPSError(CAPS_BADVALUE, msg="Lists of strings are not supported")
-            
-            val = c_char_p()
-            val = data[0].encode() if isinstance(data[0], str) else data[0]
-       
-        # Tuple
+            if ncol == 1:
+                val = b"\0".join([data[i].encode() if isinstance(data[i], str) else data[i] for i in range(nrow)])
+            else:
+                val = b"\0".join([data[i][j].encode() if isinstance(data[i][j], str) else data[i][j] for j in range(ncol) for i in range(nrow)])
+
+        # Tuple e.g. dict
         elif vtype == vType.Tuple:
-    
+
             val = (c_capsTuple*length)()
 
-            for i in range(nrow):
+            for i, key in enumerate(sorted(data.keys())):
                
-                if (isinstance(data[i][1], bytes) or 
-                    isinstance(data[i][1], str)  or 
-                    isinstance(data[i][1], int)  or 
-                    isinstance(data[i][1], float)):
-                    
-                    if isinstance(data[i][1], int)  or isinstance(data[i][1], float):
-                        temp = str(data[i][1])
-                    else:
-                        temp = data[i][1] 
-                else:
-                    temp = json.dumps(data[i][1])
-
-                byteName = data[i][0].encode() if isinstance(data[i][0], str) else data[i][0]
+                temp = json.dumps(data[key], cls=UnitTupleEncoder)
+                
+                byteName   = key.encode() if isinstance(key, str) else key
                 byteString = temp.encode() if isinstance(temp, str) else temp
 
                 val[i].name  = byteName
                 val[i].value = byteString
                 
-        # Dict
-        elif vtype == vType.Dict:
+        # Dict converted to Json string
+        elif vtype == vType.JsonDict:
             val = ';'.join( [ json.dumps(i) for i in data ] )
             val = val.encode() if isinstance(val, str) else val
             vtype = vType.String
@@ -1875,7 +2133,8 @@ class capsObj:
 
         return vtype, nrow, ncol, val, partial
 
-#=============================================================================-
+#==============================================================================
+    @checkClosed
     def setValue(self, data):
         """
         Set data in the Value object
@@ -1889,28 +2148,29 @@ class capsObj:
             pointer to the string declaring the units - None for unitless values
             if data is string and units is "PATH" - slashes are converted automatically
         """
-        if isinstance(data,Units):
-            units = data._units
-            data  = data._value
+        if isinstance(data, Quantity):
+            units = str(data._units)
+            data  =     data._value
         else:
             units = None
 
         units = units.encode() if isinstance(units,str) else units
         if units is not None and not isinstance(units, bytes):
             raise CAPSError(CAPS_UNITERR, "units must be a string: units = {!r}".format(units))
- 
+
         vtype, nrow, ncol, pdata, partial = self._convertData(data)
 
         nErr = c_int()
-        errs = ctypes.POINTER(c_capsErrs)()
+        errs = POINTER(c_capsErrs)()
         stat = _caps.caps_setValue(self._obj, c_int(vtype), 
                                    c_int(nrow), c_int(ncol), 
                                    pdata, partial, units, ctypes.byref(nErr), ctypes.byref(errs))
         if stat:
             name, otype, stype, link, parent, last = self.info()
-            _raiseStatus(stat, msg="Trying to set value for: {!r}".format(name), errors=capsErrs(nErr, errs, self._obj))
+            _raiseStatus(stat, msg="Trying to set value for: {!r}".format(name), errors=capsErrs(nErr, errs))
 
-#=============================================================================-
+#==============================================================================
+    @checkClosed
     def getLimits(self):
         """
         Returns the value limits
@@ -1937,15 +2197,16 @@ class capsObj:
         units = _decode(punits.value) if punits else None
 
         if vtype == vType.Integer:
-            limits = list(ctypes.cast(plimits, ctypes.POINTER(c_int))[0:2])
+            limits = list(ctypes.cast(plimits, POINTER(c_int))[0:2])
         elif vtype == vType.Double:
-            limits = list(ctypes.cast(plimits, ctypes.POINTER(c_double))[0:2])
+            limits = list(ctypes.cast(plimits, POINTER(c_double))[0:2])
         else:
             raise CAPSError(CAPS_BADVALUE, CAPSError.InternalError+"Unknown vtype: " + str(vtype))
 
         return _withUnits(limits, units)
 
-#=============================================================================-
+#==============================================================================
+    @checkClosed
     def setLimits(self, limits):
         """
         Set the value limits
@@ -1953,11 +2214,11 @@ class capsObj:
         Paramters
         -------
         limits:
-            list (or Units) of length 2 of int or float
+            list (or Unit) of length 2 of int or float
         """
-        if isinstance(limits, Units):
-            units  = limits._units
-            limits = limits._value
+        if isinstance(limits, Quantity):
+            units  = str(limits._units)
+            limits =     limits._value
         else:
             units = None
         
@@ -1990,10 +2251,14 @@ class capsObj:
         if units is not None and not isinstance(units, bytes):
             raise CAPSError(CAPS_UNITERR, "units must be a string: units = {!r}".format(units))
 
-        stat = _caps.caps_setLimits(self._obj, c_int(vtype), plimits, units)
-        if stat: _raiseStatus(stat)
+        nErr = c_int()
+        errs = POINTER(c_capsErrs)()
+        stat = _caps.caps_setLimits(self._obj, c_int(vtype), plimits, units, 
+                                    ctypes.byref(nErr), ctypes.byref(errs))
+        if stat: _raiseStatus(stat, errors=capsErrs(nErr, errs))
 
-#=============================================================================-
+#==============================================================================
+    @checkClosed
     def getValueProps(self):
         """
         Returns the value properties
@@ -2034,7 +2299,8 @@ class capsObj:
 
         return dim, pmtr, lfix, sfix, ntype
 
-#=============================================================================-
+#==============================================================================
+    @checkClosed
     def setValueProps(self, dim, lfix, sfix, ntype):
         """
         Sets the value properties (only for the User & Parameter subtypes) 
@@ -2054,85 +2320,91 @@ class capsObj:
         ntype:
             0 - None invalid, 1 - not None, 2 - is None, 3 - partial None
         """
+        nErr = c_int()
+        errs = POINTER(c_capsErrs)()
         stat = _caps.caps_setValueProps(self._obj, c_int(dim),
-                                        c_int(lfix), c_int(sfix), c_int(ntype))
-        if stat: _raiseStatus(stat)
+                                        c_int(lfix), c_int(sfix), c_int(ntype),
+                                        ctypes.byref(nErr), ctypes.byref(errs))
+        if stat: _raiseStatus(stat, errors=capsErrs(nErr, errs))
 
-#=============================================================================-
-    def transferValues(self, tmethod, dst):
+#==============================================================================
+    @checkClosed
+    def transferValues(self, tmethod, src):
         """
-        Transfers values from Value Object (not for AIM pointer or Tuple vtypes) - or - DataSet Object
-        to a destination Value Object
+        Transfers values from src Value Object (not for AIM pointer or Tuple vtypes) - or - DataSet Object
+        to self Value Object
         
         Parameters
         ----------
-        tmethod:
-            0 - copy, 1 - integrate, 2 - weighted average  -- (1 & 2 only for DataSet self)
-            
-        dst:
-            the destination Value Object to receive the data
+        self:
+            the self Value Object to receive the data
             Notes: 
                 Must not be GeometryOut or AnalysisOut
                 Shapes must be compatible
                 Overwrites any Linkage
+
+        tmethod:
+            0 - copy, 1 - integrate, 2 - weighted average  -- (1 & 2 only for DataSet src)
         """
-        if not isinstance(dst, Value):
-            raise CAPSError(CAPS_BADVALUE, "dst must be of type caps.Value")
-
         nErr = c_int()
-        errs = ctypes.POINTER(c_capsErrs)()
+        errs = POINTER(c_capsErrs)()
 
-        stat = _caps.caps_transferValues(self._obj, c_int(tmethod), dst._obj, 
+        stat = _caps.caps_transferValues(src._obj, c_int(tmethod), self._obj,
                                          ctypes.byref(nErr), ctypes.byref(errs))
-        if stat: _raiseStatus(stat, errors=capsErrs(nErr, errs, self._obj))
+        if stat: _raiseStatus(stat, errors=capsErrs(nErr, errs))
 
-#=============================================================================-
-    def makeLinkage(self, tmethod, trgt, irow=0, icol=0):
+#==============================================================================
+    @checkClosed
+    def linkValue(self, link, tmethod):
         """
         Links values from Value Object (not for Tuple vtype or Value subtype User)  - or - DataSet Object
         to a target Value Object
         
+        self is the target Value Object which will recived the data
+        Notes: 
+                Must not be GeometryOut or AnalysisOut
+                (Sub)shapes must be compatible
+
         Note: circular linkages are not allowed!
         
         Parameters
         ----------
+        link:
+            the source Value or DataSet Object
+
         tmethod:
             0 - copy, 1 - integrate, 2 - weighted average  -- (1 & 2 only for DataSet self)
-            
-        trgt:
-            the target Value Object which will the data
-            Notes: 
-                Must not be GeometryOut or AnalysisOut
-                (Sub)shapes must be compatible
-                
-        irow:
-            the row to link in the target (or 0 for all)
-
-        icol:
-            the column to link in the target (or 0 for all)
-            if both irow and icol are 0 the entire Object is linked
         """
-        if not isinstance(trgt, capsObj):
-            raise CAPSError(CAPS_BADVALUE, "trgt must be of type capsObj")
+        if not isinstance(link, capsObj):
+            raise CAPSError(CAPS_BADVALUE, "link must be of type capsObj")
 
-        if trgt._obj.contents.type != oType.VALUE:
-            raise CAPSError(CAPS_BADVALUE, "trgt must be a Value Object")
+        if link._obj.contents.type != oType.VALUE:
+            raise CAPSError(CAPS_BADVALUE, "link must be a Value Object")
 
-        stat = _caps.caps_makeLinkage(self._obj, c_int(tmethod), trgt._obj, 
-                                      c_int(irow), c_int(icol))
-        if stat: _raiseStatus(stat)
+        if self._obj.contents.type != oType.VALUE:
+            raise CAPSError(CAPS_BADVALUE, "self must be a Value Object")
 
-#=============================================================================-
-    def removeLinkage(self):
+        nErr = c_int()
+        errs = POINTER(c_capsErrs)()
+        stat = _caps.caps_linkValue(link._obj, c_int(tmethod), self._obj, 
+                                    ctypes.byref(nErr), ctypes.byref(errs))
+        if stat: _raiseStatus(stat, errors=capsErrs(nErr, errs))
+
+#==============================================================================
+    @checkClosed
+    def removeLink(self):
         """
         Remove a link to this Value Object
         """
-        stat = _caps.caps_makeLinkage(None, c_int(0), self._obj, 
-                                      c_int(0), c_int(0))
-        if stat: _raiseStatus(stat)
+        nErr = c_int()
+        errs = POINTER(c_capsErrs)()
+        stat = _caps.caps_linkValue(None, c_int(0), self._obj, 
+                                    ctypes.byref(nErr), ctypes.byref(errs))
+        if stat: _raiseStatus(stat, errors=capsErrs(nErr, errs))
 
-#=============================================================================-
-    def hasDot(self):
+#==============================================================================
+    @checkClosed
+    def hasDeriv(self):
         """
         Get a list of the Derivatives available
         
@@ -2144,26 +2416,30 @@ class capsObj:
             derivatives derived from vectors/arrays will have "[n]" or "[n,m]" appended
         """
         
-        ndot = c_int()
+        nderiv = c_int()
         pnames = POINTER(c_char_p)()
-        
-        stat = _caps.caps_hasDot(self._obj, ctypes.byref(ndot), ctypes.byref(pnames))
-        if stat: _raiseStatus(stat)
+        nErr = c_int()
+        errs = POINTER(c_capsErrs)()
+
+        stat = _caps.caps_hasDeriv(self._obj, ctypes.byref(nderiv), ctypes.byref(pnames),
+                                   ctypes.byref(nErr), ctypes.byref(errs))
+        if stat: _raiseStatus(stat, errors=capsErrs(nErr, errs))
         
         if not pnames:
             return None
         
-        ndot = ndot.value
-        names = [None]*ndot
-        for i in range(ndot):
+        nderiv = nderiv.value
+        names = [None]*nderiv
+        for i in range(nderiv):
             names[i] = _decode(pnames[i])
         
         egads.free(pnames)
         
         return names
 
-#=============================================================================-
-    def getDot(self, name):
+#==============================================================================
+    @checkClosed
+    def getDeriv(self, name):
         """
         Get Derivative values
         
@@ -2179,114 +2455,89 @@ class capsObj:
             list of values (tuples if rank > 1) of sensitvities
         """
         
-        name = name.encode() if isinstance(name,str) else name
-        len = c_int()
-        rank = c_int()
-        pdot = POINTER(c_double)()
-        nErr = c_int()
-        errs = ctypes.POINTER(c_capsErrs)()
+        name    = name.encode() if isinstance(name,str) else name
+        len     = c_int()
+        len_wrt = c_int()
+        pderiv  = POINTER(c_double)()
+        nErr    = c_int()
+        errs    = POINTER(c_capsErrs)()
 
-        stat = _caps.caps_getDot(self._obj, name, ctypes.byref(len), ctypes.byref(rank), ctypes.byref(pdot),
-                                 ctypes.byref(nErr), ctypes.byref(errs))
-        if stat: _raiseStatus(stat, errors=capsErrs(nErr, errs, self._obj))
+        stat = _caps.caps_getDeriv(self._obj, name, ctypes.byref(len), ctypes.byref(len_wrt), ctypes.byref(pderiv),
+                                   ctypes.byref(nErr), ctypes.byref(errs))
+        if stat: _raiseStatus(stat, errors=capsErrs(nErr, errs))
         
-        len = len.value
-        rank = rank.value
+        len     = len.value
+        len_wrt = len_wrt.value
         
         if len == 0:
             return None
         
-        if rank == 1:
-            if len == 1:
-                dot = pdot[0]
-            else:
-                dot = pdot[0:len]
+        if len == 1 and len_wrt == 1:
+            deriv = pderiv[0]
+        elif len == 1 or len_wrt == 1:
+            deriv = list(pderiv[0:len*len_wrt])
         else:
-            dot = [None]*ndot
+            deriv = [None]*len
             for i in range(len):
-                dot[i] = tuple(dot[i*rank:(i+1)*rank])
+                deriv[i] = list(pderiv[i*len_wrt:(i+1)*len_wrt])
         
-        return dot
+        return deriv
 
-#=============================================================================-
-    def sensitivity(self, irow, icol, funFlag):
-        """
-        Compute geometric sensitvities
-        
-        Side effects:
-            Makes a slot in all GeometryOut Value Objects to store the results with regFlag of 0
-            
-            Invokes all AIMs with a defined aimSensitivity function when called with regFlag of 1
-            
-            This function (regFlag is 1), Value.getDot or a DataSet request for the sensitivity will 
-            fill the appropriate slots in the DataSets and GeometryOuts
-            
-            Any GeometryOut that is a function of the mass properties will have its value slightly changed
-            (to be consistent with the derivative calculation)
-
-        Parameters
-        ----------
-        irow:
-            the input row to use (for vector/arrays)
-
-        icol:
-            the input column to use (for vector/array Value Objects)
-
-        funFlag:
-            0 register slot, 1 call AIMs, 2 remove slot
-        """
-        len = c_int()
-        rank = c_int()
-        pdot = POINTER(c_double)()
-        
-        nErr = c_int()
-        errs = ctypes.POINTER(c_capsErrs)()
-
-        stat = _caps.caps_sensitivity(self._obj, c_int(irow), c_int(icol), c_int(funFlag),
-                                      ctypes.byref(nErr), ctypes.byref(errs))
-        if stat: _raiseStatus(stat, errors=capsErrs(nErr, errs, self._obj))
-
-#=============================================================================-
-    def dupAnalysis(self, analysisDir, parents):
+#==============================================================================
+    @checkClosed
+    def dupAnalysis(self, name):
         """
         Initializeds a new analysis based on this Analysis Object
+        
+        Parameters
+        ----------
+        self:
+            CAPS Analysis Object
+            
+        name:
+            the name of the duplicated analysis object
+            
+        Returns
+        -------
+            a copy of the CAPS Analsysis Object
         """
         analysis = c_capsObj()
-        # EnCAPS
-        #stat = _caps.caps_dupAnalysis(self._obj, ctypes.byref(analysis))
-        # CAPS
-        if parents is None:
-            nparents = 0
-            pparents = None
-        else:
-            nparents = len(parents)
-            pparents = (c_capsObj*nparents)()
-            for i in range(nparents):
-                pparents[i] = parents._obj
-        
-        analysisDir = analysisDir.encode() if isinstance(analysisDir,str) else analysisDir
-        stat = _caps.caps_dupAnalysis(self._obj, analysisDir, c_int(nparents), pparents, ctypes.byref(analysis))
-        # end CAPS
+        name = name.encode() if isinstance(name,str) else name
+        stat = _caps.caps_dupAnalysis(self._obj, name, ctypes.byref(analysis))
         if stat: _raiseStatus(stat)
 
         return capsObj(analysis, self.problemObj(), None)
 
-#=============================================================================-
+#==============================================================================
+    @checkClosed
+    def resetAnalysis(self):
+        """
+        Reset the Analysis
+        """
+        nErr = c_int()
+        errs = POINTER(c_capsErrs)()
+        stat = _caps.caps_resetAnalysis(self._obj, ctypes.byref(nErr), ctypes.byref(errs))
+        if stat: _raiseStatus(stat, errors=capsErrs(nErr, errs))
+
+#==============================================================================
+    @checkClosed
     def dirtyAnalysis(self):
         """
         Resturns the list of dirty Analysis Objects
         """
-
         nAobj = c_int()
-        aobjs = POINTER(c_capsObj())
-        stat = _caps.caps_dirtyAnalysis(self._obj, ctypes.byref(aobjs), ctypes.byref(aobjs))
+        aobjs = POINTER(c_capsObj)()
+        stat = _caps.caps_dirtyAnalysis(self._obj, ctypes.byref(nAobj), ctypes.byref(aobjs))
         if stat: _raiseStatus(stat)
 
         anlysis = [capsObj(c_capsObj(aobjs[i].contents), self.problemObj(), None) for i in range(nAobj.value)]
  
+        egads.free(aobjs)
+
         return anlysis
 
-#=============================================================================-
+#==============================================================================
+    @checkClosed
     def analysisInfo(self):
         """
         Get information about the Anaysis Object
@@ -2311,8 +2562,11 @@ class capsObj:
         fnames:
             a list of strings with the field/DataSet names
             
-        ranks:
+        franks:
             a list of ranks associated with each field
+
+        fInOut:
+            a list of FIELDIN/FieldOut flags associated with each field
             
         execute:
             execution flag: 0 - no exec, 1 - AIM Execute runs analysis, 2 - Auto Exec
@@ -2329,91 +2583,88 @@ class capsObj:
         intent  = c_char_p()
         nfields = c_int()
         pfnames = POINTER(c_char_p)()
-        pranks  = POINTER(c_int)()
+        pfranks = POINTER(c_int)()
+        pfInOut = POINTER(c_int)()
         execute = c_int()
         status  = c_int()
-        # EnCAPS
-#         stat = _caps.caps_analysisInfo(self._obj, ctypes.byref(dir), ctypes.byref(unitSys), 
-#                                         ctypes.byref(major), ctypes.byref(minor), ctypes.byref(intent), 
-#                                         ctypes.byref(nfields), ctypes.byref(pfnames), ctypes.byref(pranks), 
-#                                         ctypes.byref(execute), ctypes.byref(status))
-#         if stat: _raiseStatus(stat)
-#         
-#         dir     = _decode(dir.value)
-#         unitSys = _decode(unitSys.value) if unitSys else None
-#         major   = major.value
-#         minor   = minor.value
-#         intent  = _decode(intent.value) if intent and intent.value != b"" else None
-#         nfields = nfields.value
-#         fnames  = [_decode(pfnames[i]) for i in range(nfields)]
-#         ranks   = [pranks[i]           for i in range(nfields)]
-#         execute = execute.value
-#         status  = status.value
-#         
-#         if intent is not None and ";" in intent: intent = intent.split(";")
-#
-#         return dir, unitSys, major, minor, intent, fnames, ranks, execute, status
 
-        # CAPS
-        nParent = c_int()
-        parents = POINTER(c_capsObj)()
         stat = _caps.caps_analysisInfo(self._obj, 
                                        ctypes.byref(dir), 
                                        ctypes.byref(unitSys), 
+                                       ctypes.byref(major), ctypes.byref(minor), 
                                        ctypes.byref(intent), 
-                                       ctypes.byref(nParent), 
-                                       ctypes.byref(parents), 
-                                       ctypes.byref(nfields), 
-                                       ctypes.byref(pfnames),
-                                       ctypes.byref(pranks), 
-                                       ctypes.byref(execute), 
-                                       ctypes.byref(status))
+                                       ctypes.byref(nfields), ctypes.byref(pfnames), ctypes.byref(pfranks), ctypes.byref(pfInOut), 
+                                       ctypes.byref(execute), ctypes.byref(status))
         if stat: _raiseStatus(stat)
 
-        dir     = _decode(dir.value)
+        dir     = _decode(dir.value)     if dir     else None
         unitSys = _decode(unitSys.value) if unitSys else None
-        nParent = nParent.value
-        parents = [capsObj(c_capsObj(parents[i].contents), self.problemObj(), None) for i in range(nParent)]
+        major   = major.value
+        minor   = minor.value
         intent  = _decode(intent.value) if intent and intent.value != b"" else None
         nfields = nfields.value
         fnames  = [_decode(pfnames[i]) for i in range(nfields)]
-        ranks   = [pranks[i]           for i in range(nfields)]
+        franks  = [pfranks[i]          for i in range(nfields)]
+        fInOut  = [pfInOut[i]          for i in range(nfields)]
         execute = execute.value
         status  = status.value
-        
+
         if intent is not None and ";" in intent: intent = intent.split(";")
 
-        return dir, unitSys, intent, parents, fnames, ranks, execute, status
-        # end CAPS
+        return dir, unitSys, major, minor, intent, fnames, franks, fInOut, execute, status
 
-#=============================================================================-
+#==============================================================================
+    @checkClosed
     def preAnalysis(self):
         """
         Generate Analysis Inputs
         """
         nErr = c_int()
-        errs = ctypes.POINTER(c_capsErrs)()
+        errs = POINTER(c_capsErrs)()
         stat = _caps.caps_preAnalysis(self._obj, ctypes.byref(nErr), ctypes.byref(errs))
-        if stat: _raiseStatus(stat, errors=capsErrs(nErr, errs, self._obj))
+        if stat: _raiseStatus(stat, errors=capsErrs(nErr, errs))
 
-#=============================================================================-
-    def runAnalysis(self):
+#==============================================================================
+    @checkClosed
+    def system(self, cmd, rpath=None):
+        """
+        Execute the Command Line String
+        
+        Notes: 
+            1. only needed when explicitly executing the appropriate analysis solver (i.e., not using the AIM)
+            2. should be invoked after caps_preAnalysis and before caps_postAnalysis
+            3. this must be used instead of the OS system call to ensure that journaling properly functions
+                
+        Parameters
+        ----------
+        self:
+            CAPS Analysis Object
+
+        cmd:
+            the command line string to execute
+
+        rpath:
+            the relative path from the Analysis' directory or None (in the Analysis path)
+        """
+        cmd = cmd.encode() if isinstance(cmd,str) else cmd
+        rpath = rpath.encode() if isinstance(rpath,str) else rpath
+        stat = _caps.caps_system(self._obj, rpath, cmd)
+        if stat: _raiseStatus(stat)
+
+#==============================================================================
+    @checkClosed
+    def execute(self):
         """
         Execute Analysis if AIM does execution or AutoExec
-        
-        Returns
-        -------
-        integer status (0 - done, 1 - running)
         """
         status = c_int()
         nErr = c_int()
-        errs = ctypes.POINTER(c_capsErrs)()
-        stat = _caps.caps_runAnalysis(self._obj, ctypes.byref(status), ctypes.byref(nErr), ctypes.byref(errs))
-        if stat: _raiseStatus(stat, errors=capsErrs(nErr, errs, self._obj))
-        
-        return status.value
+        errs = POINTER(c_capsErrs)()
+        stat = _caps.caps_execute(self._obj, ctypes.byref(status), ctypes.byref(nErr), ctypes.byref(errs))
+        if stat: _raiseStatus(stat, errors=capsErrs(nErr, errs))
 
-#=============================================================================-
+#==============================================================================
+    @checkClosed
     def postAnalysis(self):
         """
         Mark Analysis as run
@@ -2421,63 +2672,12 @@ class capsObj:
         Note: this clears all Analysis Output Objects to force reloads/recomputes
         """
         nErr = c_int()
-        errs = ctypes.POINTER(c_capsErrs)()
-        # EnCAPS
-        #stat = _caps.caps_postAnalysis(self._obj, ctypes.byref(nErr), ctypes.byref(errs))
-        # CAPS
-        name, otype, stype, link, parent, last = self.info()
-        name, otype, stype, link, parent, last = parent.info()
-        stat = _caps.caps_postAnalysis(self._obj, last._owner, ctypes.byref(nErr), ctypes.byref(errs))
-        # end CAPS
-        if stat: _raiseStatus(stat, errors=capsErrs(nErr, errs, self._obj))
+        errs = POINTER(c_capsErrs)()
+        stat = _caps.caps_postAnalysis(self._obj, ctypes.byref(nErr), ctypes.byref(errs))
+        if stat: _raiseStatus(stat, errors=capsErrs(nErr, errs))
 
-#=============================================================================-
-    def checkAnalysis(self):
-        """
-        Has the analysis completed?
-        
-        Returns
-        -------
-        status:
-            CAPS_SUCCESS - completed, CAPS_RUNNING - not done
-            
-        phase:
-            the returned phase where errors were generated:
-            0 - no errors, 1 - during the check, 2 - execution, 3 - post (if automatic)
-            
-        errors:
-            caps.capsErrs object with error information
-        """
-        phase = c_int()
-        nErr = c_int()
-        errs = ctypes.POINTER(c_capsErrs)()
-        stat = _caps.caps_checkAnalysis(self._obj, ctypes.byref(phase), ctypes.byref(nErr), ctypes.byref(errs))
-        if stat < 0: _raiseStatus(stat)
-        
-        return stat, phase, capsErrs(nErr, errs, self._obj)
-
-#=============================================================================-
-    def writeGeometry(self, fileName):
-        """
-        Writes all bodies in the Analysis Object to a file
-        
-        Parameters
-        ----------
-        fileName:
-            the name of the file to write - typed by extension (case insensitive): 
-            iges/igs - IGES File
-            step/stp - STEP File
-            brep - OpenCASCADE File
-            egads - EGADS file (which includes attribution)
-        """
-        fileName = fileName.encode() if isinstance(fileName,str) else fileName
-
-        nErr = c_int()
-        errs = ctypes.POINTER(c_capsErrs)()
-        stat = _caps.caps_writeGeometry(self._obj, c_int(0), fileName, ctypes.byref(nErr), ctypes.byref(errs))
-        if stat: _raiseStatus(stat, errors=capsErrs(nErr, errs, self._obj))
-
-#=============================================================================-
+#==============================================================================
+    @checkClosed
     def boundInfo(self):
         """
         Get information about the Bound Object
@@ -2508,15 +2708,17 @@ class capsObj:
         
         return state, dim, plims
 
-#=============================================================================-
-    def completeBound(self):
+#==============================================================================
+    @checkClosed
+    def closeBound(self):
         """
         Completes the Bound Object
         """ 
-        stat = _caps.caps_completeBound(self._obj)
+        stat = _caps.caps_closeBound(self._obj)
         if stat: _raiseStatus(stat)
 
-#=============================================================================-
+#==============================================================================
+    @checkClosed
     def makeVertexSet(self, analysis, vname=None):
         """
         Create a VertexSet on the Bound Object
@@ -2536,28 +2738,17 @@ class capsObj:
         vname = vname.encode() if isinstance(vname,str) else vname
 
         vset  = c_capsObj()
+        nErr = c_int()
+        errs = POINTER(c_capsErrs)()
         stat = _caps.caps_makeVertexSet(self._obj, analysis._obj, 
-                                        vname, ctypes.byref(vset))
-        if stat: _raiseStatus(stat)
+                                        vname, ctypes.byref(vset),
+                                        ctypes.byref(nErr), ctypes.byref(errs))
+        if stat: _raiseStatus(stat, errors=capsErrs(nErr, errs))
         
         return capsObj(vset, self.problemObj(), None)
 
-#=============================================================================-
-    def fillVertexSets(self):
-        """
-        Fill VertexSets for cyclic/incremental transfers
-        
-        Note: Causes the filling of the VertexSets owned by the Bound 
-        by forcing the invocation of the appropriate aimDiscr functions 
-        in the AIM. Under normal circumstances this is deferred to the 
-        last postAnalysis call of the collected VertexSets.
-        """
-        nErr = c_int()
-        errs = ctypes.POINTER(c_capsErrs)()
-        stat = _caps.caps_fillVertexSets(self._obj, ctypes.byref(nErr), ctypes.byref(errs))
-        if stat: _raiseStatus(stat, errors=capsErrs(nErr, errs, self._obj))
-
-#=============================================================================-
+#==============================================================================
+    @checkClosed
     def getDataSets(self, dname):
         """
         Get DataSet Objects by name
@@ -2578,41 +2769,65 @@ class capsObj:
         
         return datasets
 
-#=============================================================================-
-    def triangulate(self):
+#==============================================================================
+    @checkClosed
+    def getTriangles(self):
         """
         Get Triangulations for a 2D VertexSet
         
         Returns
         -------
         Gtris: 
-            a list of indices (bias 1) referencing Geometry-based points
+            element mesh triangles: a list of 3-tuple indices (bias 1) referencing Geometry-based points
+
+        Gsegs: 
+            element mesh segments: a list of 2-tuple indices (bias 1) referencing Geometry-based points
     
-        Dtris:
-            a list of indices (bias 1) referencing Data-based points
+        Dtris: 
+            element data triangles: a list of 3-tuple indices (bias 1) referencing Data-based points
+
+        Dsegs: 
+            element data segments: a list of 2-tuple indices (bias 1) referencing Data-based points
         """
         nGtris  = c_int()
         pGtris  = POINTER(c_int)()
+        nGsegs  = c_int()
+        pGsegs  = POINTER(c_int)()
         nDtris  = c_int()
         pDtris  = POINTER(c_int)()
-        stat = _caps.caps_triangulate(self._obj, ctypes.byref(nGtris), ctypes.byref(pGtris), 
-                                                 ctypes.byref(nDtris), ctypes.byref(pDtris))
+        nDsegs  = c_int()
+        pDsegs  = POINTER(c_int)()
+        stat = _caps.caps_getTriangles(self._obj, ctypes.byref(nGtris), ctypes.byref(pGtris), 
+                                                  ctypes.byref(nGsegs), ctypes.byref(pGsegs), 
+                                                  ctypes.byref(nDtris), ctypes.byref(pDtris),
+                                                  ctypes.byref(nDsegs), ctypes.byref(pDsegs))
         if stat: _raiseStatus(stat)
         
         Gtris = None
         if pGtris:
             Gtris = [tuple(pGtris[3*i:3*(i+1)]) for i in range(nGtris.value)]
-        
+
+        Gsegs = None
+        if pGsegs:
+            Gsegs = [tuple(pGsegs[2*i:2*(i+1)]) for i in range(nGsegs.value)]
+
         Dtris = None
         if pDtris:
             Dtris = [tuple(pGtris[3*i:3*(i+1)]) for i in range(nDtris.value)]
 
-        egads.free(pGtris)
-        egads.free(pDtris)
-        
-        return Gtris, Dtris
+        Dsegs = None
+        if pDsegs:
+            Dsegs = [tuple(pDsegs[2*i:2*(i+1)]) for i in range(nDsegs.value)]
 
-#=============================================================================-
+        egads.free(pGtris)
+        egads.free(pGsegs)
+        egads.free(pDtris)
+        egads.free(pDsegs)
+        
+        return Gtris, Gsegs, Dtris, Dsegs
+
+#==============================================================================
+    @checkClosed
     def vertexSetInfo(self):
         """
         Get information about the VertexSet Object
@@ -2646,7 +2861,8 @@ class capsObj:
         
         return nGpts, nDpts, bound, analysis
 
-#=============================================================================-
+#==============================================================================
+    @checkClosed
     def fillUnVertexSet(self, xyzs):
         """
         Fill an Unconnected VertexSet
@@ -2664,8 +2880,9 @@ class capsObj:
         stat = _caps.caps_fillUnVertexSets(self._obj, c_int(npts), pxyzs)
         if stat: _raiseStatus(stat)
 
-#=============================================================================-
-    def makeDataSet(self, dname, method, rank):
+#==============================================================================
+    @checkClosed
+    def makeDataSet(self, dname, dmethod, rank=0):
         """
         Create a DataSet Object -- associated Bound must be Open
         
@@ -2674,21 +2891,86 @@ class capsObj:
         dname:
             a string containing the name of the DataSet (i.e., "pressure")
         
-        method:
-            the method used for data transfers: (Sensitivity, Analysis, Interpolate, Conserve, User)
+        dmethod:
+            the method used for data transfers: (FieldIn, FieldOut, GeomSens, TessSens, User)
             
         rank:
-            the rank of the data (e.g., 1 -- scalar, 3 -- vector)
+            the rank of the data for a User field (e.g., 1 -- scalar, 3 -- vector), ignored otherwise
         """
         dname = dname.encode() if isinstance(dname,str) else dname
 
         dset = c_capsObj()
-        stat = _caps.caps_makeDataSet(self._obj, dname, c_int(method), c_int(rank), ctypes.byref(dset))
-        if stat: _raiseStatus(stat)
+        nErr = c_int()
+        errs = POINTER(c_capsErrs)()
+        stat = _caps.caps_makeDataSet(self._obj, dname, c_int(dmethod), c_int(rank), ctypes.byref(dset),
+                                      ctypes.byref(nErr), ctypes.byref(errs))
+        if stat: _raiseStatus(stat, errors=capsErrs(nErr, errs))
 
         return capsObj(dset, self.problemObj(), None)
 
-#=============================================================================-
+#==============================================================================
+    @checkClosed
+    def dataSetInfo(self):
+        """
+        Returns info about a DataSet Object
+        
+        Returns
+        ----------
+        ftype:
+            the Field type of the DataSet: (FieldIn, FieldOut, GeomSens, TessSens, User)
+        
+        link:
+            a linked DataSet Object or None
+
+        dmethod:
+            the method used for data transfers: 
+        """
+        dname = dname.encode() if isinstance(dname,str) else dname
+
+        ftype = c_int()
+        link = c_capsObj()
+        dmethod = ()
+        stat = _caps.caps_makeDataSet(self._obj, c_int(rank), ctypes.byref(link),
+                                      ctypes.byref(dmethod))
+        if stat: _raiseStatus(stat)
+
+        link = capsObj(link, self.problemObj(), None) if link else None
+
+        return ftype.value, link, dmethod.value
+
+#==============================================================================
+    @checkClosed
+    def linkDataSet(self, link, dmethod):
+        """
+        Links data from DataSet Object
+        
+        self is the target DataSet Object which must be a FieldIn DataSet
+        
+        Parameters
+        ----------
+        link:
+            the source DataSet Object
+
+        dmethod:
+            0 - Interpolate, 1 - Conserve
+        """
+        if not isinstance(link, capsObj):
+            raise CAPSError(CAPS_BADVALUE, "link must be of type capsObj")
+
+        if link._obj.contents.type != oType.DATASET:
+            raise CAPSError(CAPS_BADVALUE, "link must be a DataSet Object")
+
+        if self._obj.contents.type != oType.DATASET:
+            raise CAPSError(CAPS_BADVALUE, "self must be a DataSet Object")
+
+        nErr = c_int()
+        errs = POINTER(c_capsErrs)()
+        stat = _caps.caps_linkDataSet(link._obj, c_int(dmethod), self._obj,
+                                      ctypes.byref(nErr), ctypes.byref(errs))
+        if stat: _raiseStatus(stat, errors=capsErrs(nErr, errs))
+
+#==============================================================================
+    @checkClosed
     def initDataSet(self, startup):
         """
         Initialize DataSet for cyclic/incremental startup
@@ -2705,10 +2987,14 @@ class capsObj:
         pstartup = (c_double*rank)()
         pstartup[:] = startup
         
-        stat = _caps.caps_initDataSet(self._obj, c_int(rank), pstartup)
-        if stat: _raiseStatus(stat)
+        nErr = c_int()
+        errs = POINTER(c_capsErrs)()
+        stat = _caps.caps_initDataSet(self._obj, c_int(rank), pstartup,
+                                      ctypes.byref(nErr), ctypes.byref(errs))
+        if stat: _raiseStatus(stat, errors=capsErrs(nErr, errs))
 
-#=============================================================================-
+#==============================================================================
+    @checkClosed
     def getData(self):
         """
         Get data from the DataSet
@@ -2727,30 +3013,34 @@ class capsObj:
         units = c_char_p()
         
         nErr = c_int()
-        errs = ctypes.POINTER(c_capsErrs)()
+        errs = POINTER(c_capsErrs)()
         stat = _caps.caps_getData(self._obj, ctypes.byref(npt), ctypes.byref(rank), 
                                   ctypes.byref(pdata), ctypes.byref(units), 
                                   ctypes.byref(nErr), ctypes.byref(errs))
-        if stat: _raiseStatus(stat, errors=capsErrs(nErr, errs, self._obj))
+        if stat: _raiseStatus(stat, errors=capsErrs(nErr, errs))
         
         npt    = npt.value
         rank   = rank.value
-        data   = [tuple(pdata[rank*i:rank*(i+1)]) for i in range(npt)]
+        if rank == 1:
+            data = [pdata[i] for i in range(npt)]
+        else:
+            data = [tuple(pdata[rank*i:rank*(i+1)]) for i in range(npt)]
         units  = _decode(units.value) if units else None
         
         return _withUnits(data, units)
 
-#=============================================================================-
+#==============================================================================
+    @checkClosed
     def setData(self, data):
         """
-        Get data from the DataSet
+        Set data for the DataSet
 
         Parameters
         ----------
         data:
-            the data (or Units) (rank long tuples list, npts in legnth)
+            the data (or Unit) (list of rank long tuples)
         """ 
-        if isinstance(data,Units):
+        if isinstance(data, Quantity):
             units = data._units
             data  = data._value
         else:
@@ -2764,11 +3054,14 @@ class capsObj:
         for i in range(npt):
             pdata[rank*i:rank*(i+1)] = data[i]
         
+        nErr = c_int()
+        errs = POINTER(c_capsErrs)()
         stat = _caps.caps_setData(self._obj, c_int(npt), c_int(rank), 
-                                  pdata, units)
-        if stat: _raiseStatus(stat)
+                                  pdata, units, ctypes.byref(nErr), ctypes.byref(errs))
+        if stat: _raiseStatus(stat, errors=capsErrs(nErr, errs))
 
-#=============================================================================-
+#==============================================================================
+    @checkClosed
     def fillUnVertexSet(self, xyzs):
         """
         Fill an Unconnected VertexSet
@@ -2786,7 +3079,14 @@ class capsObj:
         stat = _caps.caps_fillUnVertexSets(self._obj, c_int(npts), pxyzs)
         if stat: _raiseStatus(stat)
 
-#=============================================================================-
+#==============================================================================
+    @checkClosed
+    def outputObjects(self):
+        stat = _caps.caps_outputObjects(self._obj, None)
+        if stat: _raiseStatus(stat)
+
+#==============================================================================
+    @checkClosed
     def AIMbackdoor(self, JSONin):
         
         JSONin = JSONin.encode() if isinstance(JSONin, str) else JSONin
@@ -2800,35 +3100,379 @@ class capsObj:
 
         return JSONout
 
-#=============================================================================-
-    def save(self, filename):
-        
-        filename = filename.encode() if isinstance(filename, str) else filename
-        
-        stat = _caps.caps_save(self._obj, filename)
-        if stat: _raiseStatus(stat)
 
-
-#=============================================================================-
+#==============================================================================
 # Helper function to return Unit class or values
 def _withUnits(value, units):
     if units is None:
         return value
     else:
-        return Units(value, units)
+        return Quantity(value, Unit(units))
 
-#=============================================================================-
-class Units(object):
+#==============================================================================
+__all__.append("Unit")
+class Unit(object):
     """
-    Represents a Python value object with units
+    Represents a unit which can be manipulated into other units
+    """
+
+#==============================================================================
+    def __init__(self, units):
+        """
+        Parameters
+        ----------
+        units:
+            a udunits string representing the units
+        """
+        if isinstance(units, str):
+            self._units = units
+        elif isinstance(units, (int, float)):
+            self._units = str(units)
+        elif isinstance(units, Unit):
+            self._units = units._units
+        elif isinstance(units, Quantity):
+            self._units = str(units)
+        else:
+            _raiseStatus(CAPS_UNITERR, "Unit.__init__ accepts str, Unit, or Quantity")
+
+#==============================================================================
+    def __hash__(self):
+        return hash( (self.__class__.__name__, self._units) )
+
+#==============================================================================
+    def __repr__(self):
+        '''x.__repr__() <==> repr(x)
+        '''
+        return '<{0} {1}>'.format(self.__class__.__name__, self)
+
+#==============================================================================
+    def __str__(self):
+        '''x.__str__() <==> str(x)
+        '''
+        return self._units
+
+#==============================================================================
+    def __copy__(self):
+        return self.__class__(self._unit)
+
+    def __deepcopy__(self, memo):
+        '''Used if copy.deepcopy is called on the variable.
+        '''
+        other = self.__copy__()
+        memo[id(self)] = other
+        return other
+
+#==============================================================================
+    def __eq__(self, other):
+        '''Comparison operator: x.__eq__(y) <==> x == y
+        '''
+        if isinstance(other, self.__class__):
+            compare = c_int()
+            stat = _caps.caps_unitCompare(self._units.encode(), other._units.encode(), ctypes.byref(compare))
+            if stat: _raiseStatus(stat, "Cannot {!r} == {!r}".format(self, other))
+            return compare.value == 0
+        else:
+            return False
+
+#==============================================================================
+    def __ne__(self, other):
+        '''Comparison operator: x.__ne__(y) <==> x != y
+        '''
+        return not self.__eq__(other)
+
+#==============================================================================
+    def __gt__(self, other):
+        '''Comparison operator: x.__gt__(y) <==> x > y
+        '''
+        if not isinstance(other, self.__class__):
+            _raiseStatus(CAPS_UNITERR, "Cannot {!r} > {!r}".format(self, other))
+
+        compare = c_int()
+        stat = _caps.caps_unitCompare(self._units.encode(), other._units.encode(), ctypes.byref(compare))
+        if stat: _raiseStatus(stat, "Cannot {!r} > {!r}".format(self, other))
+        return compare.value > 0
+
+#==============================================================================
+    def __ge__(self, other):
+        '''Comparison operator: x.__ge__(y) <==> x >= y
+        '''
+        if not isinstance(other, self.__class__):
+            _raiseStatus(CAPS_UNITERR, "Cannot {!r} >= {!r}".format(self, other))
+
+        compare = c_int()
+        stat = _caps.caps_unitCompare(self._units.encode(), other._units.encode(), ctypes.byref(compare))
+        if stat: _raiseStatus(stat, "Cannot {!r} >= {!r}".format(self, other))
+        return compare.value >= 0
+
+#==============================================================================
+    def __lt__(self, other):
+        '''Comparison operator: x.__lt__(y) <==> x < y
+        '''
+        if not isinstance(other, self.__class__):
+            _raiseStatus(CAPS_UNITERR, "Cannot {!r} < {!r}".format(self, other))
+
+        compare = c_int()
+        stat = _caps.caps_unitCompare(self._units.encode(), other._units.encode(), ctypes.byref(compare))
+        if stat: _raiseStatus(stat, "Cannot {!r} < {!r}".format(self, other))
+        return compare.value < 0
+
+#==============================================================================
+    def __le__(self, other):
+        '''Comparison operator: x.__le__(y) <==> x <= y
+        '''
+        if not isinstance(other, self.__class__):
+            _raiseStatus(CAPS_UNITERR, "Cannot {!r} <= {!r}".format(self, other))
+
+        compare = c_int()
+        stat = _caps.caps_unitCompare(self._units.encode(), other._units.encode(), ctypes.byref(compare))
+        if stat: _raiseStatus(stat, "Cannot {!r} <= {!r}".format(self, other))
+        return compare.value <= 0
+
+#==============================================================================
+    def __sub__(self, other):
+        '''Binary operator: x.__sub__(y) <==> x - y
+        '''
+        if not isinstance(other, (int, float)):
+            _raiseStatus(CAPS_UNITERR, "Cannot {!r} - {!r}".format(self, other))
+
+        newUnits = c_char_p()
+        stat = _caps.caps_unitOffset(self._units.encode(), c_double(-other), 
+                                     ctypes.byref(newUnits))
+        if stat: _raiseStatus(stat, "Cannot {!r} - {!r}".format(self, other))
+        units = _decode(newUnits.value)
+        egads.free(newUnits)
+
+        return Unit(units)
+
+#==============================================================================
+    def __add__(self, other):
+        '''Binary operator: x.__add__(y) <==> x + y
+        '''
+        if not isinstance(other, (int, float)):
+            _raiseStatus(CAPS_UNITERR, "Cannot {!r} + {!r}".format(self, other))
+
+        newUnits = c_char_p()
+        stat = _caps.caps_unitOffset(self._units.encode(), c_double(other), 
+                                     ctypes.byref(newUnits))
+        if stat: _raiseStatus(stat, "Cannot {!r} + {!r}".format(self, other))
+        units = _decode(newUnits.value)
+        egads.free(newUnits)
+
+        return Unit(units)
+
+#==============================================================================
+    def __mul__(self, other):
+        '''Binary operator: x.__mul__(y) <==> x * y
+        '''
+        if isinstance(other, self.__class__):
+            
+            newUnits = c_char_p()
+            stat = _caps.caps_unitMultiply(self._units.encode(), other._units.encode(), 
+                                           ctypes.byref(newUnits))
+            if stat: _raiseStatus(stat, "Cannot {!r} * {!r}".format(self, other))
+            units = _decode(newUnits.value)
+            egads.free(newUnits)
+
+            return Unit(units)
+        else:
+            return Quantity(other, self)
+
+        #_raiseStatus(CAPS_BADVALUE, "Cannot {!r} * {!r}".format(self, other))
+
+#==============================================================================
+    def __div__(self, other):
+        '''Binary operator: x.__div__(y) <==> x/y
+        '''
+        if isinstance(other, self.__class__):
+
+            newUnits = c_char_p()
+            stat = _caps.caps_unitDivide(self._units.encode(), other._units.encode(), 
+                                         ctypes.byref(newUnits))
+            if stat: _raiseStatus(stat, "Cannot {!r} / {!r}".format(self, other))
+            units = _decode(newUnits.value)
+            egads.free(newUnits)
+
+            return Unit(units)
+        else:
+            return Quantity(1/other, 1/self)
+
+        #_raiseStatus(CAPS_BADVALUE, "Cannot {!r} / {!r}".format(self, other))
+
+#==============================================================================
+    def __pow__(self, other, modulo=None):
+        '''Binary operator: x.__pow__(y) <==> x ** y
+        '''
+        if modulo is not None:
+            raise CAPSError(CAPS_UNITERR, "3-argument power not supported")
+
+        if not isinstance(other, int):
+            raise CAPSError(CAPS_UNITERR, "Unit can only be raised by integer powers! Power = {!r}".format(other))
+
+        newUnits = c_char_p()
+        stat = _caps.caps_unitRaise(self._units.encode(), c_int(other), 
+                                     ctypes.byref(newUnits))
+        if stat: _raiseStatus(stat, "Cannot {!r} ** {!r}".format(self, other))
+        units = _decode(newUnits.value)
+        egads.free(newUnits)
+
+        return Unit(units)
+
+#==============================================================================
+    def __isub__(self, other):
+        '''In-place operator: x.__isub__(y) <==> x -= y
+        '''
+        try:
+            newUnit = self - other
+            self._units = newUnit._units
+            return self
+        except CAPSError as e:
+            raise CAPSError(e.errorCode, "Cannot {!r} -= {!r}".format(self, other))
+
+#==============================================================================
+    def __iadd__(self, other):
+        '''In-place operator: x.__iadd__(y) <==> x += y
+        '''
+        try:
+            newUnit = self + other
+            self._units = newUnit._units
+            return self
+        except CAPSError as e:
+            raise CAPSError(e.errorCode, "Cannot {!r} += {!r}".format(self, other))
+
+#==============================================================================
+    def __imul__(self, other):
+        '''In-place operator: x.__imul__(y) <==> x *= y
+        '''
+        try:
+            newUnit = self * other
+            self._units = newUnit._units
+            return self
+        except CAPSError as e:
+            raise CAPSError(e.errorCode, "Cannot {!r} *= {!r}".format(self, other))
+
+#==============================================================================
+    def __idiv__(self, other):
+        '''In-place operator: x.__idiv__(y) <==> x /= y
+        '''
+        try:
+            newUnit = self / other
+            self._units = newUnit._units
+            return self
+        except CAPSError as e:
+            raise CAPSError(e.errorCode, "Cannot {!r} /= {!r}".format(self, other))
+
+#==============================================================================
+    def __ipow__(self, other):
+        '''In-place operator: x.__ipow__(y) <==> x **= y
+        '''
+        try:
+            newUnit = self ** other
+            self._units = newUnit._units
+            return self
+        except CAPSError as e:
+            raise CAPSError(e.errorCode, "Cannot {!r} **= {!r}".format(self, other))
+
+#==============================================================================
+    def __rsub__(self, other):
+        '''Reflected binary operator: x.__rsub__(y) <==> y - x
+        '''
+        try:
+            return -self + other
+        except CAPSError as e:
+            raise CAPSError(e.errorCode, "Cannot {!r} - {!r}".format(other, self))
+
+#==============================================================================
+    def __radd__(self, other):
+        '''Reflected binary operator: x.__radd__(y) <==> y + x
+        '''
+        return self + other
+
+#==============================================================================
+    def __rmul__(self, other):
+        '''Reflected binary operator: x.__rmul__(y) <==> y * x
+        '''
+        return self * other
+
+#==============================================================================
+    def __rdiv__(self, other):
+        '''Reflected binary operator: x.__rdiv__(y) <==> y / x
+        '''
+        try:
+            return (self ** -1) * other
+        except CAPSError as e:
+            raise CAPSError(e.errorCode, "Cannot {!r} / {!r}".format(other, self))
+
+#==============================================================================
+    def __floordiv__(self, other):
+        '''x.__floordiv__(y) <==> x//y <==> x / y
+        '''
+        return self / other
+
+#==============================================================================
+    def __ifloordiv__(self, other):
+        '''x.__ifloordiv__(y) <==> x//=y <==> x /= y
+        '''
+        return self / other
+
+#==============================================================================
+    def __rfloordiv__(self, other):
+        '''x.__rfloordiv__(y) <==> y//x <==> y / x
+        '''
+        try:
+            return (self ** -1) * other
+        except CAPSError as e:
+            raise CAPSError(e.errorCode, "Cannot {!r} // {!r}".format(other, self))
+
+#==============================================================================
+    def __truediv__(self, other):
+        '''x.__truediv__(y) <==> x / y
+        '''
+        return self.__div__(other)
+
+#==============================================================================
+    def __itruediv__(self, other):
+        '''x.__itruediv__(y) <==> x /= y
+        '''
+        return self.__idiv__(other)
+
+#==============================================================================
+    def __rtruediv__(self, other):
+        '''x.__rtruediv__(y) <==> y / x
+        '''
+        return self.__rdiv__(other)
+
+#==============================================================================
+    def __mod__(self, other):
+        '''x.__mod__(y) <==> y % x
+        '''
+        _raiseStatus(CAPS_UNITERR, "Cannot {!r} % {!r}".format(self, other))
+
+#==============================================================================
+    def __neg__(self):
+        '''Unary operator: x.__neg__() <==> -x
+        '''
+        return self * Unit(-1)
+
+#==============================================================================
+    def __pos__(self):
+        '''Unary operator: x.__pos__() <==> +x
+        '''
+        return self
+
+
+#==============================================================================
+__all__.append("Quantity")
+class Quantity(object):
+    """
+    Represents a value with units
     """
 
     #
-    # Make Units dominant when multiplying with a numpy.array for left or right
+    # Make Quantity dominant when multiplying with a numpy.array for left or right
     #
     __array_priority__ = 20.0
 
-#=============================================================================-
+#==============================================================================
     def __init__(self, value, units):
         """
         Parameters
@@ -2840,9 +3484,28 @@ class Units(object):
             the units of value
         """
         self._value = value
-        self._units = units
+        if isinstance(units,str):
+            self._units = Unit(units)
+        elif isinstance(units,Unit):
+            self._units = units
+        else:
+            raise CAPSError(CAPS_UNITERROR, "units must be str or Unit")
 
-#=============================================================================-
+#==============================================================================
+    def value(self):
+        """
+        Returns the Value in the Quantity
+        """
+        return self._value
+
+#==============================================================================
+    def unit(self):
+        """
+        Returns the Unit in the Quantity
+        """
+        return self._unit
+
+#==============================================================================
     def convert(self, toUnits):
         """
         Convertes to other units
@@ -2850,48 +3513,67 @@ class Units(object):
         Parameters
         ----------
         toUnits:
-            Units to convert to
+            Unit to convert to
         
-        Retunrs
+        Returns
         -------
-        value converted to toUnits
+        quantity converted to toUnits
         """
-        tounits = toUnits.encode() if isinstance(toUnits, str) else toUnits
-
-        scale = c_double()
-        stat = _caps.caps_convert(self._units.encode(), c_double(1), 
-                                  tounits, ctypes.byref(scale))
-        if stat: _raiseStatus(stat, "Cannot convert {!r} to {!r}".format(self, toUnits))
-        scale = scale.value
+        if not isinstance(toUnits,(Unit,str)):
+            if stat: _raiseStatus(CAPS_UNITERR, "toUnits mist be instance of Unit or str. toUnits = {!r}".format(toUnits))
         
+        if isinstance(toUnits,str):
+            toUnits = Unit(toUnits)
+        
+        tounits = toUnits._units.encode()
+
+        fromunits = self._units._units.encode()
+        val = c_double()
+
         if hasattr(self._value, '__len__'):
-            value = [None]*len(self._value)
-            for i in range(len(self._value)):
-                value[i] = scale*self._value[i]
+            count = len(self._value)
+            fromVal = (c_double*count)()
+            toVal   = (c_double*count)()
+            
+            fromVal[:] = self._value[:]
+
+            stat = _caps.caps_convert(c_int(count), fromunits, fromVal,
+                                                    tounits  , toVal  )
+            if stat: _raiseStatus(stat, "Cannot convert {!r} to {!r}".format(self, toUnits))
+   
+            value    = copy.copy(self._value)
+            value[:] = toVal[:]
         else:
-            value = scale*self._value
+            fromVal = c_double(self._value)
+            toVal   = c_double()
 
-        return Units(value, toUnits)
+            stat = _caps.caps_convert(c_int(1), fromunits, ctypes.byref(fromVal),
+                                                tounits  , ctypes.byref(toVal)  )
+            if stat: _raiseStatus(stat, "Cannot convert {!r} to {!r}".format(self, toUnits))
+            
+            value = toVal.value
+   
+        return Quantity(value, toUnits)
 
-#=============================================================================-
+#==============================================================================
     def __hash__(self):
         return hash( (self.__class__.__name__, self._value, self._units) )
 
-#=============================================================================-
+#==============================================================================
     def __repr__(self):
         '''x.__repr__() <==> repr(x)
         '''
         return '<{0} {1}>'.format(self.__class__.__name__, self)
 
-#=============================================================================-
+#==============================================================================
     def __str__(self):
         '''x.__str__() <==> str(x)
         '''
-        return str(self._value) + ' ' + self._units
+        return str(self._value) + ' ' + self._units._units
 
-#=============================================================================-
+#==============================================================================
     def __copy__(self):
-        return Unit(self._value, self._unit)
+        return self.__class__(self._value, self._unit)
 
     def __deepcopy__(self, memo):
         '''Used if copy.deepcopy is called on the variable.
@@ -2900,7 +3582,7 @@ class Units(object):
         memo[id(self)] = other
         return other
 
-#=============================================================================-
+#==============================================================================
     def __bool__(self):
         '''Truth value testing and the built-in operation ``bool``
 
@@ -2909,26 +3591,26 @@ class Units(object):
         '''
         return bool(self._value)
 
-#=============================================================================-
+#==============================================================================
     def __float__(self): # conversion to float (makes trig functions work)
-        return self / unit("rad")
+        return self / self.__class__(1, "rad")
 
-#=============================================================================-
+#==============================================================================
     def __len__(self):
         return len(self._value)
 
-#=============================================================================-
+#==============================================================================
     def __getitem__(self,index):
         ''' returns self's value sliced to index with self's units
         '''
         if hasattr(self._value, '__len__'):
-            return Units(self._value[index], self._units)
+            return self.__class__(self._value[index], self._units)
         elif index == 0 or index == -1:
-            return Units(self._value, self._units)
+            return self.__class__(self._value, self._units)
         else:
             raise IndexError
 
-#=============================================================================-
+#==============================================================================
     def __setitem__(self,index,other):
         ''' makes a slice assignment on self's value based on index
         '''
@@ -2940,7 +3622,7 @@ class Units(object):
         else:
            raise IndexError
 
-#=============================================================================-
+#==============================================================================
     def __eq__(self, other):
         '''Comparison operator: x.__eq__(y) <==> x == y
         '''
@@ -2953,48 +3635,50 @@ class Units(object):
             return self._value == other._value and \
                    self._units == other._units
         else:
+            if other == 0:
+                return self._value == 0
             return False
 
-#=============================================================================-
+#==============================================================================
     def __ne__(self, other):
         '''Comparison operator: x.__ne__(y) <==> x != y
         '''
         return not self.__eq__(other)
 
-#=============================================================================-
+#==============================================================================
     def __gt__(self, other):
         '''Comparison operator: x.__gt__(y) <==> x > y
         '''
         if not isinstance(other, self.__class__):
-            _raiseStatus(CAPS_UNITERR, "Cannot {!r} <= {!r}".format(self, other))
+            _raiseStatus(CAPS_UNITERR, "Cannot {!r} > {!r}".format(self, other))
 
         other = other.convert(self._units)
 
         return self._value > other._value
 
-#=============================================================================-
+#==============================================================================
     def __ge__(self, other):
         '''Comparison operator: x.__ge__(y) <==> x >= y
         '''
         if not isinstance(other, self.__class__):
-            _raiseStatus(CAPS_UNITERR, "Cannot {!r} <= {!r}".format(self, other))
+            _raiseStatus(CAPS_UNITERR, "Cannot {!r} >= {!r}".format(self, other))
 
         other = other.convert(self._units)
 
         return self._value >= other._value
 
-#=============================================================================-
+#==============================================================================
     def __lt__(self, other):
         '''Comparison operator: x.__lt__(y) <==> x < y
         '''
         if not isinstance(other, self.__class__):
-            _raiseStatus(CAPS_UNITERR, "Cannot {!r} <= {!r}".format(self, other))
+            _raiseStatus(CAPS_UNITERR, "Cannot {!r} < {!r}".format(self, other))
 
         other = other.convert(self._units)
 
         return self._value < other._value
 
-#=============================================================================-
+#==============================================================================
     def __le__(self, other):
         '''Comparison operator: x.__le__(y) <==> x <= y
         '''
@@ -3005,7 +3689,7 @@ class Units(object):
 
         return self._value <= other._value
 
-#=============================================================================-
+#==============================================================================
     def __sub__(self, other):
         '''Binary operator: x.__sub__(y) <==> x - y
         '''
@@ -3014,9 +3698,9 @@ class Units(object):
 
         other = other.convert(self._units)
 
-        return Units(self._value - other._value, self._units)
+        return self.__class__(self._value - other._value, self._units)
 
-#=============================================================================-
+#==============================================================================
     def __add__(self, other):
         '''Binary operator: x.__add__(y) <==> x + y
         '''
@@ -3025,42 +3709,48 @@ class Units(object):
 
         other = other.convert(self._units)
 
-        return Units(self._value + other._value, self._units)
+        return self.__class__(self._value + other._value, self._units)
 
-#=============================================================================-
+#==============================================================================
     def __mul__(self, other):
         '''Binary operator: x.__mul__(y) <==> x * y
         '''
-        if isinstance(other, self.__class__):
+        if isinstance(other, Unit):
+            other = 1 * other
 
-            newUnits = c_char_p()
-            stat = _caps.caps_unitMultiply(self._units.encode(), other._units.encode(), 
-                                           ctypes.byref(newUnits))
-            if stat: _raiseStatus(stat, "Cannot {!r} * {!r}".format(self, other))
-            units = _decode(newUnits.value)
-            egads.free(newUnits)
-        
-            scale = float(units.split(" ")[0]) if " " in units else 1
+        if isinstance(other, self.__class__):
+            
+            units = self._units * other._units
         
             if hasattr(self._value, '__len__'):
                 value = copy.copy(self._value)
                 for i in range(len(self._value)):
-                    value[i] = scale * self._value[i] * other._value
+                    value[i] = self._value[i] * other._value
             elif hasattr(other._value, '__len__'):
                 value = copy.copy(other._value)
                 for i in range(len(other._value)):
-                    value[i] = scale * self._value * other._value[i]
+                    value[i] = self._value * other._value[i]
             else:
-                value = scale * self._value*other._value
-                
-            if " " in units or units == "1":
+                value = self._value*other._value
+
+            if " " in units._units:
+                split = units._units.split(" ")
+                if split[1] == "1":
+                    scale = float(split[0])
+                    if hasattr(value, '__len__'):
+                        for i in range(len(value)):
+                            value[i] *= scale
+                    else:
+                        value *= scale
+                    return value
+            elif units._units == "1":
                 return value
-            else:
-                return Units(value, units)
+
+            return self.__class__(value, units)
 
         elif isinstance(other, (float,int)):
 
-            return Units(self._value*other, self._units)
+            return self.__class__(self._value*other, self._units)
 
         elif hasattr(other, '__len__'):
             
@@ -3068,44 +3758,50 @@ class Units(object):
             for i in range(len(other)):
                 value[i] = self._value * other[i]
 
-            return Units(value, self._units)
+            return self.__class__(value, self._units)
 
         _raiseStatus(CAPS_BADVALUE, "Cannot {!r} * {!r}".format(self, other))
 
-#=============================================================================-
+#==============================================================================
     def __div__(self, other):
         '''Binary operator: x.__div__(y) <==> x/y
         '''
+        if isinstance(other, Unit):
+            other = 1 * other
+
         if isinstance(other, self.__class__):
 
-            newUnits = c_char_p()
-            stat = _caps.caps_unitDivide(self._units.encode(), other._units.encode(), 
-                                         ctypes.byref(newUnits))
-            if stat: _raiseStatus(stat, "Cannot {!r} / {!r}".format(self, other))
-            units = _decode(newUnits.value)
-            egads.free(newUnits)
-            
-            scale = float(units.split(" ")[0]) if " " in units else 1
-        
+            units = self._units / other._units
+
             if hasattr(self._value, '__len__'):
                 value = copy.copy(self._value)
                 for i in range(len(self._value)):
-                    value[i] = scale * self._value[i] / other._value
+                    value[i] = self._value[i] / other._value
             else:
-                value = scale * self._value/other._value
+                value = self._value/other._value
                 
-            if " " in units or units == "1":
+            if " " in units._units:
+                split = units._units.split(" ")
+                if split[1] == "1":
+                    scale = float(split[0])
+                    if hasattr(value, '__len__'):
+                        for i in range(len(value)):
+                            value[i] *= scale
+                    else:
+                        value *= scale
+                    return value
+            elif units._units == "1":
                 return value
-            else:
-                return Units(value, units)
-        
+
+            return self.__class__(value, units)
+
         elif isinstance(other, (float,int)):
 
-            return Units(self._value/other, self._units)
+            return self.__class__(self._value/other, self._units)
 
-        _raiseStatus(CAPS_BADVALUE, "Cannot {!r} / {!r}".format(self, other))
+        _raiseStatus(CAPS_UNITERR, "Cannot {!r} / {!r}".format(self, other))
 
-#=============================================================================-
+#==============================================================================
     def __pow__(self, other, modulo=None):
         '''Binary operator: x.__pow__(y) <==> x ** y
         '''
@@ -3113,78 +3809,74 @@ class Units(object):
             raise CAPSError(CAPS_UNITERR, "3-argument power not supported")
 
         if not isinstance(other, int):
-            raise CAPSError(CAPS_UNITERR, "Units can only be raised by integer powers! Power = {!r}".format(other))
+            raise CAPSError(CAPS_UNITERR, "Unit can only be raised by integer powers! Power = {!r}".format(other))
 
-        newUnits = c_char_p()
-        stat = _caps.caps_unitRaise(self._units.encode(), c_int(other), 
-                                     ctypes.byref(newUnits))
-        if stat: _raiseStatus(stat, "Cannot {!r} ** {!r}".format(self, other))
-        units = _decode(newUnits.value)
-        egads.free(newUnits)
+        return self.__class__(self._value**other, self._units**other)
 
-        return Units(self._value**other, units)
-
-#=============================================================================-
+#==============================================================================
     def __isub__(self, other):
         '''In-place operator: x.__isub__(y) <==> x -= y
         '''
         if not isinstance(other, self.__class__):
-            _raiseStatus(CAPS_UNITERR, "Cannot {!r} + {!r}".format(self, other))
+            _raiseStatus(CAPS_UNITERR, "Cannot {!r} -= {!r}".format(self, other))
 
         other = other.convert(self._units)
         self._value -= other._value
 
         return self
 
-#=============================================================================-
+#==============================================================================
     def __iadd__(self, other):
         '''In-place operator: x.__iadd__(y) <==> x += y
         '''
         if not isinstance(other, self.__class__):
-            _raiseStatus(CAPS_UNITERR, "Cannot {!r} + {!r}".format(self, other))
+            _raiseStatus(CAPS_UNITERR, "Cannot {!r} += {!r}".format(self, other))
 
         other = other.convert(self._units)
         self._value += other._value
 
         return self
 
-#=============================================================================-
+#==============================================================================
     def __imul__(self, other):
         '''In-place operator: x.__imul__(y) <==> x *= y
         '''
-        newval = self * other
-        if not isinstance(newval, Units):
-            _raiseStatus(CAPS_UNITERR, "Cannot {!r} *= {!r}".format(self, other))
+        try:
+            newval = self * other
+        except CAPSError as e:
+            raise CAPSError(e.errorCode, "Cannot {!r} *= {!r}".format(self, other))
 
         self._value = newval._value
         self._units = newval._units
         return self
 
-#=============================================================================-
+#==============================================================================
     def __idiv__(self, other):
         '''In-place operator: x.__idiv__(y) <==> x /= y
         '''
-        newval = self / other
-        if not isinstance(newval, Units):
-            _raiseStatus(CAPS_UNITERR, "Cannot {!r} /= {!r}".format(self, other))
+        try:
+            newval = self / other
+        except CAPSError as e:
+            raise CAPSError(e.errorCode, "Cannot {!r} /= {!r}".format(self, other))
 
         self._value = newval._value
         self._units = newval._units
         return self
 
-#=============================================================================-
+#==============================================================================
     def __ipow__(self, other):
         '''In-place operator: x.__ipow__(y) <==> x **= y
         '''
-        newval = self ** other
-        if not isinstance(newval, Units):
-            _raiseStatus(CAPS_UNITERR, "Cannot {!r} **= {!r}".format(self, other))
+        try:
+            newval = self ** other
+        except CAPSError as e:
+            raise CAPSError(e.errorCode, "Cannot {!r} **= {!r}".format(self, other))
 
         self._value = newval._value
         self._units = newval._units
         return self
 
-#=============================================================================-
+#==============================================================================
     def __rsub__(self, other):
         '''Reflected binary operator: x.__rsub__(y) <==> y - x
         '''
@@ -3193,19 +3885,19 @@ class Units(object):
         except CAPSError as e:
             raise CAPSError(e.errorCode, "Cannot {!r} - {!r}".format(other, self))
 
-#=============================================================================-
+#==============================================================================
     def __radd__(self, other):
         '''Reflected binary operator: x.__radd__(y) <==> y + x
         '''
         return self + other
 
-#=============================================================================-
+#==============================================================================
     def __rmul__(self, other):
         '''Reflected binary operator: x.__rmul__(y) <==> y * x
         '''
         return self * other
 
-#=============================================================================-
+#==============================================================================
     def __rdiv__(self, other):
         '''Reflected binary operator: x.__rdiv__(y) <==> y / x
         '''
@@ -3214,19 +3906,19 @@ class Units(object):
         except CAPSError as e:
             raise CAPSError(e.errorCode, "Cannot {!r} / {!r}".format(other, self))
 
-#=============================================================================-
+#==============================================================================
     def __floordiv__(self, other):
         '''x.__floordiv__(y) <==> x//y <==> x / y
         '''
         return self / other
 
-#=============================================================================-
+#==============================================================================
     def __ifloordiv__(self, other):
         '''x.__ifloordiv__(y) <==> x//=y <==> x /= y
         '''
         return self / other
 
-#=============================================================================-
+#==============================================================================
     def __rfloordiv__(self, other):
         '''x.__rfloordiv__(y) <==> y//x <==> y / x
         '''
@@ -3235,52 +3927,60 @@ class Units(object):
         except CAPSError as e:
             raise CAPSError(e.errorCode, "Cannot {!r} // {!r}".format(other, self))
 
-#=============================================================================-
+#==============================================================================
     def __truediv__(self, other):
         '''x.__truediv__(y) <==> x / y
         '''
         return self.__div__(other)
 
-#=============================================================================-
+#==============================================================================
     def __itruediv__(self, other):
         '''x.__itruediv__(y) <==> x /= y
         '''
         return self.__idiv__(other)
 
-#=============================================================================-
+#==============================================================================
     def __rtruediv__(self, other):
         '''x.__rtruediv__(y) <==> y / x
         '''
         return self.__rdiv__(other)
 
-#=============================================================================-
+#==============================================================================
     def __mod__(self, other):
         '''x.__mod__(y) <==> y % x
         '''
         if not isinstance(other, self.__class__):
-            _raiseStatus(CAPS_UNITERR, "Cannot {!r} + {!r}".format(self, other))
+            _raiseStatus(CAPS_UNITERR, "Cannot {!r} % {!r}".format(self, other))
 
         other = other.convert(self._units)
 
-        return Units(self._value % other._value, self._units)
+        return  self.__class__(self._value % other._value, self._units)
 
-#=============================================================================-
+#==============================================================================
+    def __round__(self, n=None):
+        '''Unary operator: x.__round__(n) <==> round(x, n)
+        '''
+        return self.__class__(round(self._value, n), self._units)
+
+#==============================================================================
+    def __abs__(self):
+        '''Unary operator: x.__abs__() <==> abs(x)
+        '''
+        return self.__class__(abs(self._value), self._units)
+
+#==============================================================================
     def __neg__(self):
         '''Unary operator: x.__neg__() <==> -x
         '''
         return self * -1
 
-#=============================================================================-
+#==============================================================================
     def __pos__(self):
         '''Unary operator: x.__pos__() <==> +x
         '''
         return self
 
-#=============================================================================-
-def unit(units):
-    return Units(1, units)
-
-#=============================================================================-
+#==============================================================================
 # class units:
 #     # Collection of all available units
 #     pass

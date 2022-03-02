@@ -1,6 +1,9 @@
 import unittest
 
 import os
+import glob
+import shutil
+import __main__
 
 from sys import version_info as pyVersion
 from sys import version_info
@@ -14,20 +17,31 @@ class TestBound(unittest.TestCase):
 
         cls.file = "unitGeom.csm"
         cls.analysisDir = "UnitTest"
+        cls.projectName = "testProblem"
         cls.iDir = 1
+        cls.iProb = 1
+        cls.cleanUp()
 
         cls.boundName = "Upper_Left"
 
     @classmethod
     def tearDownClass(cls):
+        cls.cleanUp()
+
+    @classmethod
+    def cleanUp(cls):
 
         # Remove analysis directories
-        if os.path.exists(cls.analysisDir):
-            os.rmdir(cls.analysisDir)
+        dirs = glob.glob( cls.projectName + '*')
+        for dir in dirs:
+            if os.path.isdir(dir):
+                shutil.rmtree(dir)
 
-        for i in range(1, cls.iDir):
-            if os.path.exists(cls.analysisDir+str(i)):
-                os.rmdir(cls.analysisDir+str(i))
+        # Remove default projectName
+        base = os.path.basename(__main__.__file__)
+        projectName = os.path.splitext(base)[0]
+        if os.path.isdir(projectName):
+            shutil.rmtree(projectName)
 
         # Remove created files
         if os.path.isfile("unitGeom.egads"):
@@ -37,27 +51,28 @@ class TestBound(unittest.TestCase):
     # Test bound creation
     def test_boundInit(self):
 
-        problem = caps.open("TestProblem", self.file)
-        problem.setOutLevel(0)
+        problem = caps.open(self.projectName+str(self.iProb), None, caps.oFlag.oFileName, self.file, 0); self.__class__.iProb += 1
 
-        fun3d = problem.makeAnalysis("fun3dAIM", name = None, unitSys = None,
-                                     analysisDir = self.analysisDir + str(self.iDir)); self.__class__.iDir += 1
+        fun3d = problem.makeAnalysis("fun3dAIM", name = self.analysisDir + str(self.iDir)); self.__class__.iDir += 1
 
-        astros = problem.makeAnalysis("astrosAIM", name = None, unitSys = None,
-                                      analysisDir = self.analysisDir + str(self.iDir)); self.__class__.iDir += 1
+        astros = problem.makeAnalysis("astrosAIM", name = self.analysisDir + str(self.iDir)); self.__class__.iDir += 1
 
         bound = problem.makeBound(2, self.boundName)
         
         vset_fun3d  = bound.makeVertexSet(fun3d)
         vset_astros = bound.makeVertexSet(astros)
 
-        vset_fun3d.makeDataSet("Pressure", caps.dMethod.Analysis, 1)
-        vset_astros.makeDataSet("Pressure", caps.dMethod.Conserve, 1)
+        dset_src = vset_fun3d.makeDataSet("Pressure", caps.fType.FieldOut)
+        dset_dst = vset_astros.makeDataSet("Pressure", caps.fType.FieldIn)
 
-        dset_src = vset_astros.makeDataSet("Displacement", caps.dMethod.Analysis, 3)
-        dset_dst = vset_fun3d.makeDataSet("Displacement", caps.dMethod.Conserve, 3)
+        dset_dst.linkDataSet(dset_src, caps.dMethod.Interpolate)
 
-        bound.completeBound()
+        dset_src = vset_astros.makeDataSet("Displacement", caps.fType.FieldOut)
+        dset_dst = vset_fun3d.makeDataSet("Displacement", caps.fType.FieldIn)
+
+        dset_dst.linkDataSet(dset_src, caps.dMethod.Conserve)
+
+        bound.closeBound()
 
         dset_dst.initDataSet([0,0,0])
 

@@ -1,6 +1,9 @@
 import unittest
 
 import os
+import glob
+import shutil
+import __main__
 
 from sys import version_info as pyVersion
 
@@ -12,24 +15,32 @@ class TestProblem(unittest.TestCase):
     def setUpClass(cls):
 
         cls.file = "unitGeom.csm"
-        cls.analysisDir = "UnitTest"
-        cls.myProblem = pyCAPS.capsProblem()
+        cls.probemName = "basicTest"
+        cls.iProb = 1
 
-        cls.myGeometry = cls.myProblem.loadCAPS(cls.file, "basicTest", verbosity=0)
+        cls.cleanUp()
 
-        cls.myAnalysis = cls.myProblem.loadAIM(aim = "fun3dAIM",
-                                                altName = "fun3d",
-                                                analysisDir = cls.analysisDir,
-                                                capsIntent = "CFD")
+        cls.myProblem = pyCAPS.Problem(cls.probemName, capsFile=cls.file, outLevel=0)
+
     @classmethod
     def tearDownClass(cls):
+        del cls.myProblem
+        cls.cleanUp()
+        pass
 
-        # Remove analysis directories
-        if os.path.exists(cls.analysisDir):
-            os.rmdir(cls.analysisDir)
+    @classmethod
+    def cleanUp(cls):
 
-        if os.path.exists(cls.analysisDir + "1"):
-            os.rmdir(cls.analysisDir + "1")
+        # Remove project directories
+        dirs = glob.glob( cls.probemName + '*')
+        for dir in dirs:
+            if os.path.isdir(dir):
+                shutil.rmtree(dir)
+
+        dirs = glob.glob( os.path.join("..", cls.probemName + '*') )
+        for dir in dirs:
+            if os.path.isdir(dir):
+                shutil.rmtree(dir)
 
         # Remove created files
         if os.path.isfile("unitGeom.egads"):
@@ -38,143 +49,193 @@ class TestProblem(unittest.TestCase):
         if os.path.isfile("myProblem.html"):
             os.remove("myProblem.html")
 
-        if os.path.isfile("saveCAPS.caps"):
-            os.remove("saveCAPS.caps")
+#==============================================================================
+    def test_init(self):
+        # Tets all variants of capsFile strings
+        myProblem = pyCAPS.Problem(self.probemName + str(self.iProb), capsFile= "unitGeom.csm", outLevel=0); self.__class__.iProb += 1
+        myProblem = pyCAPS.Problem(self.probemName + str(self.iProb), capsFile=b"unitGeom.csm", outLevel=0); self.__class__.iProb += 1
+        myProblem = pyCAPS.Problem(self.probemName + str(self.iProb), capsFile=u"unitGeom.csm", outLevel=0); self.__class__.iProb += 1
 
+#==============================================================================
+    def test_close(self):
+        myProblem = pyCAPS.Problem(self.probemName + str(self.iProb), capsFile= "unitGeom.csm", outLevel=0); self.__class__.iProb += 1
+
+        myProblem.close()
+        
+        # Closing a second time raises and error
+        with self.assertRaises(pyCAPS.CAPSError):
+            myProblem.close()
+
+#==============================================================================
+    # Cannot add Python attributes
+    def test_static(self):
+
+        # cannot set non-existing attributes on Problem Object
+        with self.assertRaises(AttributeError):
+            self.myProblem.foo = "bar"
+
+        # cannot del attributes on Problem Object
+        with self.assertRaises(AttributeError):
+            del self.myProblem.geometry
+
+#==============================================================================
     # Multiple problems
-    def test_loadCAPSMulti(self):
+    def test_multiProblem(self):
 
-        myProblemNew = pyCAPS.capsProblem()
-        myProblemNew.loadCAPS(self.file, "basicTest", verbosity="debug")
+        name = self.probemName + str(self.iProb); self.__class__.iProb += 1
 
+        myProblemNew = pyCAPS.Problem(name, capsFile=self.file, outLevel=0)
+        self.assertNotEqual(self.myProblem, myProblemNew)
+        
+        self.assertEqual(myProblemNew.name, name)
+
+        # Test a problemName with a relative path
+        name = os.path.join("..", self.probemName + str(self.iProb)); self.__class__.iProb += 1
+        myProblemNew = pyCAPS.Problem(name, capsFile=self.file, outLevel=0)
         self.assertNotEqual(self.myProblem, myProblemNew)
 
-    # Close CAPS
-    def test_closeCAPS(self):
+        del myProblemNew # close the problem
+        shutil.rmtree(name)
 
-        myProblem = pyCAPS.capsProblem()
-        myProblem.loadCAPS(self.file, "basicTest", verbosity=0)
-        myProblem.closeCAPS()
 
-    # Geometry - object consistent
-    def test_geometry(self):
+        # Create a problem, close it, and re-create with the same name
+        name = self.probemName + str(self.iProb); self.__class__.iProb += 1
+        myProblemNew = pyCAPS.Problem(name, capsFile=self.file, outLevel=0)
 
-        self.assertEqual(self.myGeometry, self.myProblem.geometry)
+        del myProblemNew # close the problem
 
-    # Analysis dictionary - object consistent
-    def test_analysis(self):
+        # create the problem again with the same name
+        myProblemNew = pyCAPS.Problem(name, capsFile=self.file, outLevel=0)
 
-        self.assertEqual(self.myAnalysis, self.myProblem.analysis["fun3d"])
 
-    # Load AIM creates a directory
-    def test_loadAIMDir(self):
+#==============================================================================
+    # Set outLevel
+    def test_setOutLevel(self):
 
-        self.assertTrue(os.path.isdir(self.myAnalysis.analysisDir))
+        self.myProblem.setOutLevel("minimal")
+        self.myProblem.setOutLevel("standard")
+        self.myProblem.setOutLevel("debug")
 
-    # Set verbosity
-    def test_setVerbosity(self):
-
-        self.myProblem.setVerbosity("minimal")
-
-        self.myProblem.setVerbosity("standard")
-
-        self.myProblem.setVerbosity(0)
-
-        self.myProblem.setVerbosity(2)
+        self.myProblem.setOutLevel(2)
+        self.myProblem.setOutLevel(1)
+        self.myProblem.setOutLevel(0)
 
         with self.assertRaises(pyCAPS.CAPSError) as e:
-            self.myProblem.setVerbosity(10)
+            self.myProblem.setOutLevel(10)
 
         self.assertEqual(e.exception.errorName, "CAPS_BADVALUE")
 
+#==============================================================================
     # Create html tree
-    @unittest.skipIf(pyVersion.major > 2, "Odd behavior in Python 3")
     def test_createTree(self):
 
         self.myProblem.createTree()
 
         self.assertTrue(os.path.isfile("myProblem.html"))
 
-    # Adding/getting attributes
+#==============================================================================
+    # Add/Get attributes
     def test_attributes(self):
 
+        ft = pyCAPS.Unit("ft")
+
+        problem = pyCAPS.Problem(self.probemName+str(self.iProb), capsFile=self.file, outLevel=0); self.__class__.iProb += 1
+
         # Check list attributes
-        self.myProblem.addAttribute("testAttr", [1, 2, 3])
-        self.assertEqual(self.myProblem.getAttribute("testAttr"), [1,2,3])
+        problem.attr.create("testAttr", [1, 2, 3])
+        self.assertEqual(problem.attr.testAttr, [1,2,3])
+        self.assertEqual(problem.attr["testAttr"].value, [1,2,3])
 
         # Check float attributes
-        self.myProblem.addAttribute("testAttr_2", 10.0)
-        self.assertEqual(self.myProblem.getAttribute("testAttr_2"), 10.0)
+        problem.attr.create("testAttr_2", 10.0*ft)
+        self.assertEqual(problem.attr.testAttr_2, 10.0*ft)
+        self.assertEqual(problem.attr["testAttr_2"].value, 10.0*ft)
 
         # Check string attributes
-        self.myProblem.addAttribute("testAttr_3", "anotherAttribute")
-        self.assertEqual(self.myProblem.getAttribute("testAttr_3"), "anotherAttribute")
+        problem.attr.create("testAttr_3", ["str0", "str1"])
+        self.assertEqual(problem.attr.testAttr_3, ["str0", "str1"])
+        self.assertEqual(problem.attr["testAttr_3"].value, ["str0", "str1"])
 
         # Check over writing attribute
-        self.myProblem.addAttribute("testAttr_2", 30.0)
-        self.assertEqual(self.myProblem.getAttribute("testAttr_2"), 30.0)
+        problem.attr.create("testAttr_2", 30.0, overwrite=True)
+        self.assertEqual(problem.attr.testAttr_2, 30.0)
+        self.assertEqual(problem.attr["testAttr_2"].value, 30.0)
 
-        #self.myProblem.addAttribute("arrayOfStrings", ["1", "2", "3", "4"])
-        #self.assertEqual(self.myProblem.getAttribute("arrayOfStrings"), ["1", "2", "3", "4"])
+        # Check modifying attribute
+        attrObj = problem.attr["testAttr_2"]
+        problem.attr.testAttr_2 = 20.0
+        self.assertEqual(attrObj.value, 20.0)
+        self.assertEqual(problem.attr.testAttr_2, 20.0)
 
-    # Create value
-    def test_createValue(self):
+        problem.attr.testAttr_3 = ["CAPS", "attribute"]
+        self.assertEqual(problem.attr.testAttr_3, ["CAPS", "attribute"])
 
-        myValue = self.myProblem.createValue("Alpha", 10, units="degree")
-        self.assertEqual(myValue.name, "Alpha")
+        # try to set incorrect units on attribute
+        with self.assertRaises(pyCAPS.CAPSError):
+            problem.attr.testAttr_2 = 5*ft
 
-    # Save CAPS and reload
-    def test_saveCAPS(self):
+        # Delete an attribute
+        del problem.attr.testAttr_2
+        del problem.attr["testAttr_3"]
 
-        myAnalysis = self.myProblem.loadAIM(aim = "masstranAIM",
-                                            altName = "masstran",
-                                            analysisDir = self.analysisDir + "1",
-                                            capsIntent = ["OML"])
+        # try to set non-existing attribute
+        with self.assertRaises(AttributeError):
+            problem.attr.testAttr_2 = 5
+        with self.assertRaises(AttributeError):
+            problem.attr.testAttr_3 = 6
 
-        myAnalysis.setAnalysisVal("Edge_Point_Min", 10)
+        # try to get non-existing attribute
+        with self.assertRaises(AttributeError):
+            val = problem.attr.testAttr_2
+        with self.assertRaises(KeyError):
+            val = problem.attr["testAttr_2"]
+
+        # try to delete non-existing attribute
+        with self.assertRaises(AttributeError):
+            del problem.attr.testAttr_2
+        with self.assertRaises(KeyError):
+            del problem.attr["testAttr_2"]
+            
+        # Explicitly close the problem object to check for memory leaks
+        problem.close()
+
+#==============================================================================
+    # Create parameters
+    def test_parameters(self):
+
+        deg = pyCAPS.Unit("degree")
+
+        problem = pyCAPS.Problem(self.probemName+str(self.iProb), capsFile=self.file, outLevel=0); self.__class__.iProb += 1
+
+        problem.parameter.create("Mach", 0.5)
+
+        self.assertEqual(0.5, problem.parameter.Mach)
+
+        avl = problem.analysis.create(aim="avlAIM", name="avl")
+        problem.analysis.create(aim="xfoilAIM", name="xfoil")
+        xfoil = problem.analysis["xfoil"]
+
+        avl.input.Mach = 0.2
+        self.assertEqual(0.2, avl.input.Mach)
+        xfoil.input.Mach = 0.3
+        self.assertEqual(0.3, xfoil.input.Mach)
+
+        avl.input["Mach"].link(problem.parameter["Mach"])
+        xfoil.input["Mach"].link(problem.parameter["Mach"])
+
+        self.assertEqual(0.5, avl.input.Mach)
+        self.assertEqual(0.5, xfoil.input.Mach)
+
+        problem.parameter.Mach = 0.4
+        self.assertEqual(0.4, avl.input.Mach)
+        self.assertEqual(0.4, xfoil.input.Mach)
+
+        xfoil.input["Mach"].unlink()
+        problem.parameter.Mach = 0.6
+        self.assertEqual(0.6, avl.input.Mach)
+        # returns to the originally stored value
+        self.assertEqual(0.3, xfoil.input.Mach)
         
-        # Set materials
-        madeupium    = {"materialType" : "isotropic",
-                        "density"      : 10}
-        unobtainium  = {"materialType" : "isotropic",
-                        "density"      : 20}
-
-        myAnalysis.setAnalysisVal("Material", [("madeupium", madeupium),("unobtainium",unobtainium)])
-
-        # Set properties
-        shell1 = {"propertyType"      : "Shell",
-                  "membraneThickness" : 2.0,
-                  "material"          : "madeupium"}
-
-        shell2 = {"propertyType"      : "Shell",
-                  "membraneThickness" : 3.0,
-                  "material"          : "unobtainium"}
-        
-        myAnalysis.setAnalysisVal("Property", [("Wing1", shell1),
-                                               ("Wing2", shell2)])
-
-        # Run pre and post to get the analysis in a "clean" state
-        myAnalysis.preAnalysis()
-        myAnalysis.postAnalysis()
-
-        # Add a value/parameter to problem
-        myValue = self.myProblem.createValue("Mach", 0.5)
-
-        self.myProblem.saveCAPS()
-
-        myProblemNew = pyCAPS.capsProblem()
-        myProblemNew.loadCAPS("saveCAPS.caps", verbosity=0)
-
-        myAnalysisNew = myProblemNew.analysis["masstran"]
-
-        # Check analysis directories
-        self.assertEqual(myAnalysis.analysisDir, myAnalysisNew.analysisDir)
-
-        # Check set input value set
-        self.assertEqual(myAnalysis.getAnalysisVal("Edge_Point_Min"), myAnalysisNew.getAnalysisVal("Edge_Point_Min"))
-
-        # Check capValue
-        self.assertEqual(self.myProblem.value["Mach"].value, myProblemNew.value["Mach"].value)
 
 if __name__ == '__main__':
     unittest.main()

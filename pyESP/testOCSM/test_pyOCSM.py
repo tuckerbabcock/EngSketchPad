@@ -8,9 +8,9 @@
 
 import os
 import sys
-import pyOCSM
 
 from   pyEGADS import egads
+from   pyOCSM  import ocsm
 
 # set tolerance for assertions
 TOL = 1e-3
@@ -32,24 +32,24 @@ def pySizeCB(modl, ipmtr, nrow, ncol):
     print("===========================")
     return
 
-# get help on pyOCSM
+# get help on ocsm
 skipHelp = 0;
 if (len(sys.argv) > 1):
     if (sys.argv[1] == "-skipHelp"):
         skipHelp = 1
 if (skipHelp == 0):
-    help(pyOCSM)
+    help(ocsm)
 else:
     print("skipping help")
 
-print("\ntest 001: calling pyOCSM.Version()")
-(imajor, iminor) = pyOCSM.Version()
+print("\ntest 001: calling ocsm.Version()")
+(imajor, iminor) = ocsm.Version()
 print("    imajor :", imajor)
 print("    iminor :", iminor)
 
 # first MODL
 print("\ntest 002: making modl1(sample.csm)")
-modl1 = pyOCSM.Ocsm("sample.csm")
+modl1 = ocsm.Ocsm("sample.csm")
 
 print("\ntest 003: calling modl1.LoadDict(sample.dict)")
 modl1.LoadDict("sample.dict")
@@ -66,14 +66,14 @@ print("    filelist:", filelist)
 
 print("\ntest 007: calling modl1.Build(0, 0)")
 (builtTo, nbody, bodys) = modl1.Build(0, 0)
-print("    builtTo:", builtTo);   assert (builtTo == 47  )
+print("    builtTo:", builtTo);   assert (builtTo == 49  )
 print("    nbody  :", nbody  );   assert (nbody   == 0   )
 print("    bodys  :", bodys  );   assert (bodys   == None)
 
 print("\ntest 008: calling modl1.Info()")
 (nbrch, npmtr, nbody) = modl1.Info()
-print("    nbrch  :", nbrch);   assert (nbrch == 47)
-print("    npmtr  :", npmtr);   assert (npmtr == 61)
+print("    nbrch  :", nbrch);   assert (nbrch == 49)
+print("    npmtr  :", npmtr);   assert (npmtr == 62)
 print("    nbody  :", nbody);   assert (nbody == 3 )
 
 print("\ntest 009: calling modl1.PrintBodys()")
@@ -112,17 +112,17 @@ print("\ntest 015: calling modl2.SetValuD(irad, 1, 1, 0.5)")
 modl2.SetValuD(irad, 1, 1, 0.5)
 
 print("\ntest 016: calling modl2.Build(0, 20)")
-pyOCSM.SetOutLevel(0)
+ocsm.SetOutLevel(0)
 (builtTo, nbody, bodys) = modl2.Build(0, 20)
-pyOCSM.SetOutLevel(1)
-print("    builtTo:", builtTo);   assert (builtTo  == 47)
+ocsm.SetOutLevel(1)
+print("    builtTo:", builtTo);   assert (builtTo  == 49)
 print("    nbody  :", nbody  );   assert (nbody    == 2 )
 print("    bodys  :", bodys  );   assert (bodys[0] == 4 );   assert (bodys[1] == 3)
 
 print("\ntest 017: calling modl2.Info()")
 (nbrch, npmtr, nbody) = modl2.Info()
-print("    nbrch  :", nbrch);   assert (nbrch == 47)
-print("    npmtr  :", npmtr);   assert (npmtr == 61)
+print("    nbrch  :", nbrch);   assert (nbrch == 49)
+print("    npmtr  :", npmtr);   assert (npmtr == 62)
 print("    nbody  :", nbody);   assert (nbody == 4 )
 
 print("\ntest 018: calling modl2.SaveDespmtrs(sample.despmtrs)")
@@ -135,32 +135,32 @@ modl2.Free()
 print("\ntest 020: calling modl2.Info() --- after modl2.Free")
 try:
     (nbrch, npmtr, nbody) = modl2.Info()
-except pyOCSM.OcsmError as error:
+except ocsm.OcsmError as error:
     print("    OcsmError rasied (as expected)")
 else:
     raise Exception
 
 print("\ntest 021: calling modl1.Info()")
 (nbrch, npmtr, nbody) = modl1.Info()
-print("    nbrch  :", nbrch);   assert (nbrch == 47)
-print("    npmtr  :", npmtr);   assert (npmtr == 61)
+print("    nbrch  :", nbrch);   assert (nbrch == 49)
+print("    npmtr  :", npmtr);   assert (npmtr == 62)
 print("    nbody  :", nbody);   assert (nbody == 3 )
 
 print("\ntest 022: calling modl1.UpdateDespmtrs(sample.despmtrs)")
 modl1.UpdateDespmtrs("sample.despmtrs")
 
 print("\ntest 023: calling modl1.Build(0, 0)")
-pyOCSM.SetOutLevel(0)
+ocsm.SetOutLevel(0)
 (builtTo, nbody, bodys) = modl1.Build(0, 0)
-pyOCSM.SetOutLevel(1)
-print("    builtTo:", builtTo);   assert (nbrch == 47)
-print("    nbody  :", nbody  );   assert (npmtr == 61)
+ocsm.SetOutLevel(1)
+print("    builtTo:", builtTo);   assert (nbrch == 49)
+print("    nbody  :", nbody  );   assert (npmtr == 62)
 print("    bodys  :", bodys  );   assert (nbody == 0 )
 
 print("\ntest 024: calling modl1.Info()")
 (nbrch, npmtr, nbody) = modl1.Info()
-print("    nbrch  :", nbrch);   assert (nbrch == 47)
-print("    npmtr  :", npmtr);   assert (npmtr == 61)
+print("    nbrch  :", nbrch);   assert (nbrch == 49)
+print("    npmtr  :", npmtr);   assert (npmtr == 62)
 print("    nbody  :", nbody);   assert (nbody == 4 )
 
 print("\ntest 025: calling modl1.FindPmtr(oper)")
@@ -171,17 +171,17 @@ print("\ntest 026: calling modl1.SetValu(ioper, 1, 1, 5-4)")
 modl1.SetValu(ioper, 1, 1, "5-4")
 
 print("\ntest 027: calling modl1.Build(0, 20)")
-pyOCSM.SetOutLevel(0)
+ocsm.SetOutLevel(0)
 (builtTo, nbody, bodys) = modl1.Build(0, 20)
-pyOCSM.SetOutLevel(1)
-print("    builtTo:", builtTo);   assert (builtTo  == 47)
+ocsm.SetOutLevel(1)
+print("    builtTo:", builtTo);   assert (builtTo  == 49)
 print("    nbody  :", nbody  );   assert (nbody    == 1 )
 print("    bodys  :", bodys  );   assert (bodys[0] == 5 )
 
 print("\ntest 028: calling modl1.Info()")
 (nbrch, npmtr, nbody) = modl1.Info()
-print("    nbrch  :", nbrch);   assert (nbrch == 47)
-print("    npmtr  :", npmtr);   assert (npmtr == 61)
+print("    nbrch  :", nbrch);   assert (nbrch == 49)
+print("    npmtr  :", npmtr);   assert (npmtr == 62)
 print("    nbody  :", nbody);   assert (nbody == 5 )
 
 print("\ntest 029: calling modl1.EvalExpr(dx*dy*dz)")
@@ -200,7 +200,7 @@ print("\ntest 031: calling modl1.Save(sample2.cpc)")
 modl1.Save("sample2.cpc")
 
 print("\ntest 032: calling PyOcsm.Load(sample2.cpc)")
-modl2 = pyOCSM.Ocsm("sample2.cpc")
+modl2 = ocsm.Ocsm("sample2.cpc")
 
 print("\ntest 033: calling modl2.LoadDict(sample.dict)")
 modl2.LoadDict("sample.dict")
@@ -210,15 +210,15 @@ modl2.Check()
 
 print("\ntest 035: calling modl2.Build(0, 0)")
 (builtTo, nbody, bodys) = modl2.Build(0, 0)
-print("    builtTo:", builtTo);   assert (nbrch == 47)
-print("    nbody  :", nbody  );   assert (npmtr == 61)
+print("    builtTo:", builtTo);   assert (nbrch == 49)
+print("    nbody  :", nbody  );   assert (npmtr == 62)
 print("    bodys  :", bodys  );   assert (nbody == 0 )
 assert (nbody == 0)
 
 print("\ntest 036: calling modl2.Info()")
 (nbrch, npmtr, nbody) = modl2.Info()
-print("    nbrch  :", nbrch);   assert (nbrch == 47)
-print("    npmtr  :", npmtr);   assert (npmtr == 61)
+print("    nbrch  :", nbrch);   assert (nbrch == 49)
+print("    npmtr  :", npmtr);   assert (npmtr == 62)
 print("    nbody  :", nbody);   assert (nbody == 5 )
 
 print("\ntest 037: calling modl2.EvalExpr(@stack.size)")
@@ -277,15 +277,15 @@ print("\ntest 041: calling modl2.PrintBrchs()")
 modl2.PrintBrchs("")
 
 print("\ntest 042: calling modl2.Build(0, 0)")
-pyOCSM.SetOutLevel(0)
+ocsm.SetOutLevel(0)
 (builtTo, nbody, bodys) = modl2.Build(0, 0)
-pyOCSM.SetOutLevel(1)
-print("    builtTo:", builtTo);   assert (builtTo == 47  )
+ocsm.SetOutLevel(1)
+print("    builtTo:", builtTo);   assert (builtTo == 49  )
 print("    nbody  :", nbody  );   assert (nbody   == 0   )
 print("    bodys  :", bodys  );   assert (bodys   == None)
 
 print("\ntest 043: calling modl2.NewPmtr(Rad, DESPMTR, 1, 1)")
-modl2.NewPmtr("Rad", pyOCSM.DESPMTR, 1, 1)
+modl2.NewPmtr("Rad", ocsm.DESPMTR, 1, 1)
 iRad = modl2.FindPmtr("Rad", 0, 0, 0)
 print("    iRad   :", iRad);   assert (iRad == 19)
 
@@ -308,7 +308,7 @@ modl2.PrintPmtrs("")
 
 print("\ntest 049: calling modl2.Info()")
 (nbrch, npmtr, nbody) = modl2.Info()
-print("    nbrch  :", nbrch);   assert (nbrch == 47)
+print("    nbrch  :", nbrch);   assert (nbrch == 49)
 print("    npmtr  :", npmtr);   assert (npmtr == 19)
 print("    nbody  :", nbody);   assert (nbody == 5 )
 
@@ -336,10 +336,10 @@ modl2.NewBrch(nbrch, modl2.GetCode("point"), "<none>", 0,
               "5", "5", "5", "", "", "", "", "", "")
 
 print("\ntest 052: calling modl2.Build(0, 0)")
-pyOCSM.SetOutLevel(0)
+ocsm.SetOutLevel(0)
 (builtTo, nbody, bodys) = modl2.Build(0, 20)
-pyOCSM.SetOutLevel(1)
-print("    builtTo:", builtTo);   assert (builtTo  == 48)
+ocsm.SetOutLevel(1)
+print("    builtTo:", builtTo);   assert (builtTo  == 50)
 print("    nbody  :", nbody  );   assert (nbody    == 2 )
 print("    bodys  :", bodys  );   assert (bodys[0] == 6 );   assert (bodys[1] == 5)
 
@@ -355,13 +355,13 @@ print("    nedge  :", nedge);   assert (nedge == 0  )
 print("    nface  :", nface);   assert (nface == 0  )
 
 print("\ntest 054: calling modl2.SetBrch(", nbrch+1, ", SUPPRESSED)")
-modl2.SetBrch(nbrch+1, pyOCSM.SUPPRESSED)
+modl2.SetBrch(nbrch+1, ocsm.SUPPRESSED)
 
 print("\ntest 055: calling modl2.Build(0, 0)")
-pyOCSM.SetOutLevel(0)
+ocsm.SetOutLevel(0)
 (builtTo, nbody, bodys) = modl2.Build(0, 20)
-pyOCSM.SetOutLevel(1)
-print("    builtTo:", builtTo);   assert (builtTo  == 47)
+ocsm.SetOutLevel(1)
+print("    builtTo:", builtTo);   assert (builtTo  == 49)
 print("    nbody  :", nbody  );   assert (nbody    == 1 )
 print("    bodys  :", bodys  );   assert (bodys[0] == 5 )
 
@@ -380,11 +380,11 @@ print("\ntest 057: calling modl2.DelBrch(", nbrch+1, ")")
 modl2.DelBrch(nbrch+1)
 
 print("\ntest 058: calling modl2.FindPmtr(foo, DESPMTR, 1, 1)")
-modl2.FindPmtr("foo", pyOCSM.DESPMTR, 1, 1)
+modl2.FindPmtr("foo", ocsm.DESPMTR, 1, 1)
 
 print("\ntest 059: calling modl2.Info()")
 (nbrch, npmtr, nbody) = modl2.Info()
-print("    nbrch  :", nbrch);   assert (nbrch == 47)
+print("    nbrch  :", nbrch);   assert (nbrch == 49)
 print("    npmtr  :", npmtr);   assert (npmtr == 20)
 print("    nbody  :", nbody);   assert (nbody == 5 )
 
@@ -393,7 +393,7 @@ modl2.DelPmtr(npmtr)
 
 print("\ntest 061: calling modl2.Info()")
 (nbrch, npmtr, nbody) = modl2.Info()
-print("    nbrch  :", nbrch);   assert (nbrch == 47)
+print("    nbrch  :", nbrch);   assert (nbrch == 49)
 print("    npmtr  :", npmtr);   assert (npmtr == 19)
 print("    nbody  :", nbody);   assert (nbody == 5 )
 
@@ -401,14 +401,14 @@ print("\ntest 062: making list of all DESPMTRs")
 for ipmtr in range(1, npmtr+1):
     (type, nrow, ncol, name) = modl2.GetPmtr(ipmtr)
 
-    if (type == pyOCSM.DESPMTR):
+    if (type == ocsm.DESPMTR):
         print("   ", name, " is a", nrow, "*", ncol, "DESPMTR")
 
 print("\ntest 063: making list of all OUTPMTRs")
 for ipmtr in range(1, npmtr+1):
     (type, nrow, ncol, name) = modl2.GetPmtr(ipmtr)
 
-    if (type == pyOCSM.OUTPMTR):
+    if (type == ocsm.OUTPMTR):
         print("  ", name, " is a", nrow, "*", ncol, "OUTPMTR")
 
 print("\ntest 064: calling modl2.GetPmtr(iMyCG)")
@@ -440,8 +440,8 @@ print("    cvalue :", cvalue);   assert (cvalue == "csysName")
 print("\ntest 069: calling modl2.SetCsys(1, boxCsys, )")
 modl2.SetCsys(1, "boxCsys", "")
 
-print("\ntest 070: calling modl2.FindEnt(nbody, pyOCSM.FACE, [1,6,2])")
-ient = modl2.FindEnt(nbody, pyOCSM.FACE, [1,6,1])
+print("\ntest 070: calling modl2.FindEnt(nbody, ocsm.FACE, [1,6,2])")
+ient = modl2.FindEnt(nbody, ocsm.FACE, [1,6,1])
 print("    ient   :", ient);   assert (ient == 3)
 
 print("\ntest 071: getting coordinates on Face ient")
@@ -452,13 +452,13 @@ print("    yy     :", yy);   assert (abs(yy-3.5) < TOL)
 (zz, dot, str) = modl2.EvalExpr("z0+dz")
 print("    zz     :", zz);   assert (abs(zz-5.0) < TOL)
 
-print("\ntest 072: calling modl2.GetUV(nbody, pyOCSM.FACE, ient, 1, [xx,yy,zz])")
-(uu, vv) = modl2.GetUV(nbody, pyOCSM.FACE, ient, 1, [xx, yy, zz])
+print("\ntest 072: calling modl2.GetUV(nbody, ocsm.FACE, ient, 1, [xx,yy,zz])")
+(uu, vv) = modl2.GetUV(nbody, ocsm.FACE, ient, 1, [xx, yy, zz])
 print("    uu     :", uu);   assert (abs(uu-0.1) < TOL)
 print("    vv     :", vv);   assert (abs(vv-1.5) < TOL)
 
-print("\ntest 073: calling modl2.GetXYZ(nbody, pyOCSM.FACE, ient, 2, [uu,vv,uu,vv])")
-(xx, yy, zz, xxx, yyy, zzz) = modl2.GetXYZ(nbody, pyOCSM.FACE, ient, 2, [uu, vv, uu, vv])
+print("\ntest 073: calling modl2.GetXYZ(nbody, ocsm.FACE, ient, 2, [uu,vv,uu,vv])")
+(xx, yy, zz, xxx, yyy, zzz) = modl2.GetXYZ(nbody, ocsm.FACE, ient, 2, [uu, vv, uu, vv])
 print("    xxx    :", xxx);   assert (abs(xx-xxx) < TOL)
 print("    yyy    :", yyy);   assert (abs(yy-yyy) < TOL)
 print("    zzz    :", zzz);   assert (abs(zz-zzz) < TOL)
@@ -477,9 +477,9 @@ print("\ntest 076: calling modl2.SetVel(iz0, 1, 1, 1/2)")
 modl2.SetVel(iz0, 1, 1, "1/2");
 
 print("\ntest 077: calling modl2.Build(0, 0)")
-pyOCSM.SetOutLevel(0)
+#ocsm.SetOutLevel(0)
 modl2.Build(0, 0)
-pyOCSM.SetOutLevel(1)
+#ocsm.SetOutLevel(1)
 
 print("\ntest 078: calling modl2.FindPmtr(myBbox, 0, 0, 0)")
 iMyBbox = modl2.FindPmtr("myBbox", 0, 0, 0)
@@ -504,9 +504,9 @@ print("\ntest 080: calling modl2.SetVel(iz0, 1, 1, 1/2)")
 modl2.SetVelD(iz0, 1, 1, 1)
 
 print("\ntest 081: calling modl2.Build(0, 0)")
-pyOCSM.SetOutLevel(0)
+ocsm.SetOutLevel(0)
 modl2.Build(0, 0)
-pyOCSM.SetOutLevel(1)
+ocsm.SetOutLevel(1)
 
 print("\ntest 082: calling modl2.FindPmtr(myBbox, 0, 0, 0)")
 iMyBbox = modl2.FindPmtr("myBbox", 0, 0, 0)
@@ -526,8 +526,8 @@ for irow in range(1, nrow+1):
 
 print("\ntest 083: calling modl1.Info()")
 (nbrch, npmtr, nbody) = modl1.Info()
-print("    nbrch  :", nbrch);   assert (nbrch == 47)
-print("    npmtr  :", npmtr);   assert (npmtr == 61)
+print("    nbrch  :", nbrch);   assert (nbrch == 49)
+print("    npmtr  :", npmtr);   assert (npmtr == 62)
 print("    nbody  :", nbody);   assert (nbody == 5 )
 
 print("\ntest 084: calling modl2.GetBody(nbody)")
@@ -541,9 +541,9 @@ print("    nnode  :", nnode);   assert (nnode == 11 )
 print("    nedge  :", nedge);   assert (nedge == 18 )
 print("    nface  :", nface);   assert (nface == 8  )
 
-print("\ntest 085: getting modl2.GetVel(nbody, pyOCSM.NODE, inode, 1, None)")
+print("\ntest 085: getting modl2.GetVel(nbody, ocsm.NODE, inode, 1, None)")
 for inode in range(1, nnode+1):
-    dxyz = modl2.GetVel(nbody, pyOCSM.NODE, inode, 1, None)
+    dxyz = modl2.GetVel(nbody, ocsm.NODE, inode, 1, None)
     print("    dxyz(inode=", inode, "): ", dxyz[0], dxyz[1], dxyz[2])
     assert (abs(dxyz[0]  ) < TOL)
     assert (abs(dxyz[1]  ) < TOL)
@@ -553,9 +553,9 @@ print("\ntest 086: calling modl2.SetDtime(0.1)")
 modl2.SetDtime(0.1)
 
 print("\ntest 087: calling modl2.Build(0, 0)")
-pyOCSM.SetOutLevel(0)
+ocsm.SetOutLevel(0)
 modl2.Build(0, 0)
-pyOCSM.SetOutLevel(1)
+ocsm.SetOutLevel(1)
 
 print("\ntest 088: calling modl2.SetDtime(0.)")
 modl2.SetDtime(0.)
@@ -591,8 +591,8 @@ modl2.Perturb(0, 0, 0, 0, 0)
 
 print("\ntest 093: calling modl2.Info()")
 (nbrch, npmtr, nbody) = modl2.Info()
-print("    nbrch  :", nbrch);   assert (nbrch == 47)
-print("    npmtr  :", npmtr);   assert (npmtr == 62)
+print("    nbrch  :", nbrch);   assert (nbrch == 49)
+print("    npmtr  :", npmtr);   assert (npmtr == 63)
 print("    nbody  :", nbody);   assert (nbody == 5 )
 
 print("\ntest 094: calling modl2.GetBody(nbody)")
@@ -608,15 +608,15 @@ print("    nface  :", nface);   assert (nface == 8  )
 
 print("\ntest 095: getting npnt from tessellations")
 for iedge in range(1, nedge+1):
-    npnt = modl2.GetTessNpnt(nbody, pyOCSM.EDGE, iedge)
+    npnt = modl2.GetTessNpnt(nbody, ocsm.EDGE, iedge)
     print("    edge", iedge, "has", npnt, "tessellation points")
 for iface in range(1, nface+1):
-    npnt = modl2.GetTessNpnt(nbody, pyOCSM.FACE, iface)
+    npnt = modl2.GetTessNpnt(nbody, ocsm.FACE, iface)
     print("    face", iface, "has", npnt, "tessellation points")
 
-print("\ntest 096: calling modl2.NewBrch(nbrch, dump, <none, 0, $sample.tess, 0, 0, ...)")
+print("\ntest 096: calling modl2.NewBrch(nbrch, dump, <none>, 0, $sample.tess, 0, 0, 0, ...)")
 modl2.NewBrch(nbrch, modl2.GetCode("dump"), "<none>", 0,
-              "$sample.tess", "0", "0", "", "", "", "", "", "")
+              "$sample.tess", "0", "0", "0", "", "", "", "", "")
 
 print("\ntest 097: calling modl2.Build(0, 0)")
 modl2.Build(0, 0)
@@ -636,10 +636,10 @@ modl2.Build(-1, 0)
 
 print("\ntest 102: getting npnt from tessellations")
 for iedge in range(1, nedge+1):
-    npnt = modl2.GetTessNpnt(nbody, pyOCSM.EDGE, iedge)
+    npnt = modl2.GetTessNpnt(nbody, ocsm.EDGE, iedge)
     print("    edge", iedge, "has", npnt, "tessellation points")
 for iface in range(1, nface+1):
-    npnt = modl2.GetTessNpnt(nbody, pyOCSM.FACE, iface)
+    npnt = modl2.GetTessNpnt(nbody, ocsm.FACE, iface)
     print("    face", iface, "has", npnt, "tessellation points")
 
 print("\ntest 103: calling modl2.Updatetess(nbody, sample.tess)")
@@ -647,52 +647,52 @@ modl2.UpdateTess(nbody, "sample.tess")
 
 print("\ntest 104: getting npnt from tessellations")
 for iedge in range(1, nedge+1):
-    npnt = modl2.GetTessNpnt(nbody, pyOCSM.EDGE, iedge)
+    npnt = modl2.GetTessNpnt(nbody, ocsm.EDGE, iedge)
     print("    edge", iedge, "has", npnt, "tessellation points")
 for iface in range(1, nface+1):
-    npnt = modl2.GetTessNpnt(nbody, pyOCSM.FACE, iface)
+    npnt = modl2.GetTessNpnt(nbody, ocsm.FACE, iface)
     print("    face", iface, "has", npnt, "tessellation points")
 
 # print info about the Body and its parts
 print("\nBody EGO:")
-theEgo = modl2.GetEgo(nbody, pyOCSM.BODY, 0)
+theEgo = modl2.GetEgo(nbody, ocsm.BODY, 0)
 (oclass, mtype, topRef, eprev, enext) = theEgo.getInfo()
 print("oclass:", oclass); assert (oclass == egads.BODY     )
 print("mtype :", mtype ); assert (mtype  == egads.SOLIDBODY)
-pyOCSM.PrintEgo(theEgo)
+ocsm.PrintEgo(theEgo)
 
 print("\nTess EGO:")
-theEgo = modl2.GetEgo(nbody, pyOCSM.BODY, 1)
+theEgo = modl2.GetEgo(nbody, ocsm.BODY, 1)
 (oclass, mtype, topRef, eprev, enext) = theEgo.getInfo()
 print("oclass:", oclass); assert (oclass == egads.TESSELLATION)
-pyOCSM.PrintEgo(theEgo)
+ocsm.PrintEgo(theEgo)
 
 print("\nContext EGO:")
-theEgo = modl2.GetEgo(nbody, pyOCSM.BODY, 2)
+theEgo = modl2.GetEgo(nbody, ocsm.BODY, 2)
 (oclass, mtype, topRef, eprev, enext) = theEgo.getInfo()
 print("oclass:", oclass); assert (oclass == egads.CONTXT)
-pyOCSM.PrintEgo(theEgo)
+ocsm.PrintEgo(theEgo)
 
 print("\nNode[1] EGO:")
-theEgo = modl2.GetEgo(nbody, pyOCSM.NODE, 1)
+theEgo = modl2.GetEgo(nbody, ocsm.NODE, 1)
 (oclass, mtype, topRef, eprev, enext) = theEgo.getInfo()
 print("oclass:", oclass); assert (oclass == egads.NODE   )
 print("mtype :", mtype ); assert (mtype  == egads.NOMTYPE)
-pyOCSM.PrintEgo(theEgo)
+ocsm.PrintEgo(theEgo)
 
 print("\nEdge[1] EGO:")
-theEgo = modl2.GetEgo(nbody, pyOCSM.EDGE, 1)
+theEgo = modl2.GetEgo(nbody, ocsm.EDGE, 1)
 (oclass, mtype, topRef, eprev, enext) = theEgo.getInfo()
 print("oclass:", oclass); assert (oclass == egads.EDGE   )
 print("mtype :", mtype ); assert (mtype  == egads.TWONODE)
-pyOCSM.PrintEgo(theEgo)
+ocsm.PrintEgo(theEgo)
 
 print("\nFace[1] EGO:")
-theEgo = modl2.GetEgo(nbody, pyOCSM.FACE, 1)
+theEgo = modl2.GetEgo(nbody, ocsm.FACE, 1)
 (oclass, mtype, topRef, eprev, enext) = theEgo.getInfo()
 print("oclass:", oclass); assert (oclass == egads.FACE    )
 print("mtype :", mtype ); assert (mtype  == egads.SREVERSE)
-pyOCSM.PrintEgo(theEgo)
+ocsm.PrintEgo(theEgo)
 del theEgo
 del topRef
 del eprev
@@ -703,10 +703,10 @@ modl2.Free()
 
 # test multiple MODLs with inline files
 print("\ntest 106: creating modl3 from inline.csm")
-modl3 = pyOCSM.Ocsm("inline.csm")
+modl3 = ocsm.Ocsm("inline.csm")
 
 print("\ntest 107: creating modl4 from inline.csm")
-modl4 = pyOCSM.Ocsm("inline.csm")
+modl4 = ocsm.Ocsm("inline.csm")
 
 print("\ntest 108: calling modl3.Build(0, 0)")
 modl3.Build(0, 0)
@@ -746,21 +746,21 @@ modl5 = modl4.Copy();
 
 print("\ntest 115: calling modl4.GetArg(8, 3)")
 (defn, value, dot) = modl4.GetArg(8, 3)
-print("defn  :", defn);   assert (defn == "$tmp_OpenCSM_01/00")
+print("defn  :", defn);   assert (defn == "$<<inline/0>>")
 
 print("\ntest 116: calling modl4.PrintBrchs()")
 modl4.PrintBrchs("")
 
 print("\ntest 117: calling mod5.GetArg(8, 3)")
 (defn, value, dot) = modl5.GetArg(8, 3)
-print("defn  :", defn);   assert (defn == "$tmp_OpenCSM_00/00")
+print("defn  :", defn);   assert (defn == "$<<inline/0>>")
 
 print("\ntest 118: calling modl5.PrintBrchs()")
 modl5.PrintBrchs("")
 
 # make a new modl
 print("\ntest 119: making modl6()")
-modl6 = pyOCSM.Ocsm("")
+modl6 = ocsm.Ocsm("")
 
 print("\ntest 120: calling modl6.RegMesgCB(pyMesgCB)")
 modl6.RegMesgCB(pyMesgCB)
@@ -769,7 +769,7 @@ print("\ntest 121: calling modl6.RegSizeCB(pySizeCB)")
 modl6.RegSizeCB(pySizeCB)
 
 print("\ntest 122: calling modl6.FindPmtr(n)")
-iN = modl6.FindPmtr("n", pyOCSM.CFGPMTR, 1, 1)
+iN = modl6.FindPmtr("n", ocsm.CFGPMTR, 1, 1)
 print("    iN    :", iN);   assert (iN == 1)
 
 print("\ntest 123: calling SetValuD(n, 1, 1, 2)")
@@ -780,7 +780,7 @@ modl6.NewBrch(0, modl6.GetCode("dimension"), "<none>", 0,
               "$dxyz", "1", "n", "", "", "", "", "", "")
 
 print("\ntest 125: calling modl6.FindPmtr(dxyz)")
-iDxyz = modl6.FindPmtr("dxyz", pyOCSM.DESPMTR, 1, 1)
+iDxyz = modl6.FindPmtr("dxyz", ocsm.DESPMTR, 1, 1)
 print("    iDxyz :", iDxyz);    assert (iDxyz == 2)
 
 print("\ntest 126: calling modl6.SetValuD(iDxyz, 1, 1, 1)")
@@ -791,7 +791,7 @@ print("\ntest 127: calling modl6.SetValuD(iDxyz, 1, 2, 2)")
 modl6.SetValuD(iDxyz, 1, 2, 2)
 
 print("\ntest 128: calling modl6.FindPmtr(myVol)")
-iMyVol = modl6.FindPmtr("myVol", pyOCSM.OUTPMTR, 1, 1)
+iMyVol = modl6.FindPmtr("myVol", ocsm.OUTPMTR, 1, 1)
 print("    iMyVol:", iMyVol);    assert (iMyVol == 3)
 
 modl6.PrintPmtrs("")
@@ -835,7 +835,7 @@ modl6.Free()
 print("\ntest 138: calling modl4.Info()")
 (nbrch, npmtr, nbody) = modl4.Info()
 print("    nbrch  :", nbrch);   assert (nbrch == 13)
-print("    npmtr  :", npmtr);   assert (npmtr == 52)
+print("    npmtr  :", npmtr);   assert (npmtr == 53)
 print("    nbody  :", nbody);   assert (nbody == 3 )
 
 print("\ntest 139: adding \"UDPRIM applyTparams\" after BOX Branch")
@@ -851,8 +851,8 @@ modl4.Build(0, 0)
 
 print("\ntest 141: calling modl4.Info()")
 (nbrch, npmtr, nbody) = modl4.Info()
-print("    nbrch  :", nbrch);   assert (nbrch == 23)
-print("    npmtr  :", npmtr);   assert (npmtr == 52)
+print("    nbrch  :", nbrch);   assert (nbrch == 25)
+print("    npmtr  :", npmtr);   assert (npmtr == 53)
 print("    nbody  :", nbody);   assert (nbody == 3 )
 
 modl4.PrintBrchs("")
@@ -861,7 +861,7 @@ print("\ntest 142: calling modl4.Save(sample3.cpc)")
 modl4.Save("sample3.cpc")
 
 print("\ntest 143: making modl6(sample3.cpc)")
-modl6 = pyOCSM.Ocsm("sample3.cpc")
+modl6 = ocsm.Ocsm("sample3.cpc")
 
 modl6.PrintBrchs("")
 
@@ -870,15 +870,15 @@ modl6.Check()
 
 print("\ntest 145: calling modl6.Build(0, 0)")
 (builtTo, nbody, bodys) = modl6.Build(0, 0)
-print("    builtTo:", builtTo);   assert (nbrch == 23  )
+print("    builtTo:", builtTo);   assert (nbrch == 25  )
 print("    nbody  :", nbody  );   assert (nbody == 0   )
 print("    bodys  :", bodys  );   assert (bodys == None)
 assert (nbody == 0)
 
 print("\ntest 146: calling modl6.Info()")
 (nbrch, npmtr, nbody) = modl6.Info()
-print("    nbrch  :", nbrch);   assert (nbrch == 23)
-print("    npmtr  :", npmtr);   assert (npmtr == 52)
+print("    nbrch  :", nbrch);   assert (nbrch == 25)
+print("    npmtr  :", npmtr);   assert (npmtr == 53)
 print("    nbody  :", nbody);   assert (nbody == 3 )
 
 print("\ntest 147: calling modl6.Free() --- should remove EGADS context")
@@ -892,17 +892,17 @@ os.remove("sample.out")
 os.remove("sample.tess")
 
 print("\ntest 149: making modl7()")
-modl7 = pyOCSM.Ocsm("")
+modl7 = ocsm.Ocsm("")
 
 print("\ntest 150: adding DESPMTRs")
-modl7.NewPmtr("xbeg", pyOCSM.DESPMTR, 1, 1)
-modl7.NewPmtr("ybeg", pyOCSM.DESPMTR, 1, 1)
-modl7.NewPmtr("zbeg", pyOCSM.DESPMTR, 1, 1)
-modl7.NewPmtr("xend", pyOCSM.DESPMTR, 1, 1)
-modl7.NewPmtr("yend", pyOCSM.DESPMTR, 1, 1)
-modl7.NewPmtr("zend", pyOCSM.DESPMTR, 1, 1)
+modl7.NewPmtr("xbeg", ocsm.DESPMTR, 1, 1)
+modl7.NewPmtr("ybeg", ocsm.DESPMTR, 1, 1)
+modl7.NewPmtr("zbeg", ocsm.DESPMTR, 1, 1)
+modl7.NewPmtr("xend", ocsm.DESPMTR, 1, 1)
+modl7.NewPmtr("yend", ocsm.DESPMTR, 1, 1)
+modl7.NewPmtr("zend", ocsm.DESPMTR, 1, 1)
 
-modl7.NewPmtr("myLen", pyOCSM.OUTPMTR, 1, 1)
+modl7.NewPmtr("myLen", ocsm.OUTPMTR, 1, 1)
 
 print("\ntest 151: add Branches")
 print("    calling modl7.NewBrch(", 0, ") skbeg   xbeg  ybeg  zbeg  0")
@@ -934,19 +934,19 @@ print("    nbody  :", nbody  );   assert (nbody   == 0   )
 print("    bodys  :", bodys  );   assert (bodys   == None)
 
 print("\ntest 154: calling modl7.GetTessVel(3, NODE, 1)")
-vels = modl7.GetTessVel(3, pyOCSM.NODE, 1)
+vels = modl7.GetTessVel(3, ocsm.NODE, 1)
 print("    node1:xvel :", vels[0]);   assert (abs(vels[0]-0) < TOL)
 print("    node1:yvel :", vels[1]);   assert (abs(vels[1]-0) < TOL)
 print("    node1:zvel :", vels[2]);   assert (abs(vels[2]-0) < TOL)
 
 print("\ntest 155: calling modl7.GetTessVel(3, NODE, 2)")
-vels = modl7.GetTessVel(3, pyOCSM.NODE, 2)
+vels = modl7.GetTessVel(3, ocsm.NODE, 2)
 print("    node2:xvel :", vels[0]);   assert (abs(vels[0]-0) < TOL)
 print("    node2:yvel :", vels[1]);   assert (abs(vels[1]-0) < TOL)
 print("    node2:zvel :", vels[2]);   assert (abs(vels[2]-0) < TOL)
 
 print("\ntest 156: calling modl7.GetTessVel(3, EDGE, 1)")
-vels = modl7.GetTessVel(3, pyOCSM.EDGE, 1)
+vels = modl7.GetTessVel(3, ocsm.EDGE, 1)
 print("    beg.xvel :", vels[ 0]);   assert (abs(vels[ 0]-0) < TOL)
 print("    beg.yvel :", vels[ 1]);   assert (abs(vels[ 1]-0) < TOL)
 print("    beg.zvel :", vels[ 2]);   assert (abs(vels[ 2]-0) < TOL)
@@ -977,19 +977,19 @@ print("    value:", value);   assert (abs(value-7.48332) < TOL)
 print("    dot  :", dot  );   assert (abs(dot  +1.06904) < TOL)
 
 print("\ntest 162: calling modl7.GetTessVel(3, NODE, 1)")
-vels = modl7.GetTessVel(3, pyOCSM.NODE, 1)
+vels = modl7.GetTessVel(3, ocsm.NODE, 1)
 print("    node1:xvel :", vels[0]);   assert (abs(vels[0]-1) < TOL)
 print("    node1:yvel :", vels[1]);   assert (abs(vels[1]-0) < TOL)
 print("    node1:zvel :", vels[2]);   assert (abs(vels[2]-0) < TOL)
 
 print("\ntest 163: calling modl7.GetTessVel(3, NODE, 2)")
-vels = modl7.GetTessVel(3, pyOCSM.NODE, 2)
+vels = modl7.GetTessVel(3, ocsm.NODE, 2)
 print("    node2:xvel :", vels[0]);   assert (abs(vels[0]-0) < TOL)
 print("    node2:yvel :", vels[1]);   assert (abs(vels[1]-0) < TOL)
 print("    node2:zvel :", vels[2]);   assert (abs(vels[2]+1) < TOL)
 
 print("\ntest 164: calling modl7.GetTessVel(3, EDGE, 1)")
-vels = modl7.GetTessVel(3, pyOCSM.EDGE, 1)
+vels = modl7.GetTessVel(3, ocsm.EDGE, 1)
 print("    beg.xvel :", vels[ 0]);   assert (abs(vels[ 0]-1) < TOL)
 print("    beg.yvel :", vels[ 1]);   assert (abs(vels[ 1]-0) < TOL)
 print("    beg.zvel :", vels[ 2]);   assert (abs(vels[ 2]-0) < TOL)
@@ -1001,15 +1001,15 @@ print("\ntest 165: calling modl7.Free() --- should remove EGADS context")
 modl7.Free()
 
 print("\ntest 166: making modl8()")
-modl8 = pyOCSM.Ocsm("")
+modl8 = ocsm.Ocsm("")
 
 print("\ntest 167: adding DESPMTRs")
-modl8.NewPmtr("xbeg", pyOCSM.DESPMTR, 1, 1)
-modl8.NewPmtr("ybeg", pyOCSM.DESPMTR, 1, 1)
-modl8.NewPmtr("zbeg", pyOCSM.DESPMTR, 1, 1)
-modl8.NewPmtr("xlen", pyOCSM.DESPMTR, 1, 1)
+modl8.NewPmtr("xbeg", ocsm.DESPMTR, 1, 1)
+modl8.NewPmtr("ybeg", ocsm.DESPMTR, 1, 1)
+modl8.NewPmtr("zbeg", ocsm.DESPMTR, 1, 1)
+modl8.NewPmtr("xlen", ocsm.DESPMTR, 1, 1)
 
-modl8.NewPmtr("myLen", pyOCSM.OUTPMTR, 1, 1)
+modl8.NewPmtr("myLen", ocsm.OUTPMTR, 1, 1)
 
 print("\ntest 168: add Branches (backwards)")
 print("    calling modl8.NewBrch(", 0, ") set     myLen  @length")
@@ -1036,19 +1036,19 @@ print("    nbody  :", nbody  );   assert (nbody   == 0   )
 print("    bodys  :", bodys  );   assert (bodys   == None)
 
 print("\ntest 171: calling modl8.GetTessVel(2, NODE, 1)")
-vels = modl8.GetTessVel(2, pyOCSM.NODE, 1)
+vels = modl8.GetTessVel(2, ocsm.NODE, 1)
 print("    node1:xvel :", vels[0]);   assert (abs(vels[0]-0) < TOL)
 print("    node1:yvel :", vels[1]);   assert (abs(vels[1]-0) < TOL)
 print("    node1:zvel :", vels[2]);   assert (abs(vels[2]-0) < TOL)
 
 print("\ntest 172: calling modl8.GetTessVel(2, NODE, 2)")
-vels = modl8.GetTessVel(2, pyOCSM.NODE, 2)
+vels = modl8.GetTessVel(2, ocsm.NODE, 2)
 print("    node2:xvel :", vels[0]);   assert (abs(vels[0]-0) < TOL)
 print("    node2:yvel :", vels[1]);   assert (abs(vels[1]-0) < TOL)
 print("    node2:zvel :", vels[2]);   assert (abs(vels[2]-0) < TOL)
 
 print("\ntest 173: calling modl8.GetTessVel(2, EDGE, 1)")
-vels = modl8.GetTessVel(2, pyOCSM.EDGE, 1)
+vels = modl8.GetTessVel(2, ocsm.EDGE, 1)
 print("    beg.xvel :", vels[ 0]);   assert (abs(vels[ 0]-0) < TOL)
 print("    beg.yvel :", vels[ 1]);   assert (abs(vels[ 1]-0) < TOL)
 print("    beg.zvel :", vels[ 2]);   assert (abs(vels[ 2]-0) < TOL)
@@ -1079,19 +1079,19 @@ print("    value:", value);   assert (abs(value-4) < TOL)
 print("    dot  :", dot  );   assert (abs(dot  -1) < TOL)
 
 print("\ntest 179: calling modl8.GetTessVel(3, NODE, 1)")
-vels = modl8.GetTessVel(2, pyOCSM.NODE, 1)
+vels = modl8.GetTessVel(2, ocsm.NODE, 1)
 print("    node1:xvel :", vels[0]);   assert (abs(vels[0]-1) < TOL)
 print("    node1:yvel :", vels[1]);   assert (abs(vels[1]-0) < TOL)
 print("    node1:zvel :", vels[2]);   assert (abs(vels[2]-0) < TOL)
 
 print("\ntest 180: calling modl8.GetTessVel(3, NODE, 2)")
-vels = modl8.GetTessVel(2, pyOCSM.NODE, 2)
+vels = modl8.GetTessVel(2, ocsm.NODE, 2)
 print("    node2:xvel :", vels[0]);   assert (abs(vels[0]-2) < TOL)
 print("    node2:yvel :", vels[1]);   assert (abs(vels[1]-0) < TOL)
 print("    node2:zvel :", vels[2]);   assert (abs(vels[2]-0) < TOL)
 
 print("\ntest 181: calling modl8.GetTessVel(3, EDGE, 1)")
-vels = modl8.GetTessVel(2, pyOCSM.EDGE, 1)
+vels = modl8.GetTessVel(2, ocsm.EDGE, 1)
 print("    beg.xvel :", vels[ 0]);   assert (abs(vels[ 0]-1) < TOL)
 print("    beg.yvel :", vels[ 1]);   assert (abs(vels[ 1]-0) < TOL)
 print("    beg.zvel :", vels[ 2]);   assert (abs(vels[ 2]-0) < TOL)
@@ -1099,23 +1099,23 @@ print("    end.xvel :", vels[-3]);   assert (abs(vels[-3]-2) < TOL)
 print("    end.yvel :", vels[-2]);   assert (abs(vels[-2]-0) < TOL)
 print("    end.zvel :", vels[-1]);   assert (abs(vels[-1]-0) < TOL)
 
-print("\ntest 182: copy a Body in modl8")
+print("\ntest 182: get a reference to a Body in modl8")
 (nbrch, npmtr, nbody) = modl8.Info()
-newBody = modl8.GetEgo(nbody, pyOCSM.BODY, 0)
+newBody = modl8.GetEgo(nbody, ocsm.BODY, 0)
 
-print("\ntest 183: calling modl8.Free() --- should NOT remove EGADS context")
-modl8.Free()
-
-print("\ntest 184: calling modl5.Free() --- should NOT remove EGADS context")
-modl5.Free()
-
-print("\ntest 185: calling newBody.getInfo()")
+print("\ntest 183: calling newBody.getInfo()")
 (oclass, mtype, topRed, eprev, enext) = newBody.getInfo()
 print("oclass:", oclass);   assert (oclass == egads.BODY    )
 print("mtype :", mtype );   assert (mtype  == egads.WIREBODY)
 
+print("\ntest 184: calling modl8.Free() --- should remove EGADS context")
+modl8.Free()
+
+print("\ntest 185: calling modl5.Free() --- should NOT remove EGADS context")
+modl5.Free()
+
 print("\ntest 186: making modl3()")
-modl3 = pyOCSM.Ocsm("")
+modl3 = ocsm.Ocsm("")
 
 print("\ntest 187: calling modl3.NewBrch(udprim,naca)")
 modl3.NewBrch(0, modl3.GetCode("udprim"), "<none>", 0,
@@ -1139,7 +1139,25 @@ modl3.PrintBrchs("")
 print("\ntest 192: calling modl3.Build(0,0)")
 modl3.Build(0, 0)
 
-print("\ntest 193: calling modl3.Free() --- should remove EGADS context")
+print("\ntest 193: calling modl3,GetTessNpnt(nbody, FACE, 1)")
+(nbrch, npmtr, nbody) = modl3.Info()
+npnt = modl3.GetTessNpnt(nbody, ocsm.FACE, 1)
+print("    npnt     :", npnt);   assert (npnt == 2517)
+
+print("\ntest 194: calling modl3.GetEgo(BODY)")
+theBody = modl3.GetEgo(nbody, ocsm.BODY, 0)
+
+print("\ntest 195: calling MakeTessBody")
+theTess = theBody.makeTessBody((0.01, 0.01, 5))
+
+print("\ntest 196: calling modl3.SetEgo(TESS)")
+modl3.SetEgo(nbody, 1, theTess)
+
+print("\ntest 197: calling modl3.GetTessNpnt(nbody, FACE, 1)")
+npnt = modl3.GetTessNpnt(nbody, ocsm.FACE, 1)
+print("    npnt     :", npnt);   assert (npnt == 73359)
+
+print("\ntest 198: calling modl3.Free() --- should remove EGADS context")
 modl3.Free()
 
 print("\nNOTE:")
@@ -1149,9 +1167,7 @@ print("    UpdateSketch is not tested")
 print("    SetEgg       is not tested")
 
 print("\nAt end:")
-print("    temporary directory \"tmp_OpenCSM_01\"   should be removed")
 print("    EGADS context associated with modl1    should be removed")
 print("    EGADS context associated with modl4/5  should be removed")
-print("    EGADS context associated with modl8    should be removed")
 
-print("\ntest_pyOCSM finished successfully\n")
+print("\ntest_ocsm finished successfully\n")

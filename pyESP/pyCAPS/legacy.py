@@ -35,6 +35,7 @@ from . import caps
 from pyEGADS import egads
 from .attributeUtils import _createAttributeValList, _createAttributeMap, _reverseAttributeMap
 from .treeUtils import writeTreeHTML
+from .geometryUtils import _viewGeometryMatplotlib
 
 # Python version
 try:
@@ -73,6 +74,8 @@ except:
     print("Error: Unable to import math\n")
     raise ImportError
 
+import shutil
+
 # Set version
 __version__ = "2.2.1"
 
@@ -96,7 +99,7 @@ __version__ = "2.2.1"
 #         if isinstance(data,list):
 #             return [_byteify(item,ignore_dicts=True) for item in data]
 #         if isinstance(data, dict) and not ignore_dicts:
-#             return {_byteify(key,ignore_dicts=True): _byteify(value, ignore_dicts=True) for key, value in data.iteritems()}
+#             return {_byteify(key,ignore_dicts=True): _byteify(value, ignore_dicts=True) for key, value in data.items()}
 #         return data
 
 # Handles all byte to uni-code conversion.
@@ -109,12 +112,13 @@ __version__ = "2.2.1"
 #         if isinstance(data,list):
 #             return [_strify(item,ignore_dicts=True) for item in data]
 #         if isinstance(data, dict) and not ignore_dicts:
-#             return {_strify(key,ignore_dicts=True): _strify(value, ignore_dicts=True) for key, value in data.iteritems()}
+#             return {_strify(key,ignore_dicts=True): _strify(value, ignore_dicts=True) for key, value in data.items()}
 #     return data
 
 # Perform unit conversion
 def capsConvert(value, fromUnits, toUnits):
-    return caps.Units(value,fromUnits)/caps.unit(toUnits)
+    toUnits = caps.Unit(toUnits)
+    return caps.Quantity(value,fromUnits).convert(toUnits)/toUnits
 
 # Create the tree for an object
 def createTree(dataObj, showAnalysisGeom, showInternalGeomAttr, reverseMap):
@@ -150,7 +154,7 @@ def createTree(dataObj, showAnalysisGeom, showInternalGeomAttr, reverseMap):
         elif isinstance(data, dict):
             temp = []
 
-            for key, value in data.iteritems():
+            for key, value in data.items():
                 temp.append({"name" : key, "children" : checkValue(value)})
 
             return temp
@@ -176,7 +180,7 @@ def createTree(dataObj, showAnalysisGeom, showInternalGeomAttr, reverseMap):
             tree["children"][3]["children"] = [] # Clear Inputs
 
             # Loop through analysis inputs and add current value
-            for key, value in inputs.iteritems():
+            for key, value in inputs.items():
                 tree["children"][3]["children"].append( {"name" : key, "children" : checkValue(value)} )
         try:
             outputs = dataObj.getAnalysisOutVal()
@@ -193,7 +197,7 @@ def createTree(dataObj, showAnalysisGeom, showInternalGeomAttr, reverseMap):
             tree["children"][4]["children"] = [] # Clear Outputs
 
             # Loop through analysis outputs and add current value
-            for key, value in outputs.iteritems():
+            for key, value in outputs.items():
                 tree["children"][4]["children"].append( {"name" : key, "children" : checkValue(value)} )
 
         # Are we supposed to show geometry with the analysis obj?
@@ -205,7 +209,7 @@ def createTree(dataObj, showAnalysisGeom, showInternalGeomAttr, reverseMap):
 
                 tree["children"].append({"name" : "Geometry", "children" : []})
 
-                for key, value in attributeMap.iteritems():
+                for key, value in attributeMap.items():
                     tree["children"][5]["children"].append( {"name" : key, "children" : checkValue(value)} )
 
     # Data set object
@@ -230,7 +234,7 @@ def createTree(dataObj, showAnalysisGeom, showInternalGeomAttr, reverseMap):
 
             tree["children"][0]["children"] = [] # Clear Source data set
 
-            for key, value in dataObj.dataSetSrc.iteritems():
+            for key, value in dataObj.dataSetSrc.items():
                 tree["children"][0]["children"].append(jsonLoads(createTree(value,
                                                                            showAnalysisGeom,
                                                                            showInternalGeomAttr,
@@ -244,7 +248,7 @@ def createTree(dataObj, showAnalysisGeom, showInternalGeomAttr, reverseMap):
 
             tree["children"][1]["children"] = [] # Clear Destination data set
 
-            for key, value in dataObj.dataSetDest.iteritems():
+            for key, value in dataObj.dataSetDest.items():
                 tree["children"][1]["children"].append(jsonLoads(createTree(value,
                                                                             showAnalysisGeom,
                                                                             showInternalGeomAttr,
@@ -269,7 +273,7 @@ def createTree(dataObj, showAnalysisGeom, showInternalGeomAttr, reverseMap):
             tree["children"][0]["children"] = [] # Clear design parameters
 
             # Loop through design variables
-            for key, value in designVars.iteritems():
+            for key, value in designVars.items():
                 tree["children"][0]["children"].append( {"name" : key, "children" : checkValue(value)} )
 
         # Local variables
@@ -279,14 +283,14 @@ def createTree(dataObj, showAnalysisGeom, showInternalGeomAttr, reverseMap):
             tree["children"][1]["children"] = [] # Clear local variables
 
             # Loop through local variables
-            for key, value in localVars.iteritems():
+            for key, value in localVars.items():
                 tree["children"][1]["children"].append( {"name" : key, "children" : checkValue(value)} )
 
         # Attributes
         attributeMap = dataObj.getAttributeMap(getInternal = showInternalGeomAttr, reverseMap = reverseMap)
         if attributeMap:
             tree["children"][2]["children"] = [] # Clear attribute map
-            for key, value in attributeMap.iteritems():
+            for key, value in attributeMap.items():
                 tree["children"][2]["children"].append( {"name" : key, "children" : checkValue(value)} )
 
     # Problem object
@@ -309,7 +313,7 @@ def createTree(dataObj, showAnalysisGeom, showInternalGeomAttr, reverseMap):
 
             tree["children"][0]["children"] = [] # Clear Analysis
 
-            for key, value in dataObj.analysis.iteritems():
+            for key, value in dataObj.analysis.items():
                 tree["children"][0]["children"].append(jsonLoads(createTree(value,
                                                                             showAnalysisGeom,
                                                                             showInternalGeomAttr,
@@ -333,7 +337,7 @@ def createTree(dataObj, showAnalysisGeom, showInternalGeomAttr, reverseMap):
 
             tree["children"][2]["children"] = [] # Clear Data Bounds
 
-            for key, value in dataObj.dataBound.iteritems():
+            for key, value in dataObj.dataBound.items():
                 tree["children"][2]["children"].append(jsonLoads(createTree(value,
                                                                             showAnalysisGeom,
                                                                             showInternalGeomAttr,
@@ -1290,17 +1294,11 @@ class capsProblem:
 
     ## Initialize the problem.
     # See \ref problem.py for a representative use case.
-    # \param libDir Deprecated option, no longer required.
     # \param raiseException Raise an exception after a CAPS error is encountered (default - True). See \ref raiseException.
-    def __init__(self, libDir=None, raiseException=True):
+    def __init__(self, raiseException=True):
         ## \example problem.py
         # Basic example use case of the initiation (pyCAPS.capsProblem.__init__) and
         # termination (pyCAPS.capsProblem.closeCAPS)
-
-        if libDir is not None:
-            print("\n\nWarning: libDir (during __init__ of capsProblem) is a deprecated option as it\n" +
-                   "is no longer needed, please remove this argument from your script.\n" +
-                   "Further use will result in an error in future releases!!!!!!\n")
 
         ## Raise an exception after a CAPS error is found (default - True). Disabling (i.e. setting to False) may have unexpected
         # consequences; in general the value should be set to True.
@@ -1334,6 +1332,10 @@ class capsProblem:
         self.value = {}
 
     def __del__(self):
+        del self.geometry
+        del self.analysis
+        del self.dataBound
+        del self.value
         del self.problemObj
 
     ## Loads a *.csm, *.caps, or *.egads file into the problem.
@@ -1351,7 +1353,7 @@ class capsProblem:
     # Caveats of loading an existing CAPS file:
     # - Can currently only load *.caps files generated from pyCAPS originally.
     # - OpenMDAO objects won't be re-populated for analysis objects
-    def loadCAPS(self, capsFile, projectName=None, verbosity=None):
+    def loadCAPS(self, capsFile, projectName=None, verbosity=1):
         ## \example problem1.py
         # Example use case for the pyCAPS.capsProblem.loadCAPS() function in which are multiple
         # problems with geometry are created.
@@ -1364,10 +1366,7 @@ class capsProblem:
         # Example use case for the pyCAPS.capsProblem.loadCAPS() and pyCAPS.capsProblem.saveCAPS() functions - using a CAPS file
         # to initiate a new problem.
 
-        capsGeometry(self, capsFile, projectName)
-
-        if verbosity is not None:
-            self.setVerbosity(verbosity)
+        capsGeometry(self, capsFile, projectName, verbosity)
 
         return self.geometry
 
@@ -1393,29 +1392,38 @@ class capsProblem:
 
         self.problemObj.setOutLevel(verbosityLevel)
 
-    ## Save a CAPS problem.
+    ## Save a CAPS problem (deprecated and does nothing).
     # See \ref problem8.py for example use case.
     # \param filename File name to use when saving CAPS problem.
     def saveCAPS(self, filename="saveCAPS.caps"):
-
-        if filename == "saveCAPS.caps":
-            print("Using default file name - " + str(filename))
-
-        file_path, file_extension = os.path.splitext(filename)
-        if ".caps" not in file_extension:
-            filename += ".caps"
-
-        if os.path.isfile(filename):
-            print("Warning: "+ str(filename) + " will be overwritten!")
-            os.remove(filename)
-
-        self.problemObj.save(filename)
+        pass
 
     ## Close a CAPS problem.
     # See \ref problem1.py for a representative use case.
     def closeCAPS(self):
 
-        # simply re-initialize everyhing to an empty state
+        # delete all capsObj instances
+        for analysis in self.analysis.values():
+            del analysis.analysisObj
+
+        for value in self.value.values():
+            del value.valueObj
+
+        for bound in self.dataBound.values():
+            for vset in bound.vertexSet.values():
+                del vset.vertexSetObj
+                
+            for dset in bound.dataSetSrc.values():
+                del dset.dataSetObj
+
+            for dset in bound.dataSetDest.values():
+                del dset.dataSetObj
+
+            del bound.boundObj
+
+        del self.problemObj
+
+        # re-initialize everyhing to an empty state
         self.__init__()
 
     ## Report what analyses loaded into the problem are dirty.
@@ -1603,7 +1611,7 @@ class capsProblem:
                 vObj = self.value[i]._valueObj()
 
                 # Try to make the link if we made it this far
-                vObj.makeLinkage(caps.tMethod.Copy, tempObj)
+                tempObj.linkValue(vObj, caps.tMethod.Copy)
 
                 print("Linked", str(self.value[i].name), "to analysis", str(analysisName), "input", varname)
                 found = True
@@ -1862,6 +1870,7 @@ class capsAnalysis:
 
             else:
                 return False
+
         # Check the analysis dictionary for redundant directories if official aim names are the same
         def checkAnalysisDir(name, analysidDir):
 
@@ -1903,6 +1912,7 @@ class capsAnalysis:
         parents = kwargs.pop("parents", [])
         copyAIM = kwargs.pop("copyAIM", None)
         copyParents = kwargs.pop("copyParent", True)
+        altName = kwargs.pop("altName", currentAIM)
 
         __fromSave = kwargs.pop("__fromSave", False)
 
@@ -1911,9 +1921,9 @@ class capsAnalysis:
                 capsIntent = [capsIntent]
             capsIntent = ';'.join(capsIntent)
 
-        if not analysisDir:
-            print("No analysis directory provided - defaulting to current working directory")
-            analysisDir = os.getcwd()
+        if not analysisDir or analysisDir == ".":
+            print("No analysis directory provided - defaulting to altName")
+            analysisDir = altName
 
         if parents:
             if not isinstance(parents, list):
@@ -1948,8 +1958,6 @@ class capsAnalysis:
 
             if copyParents == True:
                 parents = self.capsProblem.analysis[copyAIM].parents
-
-        altName = kwargs.pop("altName", currentAIM)
 
         if not __fromSave:
             # Check aim status
@@ -2001,9 +2009,17 @@ class capsAnalysis:
         ## Name of the AIM loaded for the anlaysis object (see \ref capsProblem.loadAIM$aim).
         self.officialName = officialName
 
-        ## Analysis directory of the AIM loaded for the anlaysis object (see \ref capsProblem.loadAIM$analysis).
-        # If the directory does not exist it will be made automatically.
-        self.analysisDir = analysisDir
+        if analysisDir is not None:
+            ## Adjust legacy directory names
+            analysisDir = analysisDir.replace(".","_")
+            analysisDir = analysisDir.replace("/","_")
+            analysisDir = analysisDir.replace("\\","_")
+    
+            ## Analysis directory of the AIM loaded for the anlaysis object (see \ref capsProblem.loadAIM$analysis).
+            # If the directory does not exist it will be made automatically.
+            self.analysisDir = analysisDir + "_" + officialName
+        else:
+            self.analysisDir = None
 
         ## Unit system the AIM was loaded with (if applicable).
         self.unitSystem = unitSystem
@@ -2021,10 +2037,18 @@ class capsAnalysis:
         if self.aimName is None:
             return
 
-        # Check to see if directory exists
-        if not os.path.isdir(self.analysisDir):
-            print("Analysis directory does not currently exist - it will be made automatically")
-            os.makedirs(self.analysisDir)
+        if self.analysisDir:
+            root = self.capsProblem.problemObj.getRootPath()
+            fullPath = os.path.join(root,self.analysisDir)
+            
+            # Check to see if directory exists
+            if not os.path.isdir(fullPath):
+                #print("Analysis directory does not currently exist - it will be made automatically")
+                os.makedirs(fullPath)
+    
+            # Remove the top directory as cCAPS will create it
+            if os.path.isdir(fullPath):
+                shutil.rmtree(fullPath)
 
         # Allocate a temporary list of analysis object for the parents
         if len(parentList) != 0:
@@ -2037,14 +2061,12 @@ class capsAnalysis:
             aobjTemp = None
 
         if copyAIM is not None:
-            self.analysisObj = self.capsProblem.analysis[copyAIM].analysisObj.dupAnalysis(analysisDir, parents=aobjTemp)
+            self.analysisObj = self.capsProblem.analysis[copyAIM].analysisObj.dupAnalysis(self.analysisDir)
         else:
             self.analysisObj = self.capsProblem.problemObj.makeAnalysis(officialName,
-                                                                        None,
+                                                                        self.analysisDir,
                                                                         unitSys=unitSystem,
-                                                                        intent=capsIntent,
-                                                                        analysisDir=analysisDir,
-                                                                        parents=aobjTemp)
+                                                                        intent=capsIntent)
 
         if len(parentList) != 0:
 
@@ -2065,12 +2087,14 @@ class capsAnalysis:
                     
                     if "Surface_Mesh" in outNames:
                         outValObj = self.capsProblem.analysis[parent].analysisObj.childByName(caps.oType.VALUE, caps.sType.ANALYSISOUT, "Surface_Mesh")
+                    elif "Area_Mesh" in outNames:
+                        outValObj = self.capsProblem.analysis[parent].analysisObj.childByName(caps.oType.VALUE, caps.sType.ANALYSISOUT, "Area_Mesh")
                     elif "Volume_Mesh" in outNames:
                         outValObj = self.capsProblem.analysis[parent].analysisObj.childByName(caps.oType.VALUE, caps.sType.ANALYSISOUT, "Volume_Mesh")
                     else:
                         continue
 
-                    outValObj.makeLinkage(caps.tMethod.Copy, inValObj)
+                    inValObj.linkValue(outValObj, caps.tMethod.Copy)
 
 
         #if copyAIM is not None:
@@ -2086,6 +2110,9 @@ class capsAnalysis:
         if self.parents:
             self.addAttribute("__parents", self.parents)
 
+        analysisInfo = self.getAnalysisInfo(printInfo=False, infoDict=True)
+
+        self.analysisDir = analysisInfo["analysisDir"]
 
     def _setupObj(self, analysisObj):
 
@@ -2121,13 +2148,11 @@ class capsAnalysis:
     def setAnalysisVal(self, varname, value, units=None):
 
         tempObj = self.analysisObj.childByName(caps.oType.VALUE, caps.sType.ANALYSISIN, varname)
-        if isinstance(value, list) and isinstance(value[0], str):
-            value = ";".join(value)
         
         # This is a complete HACK, but consistent with previous poor use of units...
         if units is None:
             _value = tempObj.getValue()
-            if isinstance(_value, caps.Units):
+            if isinstance(_value, caps.Quantity):
                 units = _value._units
 
         tempObj.setValue( caps._withUnits(value, units) )
@@ -2170,12 +2195,12 @@ class capsAnalysis:
                     return None
             else:
                 if units:
-                    if not isinstance(value, caps.Units):
+                    if not isinstance(value, caps.Quantity):
                         raise caps.CAPSError(caps.CAPS_UNITERR, msg = "No units assigned to analysis variable, " + varname + ", unable to convert units to " + units )
 
                     return value.convert(units)._value
                 else:
-                    if isinstance(value, caps.Units):
+                    if isinstance(value, caps.Quantity):
                         return value._value
                     else:
                         return value
@@ -2193,7 +2218,7 @@ class capsAnalysis:
                     analysisIn[name] = None
                 else:
                     value = tempObj.getValue()
-                    if isinstance(value,caps.Units):
+                    if isinstance(value,caps.Quantity):
                         value = value._value
                     analysisIn[name] = value
 
@@ -2246,12 +2271,12 @@ class capsAnalysis:
                     return None
             else:
                 if units:
-                    if not isinstance(value, caps.Units):
+                    if not isinstance(value, caps.Quantity):
                         raise caps.CAPSError(caps.CAPS_UNITERR, msg = "No units assigned to analysis variable, " + varname + ", unable to convert units to " + units )
 
                     return value.convert(units)._value
                 else:
-                    if isinstance(value, caps.Units):
+                    if isinstance(value, caps.Quantity):
                         return value._value
                     else:
                         return value
@@ -2269,7 +2294,7 @@ class capsAnalysis:
                     analysisOut[name] = None
                 else:
                     value = tempObj.getValue()
-                    if isinstance(value,caps.Units):
+                    if isinstance(value,caps.Quantity):
                         value = value._value
                     analysisOut[name] = value
 
@@ -2303,7 +2328,7 @@ class capsAnalysis:
                      5 : "Post analysis required",
                      6 : "Execution and Post analysis required"}
 
-        analysisPath, unitSystem, capsIntent, parents, fnames, ranks, execution, cleanliness = self.analysisObj.analysisInfo()
+        analysisPath, unitSystem, major, minor, capsIntent, fnames, franks, fInOut, execution, cleanliness = self.analysisObj.analysisInfo()
 
         if printInfo:
             numField = len(fnames)
@@ -2311,7 +2336,7 @@ class capsAnalysis:
             print("\tName           = ", self.aimName)
             print("\tIntent         = ", capsIntent)
             print("\tAnalysisDir    = ", analysisPath)
-            print("\tNumber of Parents = ", len(parents))
+            print("\tVersion        = ", str(major) + "." + str(minor))
             print("\tExecution Flag = ", execution)
             print("\tNumber of Fields = ", numField)
 
@@ -2319,7 +2344,7 @@ class capsAnalysis:
                 print("\tField name (Rank):")
 
             for i in range(numField):
-                print("\t ", fnames[i], "(", ranks[i], ")")
+                print("\t ", fnames[i], "(", franks[i], ")")
 
             if cleanliness in dirtyInfo:
                 print("\tDirty state    = ", cleanliness, " - ", dirtyInfo[cleanliness] )
@@ -2335,10 +2360,10 @@ class capsAnalysis:
             return {"name"          : self.aimName,
                     "intent"        : capsIntent,
                     "analysisDir"   : analysisPath,
-                    "numParents"    : len(parents),
+                    "version"       : str(major) + "." + str(minor),
                     "executionFlag" : executionFlag,
                     "fieldName"     : fnames,
-                    "fieldRank"     : ranks,
+                    "fieldRank"     : franks,
                     "unitSystem"    : unitSystem,
                     "status"        : cleanliness
                     }
@@ -2692,9 +2717,6 @@ class capsAnalysis:
         # pyCAPS.capsAnalysis.addAttribute() and
         # pyCAPS.capsAnalysis.getAttribute() functions.
 
-        if isinstance(data, list) and isinstance(data[0], str):
-            data = ";".join(data)
-
         valueObj = self.capsProblem.problemObj.makeValue(name, caps.sType.USER, data)
 
         self.analysisObj.setAttr(valueObj)
@@ -2708,11 +2730,8 @@ class capsAnalysis:
         valueObj = self.analysisObj.attrByName(name)
         value = valueObj.getValue()
 
-        if isinstance(value,caps.Units):
+        if isinstance(value,caps.Quantity):
             value = value._value
-
-        if isinstance(value, str) and ";" in value:
-            value = value.split(";")
 
         return value
 
@@ -2851,8 +2870,8 @@ class capsGeometry:
     # \param capsFile CAPS file to load. Options: *.csm, *.caps, or *.egads. If the filename has a *.caps extension
     # the pyCAPS analysis, bound, and value objects will be re-populated (see remarks in \ref capsProblem.loadCAPS ).
     #
-    # \param projectName CAPS project name. projectName=capsFile if not provided.
-    def __init__(self, problemObject, capsFile, projectName=None):
+    # \param projectName CAPS project name. projectName=basename(__main__.__file__) without extension if not provided.
+    def __init__(self, problemObject, capsFile, projectName=None, verbosityLevel=1):
 
         # Check problem object
         if not isinstance(problemObject, capsProblem) and not isinstance(problemObject, CapsProblem):
@@ -2860,24 +2879,38 @@ class capsGeometry:
 
         self.capsProblem = problemObject
 
-        ## Geometry file loaded into problem. Note that the directory path has been removed.
-        self.geomName = os.path.basename(capsFile)
-
-        if projectName is None:
-            projectName = capsFile
-
         if self.capsProblem.geometry is not None:
             raise caps.CAPSError(caps.CAPS_BADVALUE, msg = "while loading file - " + str(capsFile) + ". Can NOT load multiple files into a problem."
                                                          + "\nWarning: Can NOT load multiple files into a problem. A CAPS file has already been loaded!\n")
 
-        # Check to see if file is coming from a url
-        #if capsFile.startswith("http"):
-        #    import urllib2
-        #    capsFile.split
-        #    with open('test.mp3','wb') as f:
-        #       f.write(urllib2.urlopen(capsFile).read())
+        ## Geometry file loaded into problem. Note that the directory path has been removed.
+        self.geomName = os.path.basename(capsFile)
 
-        self.capsProblem.problemObj = caps.open(projectName, capsFile)
+        if projectName is None:
+            import __main__
+            try:
+                base = os.path.basename(__main__.__file__)
+                base = os.path.splitext(base)[0]
+            except AttributeError:
+                base = "__main__"
+            iProj = 0
+            projectName = base
+            while os.path.exists( os.path.join(projectName, "Scratch", "capsLock") ):
+                iProj += 1
+                projectName = base + str(iProj)
+
+        verbosity = {"minimal"  : 0,
+                     "standard" : 1,
+                     "debug"    : 2}
+
+        if not isinstance(verbosityLevel, (int,float)):
+            if verbosityLevel.lower() in verbosity.keys():
+                verbosityLevel = verbosity[verbosityLevel.lower()]
+
+        if int(verbosityLevel) not in verbosity.values():
+            raise caps.CAPSError(caps.CAPS_BADVALUE, msg = "while setting verbosity, invalid verbosity level!")
+
+        self.capsProblem.problemObj = caps.open(projectName, None, capsFile, verbosityLevel)
 
         self.capsProblem.geometry = self
 
@@ -2887,8 +2920,7 @@ class capsGeometry:
     ## Manually force a build of the geometry. The geometry will only be rebuilt if a
     # design parameter (see \ref setGeometryVal) has been changed.
     def buildGeometry(self):
-        # Depricated. CAPS should always re-build geometry just in time
-        pass
+        self.capsProblem.problemObj.preAnalysis()
 
     ## Save the current geometry to a file.
     # \param filename File name to use when saving geometry file.
@@ -2933,7 +2965,7 @@ class capsGeometry:
             valueObj = self.capsProblem.problemObj.childByName(caps.oType.VALUE, caps.sType.GEOMETRYIN, varname)
 
             value = valueObj.getValue()
-            if isinstance(value,caps.Units):
+            if isinstance(value,caps.Quantity):
                 value = value._value
             return value
 
@@ -2951,7 +2983,7 @@ class capsGeometry:
                     geometryIn[name] = None
                 else:
                     value = tempObj.getValue()
-                    if isinstance(value,caps.Units):
+                    if isinstance(value,caps.Quantity):
                         value = value._value
                     geometryIn[name] = value
 
@@ -2982,7 +3014,7 @@ class capsGeometry:
             valueObj = self.capsProblem.problemObj.childByName(caps.oType.VALUE, caps.sType.GEOMETRYOUT, varname)
 
             value = valueObj.getValue()
-            if isinstance(value,caps.Units):
+            if isinstance(value,caps.Quantity):
                 value = value._value
             return value
 
@@ -3005,7 +3037,7 @@ class capsGeometry:
                     geometryOut[name] = None
                 else:
                     value = tempObj.getValue()
-                    if isinstance(value,caps.Units):
+                    if isinstance(value,caps.Quantity):
                         value = value._value
                     geometryOut[name] = value
 
@@ -3049,11 +3081,22 @@ class capsGeometry:
         viewer = kwargs.pop("viewerType", viewDefault).lower()
         filename = kwargs.get("filename", None)
 
+        # How many bodies do we have
+        numBody = self.capsProblem.problemObj.size(caps.oType.BODIES, caps.sType.NONE)
+
+        if numBody < 1:
+            raise caps.CAPSError(caps.CAPS_BADVALUE, msg = "while saving viewing geometry"
+                                                         + "\nThe number of bodies in the problem is less than 1!!!" )
+
+        bodies = [None]*numBody
+        for i in range(numBody):
+            bodies[i], units = self.capsProblem.problemObj.bodyByIndex(i+1)
+
         # Are we going to use the viewer?
         if filename is None and viewer.lower() == "capsviewer":
             self._viewGeometryCAPSViewer(**kwargs)
         else:
-            self._viewGeometryMatplotlib(**kwargs)
+            _viewGeometryMatplotlib(bodies, **kwargs)
 
     def _viewGeometryCAPSViewer(self, **kwargs):
 
@@ -3071,263 +3114,6 @@ class capsGeometry:
 
         # Start up server
         viewer.startServer()
-
-
-    def _viewGeometryMatplotlib(self, **kwargs):
-
-        try:
-            import matplotlib.pyplot as plt
-            from mpl_toolkits.mplot3d import Axes3D
-        except:
-            print("Error: Unable to import matplotlib - viewing the geometry with matplotlib is not possible")
-            raise ImportError
-
-        def createFigure(figure, view, xArray, yArray, zArray, triArray, linewidth, edgecolor, transparent, facecolor):
-            figure.append(plt.figure())
-
-            if view == "fourview":
-                for axIndex in range(4):
-                    figure[-1].add_subplot(2, 2, axIndex+1, projection='3d')
-
-            else:
-                figure[-1].gca(projection='3d')
-
-            for ax in figure[-1].axes:
-                ax.plot_trisurf(xArray,
-                                yArray,
-                                zArray,
-                                triangles=triArray,
-                                linewidth=linewidth,
-                                edgecolor=edgecolor,
-                                alpha=transparent,
-                                color=facecolor)
-
-        # Plot parameters from keyword Args
-        facecolor = "#D3D3D3"
-        edgecolor = facecolor
-        transparent = 1.0
-        linewidth = 0
-
-        viewType = ["isometric", "fourview",
-                    "top"   , "-zaxis",
-                    "bottom", "+zaxis",
-                    "right",  "+yaxis",
-                    "left",   "-yaxis",
-                    "front",  "+xaxis",
-                    "back",   "-xaxis"]
-
-        title = kwargs.pop("title", None)
-        combineBodies = kwargs.pop("combineBodies", False)
-        ignoreBndBox = kwargs.pop("ignoreBndBox", False)
-        showImage =  kwargs.pop("showImage", False)
-        showAxes =  kwargs.pop("showAxes", False)
-
-        showTess = kwargs.pop("showTess", False)
-        dpi = kwargs.pop("dpi", None)
-
-        tessParam = kwargs.pop("tessParam", [0.0250, 0.0010, 15.0])
-
-        if showTess:
-            edgecolor = "black"
-            linewidth = 0.2
-
-        filename = kwargs.pop("filename", None)
-        directory = kwargs.pop("directory", None)
-
-        if (filename is not None and "." not in filename):
-            filename += ".png"
-
-        view = str(kwargs.pop("viewType", "isometric")).lower()
-        if view not in viewType:
-            view = viewType[0]
-            print("Unrecongized viewType, defaulting to " + str(view))
-
-        # How many bodies do we have
-        numBody = self.capsProblem.problemObj.size(caps.oType.BODIES, caps.sType.NONE)
-
-        if numBody < 1:
-            raise caps.CAPSError(caps.CAPS_BADVALUE, msg = "while saving screen shot of geometry"
-                                                         + "\nThe number of bodies in the problem is less than 1!!!" )
-
-        # If ignoring the bounding box body, determine which one it is
-        if numBody > 1 and ignoreBndBox == True:
-            for body in range(numBody):
-                body = self.capsProblem.bodyByIndex(bodyIndex+1)
-                box = body.getBoundingBox()
-
-                size = sqrt((box[0][0]-box[1][0])**2 +
-                            (box[0][1]-box[1][1])**2 +
-                            (box[0][2]-box[1][2])**2)
-                if size > sizeBndBox:
-                    sizeBndBox = size
-                    bndBoxIndex = bodyIndex
-        else:
-            ignoreBndBox = False
-
-        # Loop through bodies 1 by 1
-        for bodyIndex in range(numBody):
-
-            # If ignoring the bounding box - skip this body
-            if ignoreBndBox and bodyIndex == bndBoxIndex:
-                continue
-
-            body = self.capsProblem.bodyByIndex(bodyIndex+1)
-            box = body.getBoundingBox()
-
-            size = sqrt((box[0][0]-box[1][0])**2 +
-                        (box[0][1]-box[1][1])**2 +
-                        (box[0][2]-box[1][2])**2)
-
-
-            params[0] = tessParam[0]*size
-            params[1] = tessParam[1]*size
-            params[2] = tessParam[2]
-
-            tess = body.makeTessBody(params)
-            faces = body.getBodyTopos(egads.FACE)
-
-            # If not combining bodies erase arrays
-            if not combineBodies:
-                del xArray[:]
-                del yArray[:]
-                del zArray[:]
-                del triArray[:]
-
-            del gIDArray[:]
-
-            # Loop through face by face and get tessellation information
-            for faceIndex in range(numFace):
-                points, uv, ptype, pindex, tris, triNeighbor = tess.getTessFace(faceIndex+1)
-
-                plen = len(points)
-                tlen = len(tris)
-
-                for i in range(plen):
-                     globalID = tess.localToGlobal(faceIndex+1, i+1)
-
-                     tri = []
-                     if globalID not in gIDArray:
-                         xArray.append(points[3*i  ])
-                         yArray.append(points[3*i+1])
-                         zArray.append(points[3*i+2])
-                         gIDArray.append(globalID)
-
-                for i in range(tlen):
-                    tri = []
-                    globalID = tess.localToGlobal(faceIndex+1, tris[3*i + 0])
-                    tri.append(globalID-1 + numPointTot)
-
-                    globalID = tess.localToGlobal(faceIndex+1, tris[3*i + 1])
-                    tri.append(globalID-1 + numPointTot)
-
-                    globalID = tess.localToGlobal(faceIndex+1, tris[3*i + 2])
-                    tri.append(globalID-1 + numPointTot)
-
-                    triArray.append(tri)
-
-            if combineBodies:
-                numPointTot += len(gIDArray)
-            else:
-                createFigure(figure, view,
-                             xArray, yArray, zArray, triArray,
-                             linewidth, edgecolor, transparent, facecolor)
-
-        if combineBodies:
-            createFigure(figure, view,
-                         xArray, yArray, zArray, triArray,
-                         linewidth, edgecolor, transparent, facecolor)
-
-        for fig in figure:
-
-            if len(fig.axes) > 1:
-                fig.subplots_adjust(left=2.5, bottom=0.0, right=97.5, top=0.95,
-                                    wspace=0.0, hspace=0.0)
-            if title is not None:
-                fig.suptitle(title)
-
-            if dpi is not None:
-                fig.set_dpi(dpi)
-
-            for axIndex, ax in enumerate(fig.axes):
-                xLimits = ax.get_xlim()
-                yLimits = ax.get_ylim()
-                zLimits = ax.get_zlim()
-
-                center = []
-                center.append((xLimits[1] + xLimits[0])/2.0)
-                center.append((yLimits[1] + yLimits[0])/2.0)
-                center.append((zLimits[1] + zLimits[0])/2.0)
-
-                scale = max(abs(xLimits[1] - xLimits[0]),
-                            abs(yLimits[1] - yLimits[0]),
-                            abs(zLimits[1] - zLimits[0]))
-
-                scale = 0.6*(scale/2.0)
-
-                ax.set_xlim(-scale + center[0], scale + center[0])
-                ax.set_ylim(-scale + center[1], scale + center[1])
-                ax.set_zlim(-scale + center[2], scale + center[2])
-
-                if showAxes:
-                    ax.set_xlabel("x", size="medium")
-                    ax.set_ylabel("y", size="medium")
-                    ax.set_zlabel("z", size="medium")
-                else:
-                    ax.set_axis_off() # Turn the axis off
-
-                #ax.invert_xaxis() # Invert x- axis
-                if axIndex == 0:
-
-                    if view in ["top", "-zaxis"]:
-                        ax.view_init(azim=-90, elev=90) # Top
-
-                    elif view in ["bottom", "+zaxis"]:
-                        ax.view_init(azim=-90, elev=-90) # Bottom
-
-                    elif view in ["right", "+yaxis"]:
-                        ax.view_init(azim=-90, elev=0) # Right
-
-                    elif view in ["left", "-yaxis"]:
-                        ax.view_init(azim=90, elev=0) # Left
-
-                    elif view in ["front", "+xaxis"]:
-                        ax.view_init(azim=180, elev=0) # Front
-
-                    elif view in ["back", "-xaxis"]:
-                        ax.view_init(azim=0, elev=0) # Back
-
-                    else:
-                        ax.view_init(azim=120, elev=30) # Isometric
-
-                if axIndex == 1:
-                    ax.view_init(azim=180, elev=0) # Front
-
-                elif axIndex == 2:
-                    ax.view_init(azim=-90, elev=90) # Top
-
-                elif axIndex == 3:
-                    ax.view_init(azim=-90, elev=0) # Right
-
-        if showImage:
-            plt.show()
-
-        if filename is not None:
-
-            for figIndex, fig in enumerate(figure):
-                if len(figure) > 1:
-                    fname = filename.replace(".", "_" + str(figIndex) + ".")
-                else:
-                    fname = filename
-
-                if directory is not None:
-                    if not os.path.isdir(directory):
-                        print("Directory ( " + directory + " ) does not currently exist - it will be made automatically")
-                        os.makedirs(directory)
-
-                    fname = os.path.join(directory, fname)
-
-                print("Saving figure - ", fname)
-                fig.savefig(fname, dpi=dpi)
 
     ## Retrieve a list of attribute values of a given name ("attributeName") for the bodies in the current geometry.
     # Level in which to search the bodies is
@@ -3592,7 +3378,7 @@ class capsBound:
             #variable = _byteify(variable)
             for i in fieldName:
                 try:
-                    i_ind = i.index("*")
+                    i_ind = i.index("#")
                 except ValueError:
                     i_ind = -1
 
@@ -3777,7 +3563,7 @@ class capsBound:
                                                 self.capsProblem,
                                                 self,
                                                 self.vertexSet[src],
-                                                caps.dMethod.Analysis,
+                                                caps.fType.FieldOut,
                                                 rank)
         # Make destination data set
         if len(aimDest) > 0:
@@ -3802,7 +3588,7 @@ class capsBound:
                                                      initVal)
 
         # Close bound
-        self.boundObj.completeBound()
+        self.boundObj.closeBound()
 
     def __boundObj(self):
         return self.boundObj
@@ -3815,7 +3601,7 @@ class capsBound:
             #variable = _byteify(variable)
             for i in fieldName:
                 try:
-                    i_ind = i.index("*")
+                    i_ind = i.index("#")
                 except ValueError:
                     i_ind = -1
 
@@ -3881,7 +3667,7 @@ class capsBound:
     ## Populates VertexSets for the bound. Must be called to finalize
     # the bound after all mesh generation aim's have been executed
     def fillVertexSets(self):
-        self.boundObj.fillVertexSets()
+        pass
 
     ## Execute data transfer for the bound.
     # \param variableName Name of variable to implement the data transfer for. If no name is provided
@@ -4154,7 +3940,7 @@ class _capsDataSet:
     # [Node2_xDisplacement, Node2_yDisplacement, Node2_zDisplacement], etc. ]
     def getData(self):
         data = self.dataSetObj.getData()
-        if isinstance(data,caps.Units):
+        if isinstance(data,caps.Quantity):
             data = data._value
         return data
 
@@ -4164,11 +3950,11 @@ class _capsDataSet:
     def getDataXYZ(self):
         tempDataObj = self.capsVertexSet.vertexSetObj.childByName(caps.oType.DATASET, caps.sType.NONE, "xyz")
         xyz = tempDataObj.getData()
-        if isinstance(xyz,caps.Units):
+        if isinstance(xyz,caps.Quantity):
              xyz = xyz._value
         return xyz
 
-    ## Executes caps_triangulate on data set's vertex set to retrieve the connectivity (triangles only) information
+    ## Executes caps_getTriangles on data set's vertex set to retrieve the connectivity (triangles only) information
     # for the data set.
     # \return Optionally returns a list of lists of connectivity values
     # (e.g. [ [node1, node2, node3], [node2, node3, node7], etc. ] ) and a list of lists of data connectivity (not this is
@@ -4521,9 +4307,6 @@ class _capsValue(object):
                 raise caps.CAPSError(caps.CAPS_BADTYPE, msg = "while creating value object - " + str(self.name)
                                                             + "\nUnreconized subType for value object!")
 
-            if isinstance(value, list) and isinstance(value[0], str):
-                value = ";".join(value)
-
             self.valueObj = self.capsProblem.problemObj.makeValue(self.name, self.subType, caps._withUnits(value, units) )
 
             ## Acceptable limits for the value. Limits may be set directly.
@@ -4534,16 +4317,10 @@ class _capsValue(object):
             #See \ref value2.py for a representative use case.
             self.value = value # redundant - here just for the documentation purposes
 
-            numRow, numCol = self.valueObj._getShape(value)
-
             # Get shape parameters
-            if numRow == 1 and numCol == 1:
-                dim = 0
-            elif numRow == 1 or numCol ==1:
-                dim = 1
-            else:
-                dim = 2
+            dim, pmtr, lfixed, sfixed, ntype = self.valueObj.getValueProps()
 
+            # Possibly modify parameters
             if fixedLength:
                 lfixed = caps.Fixed.Fixed
             else:
@@ -4554,7 +4331,8 @@ class _capsValue(object):
             else:
                 sfixed = caps.Fixed.Change
 
-            self.valueObj.setValueProps(dim, lfixed, sfixed, caps.Null.NotNull)
+            # Set the new parameters
+            self.valueObj.setValueProps(dim, lfixed, sfixed, ntype)
 
     def _setupObj(self, valueObj):
 
@@ -4574,7 +4352,7 @@ class _capsValue(object):
     def value(self):
 
         self._value = self.valueObj.getValue()
-        if isinstance(self._value, caps.Units):
+        if isinstance(self._value, caps.Quantity):
             self._value = self._value._value
 
         if isinstance(self._value, str) and ";" in self._value:
@@ -4586,7 +4364,7 @@ class _capsValue(object):
     def value(self, dataValue):
 
         self._value = dataValue
-        if not isinstance(dataValue, caps.Units):
+        if not isinstance(dataValue, caps.Quantity):
             dataValue = caps._withUnits(dataValue, self.units)
 
         self.valueObj.setValue(dataValue)
@@ -4595,7 +4373,7 @@ class _capsValue(object):
     def limits(self):
         self._limits = self.valueObj.getLimits()
 
-        if isinstance(self._limits, caps.Units):
+        if isinstance(self._limits, caps.Quantity):
             self._limits = self._limits._value
 
         return self._limits
@@ -4604,7 +4382,7 @@ class _capsValue(object):
     def limits(self, limitsValue):
 
         self._limits = limitsValue
-        if not isinstance(limitsValue, caps.Units):
+        if not isinstance(limitsValue, caps.Quantity):
             limitsValue = caps._withUnits(limitsValue, self.units)
 
         self.valueObj.setLimits(limitsValue)

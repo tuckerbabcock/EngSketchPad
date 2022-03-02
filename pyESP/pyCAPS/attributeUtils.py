@@ -22,6 +22,8 @@ def _createAttributeValList( body, attrLevel, attributeKey ):
             # Get value following attribute key
             attr = topo.attributeRet(attributeKey)
             if attr is not None:
+                if isinstance(attr,list) and not isinstance(attr,egads.csystem) \
+                   and len(attr) == 1: attr = attr[0]
                 attrList.append(attr)
         
         return topoAttr
@@ -35,6 +37,7 @@ def _createAttributeValList( body, attrLevel, attributeKey ):
     # Get value following attributeKey on the body 
     attr = body.attributeRet(attributeKey)
     if attr is not None:
+        if isinstance(attr,list) and len(attr) == 1: attr = attr[0]
         attrList.append(attr)
         
     # Search through faces
