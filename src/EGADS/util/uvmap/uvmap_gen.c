@@ -3,7 +3,7 @@
 /*
  * UVMAP : TRIA-FACE SURFACE MESH UV MAPPING GENERATOR
  *         DERIVED FROM AFLR4, UG, UG2, and UG3 LIBRARIES
- * $Id: uvmap_gen.c,v 1.57 2020/06/15 21:58:09 marcum Exp $
+ * $Id: uvmap_gen.c,v 1.63 2021/08/28 16:58:35 marcum Exp $
  * Copyright 1994-2020, David L. Marcum
  */
 
@@ -105,6 +105,30 @@ ptr		UV mapping data structure.
 
 */
 
+/*
+
+GLOBAL VARIABLES
+----------------
+
+WriteUVMapOut	Output file flag.
+		If set to a non zero value then an output file is written for
+		the given XYZ surface mesh and generated UV surface mesh.
+
+UVmapCaseName	Output file case name.
+		If set to anything other than "_null_" then the output file
+		names will be UVmapCaseName.uvmap_#_uv.surf and
+		UVmapCaseName.uvmap_#_xyz.surf, where # is the Surface ID label
+		idef.
+		If set to "_null_" then the output file names will be
+		UVmapOut_#_uv.surf and UVmapOut_#_xyz.surf, where # is 1,2,3...
+		and # is incremented each time uvmap_gen is called.
+
+*/
+
+int WriteUVmapOut = 0;
+
+char UVmapCaseName[512] = "_null_";
+
 INT_ uvmap_gen (
   INT_ idef,
   INT_ nbface,
@@ -121,6 +145,8 @@ INT_ uvmap_gen (
   // UV mapping data structure, and store a copy of UV mapping data within
   // structure.
 
+  char caseName[512];
+
   INT_   *idibf_ = NULL;
   INT_3D *ibfibf = NULL;
   INT_3D *inibf_ = NULL;
@@ -131,6 +157,8 @@ INT_ uvmap_gen (
   INT_ ibface, inode, nbedge;
   INT_ err = 0;
   INT_ status = 0;
+
+  static int outFileCnt = 0;
 
   // generate a UV surface mesh given an XYZ surface mesh
 
@@ -186,6 +214,20 @@ INT_ uvmap_gen (
   // free temporary data arrays
 
   uvmap_free (inibe);
+
+  // write input xyz and output uv coordinates to a SURF file
+
+  if (status == 0 && WriteUVmapOut) {
+
+    if (strcmp (UVmapCaseName, "_null_"))
+      snprintf (caseName, 512, "%s.uvmap_%d", UVmapCaseName, (int) idef);
+    else {
+      outFileCnt++;
+      snprintf (caseName, 512, "UVmapOut_%d", outFileCnt);
+    }
+
+    status = (int) uvmap_write (caseName, nbface, nnode, idibf_, inibf_, u_, *x);
+  }
 
   return status;
 }

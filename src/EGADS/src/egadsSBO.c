@@ -3,7 +3,7 @@
  *
  *             Replacement Solid Boolean Operator Functions
  *
- *      Copyright 2011-2021, Massachusetts Institute of Technology
+ *      Copyright 2011-2022, Massachusetts Institute of Technology
  *      Licensed under The GNU Lesser General Public License, version 2.1
  *      See http://www.opensource.org/licenses/lgpl-2.1.php
  *
@@ -812,6 +812,7 @@ EG_traceLoops(egObject *context, const egObject *face, int nEdges,
     if (stat != EGADS_SUCCESS) {
       printf(" EGADS Error: makeTopology %d = %d (EG_traceLoops)!\n",
              *nLoops+1, stat);
+      *loops = list;
       goto bail;
     }
     if (list[*nLoops]->mtype == OPEN) {
@@ -1615,11 +1616,12 @@ EG_splitBody(const egObject *body, int nseg, const egObject **facEdg,
   if (status != EGADS_SUCCESS) goto cleanup;
   
   if (nshells > 1) {
-    printf(" EGADS Internal: # Shells = %d\n", nshells);
+    if (outLevel > 1)
+      printf(" EGADS Internal: # Shells = %d\n", nshells);
     for (i = 0; i < nseg; i++) {
       status = EG_getBodyTopos(body, fe[i].face, SHELL, &n, &objs);
       if (status != EGADS_SUCCESS) goto cleanup;
-      if (n != 1) printf(" EGADS Internal: Face is in %d Shells!\n", n);
+      if ((n != 1) && (outLevel > 1)) printf(" EGADS Internal: Face is in %d Shells!\n", n);
       fe[i].shell = EG_indexBodyTopo(body, objs[0]);
       EG_free(objs);
     }
@@ -1736,6 +1738,7 @@ EG_splitBody(const egObject *body, int nseg, const egObject **facEdg,
       status = EG_getBodyTopos(body, fe[i].face, EDGE, &m,  &dum);
       if (status != EGADS_SUCCESS) goto cleanup;
       for (k = 0; k < m; k++) {
+        if (dum[k]        == NULL)       continue;
         if (dum[k]->mtype == DEGENERATE) continue;
         status = EG_getTolerance(dum[k], &toler);
         if (status != EGADS_SUCCESS) {

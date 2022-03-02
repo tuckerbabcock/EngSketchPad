@@ -3,7 +3,7 @@
  *
  *             Internal UVmap Functions
  *
- *      Copyright 2011-2021, Massachusetts Institute of Technology
+ *      Copyright 2011-2022, Massachusetts Institute of Technology
  *      Licensed under The GNU Lesser General Public License, version 2.1
  *      See http://www.opensource.org/licenses/lgpl-2.1.php
  *
@@ -11,9 +11,9 @@
 
 #include "UVMAP_LIB.h"
 
+//#define SMOOTHUV
 
 FILE *UG_Output_File = NULL;
-
 
 extern /*@null@*/ /*@out@*/ /*@only@*/ void *EG_alloc( size_t nbytes );
 extern /*@null@*/ /*@only@*/ void *EG_reall( /*@null@*/ /*@only@*/ 
@@ -64,11 +64,11 @@ EG_triRemap(int *trmap, int itri, int flag, int *verts, double *ws)
   w[0]     = ws[0];
   w[1]     = ws[1];
   w[2]     = ws[2];
-  
+/*@-shiftimplementation@*/
   i1       =  trmap[itri-1]       & 3;
   i2       = (trmap[itri-1] >> 2) & 3;
   i3       = (trmap[itri-1] >> 4) & 3;
-  
+/*@+shiftimplementation@*/
   if (flag == 1) {
     /* EGADS tri is source -- uvmap is destination */
     verts[0] = tris[i1-1];
@@ -87,6 +87,105 @@ EG_triRemap(int *trmap, int itri, int flag, int *verts, double *ws)
     ws[i3-1]    = w[2];
   }
 }
+
+
+#ifdef SMOOTHUV
+static int
+EG_uvmapSmooth(uvmap_struct *uvstruct, double *xyzs)
+{
+  int    i, i1, i2, i3, iter, *verts;
+  double d, delta, maxd, uv[2], *sums;
+  
+  /* find bounding vertices */
+  verts = (int *) EG_alloc(uvstruct->nnode*sizeof(int));
+  if (verts == NULL) return EGADS_MALLOC;
+  for (i = 0; i < uvstruct->nnode; i++) verts[i] = 0;
+  
+  for (i = 1; i <= uvstruct->nbface; i++) {
+    i1   = uvstruct->inibf[i][0];
+    i2   = uvstruct->inibf[i][1];
+    i3   = uvstruct->inibf[i][2];
+    if (uvstruct->ibfibf[i][0] < 0) {
+      verts[i2-1]++;
+      verts[i3-1]++;
+    }
+    if (uvstruct->ibfibf[i][1] < 0) {
+      verts[i1-1]++;
+      verts[i3-1]++;
+    }
+    if (uvstruct->ibfibf[i][2] < 0) {
+      verts[i1-1]++;
+      verts[i2-1]++;
+    }
+  }
+
+  /* smooth the interior */
+  sums = (double *) EG_alloc(3*uvstruct->nnode*sizeof(double));
+  if (sums == NULL) {
+    EG_free(verts);
+    return EGADS_MALLOC;
+  }
+  
+  /* iterate */
+  for (iter = 0; iter < 100000; iter++) {
+    for (i = 0; i < 3*uvstruct->nnode; i++) sums[i] = 0.0;
+    
+    for (i  = 0; i < uvstruct->nbface; i++) {
+      i1    = uvstruct->inibf[i+1][0];
+      i2    = uvstruct->inibf[i+1][1];
+      i3    = uvstruct->inibf[i+1][2];
+      uv[0] = uvstruct->u[i1][0] + uvstruct->u[i2][0] + uvstruct->u[i3][0];
+      uv[1] = uvstruct->u[i1][1] + uvstruct->u[i2][1] + uvstruct->u[i3][1];
+      sums[3*i1-3] += uv[0] - 3.0*uvstruct->u[i1][0];
+      sums[3*i1-2] += uv[1] - 3.0*uvstruct->u[i1][1];
+      sums[3*i1-1] += 2.0;
+      sums[3*i2-3] += uv[0] - 3.0*uvstruct->u[i2][0];
+      sums[3*i2-2] += uv[1] - 3.0*uvstruct->u[i2][1];
+      sums[3*i2-1] += 2.0;
+      sums[3*i3-3] += uv[0] - 3.0*uvstruct->u[i3][0];
+      sums[3*i3-2] += uv[1] - 3.0*uvstruct->u[i3][1];
+      sums[3*i3-1] += 2.0;
+    }
+  
+    i1   = 0;
+    maxd = delta = 0.0;
+    for (i = 0; i < uvstruct->nnode; i++) {
+      if (verts[i]    != 0)   continue;
+      if (sums[3*i+2] == 0.0) continue;
+      uv[0] = 0.5*sums[3*i  ]/sums[3*i+2];
+      uv[1] = 0.5*sums[3*i+1]/sums[3*i+2];
+      d     = sqrt(uv[0]*uv[0] + uv[1]*uv[1]);
+      if (d > maxd) maxd = d;
+      delta += d;
+      i1++;
+
+      uvstruct->u[i+1][0] += uv[0];
+      uvstruct->u[i+1][1] += uv[1];
+    }
+    if (delta/i1 < 1.e-13) break;
+
+  }
+  printf(" EGADS Info: iter %d  maxUVdelta = %le  RMS = %le\n",
+         iter+1, maxd, delta/i1);
+  
+  /* check UV areas */
+  for (i = 1; i <= uvstruct->nbface; i++) {
+    i1   = uvstruct->inibf[i][0];
+    i2   = uvstruct->inibf[i][1];
+    i3   = uvstruct->inibf[i][2];
+    d    = ((uvstruct->u[i1][0]-uvstruct->u[i3][0])*
+            (uvstruct->u[i2][1]-uvstruct->u[i3][1]) -
+            (uvstruct->u[i1][1]-uvstruct->u[i3][1])*
+            (uvstruct->u[i2][0]-uvstruct->u[i3][0]));
+    if (d <= 0.0)
+      printf(" EGADS Error: Folded UV space @ tri %d = %lf\n", i, d);
+  }
+
+  EG_free(sums);
+  EG_free(verts);
+  return EGADS_SUCCESS;
+}
+#endif
 
 
 /*               ********** Exposed Entry Points **********               */
@@ -124,7 +223,7 @@ EG_uvmapMake(int ntri, int *tris, int *itris, int nvrt, double *vrts,
   
   *uvmap = NULL;
   *trmap = NULL;
-  stat   = EG_uvmap_gen(1, ntri, nvrt, 1, 0, itris, tris, vrts, &uv, uvmap);
+  stat   = EG_uvmapGen(1, ntri, nvrt, 1, 0, itris, tris, vrts, &uv, uvmap);
   if ((stat != EGADS_SUCCESS) || (uv == NULL)) {
     printf(" EGADS Error: EG_uvmap_gen = %d (EG_uvmapMake)!\n", stat);
     return stat;
@@ -139,13 +238,22 @@ EG_uvmapMake(int ntri, int *tris, int *itris, int nvrt, double *vrts,
     if (uv[2*i+1] > range[3]) range[3] = uv[2*i+1];
   }
   EG_free(uv);
-
-  /* see if we have had an index re-ordering */
   uvstruct = (uvmap_struct *) *uvmap;
   if (uvstruct == NULL) {
     printf(" EGADS Error: NULL uvmap structure (EG_uvmapMake)!\n");
     return EGADS_UVMAP;
   }
+  /* for some reason this is not set! */
+  uvstruct->nnode = nvrt;
+
+#ifdef SMOOTHUV
+  /* smooth our new UVs */
+  stat = EG_uvmapSmooth(uvstruct, vrts);
+  if (stat != EGADS_SUCCESS)
+    printf(" EGADS Warning: uvmapSmooth = %d (EG_uvmapMake)!\n", stat);
+#endif
+
+  /* see if we have had an index re-ordering */
   n = 0;
   for (i = 1; i <= ntri; i++) {
     if ((uvstruct->inibf[i][0] == tris[3*i-3]) ||
@@ -182,16 +290,16 @@ EG_uvmapMake(int ntri, int *tris, int *itris, int nvrt, double *vrts,
         printf(" EGADS Error: Tri mapping %d %d %d  %d %d %d (EG_uvmapMake)!\n",
                tris[3*i-3], tris[3*i-2], tris[3*i-1], uvstruct->inibf[i][0],
                uvstruct->inibf[i][1], uvstruct->inibf[i][2]);
+        EG_free(map);
         uvmap_struct_free(uvmap);
         return EGADS_UVMAP;
       }
+/*@-shiftimplementation@*/
       map[i-1] = (i2 << 4) + (i1 << 2) + i0;
+/*@+shiftimplementation@*/
     }
     *trmap = map;
   }
-  
-  /* for some reason this is not set! */
-  uvstruct->nnode = nvrt;
 
   return EGADS_SUCCESS;
 }
@@ -218,7 +326,7 @@ EG_uvmapLocate(void *uvmap, int *trmap, double *uv, int *fID, int *itri,
   
   verts[0] = verts[1] = verts[2] = 0;
   ws[0]    = ws[1]    = ws[2]    = 0.0;
-  stat = EG_uvmap_find_uv(1, uv, uvmap, fID, itri, verts, ws);
+  stat = EG_uvmapFindUV(1, uv, uvmap, fID, itri, verts, ws);
   EG_triRemap(trmap, *itri, 0, verts, ws);
   if (stat != EGADS_NOTFOUND) return stat;
   
@@ -293,6 +401,11 @@ EG_getUVmap(void *uvmap, int index, double *uv)
   uvmap_struct *uvstruct;
   
   uvstruct = (uvmap_struct *) uvmap;
+  if ((index < 1) || (index > uvstruct->nnode)) {
+    printf(" EGADS Internal: index = %d [1-%d] (EG_getUVmap)!\n",
+           index, uvstruct->nnode);
+    return;
+  }
   uv[0]    = uvstruct->u[index][0];
   uv[1]    = uvstruct->u[index][1];
 }
@@ -589,14 +702,11 @@ EG_uvmapRead(FILE *fp, double *range, void **uvmap, int **trmap)
   return EGADS_SUCCESS;
   
 malloc:
-/*@+dependenttrans@*/
-  uvmap_free(uvstruct->idibf);
-/*@-nullpass@*/
-  uvmap_free(uvstruct->msrch);
-/*@+nullpass@*/
-  uvmap_free(uvstruct->inibf);
-  uvmap_free(uvstruct->ibfibf);
-  uvmap_free(uvstruct->u);
+  if (uvstruct->idibf  != NULL) uvmap_free(uvstruct->idibf);
+  if (uvstruct->msrch  != NULL) uvmap_free(uvstruct->msrch);
+  if (uvstruct->inibf  != NULL) uvmap_free(uvstruct->inibf);
+  if (uvstruct->ibfibf != NULL) uvmap_free(uvstruct->ibfibf);
+  if (uvstruct->u      != NULL) uvmap_free(uvstruct->u);
   uvmap_free(uvstruct);
   return stat;
 }

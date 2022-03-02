@@ -1,4 +1,4 @@
-int EG_uvmap_find_uv (
+int EG_uvmapFindUV (
   int idef,
   double uv[2],
   void *ptr,

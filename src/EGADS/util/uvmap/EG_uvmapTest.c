@@ -3,8 +3,8 @@
 /*
  * UVMAP : TRIA-FACE SURFACE MESH UV MAPPING GENERATOR
  *         DERIVED FROM AFLR4, UG, UG2, and UG3 LIBRARIES
- * $Id: EG_uvmap_test.c,v 1.4 2020/07/04 22:41:39 marcum Exp $
- * Copyright 1994-2020, David L. Marcum
+ * $Id: EG_uvmapTest.c,v 1.3 2021/04/30 18:55:42 marcum Exp $
+ * Copyright 1994-2021, David L. Marcum
  */
 
 /*
@@ -13,7 +13,7 @@
 Test uvmap with EGADS APIs.
 --------------------------------------------------------------------------------
 
-int EG_uvmap_test (char Case_Name[], int verbosity);
+int EG_uvmapTest (char Case_Name[], int verbosity);
 
 
 INPUT ARGUMENTS
@@ -37,7 +37,7 @@ EGADS_UVMAP	An error occurred.
 
 */
 
-int EG_uvmap_test (char Case_Name[], int verbosity)
+int EG_uvmapTest (char Case_Name[], int verbosity)
 {
   // Test uvmap with EGADS APIs.
 
@@ -71,12 +71,12 @@ int EG_uvmap_test (char Case_Name[], int verbosity)
 
   // read xyz surface mesh
 
-  status = EG_uvmap_read (Case_Name, &ntria, &nvert, &local_idef, &tria, &xyz);
+  status = EG_uvmap_Read (Case_Name, &ntria, &nvert, &local_idef, &tria, &xyz);
 
   // generate uv mapping
 
   if (status == 0)
-    status = EG_uvmap_gen (idef, ntria, nvert, set_struct, verbosity,
+    status = EG_uvmapGen (idef, ntria, nvert, set_struct, verbosity,
                            local_idef, tria, xyz, &uv, &ptr);
 
   // check interpolation
@@ -104,7 +104,7 @@ int EG_uvmap_test (char Case_Name[], int verbosity)
 
       // find interpolation location
 
-      status = EG_uvmap_find_uv (idef, uvi, ptr, &local_idefi, &itriai, ivert, s); 
+      status = EG_uvmapFindUV (idef, uvi, ptr, &local_idefi, &itriai, ivert, s); 
 
       // if location was found then check interpolation results
 
@@ -172,7 +172,7 @@ int EG_uvmap_test (char Case_Name[], int verbosity)
   // write uv surface mesh
 
   if (status == 0)
-    status = EG_uvmap_write (Case_Name, ntria, nvert, local_idef, tria, uv, NULL);
+    status = EG_uvmap_Write (Case_Name, ntria, nvert, local_idef, tria, uv, NULL);
 
   // free UV mapping data structure
 

@@ -5,7 +5,7 @@
  *
  *             General Object Header
  *
- *      Copyright 2011-2021, Massachusetts Institute of Technology
+ *      Copyright 2011-2022, Massachusetts Institute of Technology
  *      Licensed under The GNU Lesser General Public License, version 2.1
  *      See http://www.opensource.org/licenses/lgpl-2.1.php
  *
@@ -15,8 +15,8 @@
 
 
 #define EGADSMAJOR     1
-#define EGADSMINOR    19
-#define EGADSPROP     EGADSprop: Revision 1.19
+#define EGADSMINOR    21
+#define EGADSPROP     EGADSprop: Revision 1.21
 
 #define MAGIC      98789
 #define MTESSPARAM     2
@@ -70,8 +70,10 @@
 
   /* TOPOLOGY */
 #define SREVERSE      -1
+#define SINNER        -1
 #define NOMTYPE        0
 #define SFORWARD       1
+#define SOUTER         1
 #define ONENODE        1
 #define TWONODE        2
 #define OPEN           3
@@ -191,7 +193,7 @@ typedef struct {
 
 
 typedef struct {
-  int    tri;                   /* triangle index */
+  int    tri;                   /* triangle index (bias 1) */
   double w[2];                  /* barycentric coordinates (weights for 0/1) */
 } egBary;
 

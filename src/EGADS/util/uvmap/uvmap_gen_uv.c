@@ -3,7 +3,7 @@
 /*
  * UVMAP : TRIA-FACE SURFACE MESH UV MAPPING GENERATOR
  *         DERIVED FROM AFLR4, UG, UG2, and UG3 LIBRARIES
- * $Id: uvmap_gen_uv.c,v 1.11 2020/10/20 05:45:48 marcum Exp $
+ * $Id: uvmap_gen_uv.c,v 1.13 2021/02/18 06:15:22 marcum Exp $
  * Copyright 1994-2020, David L. Marcum
  */
 
@@ -117,6 +117,7 @@ INT_ uvmap_gen_uv (
   double ducnv1 = 0.001;
   double ducnv2 = 0.1;
   double ducnv3 = 0.01;
+  double max_ratio_lim = 20.0;
   double tol = 1.0e-14;
   double urelaxb = 0.5;
   double w_ortho = 1000.0;
@@ -127,9 +128,14 @@ INT_ uvmap_gen_uv (
 
   cpu_timer = (verbosity == 2) ? 1: 0;
 
-  if (*x == NULL) xyz_scale = 0;
-
   *u = NULL;
+
+  // check maximum edge length ratio and set xyz scaling
+
+  if (*x)
+    xyz_scale = uvmap_chk_edge_ratio (*nbface, *inibf, max_ratio_lim, *x);
+
+  // output heading
 
   if (verbosity) {
 
@@ -227,7 +233,7 @@ INT_ uvmap_gen_uv (
     uvmap_free (iccin);
     uvmap_free (libfin);
     uvmap_free (mben_disc);
-    return (status);
+    return status;
   }
 
   // loop over multiple attempts if uv mapping is invalid at completion
@@ -236,6 +242,10 @@ INT_ uvmap_gen_uv (
   if (verbosity) {
     uvmap_message ("UVMAP    : UV MAPPING GENERATION");
     uvmap_message ("");
+    if (xyz_scale) {
+      uvmap_message ("UVMAP    : Using xyz scaling");
+      uvmap_message ("");
+    }
   }
 
   try = 1;

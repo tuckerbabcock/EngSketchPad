@@ -3,7 +3,7 @@
 /*
  * UVMAP : TRIA-FACE SURFACE MESH UV MAPPING GENERATOR
  *         DERIVED FROM AFLR4, UG, UG2, and UG3 LIBRARIES
- * $Id: uvmap_write.c,v 1.24 2020/07/04 20:52:05 marcum Exp $
+ * $Id: uvmap_write.c,v 1.26 2021/02/25 23:27:27 marcum Exp $
  * Copyright 1994-2020, David L. Marcum
  */
 /*

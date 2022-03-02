@@ -3,8 +3,8 @@
 /*
  * UVMAP : TRIA-FACE SURFACE MESH UV MAPPING GENERATOR
  *         DERIVED FROM AFLR4, UG, UG2, and UG3 LIBRARIES
- * $Id: uvmap_read.c,v 1.24 2020/07/04 20:52:05 marcum Exp $
- * Copyright 1994-2020, David L. Marcum
+ * $Id: uvmap_read.c,v 1.29 2021/04/27 18:34:23 marcum Exp $
+ * Copyright 1994-2021, David L. Marcum
  */
 
 /*
@@ -62,7 +62,7 @@ INT_ uvmap_read (
 
   FILE *Grid_File;
 
-  char Command[512], File_Name[500], Text_Line[512], Text[512];
+  char File_Name[500], Text_Line[512], Text[512];
   char *Read_Label;
 
   int i1, i2, i3, i4, i5, i6;
@@ -85,17 +85,6 @@ INT_ uvmap_read (
   uvmap_message (Text);
 
   Grid_File = fopen (File_Name, "r");
-
-  if (Grid_File == NULL) {
-    strcpy (Command, "gzip -d -f ");
-    strcat (Command, File_Name);
-    strcat (Command, ".gz");
-    system (Command);
-
-    Grid_File = fopen (File_Name, "r");
-  }
-  else
-    strcpy (Command, "");
 
   if (Grid_File == NULL)
   {
@@ -196,12 +185,6 @@ INT_ uvmap_read (
     snprintf (Text, 512, "UVMAP    : Nodes             =%10d", (int) *nnode);
     uvmap_message (Text);
     uvmap_message ("");
-  }
-
-  if (strcmp (Command, "")) {
-    strcpy (Command, "gzip -f ");
-    strcat (Command, File_Name);
-    system (Command);
   }
 
   return 0;

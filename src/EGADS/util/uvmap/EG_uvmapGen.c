@@ -3,11 +3,9 @@
 /*
  * UVMAP : TRIA-FACE SURFACE MESH UV MAPPING GENERATOR
  *         DERIVED FROM AFLR4, UG, UG2, and UG3 LIBRARIES
- * $Id: EG_uvmap_gen.c,v 1.3 2020/06/15 21:58:09 marcum Exp $
+ * $Id: EG_uvmapGen.c,v 1.1 2021/02/26 22:46:08 marcum Exp $
  * Copyright 1994-2020, David L. Marcum
  */
-
-//#define UVMAPOUT
 
 /*
 
@@ -17,7 +15,7 @@ mapping data structure, and store a copy of UV mapping data within structure.
 EGADS style data are used in this API.
 --------------------------------------------------------------------------------
 
-int EG_uvmap_gen (
+int EG_uvmapGen (
   int idef,
   int ntria,
   int nvert,
@@ -104,7 +102,7 @@ ptr		UV mapping data structure.
 
 */
 
-int EG_uvmap_gen (
+int EG_uvmapGen (
   int idef,
   int ntria,
   int nvert,
@@ -120,7 +118,7 @@ int EG_uvmap_gen (
   // UV mapping data structure, and store a copy of UV mapping data within
   // structure.
 
-  INT_   *idibf = NULL;
+  INT_ *idibf = NULL;
   INT_3D *inibf = NULL;
 
   DOUBLE_2D *u = NULL;
@@ -129,11 +127,6 @@ int EG_uvmap_gen (
   INT_ i, nbface, nnode;
   INT_ err = 0;
   INT_ status = 0;
-  
-#ifdef UVMAPOUT
-  static int fileCnt = 0;
-  char       fileName[20];
-#endif
 
   // convert from EGADS to AFLR style arrays
 
@@ -167,14 +160,6 @@ int EG_uvmap_gen (
       (*uv)[2*i]   = u[i+1][0];
       (*uv)[2*i+1] = u[i+1][1];
     }
-    
-#ifdef UVMAPOUT
-    snprintf(fileName, 20, "UVmapOut%d", fileCnt);
-    status = (int) uvmap_write (fileName, nbface, nnode, idibf, inibf, u, x);
-    if (status != 0) printf("*** uvmap_write returns %d ***\n", status);
-    status = 0;
-    fileCnt++;
-#endif
   }
 
   // free temporary data arrays

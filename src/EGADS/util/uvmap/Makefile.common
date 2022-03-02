@@ -23,12 +23,16 @@ LIBS = $(LIBRARY) -lm
 
 OBJS_0 = 
 OBJS_2 = \
-$(LIBRARY)(EG_uvmap_find_uv.o) \
-$(LIBRARY)(EG_uvmap_gen.o) \
-$(LIBRARY)(EG_uvmap_struct_free.o) \
+$(LIBRARY)(EG_uvmapFindUV.o) \
+$(LIBRARY)(EG_uvmapGen.o) \
+$(LIBRARY)(EG_uvmapRead.o) \
+$(LIBRARY)(EG_uvmapStructFree.o) \
+$(LIBRARY)(EG_uvmapTest.o) \
+$(LIBRARY)(EG_uvmapWrite.o) \
 $(LIBRARY)(uvmap_add.o) \
 $(LIBRARY)(uvmap_bnd_adj.o) \
 $(LIBRARY)(uvmap_chk_area_uv.o) \
+$(LIBRARY)(uvmap_chk_edge_ratio.o) \
 $(LIBRARY)(uvmap_cpu_message.o) \
 $(LIBRARY)(uvmap_find_uv.o) \
 $(LIBRARY)(uvmap_from_egads.o) \
@@ -46,18 +50,22 @@ $(LIBRARY)(uvmap_malloc.o) \
 $(LIBRARY)(uvmap_mben_disc.o) \
 $(LIBRARY)(uvmap_message.o) \
 $(LIBRARY)(uvmap_norm_uv.o) \
+$(LIBRARY)(uvmap_read.o) \
 $(LIBRARY)(uvmap_solve.o) \
 $(LIBRARY)(uvmap_struct_tasks.o) \
 $(LIBRARY)(uvmap_to_egads.o) \
-$(LIBRARY)(uvmap_version.o)
+$(LIBRARY)(uvmap_test.o) \
+$(LIBRARY)(uvmap_version.o) \
+$(LIBRARY)(uvmap_write.o)
 
 UVMAP_LIB_INC_FILES = \
-EG_uvmap_find_uv.h \
-EG_uvmap_gen.h \
-EG_uvmap_struct_free.h \
+EG_uvmapFindUV.h \
+EG_uvmapGen.h \
+EG_uvmapStructFree.h \
 uvmap_add.h \
 uvmap_bnd_adj.h \
 uvmap_chk_area_uv.h \
+uvmap_chk_edge_ratio.h \
 uvmap_cpu_message.h \
 uvmap_find_uv.h \
 uvmap_from_egads.h \
@@ -75,11 +83,14 @@ uvmap_malloc.h \
 uvmap_mben_disc.h \
 uvmap_message.h \
 uvmap_norm_uv.h \
+uvmap_read.h \
 uvmap_solve.h \
 uvmap_struct.h \
 uvmap_struct_tasks.h \
+uvmap_test.h \
 uvmap_to_egads.h \
-uvmap_version.h
+uvmap_version.h \
+uvmap_write.h
 
 all: $(EXE) $(OBJS_0) $(OBJS_2)
 
@@ -106,12 +117,13 @@ clean:
 exe_path:
 	@echo $(EXE)
 
-$(LIBRARY)(EG_uvmap_find_uv.o): UVMAP_LIB.h UVMAP_LIB_INC.h $(UVMAP_LIB_INC_FILES)
-$(LIBRARY)(EG_uvmap_gen.o): UVMAP_LIB.h UVMAP_LIB_INC.h $(UVMAP_LIB_INC_FILES)
-$(LIBRARY)(EG_uvmap_struct_free.o): UVMAP_LIB.h UVMAP_LIB_INC.h $(UVMAP_LIB_INC_FILES)
+$(LIBRARY)(EG_uvmapFindUV.o): UVMAP_LIB.h UVMAP_LIB_INC.h $(UVMAP_LIB_INC_FILES)
+$(LIBRARY)(EG_uvmapGen.o): UVMAP_LIB.h UVMAP_LIB_INC.h $(UVMAP_LIB_INC_FILES)
+$(LIBRARY)(EG_uvmapStructFree.o): UVMAP_LIB.h UVMAP_LIB_INC.h $(UVMAP_LIB_INC_FILES)
 $(LIBRARY)(uvmap_add.o): UVMAP_LIB.h UVMAP_LIB_INC.h $(UVMAP_LIB_INC_FILES)
 $(LIBRARY)(uvmap_bnd_adj.o): UVMAP_LIB.h UVMAP_LIB_INC.h $(UVMAP_LIB_INC_FILES)
 $(LIBRARY)(uvmap_chk_area_uv.o): UVMAP_LIB.h UVMAP_LIB_INC.h $(UVMAP_LIB_INC_FILES)
+$(LIBRARY)(uvmap_chk_edge_ratio.o): UVMAP_LIB.h UVMAP_LIB_INC.h $(UVMAP_LIB_INC_FILES)
 $(LIBRARY)(uvmap_cpu_message.o): UVMAP_LIB.h UVMAP_LIB_INC.h $(UVMAP_LIB_INC_FILES)
 $(LIBRARY)(uvmap_find_uv.o): UVMAP_LIB.h UVMAP_LIB_INC.h $(UVMAP_LIB_INC_FILES)
 $(LIBRARY)(uvmap_from_egads.o): UVMAP_LIB.h UVMAP_LIB_INC.h $(UVMAP_LIB_INC_FILES)
@@ -133,3 +145,4 @@ $(LIBRARY)(uvmap_solve.o): UVMAP_LIB.h UVMAP_LIB_INC.h $(UVMAP_LIB_INC_FILES)
 $(LIBRARY)(uvmap_struct_tasks.o): UVMAP_LIB.h UVMAP_LIB_INC.h $(UVMAP_LIB_INC_FILES)
 $(LIBRARY)(uvmap_to_egads.o): UVMAP_LIB.h UVMAP_LIB_INC.h $(UVMAP_LIB_INC_FILES)
 $(LIBRARY)(uvmap_version.o): UVMAP_LIB.h UVMAP_LIB_INC.h $(UVMAP_LIB_INC_FILES)
+$(LIBRARY)(uvmap_write.o): UVMAP_LIB.h UVMAP_LIB_INC.h $(UVMAP_LIB_INC_FILES)

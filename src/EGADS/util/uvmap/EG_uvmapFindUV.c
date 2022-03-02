@@ -3,7 +3,7 @@
 /*
  * UVMAP : TRIA-FACE SURFACE MESH UV MAPPING GENERATOR
  *         DERIVED FROM AFLR4, UG, UG2, and UG3 LIBRARIES
- * $Id: EG_uvmap_find_uv.c,v 1.6 2020/07/04 23:12:15 marcum Exp $
+ * $Id: EG_uvmapFindUV.c,v 1.1 2021/02/26 22:46:08 marcum Exp $
  * Copyright 1994-2020, David L. Marcum
  */
 
@@ -14,7 +14,7 @@ Find location of given UV coordinates.
 EGADS style data are used in this API.
 --------------------------------------------------------------------------------
 
-int EG_uvmap_find_uv (
+int EG_uvmapFindUV (
   int idef,
   double uv[2],
   void *ptr,
@@ -72,7 +72,7 @@ s		Linear interpolation shape functions for the tria-face that
 
 */
 
-int EG_uvmap_find_uv (
+int EG_uvmapFindUV (
   int idef,
   double uv[2],
   void *ptr,

@@ -8,15 +8,16 @@
 extern "C" {
 #endif
 
-#include "EG_uvmap_find_uv.h"
-#include "EG_uvmap_gen.h"
-#include "EG_uvmap_read.h"
-#include "EG_uvmap_struct_free.h"
-#include "EG_uvmap_test.h"
-#include "EG_uvmap_write.h"
+#include "EG_uvmapFindUV.h"
+#include "EG_uvmapGen.h"
+#include "EG_uvmap_Read.h"
+#include "EG_uvmapStructFree.h"
+#include "EG_uvmapTest.h"
+#include "EG_uvmap_Write.h"
 #include "uvmap_add.h"
 #include "uvmap_bnd_adj.h"
 #include "uvmap_chk_area_uv.h"
+#include "uvmap_chk_edge_ratio.h"
 #include "uvmap_cpu_message.h"
 #include "uvmap_find_uv.h"
 #include "uvmap_from_egads.h"

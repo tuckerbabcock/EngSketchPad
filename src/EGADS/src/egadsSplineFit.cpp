@@ -3,7 +3,7 @@
  *
  *             Spline Fitting Functions w/ Derivatives
  *
- *      Copyright 2011-2021, Massachusetts Institute of Technology
+ *      Copyright 2011-2022, Massachusetts Institute of Technology
  *      Licensed under The GNU Lesser General Public License, version 2.1
  *      See http://www.opensource.org/licenses/lgpl-2.1.php
  *
@@ -251,11 +251,12 @@ EG_spline1dEval(int *ivec, SurrealS<N> *data, T& t, SurrealS<N> *point)
 }
 
 // Create explicit instantiations of the function
-template DllExport int EG_spline1dEval<1, double>(int *, SurrealS<1> *, double&,
-                                                  SurrealS<1> *);
-template DllExport int EG_spline1dEval<1, SurrealS<1> >(int *, SurrealS<1> *,
-                                                        SurrealS<1>&,
-                                                        SurrealS<1> *);
+template DllExport int
+EG_spline1dEval<1, double>(int *, SurrealS<1> *, double&, SurrealS<1> *);
+
+template DllExport int
+EG_spline1dEval<1, SurrealS<1> >(int *, SurrealS<1> *, SurrealS<1>&,
+                                 SurrealS<1> *);
 
 
 template<class T, class T2>
@@ -310,11 +311,13 @@ EG_spline1dDeriv(int *ivec, SurrealS<N> *rdata, int der, T& t, SurrealS<N> *deri
 }
 
 // Create explicit instantiations of the function
-template DllExport int EG_spline1dDeriv<1, double>(int *, SurrealS<1> *, int der,
-                                                   double&, SurrealS<1> *);
-template DllExport int EG_spline1dDeriv<1, SurrealS<1> >(int *, SurrealS<1> *,
-                                                         int der, SurrealS<1>&,
-                                                         SurrealS<1> *);
+template DllExport int
+EG_spline1dDeriv<1, double>(int *, SurrealS<1> *, int der, double&,
+                            SurrealS<1> *);
+
+template DllExport int
+EG_spline1dDeriv<1, SurrealS<1> >(int *, SurrealS<1> *, int der, SurrealS<1>&,
+                                  SurrealS<1> *);
 
 extern "C"
 int
@@ -794,15 +797,13 @@ EG_spline1dFit(int endx, int imaxx, const T *xyz, const T *kn,
 }
 
 // Create explicit instantiations of the function
-template int
-EG_spline1dFit(int, int, const double *,
-               const double *, double, int *,
+template DllExport int
+EG_spline1dFit(int, int, const double *, const double *, double, int *,
                double **);
 
 template DllExport int
-EG_spline1dFit(int, int, const SurrealS<1> *,
-               const SurrealS<1> *, double, int *,
-               SurrealS<1> **);
+EG_spline1dFit(int, int, const SurrealS<1> *, const SurrealS<1> *, double,
+               int *, SurrealS<1> **);
 
 extern "C"
 int
@@ -1197,13 +1198,12 @@ EG_spline2dEval(int *ivec, SurrealS<N> *data, const T *uv,
 
 
 // Create explicit instantiations of the function
-template DllExport int EG_spline2dEval<1, double>(int *, SurrealS<1> *,
-                                                  const double *,
-                                                  SurrealS<1> *);
+template DllExport int
+EG_spline2dEval<1, double>(int *, SurrealS<1> *, const double *, SurrealS<1> *);
 
-template DllExport int EG_spline2dEval<1, SurrealS<1> >(int *, SurrealS<1> *,
-                                                        const SurrealS<1> *,
-                                                        SurrealS<1> *);
+template DllExport int
+EG_spline2dEval<1, SurrealS<1> >(int *, SurrealS<1> *, const SurrealS<1> *,
+                                 SurrealS<1> *);
 
 
 template<class T, class T2>
@@ -1287,12 +1287,13 @@ EG_spline2dDeriv(int *ivec, SurrealS<N> *data, int der,
 }
 
 // Create explicit instantiations of the function
-template DllExport int EG_spline2dDeriv<1, double>(int *, SurrealS<1> *, int,
-                                                   const double *, SurrealS<1> *);
+template DllExport int
+EG_spline2dDeriv<1, double>(int *, SurrealS<1> *, int, const double *,
+                            SurrealS<1> *);
 
-template DllExport int EG_spline2dDeriv<1, SurrealS<1> >(int *, SurrealS<1> *, int,
-                                                         const SurrealS<1> *,
-                                                         SurrealS<1> *);
+template DllExport int
+EG_spline2dDeriv<1, SurrealS<1> >(int *, SurrealS<1> *, int, const SurrealS<1> *,
+                                  SurrealS<1> *);
 
 
 template<class T, class T2>
@@ -3828,13 +3829,14 @@ EG_spline2dAprx(int endc, int imax, int jmax, const SurrealS<N> *xyz,
 }
 
 // Create explicit instantiations of the function
-template DllExport int EG_spline2dAprx<1>(int endc, int imax, int jmax,
-                                          const SurrealS<1> *, const SurrealS<1> *,
-                                          const SurrealS<1> *, const int *,
-                                          const SurrealS<1> *, const SurrealS<1> *,
-                                          const SurrealS<1> *,       SurrealS<1> *,
-                                          const SurrealS<1> *,       SurrealS<1> *,
-                                          double tol, int *header,   SurrealS<1> **);
+template DllExport int
+EG_spline2dAprx<1>(int endc, int imax, int jmax,
+                   const SurrealS<1> *, const SurrealS<1> *,
+                   const SurrealS<1> *, const int *,
+                   const SurrealS<1> *, const SurrealS<1> *,
+                   const SurrealS<1> *,       SurrealS<1> *,
+                   const SurrealS<1> *,       SurrealS<1> *,
+                   double tol, int *header,   SurrealS<1> **);
 
 
 extern "C"
@@ -3979,14 +3981,16 @@ cleanup:
 
 extern "C"
 int
-EG_spline2dRaw(int endc, /*@null@*/ const double **drnd, int imax, int jmax,
+EG_spline2dRaw(int endc, /*@null@*/ const double **drnd, int imaxx, int jmaxx,
                const double *xyz, double tol, int *header, double **rdata)
 {
-  int          i, j, k, stat;
+  int          i, j, k, imax, jmax, stat;
   double       dist, dy, *norT, *souT, *easT, *wesT;
   double       x0[3], x1[3], nnor[3], snor[3], enor[3], wnor[3], *rot;
   const double *north, *south, *east, *west;
 
+  imax = abs(imaxx);
+  jmax = abs(jmaxx);
   if ((imax < 2) || (jmax < 2)) return EGADS_DEGEN;
   if ((endc < 0) || (endc > 2)) return EGADS_RANGERR;
 
@@ -4162,7 +4166,7 @@ EG_spline2dRaw(int endc, /*@null@*/ const double **drnd, int imax, int jmax,
 
   /* call approx as is */
   if ((east == NULL) && (west == NULL))
-    return EG_spline2dAppr(endc, imax, jmax, xyz, (double *) NULL,
+    return EG_spline2dAppr(endc, imaxx, jmaxx, xyz, (double *) NULL,
                            (double *) NULL, NULL, west, east,
                            south, souT, north, norT, tol, header, rdata);
 
@@ -4179,7 +4183,7 @@ EG_spline2dRaw(int endc, /*@null@*/ const double **drnd, int imax, int jmax,
 #ifdef DEBUG
   printf(" spline2d: rotate -- south=west, north=east!\n");
 #endif
-  stat = EG_spline2dAppr(endc, jmax, imax, rot, (double *) NULL,
+  stat = EG_spline2dAppr(endc, jmaxx, imaxx, rot, (double *) NULL,
                          (double *) NULL, NULL, south, north,
                          west, wesT, east, easT, tol, header, rdata);
 
@@ -4482,11 +4486,11 @@ EG_subSpline2d(const int *fheader, const T *fdata,
                const int i1, const int iN,
                const int j1, const int jN, int *sheader, T **sdata)
 {
-  int ideg, jdeg, i, j;
-  int ficp, fiknot, fjcp, fjknot;
-  int sicp, siknot, sjcp, sjknot;
+  int     ideg, jdeg, i, j;
+  int     ficp, fiknot, fjcp, fjknot;
+  int     sicp, siknot, sjcp, sjknot;
   const T *fknotu, *fknotv, *fcp;
-  T *sknotu, *sknotv, *scp;
+  T       *sknotu, *sknotv, *scp;
 
   if (sdata == NULL) {
     printf(" EG_isoCurve: NULL data!\n");
@@ -4609,6 +4613,32 @@ EG_subSpline2d(const int *fheader, const T *fdata,
       scp[3*(i+j*sicp)+2] = fcp[3*(i+i1-1+(j+j1-1)*ficp)+2];
     }
   }
+  
+  // do we need to adjust C0 settings so we get derivatives?
+  for (i = 0; i < sicp; i++)
+    if ((scp[3*i  ] != scp[3*(i+sicp)  ]) ||
+        (scp[3*i+1] != scp[3*(i+sicp)+1]) ||
+        (scp[3*i+2] != scp[3*(i+sicp)+2])) break;
+  if (i == sicp)
+    for (i = 0; i < sicp; i++) {
+      scp[3*(i+sicp)  ] = 0.99*scp[3*(i+sicp)  ] + 0.01*scp[3*(i+2*sicp)  ];
+      scp[3*(i+sicp)+1] = 0.99*scp[3*(i+sicp)+1] + 0.01*scp[3*(i+2*sicp)+1];
+      scp[3*(i+sicp)+2] = 0.99*scp[3*(i+sicp)+2] + 0.01*scp[3*(i+2*sicp)+2];
+    }
+  
+  for (i = 0; i < sicp; i++)
+    if ((scp[3*(i+(sjcp-1)*sicp)  ] != scp[3*(i+(sjcp-2)*sicp)  ]) ||
+        (scp[3*(i+(sjcp-1)*sicp)+1] != scp[3*(i+(sjcp-2)*sicp)+1]) ||
+        (scp[3*(i+(sjcp-1)*sicp)+2] != scp[3*(i+(sjcp-2)*sicp)+2])) break;
+  if (i == sicp)
+    for (i = 0; i < sicp; i++) {
+      scp[3*(i+(sjcp-2)*sicp)  ] = 0.99*scp[3*(i+(sjcp-2)*sicp)  ] +
+                                   0.01*scp[3*(i+(sjcp-3)*sicp)  ];
+      scp[3*(i+(sjcp-2)*sicp)+1] = 0.99*scp[3*(i+(sjcp-2)*sicp)+1] +
+                                   0.01*scp[3*(i+(sjcp-3)*sicp)+1];
+      scp[3*(i+(sjcp-2)*sicp)+2] = 0.99*scp[3*(i+(sjcp-2)*sicp)+2] +
+                                   0.01*scp[3*(i+(sjcp-3)*sicp)+2];
+    }
 
   return EGADS_SUCCESS;
 }

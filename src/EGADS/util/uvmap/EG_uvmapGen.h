@@ -1,4 +1,4 @@
-int EG_uvmap_gen (
+int EG_uvmapGen (
   int idef,
   int ntria,
   int nvert,

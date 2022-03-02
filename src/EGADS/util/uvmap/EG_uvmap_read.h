@@ -1,4 +1,4 @@
-int EG_uvmap_read (
+int EG_uvmap_Read (
   char Case_Name[],
   int *ntria,
   int *nvert,

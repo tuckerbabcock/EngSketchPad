@@ -3,8 +3,8 @@
 /*
  * UVMAP : TRIA-FACE SURFACE MESH UV MAPPING GENERATOR
  *         DERIVED FROM AFLR4, UG, UG2, and UG3 LIBRARIES
- * $Id: EG_uvmap_write.c,v 1.2 2020/06/15 20:22:16 marcum Exp $
- * Copyright 1994-2020, David L. Marcum
+ * $Id: EG_uvmap_Write.c,v 1.6 2021/04/30 18:58:36 marcum Exp $
+ * Copyright 1994-2021, David L. Marcum
  */
 
 /*
@@ -14,7 +14,7 @@ Write data to a SURF type surface mesh file.
 EGADS style data are used in this API.
 --------------------------------------------------------------------------------
 
-int EG_uvmap_write (
+int EG_uvmap_Write (
   char Case_Name[],
   int ntria,
   int nvert,
@@ -61,7 +61,7 @@ OUTPUT ARGUMENTS
 
 */
 
-int EG_uvmap_write (
+int EG_uvmap_Write (
   char Case_Name[],
   int ntria,
   int nvert,

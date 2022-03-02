@@ -2,6 +2,15 @@
 ifndef ESP_ROOT
 $(error ESP_ROOT must be set -- Please fix the environment...)
 endif
+ifndef ESP_ARCH
+$(error ESP_ARCH must be set -- Please fix the environment...)
+endif
+ifndef CASROOT
+$(error CASROOT must be set -- Please fix the environment...)
+endif
+ifndef CASREV
+$(error CASREV must be set -- Please fix the environment...)
+endif
 #
 include ../include/$(ESP_ARCH)
 LDIR  = $(ESP_ROOT)/lib
@@ -25,8 +34,10 @@ endif
 
 VPATH = $(ODIR)
 
-OBJSP = egadsGeom.o egadsHLevel.o    egadsTopo.o     egadsCopy.o     egadsSpline.o \
-	egadsIO.o   egadsSplineFit.o egadsSkinning.o egadsTessSens.o BRepLib_FuseEdges.o
+OBJSP = egadsGeom.o egadsHLevel.o egadsTopo.o egadsCopy.o egadsSpline.o \
+	egadsIO.o   egadsSplineFit.o egadsSkinning.o egadsTessSens.o 
+OBJSOCC = BRepLib_FuseEdges.o # BRepSweep_Rotation.o BRepSweep_Revol.o BRepPrimAPI_MakeRevol.o \
+	BRepSweep_Translation.o BRepSweep_Prism.o BRepPrimAPI_MakePrism.o
 OBJS  = egadsBase.o egadsMemory.o egadsAttrs.o  egadsTess.o   egadsTessInp.o \
 	egadsTris.o egadsQuads.o  egadsFit.o    egadsRobust.o egadsSBO.o \
 	prmCfit.o   prmGrid.o     prmUV.o       egadsExport.o  \
@@ -37,23 +48,23 @@ SRINC = $(SIDIR)/SurrealD.h $(SIDIR)/SurrealD_Lazy.h $(SIDIR)/SurrealD_Trad.h \
         $(SIDIR)/SurrealS.h $(SIDIR)/SurrealS_Lazy.h $(SIDIR)/SurrealS_Trad.h \
 	$(SIDIR)/always_inline.h
 
-default:	includes uts $(LDIR)/$(SHLIB) \
+default:	includes $(LDIR)/$(SHLIB) \
 		$(LDIR)/libegadstatic.a $(LDIR)/libfgads.a $(LDIR)/libemp.a
 	@echo " *** EGADS Build Complete! ***"
 
-$(LDIR)/libegads.so:	$(OBJSP) $(OBJS) emp.o evaluate.o rational.o \
+$(LDIR)/libegads.so:	$(OBJSP) $(OBJSOCC) $(OBJS) emp.o evaluate.o rational.o \
 			regQuads.o $(LDIR)/libuvmap.a
 	touch $(LDIR)/libegads.so
 	rm $(LDIR)/libegads.so
 	(cd $(ODIR); $(CC) -shared -Wl,-no-undefined -o $(LDIR)/libegads.so \
-		$(OBJSP) $(OBJS) emp.o evaluate.o rational.o regQuads.o \
+		$(OBJSP) $(OBJSOCC) $(OBJS) emp.o evaluate.o rational.o regQuads.o \
 		$(LIBPATH) -luvmap $(LIBS) $(CPPSLB) $(RPATH) )
 
-$(LDIR)/libegads.dylib:	$(OBJSP) $(OBJS) emp.o evaluate.o rational.o \
+$(LDIR)/libegads.dylib:	$(OBJSP) $(OBJSOCC) $(OBJS) emp.o evaluate.o rational.o \
 			regQuads.o $(LDIR)/libuvmap.a
 	touch $(LDIR)/libegads.dylib
 	rm $(LDIR)/libegads.dylib
-	(cd $(ODIR); $(CC) -dynamiclib -o $(LDIR)/libegads.dylib $(OBJSP) \
+	(cd $(ODIR); $(CC) -dynamiclib -o $(LDIR)/libegads.dylib $(OBJSP) $(OBJSOCC) \
 		$(OBJS) emp.o evaluate.o rational.o regQuads.o \
 		$(RPATH) $(LIBPATH) -luvmap $(LIBS) $(CPPSLB) -undefined error \
 		-install_name '@rpath/libegads.dylib' \
@@ -61,7 +72,7 @@ $(LDIR)/libegads.dylib:	$(OBJSP) $(OBJS) emp.o evaluate.o rational.o \
 		-current_version $(EGREV) )
 
 # CYGWIN
-$(LDIR)/libegads.dll:	$(OBJSP) $(OBJS) emp.o evaluate.o rational.o \
+$(LDIR)/libegads.dll:	$(OBJSP) $(OBJSOCC) $(OBJS) emp.o evaluate.o rational.o \
 			regQuads.o $(LDIR)/libuvmap.a
 	touch $(LDIR)/libegads.dll
 	touch $(LDIR)/libegads.dll.a
@@ -69,20 +80,17 @@ $(LDIR)/libegads.dll:	$(OBJSP) $(OBJS) emp.o evaluate.o rational.o \
 	rm $(LDIR)/libegads.dll.a
 	(cd $(ODIR); $(CC) -shared -o $(LDIR)/libegads.dll \
 		-Wl,--out-implib,$(LDIR)/libegads.dll.a \
-		$(OBJSP) $(OBJS) emp.o evaluate.o rational.o regQuads.o \
+		$(OBJSP) $(OBJSOCC) $(OBJS) emp.o evaluate.o rational.o regQuads.o \
 		$(LIBPATH) -luvmap $(LIBS) $(CPPSLB) )
 
-$(LDIR)/libegadstatic.a:	$(OBJSP) $(OBJS) emp.o evaluate.o rational.o \
+$(LDIR)/libegadstatic.a:	$(OBJSP) $(OBJSOCC) $(OBJS) emp.o evaluate.o rational.o \
 				regQuads.o $(LDIR)/libuvmap.a
 	touch $(LDIR)/libegadstatic.a
 	rm $(LDIR)/libegadstatic.a
 	cp $(LDIR)/libuvmap.a $(LDIR)/libegadstatic.a
 	(cd $(ODIR); \
-		ar $(LOPTS) $(LDIR)/libegadstatic.a $(OBJS) $(OBJSP) emp.o \
+		ar $(LOPTS) $(LDIR)/libegadstatic.a $(OBJS) $(OBJSP) $(OBJSOCC) emp.o \
 		evaluate.o rational.o regQuads.o; $(RANLB) )
-
-$(LDIR)/libuvmap.a:
-	$(MAKE) -C ../util
 
 $(LDIR)/libfgads.a:		$(FOBJS)
 	touch $(LDIR)/libfgads.a
@@ -110,13 +118,13 @@ $(ODIR)/SurrealS4:	../util/SurrealS4_btest.cpp
 	$(CXX) -o $(ODIR)/SurrealS4 -O -I. ../util/SurrealS4_btest.cpp
 	$(ODIR)/SurrealS4
 
-uts:	$(ODIR)/SurrealD1 $(ODIR)/SurrealD4 $(ODIR)/SurrealS1 $(ODIR)/SurrealS4
+$(LDIR)/libuvmap.a:	includes $(ODIR)/SurrealD1 $(ODIR)/SurrealD4 $(ODIR)/SurrealS1 $(ODIR)/SurrealS4
 	$(MAKE) -C ../util
 
 $(OBJS): %.o:	%.c ../include/egadsErrors.h egadsInternals.h egadsStack.h \
 		../include/egadsTypes.h egadsTris.h
 	$(CC) -c $(COPTS) $(DEFINE) $(XDEF) -I../include -I../util \
-		$< -o $(ODIR)/$@
+		-I../util/uvmap $< -o $(ODIR)/$@
 
 $(FOBJS): %.o:	%.c ../include/egadsErrors.h egadsInternals.h egadsStack.h \
 		../include/egadsTypes.h 
@@ -125,15 +133,18 @@ $(FOBJS): %.o:	%.c ../include/egadsErrors.h egadsInternals.h egadsStack.h \
 $(OBJSP): %.o:	%.cpp ../include/egadsErrors.h egadsOCC.h egadsInternals.h \
 		../include/egadsTypes.h ../include/egads_dot.h \
 		egadsClasses.h egadsSplineFit.h egadsStack.h Surreal/SurrealS.h
-	$(CXX) -c $(CPPOPT) $(DEFINE) $(XDEF) $(INCS) -I../include \
+	$(CXX) -c $(CPPOPT) $(DEFINE) $(XDEF) -IOCC $(INCS) -I../include \
 		-I. $< -o $(ODIR)/$@
+
+$(OBJSOCC): %.o:	OCC/%.cpp 
+	$(CXX) -c $(CPPOPT) $(DEFINE) $(XDEF) -IOCC $(INCS) $< -o $(ODIR)/$@
 
 emp.o:		../util/emp.c
 	$(CC) -c $(COPTS) $(DEFINE) -D$(ESP_ARCH) -I../include ../util/emp.c \
 		-o $(ODIR)/emp.o
 
 evaluate.o:	../util/evaluate.c
-	$(CXX) -x c++ -c $(CPPOPT) $(DEFINE) $(INCS) -I. -I../include \
+	$(CXX) -x c++ -c $(CPPOPT) $(DEFINE) -IOCC $(INCS) -I. -I../include \
 		../util/evaluate.c -o $(ODIR)/evaluate.o
 
 rational.o:	../util/rational.c
@@ -244,14 +255,14 @@ include ../include/STANALYZER.make
 
 lint:
 	@echo EGADS library:
-	$(LINT) -I../include -I../util egadsBase.c egadsAttrs.c egadsMemory.c egadsTess.c egadsTessInp.c egadsTris.c egadsQuads.c egadsFit.c egadsRobust.c egadsSBO.c ../util/regQuads.c egadsExport.c egadsSolids.c egadsEffect.c -evalorder -exportlocal -incompletetype -boolops -predboolothers -dependenttrans -nestcomment
+	$(LINT) -I../include -I../util -I../util/uvmap egadsBase.c egadsAttrs.c egadsMemory.c egadsTess.c egadsTessInp.c egadsTris.c egadsQuads.c egadsFit.c egadsRobust.c egadsSBO.c ../util/regQuads.c egadsExport.c egadsSolids.c egadsEffect.c -evalorder -exportlocal -incompletetype -boolops -predboolothers -dependenttrans -nestcomment
 	@echo " "
 	@echo FORTRAN bindings:
 	$(LINT) -I../include fgadsBase.c fgadsTopo.c fgadsGeom.c fgadsAttrs.c fgadsMemory.c fgadsTess.c fgadsHLevel.c
 
 clean:
 	-(cd ../util; make clean)
-	-(cd $(ODIR); rm $(FOBJS) $(OBJSP) $(OBJS) emp.o evaluate.o rational.o \
+	-(cd $(ODIR); rm $(FOBJS) $(OBJSP) $(OBJSOCC) $(OBJS) emp.o evaluate.o rational.o \
 		regQuads.o SurrealD1 SurrealD4 SurrealS1 SurrealS4)
 
 cleanall:	clean

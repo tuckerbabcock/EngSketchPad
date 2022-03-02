@@ -3,7 +3,7 @@
  *
  *             EGADSlite Geometry Evaluation (non-recursive) Functions
  *
- *      Copyright 2011-2021, Massachusetts Institute of Technology
+ *      Copyright 2011-2022, Massachusetts Institute of Technology
  *      Licensed under The GNU Lesser General Public License, version 2.1
  *      See http://www.opensource.org/licenses/lgpl-2.1.php
  *
@@ -2957,13 +2957,17 @@ EG_invEvaGeomLimits(const egObject *geomx, /*@null@*/ const double *limits,
     srange[3] = range[3];
   }
   
-  /* do we re-limit? */
+  /* do we re-limit (ignore surface periodics)? */
   if (limits != NULL) {
-    range[0] = limits[0];
-    range[1] = limits[1];
+    if (((per&1) != 1) || (geom->oclass != SURFACE)) {
+      range[0] = limits[0];
+      range[1] = limits[1];
+    }
     if (geom->oclass == SURFACE) {
-      range[2] = limits[2];
-      range[3] = limits[3];
+      if (per/2 == 0) {
+        range[2] = limits[2];
+        range[3] = limits[3];
+      }
     }
   }
   
@@ -3593,6 +3597,13 @@ EG_invEvaGeomLimits(const egObject *geomx, /*@null@*/ const double *limits,
       }
     }
 
+    /* do we re-limit? */
+    if (limits != NULL) {
+      range[0] = limits[0];
+      range[1] = limits[1];
+      range[2] = limits[2];
+      range[3] = limits[3];
+    }
     if (((per&1) != 0) && ((param[0]+PARAMACC < range[0]) ||
                            (param[0]-PARAMACC > range[1]))) {
       period = srange[1] - srange[0];
