@@ -3,7 +3,7 @@
  *
  *             FORTRAN Bindings
  *
- *      Copyright 2011-2021, Massachusetts Institute of Technology
+ *      Copyright 2011-2022, Massachusetts Institute of Technology
  *      Licensed under The GNU Lesser General Public License, version 2.1
  *      See http://www.opensource.org/licenses/lgpl-2.1.php
  *
@@ -19,9 +19,9 @@
 #define INT8 unsigned long long
 
 #ifdef WIN32
-  extern void BROWSERMESSAGE ( INT8 *wsi, char *test, int textLen );
+  extern void BROWSERMESSAGE ( INT8 *uPtr, INT8 *wsi, char *test, int textLen );
 #else
-  extern void browsermessage_( INT8 *wsi, char *test, int textLen );
+  extern void browsermessage_( INT8 *uPtr, INT8 *wsi, char *test, int textLen );
 #endif
 
 
@@ -62,15 +62,16 @@ iv_usleep_(int *micsec)
 
 
 void
-fbrowserMessage(void *wsi, char *text, int len)
+fbrowserMessage(void *uPtr, void *wsi, char *text, int len)
 {
-  INT8 WSI;
+  INT8 UPTR, WSI;
 
-  WSI = (INT8) wsi;
+  UPTR = (INT8) uPtr;
+  WSI  = (INT8) wsi;
 #ifdef WIN32
-  BROWSERMESSAGE (&WSI, text, len);
+  BROWSERMESSAGE (&UPTR, &WSI, text, len);
 #else
-  browsermessage_(&WSI, text, len);
+  browsermessage_(&UPTR, &WSI, text, len);
 #endif
 }
 
@@ -89,6 +90,22 @@ iv_createcontext_(int *bias, float *fov, float *zNear, float *zFar, float *eye,
   context = wv_createContext(*bias, *fov, *zNear, *zFar, eye, center, up);
   if (context != NULL) wv_setCallBack(context, fbrowserMessage);
   *cntxt  = (INT8) context;
+}
+
+
+void
+#ifdef WIN32
+IV_SETUSERPTR (INT8 *cntxt, INT8 *ptr)
+#else
+iv_setuserptr_(INT8 *cntxt, INT8 *ptr)
+#endif
+{
+  wvContext *context;
+  void      *pointer;
+  
+  pointer = (void *)      *ptr;
+  context = (wvContext *) *cntxt;
+  wv_setUserPtr(context, pointer);
 }
 
 
@@ -424,6 +441,43 @@ iv_setkey_(INT8 *cntxt, int *nCol, float *colors, float *beg, float *end,
   
   stat = wv_setKey(context, *nCol, colors, *beg, *end, ititle);
   free(ititle);
+  return stat;
+}
+
+
+int
+#ifdef WIN32
+IV_POSTMESSAGE (int *index, char *text, int textLen)
+#else
+iv_postmessage_(int *index, char *text, int textLen)
+#endif
+{
+  int  stat;
+  char *name;
+
+  name = IV_f2c(text, textLen);
+  if (name == NULL) return -1;
+  stat = wv_postMessage(*index, name);
+  free(name);
+  return stat;
+}
+
+int
+#ifdef WIN32
+IV_MAKEMESSAGE (INT8 *WSI, char *text, int textLen)
+#else
+iv_makemessage_(INT8 *WSI, char *text, int textLen)
+#endif
+{
+  int  stat;
+  char *name;
+  void *wsi;
+
+  name = IV_f2c(text, textLen);
+  if (name == NULL) return -1;
+  wsi  = (void *) *WSI;
+  stat = wv_makeMessage(wsi, name);
+  free(name);
   return stat;
 }
 

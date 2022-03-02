@@ -3,7 +3,7 @@
  *
  *		WV simple server code
  *
- *      Copyright 2011-2021, Massachusetts Institute of Technology
+ *      Copyright 2011-2022, Massachusetts Institute of Technology
  *      Licensed under The GNU Lesser General Public License, version 2.1
  *      See http://www.opensource.org/licenses/lgpl-2.1.php
  *
@@ -38,8 +38,12 @@
   extern void  wv_prepareForSends(wvContext *context);
   extern void  wv_finishSends(wvContext *context);
 
+#ifndef STANDALONE
   /* UI test message call-back */
-  extern void  browserMessage(struct libwebsocket *wsi, char *buf, int len);
+  extern void  browserMessage(/*@null@*/ void *userPtr,
+                              /*@null@*/ struct libwebsocket *wsi, char *buf,
+                              int len);
+#endif
 
 
 enum wv_protocols {
@@ -81,13 +85,16 @@ static int ThreadCreate(void (*entry)(), void *arg)
 
 
 typedef struct {
-        int                         nClient;       /* # active clients */
-        struct libwebsocket         **wsi;         /* the text wsi per client */
-        int                         loop;          /* 1 for continue;
-                                                      0 for done */
-        int                         index;         /* server index */
-        struct libwebsocket_context *WScontext;    /* WebSocket context */
-        wvContext                   *WVcontext;    /* WebViewer context */
+        int                         nClient;    /* # active clients */
+        struct libwebsocket         **wsi;      /* the text wsi per client */
+        int                         loop;       /* 1 for continue;
+                                                   0 for done */
+        int                         index;      /* server index */
+        struct libwebsocket_context *WScontext; /* WebSocket context */
+        wvContext                   *WVcontext; /* WebViewer context */
+        int                         nMess;      /* number of messages  or  -1
+                                                   for outside browserMessage */
+        char                        **mess;     /* stored messages */
         unsigned char               xbuf[LWS_SEND_BUFFER_PRE_PADDING + BUFLEN +
                                          LWS_SEND_BUFFER_POST_PADDING];
 } wvServer;
@@ -139,7 +146,7 @@ static int callback_http(/*@unused@*/ struct libwebsocket_context *context,
 		libwebsockets_get_peer_addresses(user, client_name,
 			     sizeof(client_name), client_ip, sizeof(client_ip));
 
-		fprintf(stderr, "Received network connect from %s (%s)\n",
+		fprintf(stdout, "Received network connect from %s (%s)\n",
 							client_name, client_ip);
 
 		/* if we returned non-zero from here, we kill the connection */
@@ -192,7 +199,7 @@ dump_handshake_info(struct lws_tokens *lwst)
 	
 	for (n = 0; n < WSI_TOKEN_COUNT; n++) {
 		if (lwst[n].token == NULL) continue;
-		fprintf(stderr, "    %s = %s\n", token_names[n], lwst[n].token);
+		fprintf(stdout, "    %s = %s\n", token_names[n], lwst[n].token);
 	}
 }
 
@@ -232,7 +239,7 @@ callback_gprim_binary(struct libwebsocket_context *context,
          */
          
 	case LWS_CALLBACK_ESTABLISHED:
-		fprintf(stderr, "callback_gprim_binary: LWS_CALLBACK_ESTABLISHED\n");
+		fprintf(stdout, "callback_gprim_binary: LWS_CALLBACK_ESTABLISHED\n");
 		pss->status = 0;
 		break;
 
@@ -270,7 +277,7 @@ callback_gprim_binary(struct libwebsocket_context *context,
 		break;
                 
         case LWS_CALLBACK_CLOSED:
-                fprintf(stderr, "callback_gprim_binary: LWS_CALLBACK_CLOSED\n");
+                fprintf(stdout, "callback_gprim_binary: LWS_CALLBACK_CLOSED\n");
                 break;
         
 	/*
@@ -304,7 +311,9 @@ callback_ui_text(struct libwebsocket_context *context,
                  enum libwebsocket_callback_reasons reason,
                  void *user, void *in, size_t len)
 {
-	int    i, slot, n;
+	int    i, j, slot, n;
+        char   *mess;
+        void   *userPtr;
 	struct per_session_data__ui_text *pss = user;
         struct libwebsocket **tmp;
 
@@ -318,7 +327,7 @@ callback_ui_text(struct libwebsocket_context *context,
 	switch (reason) {
 
 	case LWS_CALLBACK_ESTABLISHED:
-		fprintf(stderr, "callback_ui_text: LWS_CALLBACK_ESTABLISHED\n");
+		fprintf(stdout, "callback_ui_text: LWS_CALLBACK_ESTABLISHED\n");
 		pss->wsi = wsi;
                 n        = servers[slot].nClient + 1;
                 if (servers[slot].wsi == NULL) {
@@ -344,17 +353,42 @@ callback_ui_text(struct libwebsocket_context *context,
 		break;
 
 	case LWS_CALLBACK_RECEIVE:
+                servers[slot].nMess = 0;
+                userPtr = servers[slot].WVcontext->userPtr;
                 if (servers[slot].WVcontext->callback == NULL) {
-                    browserMessage(wsi, in, len);
+                  browserMessage(userPtr, wsi, in, len);
                 } else {
-                    servers[slot].WVcontext->callback(wsi, in, len);
+                  servers[slot].WVcontext->callback(userPtr, wsi, in, len);
                 }
+                for (j = 0; j < servers[slot].nMess; j++) {
+                  len  = strlen(servers[slot].mess[j]);
+                  mess =        servers[slot].mess[j];
+                  if (servers[slot].WVcontext->callback == NULL) {
+                    browserMessage(userPtr, NULL, mess, len);
+                  } else {
+                    servers[slot].WVcontext->callback(userPtr, NULL, mess, len);
+                  }
+                }
+                if (servers[slot].mess != NULL) {
+                  for (j = 0; j < servers[slot].nMess; j++)
+                    wv_free(servers[slot].mess[j]);
+                  wv_free(servers[slot].mess);
+                }
+                servers[slot].mess  = NULL;
+                servers[slot].nMess = -1;
 		break;
             
         case LWS_CALLBACK_CLOSED:
-              fprintf(stderr, "callback_ui_text: LWS_CALLBACK_CLOSED\n");
+              fprintf(stdout, "callback_ui_text: LWS_CALLBACK_CLOSED\n");
               for (n = i = 0; i < servers[slot].nClient; i++) {
-                  if (servers[slot].wsi[i] == wsi) continue;
+                  if (servers[slot].wsi[i] == wsi) {
+                    if (servers[slot].mess != NULL) {
+                      for (j = 0; j < servers[slot].nMess; j++)
+                        wv_free(servers[slot].mess[j]);
+                      wv_free(servers[slot].mess);
+                    }
+                    continue;
+                  }
                   servers[slot].wsi[n] = servers[slot].wsi[i];
                   n++;
               }
@@ -444,9 +478,9 @@ static void serverThread(wvServer *server)
 	}
         
         /* mark the thread as down */
-        server->loop = -1;
         wv_destroyContext(&server->WVcontext);
         libwebsocket_context_destroy(server->WScontext);
+        server->loop = -1;
 }
 
 
@@ -457,7 +491,7 @@ int wv_startServer(int port, char *interface, char *cert_path, char *key_path,
         wvServer *tserver;
         struct libwebsocket_context *context;
 
-	fprintf(stderr, "\nwv libwebsockets server thread start\n\n");
+	fprintf(stdout, "\nwv libwebsockets server thread start\n\n");
 
 	context = libwebsocket_create_context(port, interface, wv_protocols,
 				              libwebsocket_internal_extensions,
@@ -491,6 +525,8 @@ int wv_startServer(int port, char *interface, char *cert_path, char *key_path,
         servers[slot].wsi       = NULL;
         servers[slot].WScontext =   context;
         servers[slot].WVcontext = WVcontext;
+        servers[slot].nMess     = -1;
+        servers[slot].mess      = NULL;
         memset(servers[slot].xbuf, 0, LWS_SEND_BUFFER_PRE_PADDING + BUFLEN +
                                       LWS_SEND_BUFFER_POST_PADDING);
 
@@ -511,12 +547,31 @@ int wv_startServer(int port, char *interface, char *cert_path, char *key_path,
 
 void wv_cleanupServers()
 {
-  int i;
+  int i, j;
   
+  /* called by the main thread to shutdown and cleanup all server threads
+     if a server is active, make its loop 0 to notify it to stop, then wait */
   for (i = 0; i < nServers; i++) {
+    if (servers[i].loop == 1) {
+      servers[i].loop = 0;
+      /* wait - with a limit */
+      for (j = 0; j < 100; j++) {
+        if (servers[i].loop == -1) break;
+        usleep(5000);
+      }
+    }
+  }
+
+  /* cleanup associated message memory & contexts */
+  for (i = 0; i < nServers; i++) {
+#ifndef __clang_analyzer__
+    if (servers[i].mess != NULL) {
+      for (j = 0; j < servers[i].nMess; j++)
+        wv_free(servers[i].mess[j]);
+      wv_free(servers[i].mess);
+    }
     if (servers[i].loop == -1) continue;
     wv_destroyContext(&servers[i].WVcontext);
-#ifndef __clang_analyzer__
     libwebsocket_context_destroy(servers[i].WScontext);
 #endif
   }
@@ -568,6 +623,64 @@ void wv_killInterface(int index, void *wsix)
 }
 
 
+int wv_postMessage(int index, char *text)
+{
+  int  len;
+  void *userPtr;
+  
+  if ((index < 0) || (index >= nServers)) return -2;
+  if (text == NULL) return -1;
+  if (servers[index].nMess >= 0) return -3;
+  
+  len     = strlen(text);
+  userPtr = servers[index].WVcontext->userPtr;
+  if (servers[index].WVcontext->callback == NULL) {
+    browserMessage(userPtr, NULL, text, len);
+  } else {
+    servers[index].WVcontext->callback(userPtr, NULL, text, len);
+  }
+  
+  return 0;
+}
+
+
+int wv_makeMessage(void *wsi, char *text)
+{
+  int  i, slot, len;
+  char **ptrs;
+
+  if (text == NULL)            return -1;
+  if (wsi  == NULL)            return -1;
+  for (slot = 0; slot < nServers; slot++) {
+    for (i = 0; i < servers[slot].nClient; i++)
+      if (servers[slot].wsi[i] == wsi) break;
+    if (i < servers[slot].nClient) break;
+  }
+  if (slot == nServers)        return -2;
+  if (servers[slot].nMess < 0) return -3;
+  
+  len = strlen(text) + 1;
+  if (servers[slot].mess == NULL) {
+    ptrs = (char **) wv_alloc(sizeof(char *));
+    servers[slot].nMess = 0;
+  } else {
+    ptrs = (char **) wv_realloc( servers[slot].mess,
+                                (servers[slot].nMess+1)*sizeof(char *));
+  }
+  if (ptrs == NULL) return -4;
+  ptrs[servers[slot].nMess] = (char *) wv_alloc(len*sizeof(char));
+  if (ptrs[servers[slot].nMess] == NULL) {
+    servers[slot].mess = ptrs;
+    return -4;
+  }
+  for (i = 0; i < len; i++) ptrs[servers[slot].nMess][i] = text[i];
+  servers[slot].mess = ptrs;
+  servers[slot].nMess++;
+  
+  return 0;
+}
+
+
 void wv_sendText(struct libwebsocket *wsi, char *text)
 {
   int  n;
@@ -579,7 +692,8 @@ void wv_sendText(struct libwebsocket *wsi, char *text)
   }
   n = strlen(text) + 1;
   message = (unsigned char *) wv_alloc((n+LWS_SEND_BUFFER_PRE_PADDING +
-                                        LWS_SEND_BUFFER_POST_PADDING)*sizeof(unsigned char));
+                                        LWS_SEND_BUFFER_POST_PADDING)*
+                                        sizeof(unsigned char));
   if (message == NULL) {
     fprintf(stderr, "ERROR: sendText Malloc with length %d!", n);
     return;    
@@ -603,7 +717,8 @@ void wv_broadcastText(char *text)
   }
   n = strlen(text) + 1;
   message = (unsigned char *) wv_alloc((n+LWS_SEND_BUFFER_PRE_PADDING +
-                                        LWS_SEND_BUFFER_POST_PADDING)*sizeof(unsigned char));
+                                        LWS_SEND_BUFFER_POST_PADDING)*
+                                        sizeof(unsigned char));
   if (message == NULL) {
     fprintf(stderr, "ERROR: broadcastText Malloc with length %d!", n);
     return;    
@@ -796,7 +911,7 @@ static void createPoints(wvContext *cntxt, char *name, int attr, float *offset)
 
 int main(/*@unused@*/ int argc, /*@unused@*/ char **argv)
 {
-
+        int       cnt = 1;
         wvContext *cntxt;
         float     eye[3]    = {0.0, 0.0, 7.0};
         float     center[3] = {0.0, 0.0, 0.0};
@@ -828,7 +943,11 @@ int main(/*@unused@*/ int argc, /*@unused@*/ char **argv)
         if (wv_startServer(7681, NULL, NULL, NULL, 0, cntxt) == 0) {
 
                 /* we have a single valid server -- do nothing */
-                while (wv_statusServer(0)) usleep(500000);
+                while (wv_statusServer(0)) {
+                      usleep(500000);
+                      if (cnt%25 == 0) wv_postMessage(0, "sent Message");
+                      cnt++;
+                }
 
         }
         

@@ -11,7 +11,10 @@ ODIR = .
 TDIR = .
 !ENDIF
 
-DEFINE = $(DEFINE) /D_UNICODE /DUNICODE
+# locations for openssl & default certificate directory
+OSSINC = c:\Users\Bob\lib\OpenSSL\include
+OSSLIB = c:\Users\Bob\lib\OpenSSL\lib\VC
+DEFINE = $(DEFINE) /D_UNICODE /DUNICODE /DLWS_OPENSSL_CLIENT_CERTS=\"@clientcertdir@\"
 
 OBJS = gettimeofday.obj websock-w32.obj base64-decode.obj handshake.obj \
        client-handshake.obj libwebsockets.obj extension-deflate-stream.obj \
@@ -34,13 +37,15 @@ start:
 $(TDIR)\server.exe:	$(ODIR)\servertest.obj $(LDIR)\wsservers.lib \
 			$(LDIR)\z.lib
 	cl /Fe$(TDIR)\server.exe $(ODIR)\servertest.obj $(LDIR)\wsservers.lib \
-		$(LDIR)\z.lib ws2_32.lib
+		$(LDIR)\z.lib $(OSSLIB)\libssl64MD.lib \
+		$(OSSLIB)\libcrypto64MD.lib ws2_32.lib
 	$(MCOMP) /manifest $(TDIR)\server.exe.manifest \
 		/outputresource:$(TDIR)\server.exe;1
 
 $(ODIR)\servertest.obj:	server.c
 	cl /c $(COPTS) $(DEFINE) /DSTANDALONE /I$(IDIR) /I$(IDIR)\winhelpers \
-		/I. /I$(SDIR)\win32helpers server.c /Fo$(ODIR)\servertest.obj
+		/I$(OSSINC) /I. /I$(SDIR)\win32helpers server.c \
+		/Fo$(ODIR)\servertest.obj
 
 $(LDIR)\wsservers.lib:	$(ODIR)\map.obj $(OBJS) $(ODIR)\fwv.obj
 	-del $(LDIR)\wsservers.lib
@@ -49,14 +54,15 @@ $(LDIR)\wsservers.lib:	$(ODIR)\map.obj $(OBJS) $(ODIR)\fwv.obj
 $(LDIR)\wsserver.dll:	$(ODIR)\map.obj $(OBJS)
 	-del $(LDIR)\wsserver.dll $(LDIR)\wsserver.lib $(LDIR)\wsserver.exp
 	link /out:$(LDIR)\wsserver.dll /dll /def:wsserver.def $(ODIR)\map.obj \
-		$(OBJS) $(LDIR)\z.lib ws2_32.lib
+		$(OBJS) $(LDIR)\z.lib $(OSSLIB)\libssl64MD.lib \
+		$(OSSLIB)\libcrypto64MD.lib ws2_32.lib
 
 $(OBJS):	extension-deflate-stream.h libwebsockets.h $(IDIR)\wsserver.h \
 		extension-x-google-mux.h private-libwebsockets.h \
 		$(IDIR)\wsss.h
 .c.obj:
 	cl /c $(COPTS) $(DEFINE) /I. /I$(IDIR) /I$(IDIR)\winhelpers \
-		/I$(SDIR)\win32helpers /I$(SDIR)\zlib $<
+		/I$(OSSINC) /I$(SDIR)\win32helpers /I$(SDIR)\zlib $<
 
 $(ODIR)\map.obj:	map.cpp
 	cl /c $(CPPOPT) $(DEFINE) map.cpp /Fo$(ODIR)\map.obj

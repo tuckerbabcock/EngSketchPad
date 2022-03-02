@@ -3,7 +3,7 @@
  *
  *		WV server-side functions
  *
- *      Copyright 2011-2021, Massachusetts Institute of Technology
+ *      Copyright 2011-2022, Massachusetts Institute of Technology
  *      Licensed under The GNU Lesser General Public License, version 2.1
  *      See http://www.opensource.org/licenses/lgpl-2.1.php
  *
@@ -177,9 +177,19 @@ wv_createContext(int bias, float fov, float zNear, float zFar, float *eye,
   context->thumbnail  = NULL;
   context->gPrims     = NULL;
   context->nameMap    = NULL;
+  context->userPtr    = NULL;
   wv_stringSetOpen(&context->nameMap);
 
+/*@-nullret@*/
   return context;
+/*@+nullret@*/
+}
+
+
+void
+wv_setUserPtr(wvContext *cntxt, /*@null@*/ void *userPtr)
+{
+  cntxt->userPtr = userPtr;
 }
 
 
@@ -2710,7 +2720,6 @@ wv_sendGPrim(void *wsi, wvContext *cntxt, unsigned char *buf, int flag)
     buf[iBuf+6] = 0;
     buf[iBuf+7] = 0;
     iBuf += npack;
-    cntxt->cleanAll = 0;
   }
 
   for (i = 0; i < cntxt->nGPrim; i++) {
@@ -2983,6 +2992,7 @@ wv_finishSends(wvContext *cntxt)
   int i, j, hit;
   
   cntxt->sent++;
+  cntxt->cleanAll = 0;
   if (cntxt->gPrims == NULL) {
     cntxt->ioAccess = 0;
     return;
