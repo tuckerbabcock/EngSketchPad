@@ -1,11 +1,11 @@
-#ifndef AIMU_H
-#define AIMU_H
+#ifndef AIMUTIL_H
+#define AIMUTIL_H
 /*
  *      CAPS: Computational Aircraft Prototype Syntheses
  *
  *             AIM Utility Function Prototypes
  *
- *      Copyright 2014-2021, Massachusetts Institute of Technology
+ *      Copyright 2014-2022, Massachusetts Institute of Technology
  *      Licensed under The GNU Lesser General Public License, version 2.1
  *      See http://www.opensource.org/licenses/lgpl-2.1.php
  *
@@ -14,7 +14,24 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#ifdef WIN32
+#define PATH_MAX _MAX_PATH
+#else
+#include <limits.h>
+#endif
+
+/* splint fixes */
+#ifdef S_SPLINT_S
+#ifndef PATH_MAX
+#define PATH_MAX 4096
+#endif
+/*@-incondefs@*/
+extern int fclose (/*@only@*/ FILE *__stream);
+/*@+incondefs@*/
+#endif
+
 #include "capsTypes.h"
+
 
 #ifdef __ProtoExt__
 #undef __ProtoExt__
@@ -26,18 +43,55 @@ extern "C" {
 #define __ProtoExt__ extern
 #endif
 
-
 __ProtoExt__ void
   aim_capsRev( int *major, int *minor );
 
 __ProtoExt__ int
-  aim_getDirectory( void *aimInfo, const char **aimName );
+  aim_getRootPath( void *aimInfo, const char **fullPath );
+
+__ProtoExt__ int
+  aim_file( void *aimInfo, const char *file, char *aimFile );
+
+__ProtoExt__ /*@null@*/ /*@out@*/ /*@only@*/ FILE *
+  aim_fopen( void *aimInfo, const char *file, const char *mode );
+
+__ProtoExt__ int
+  aim_isFile(void *aimStruc, const char *file);
+
+__ProtoExt__ int
+  aim_rmFile(void *aimStruc, const char *file);
+
+__ProtoExt__ int
+  aim_cpFile(void *aimStruc, const char *src, const char *dst);
+
+__ProtoExt__ int
+  aim_relPath(void *aimStruc, const char *src,
+              /*@null@*/ const char *dst, char *relPath);
+
+__ProtoExt__ int
+  aim_symLink(void *aimStruc, const char *src, /*@null@*/ const char *dst);
+
+__ProtoExt__ int
+  aim_isDir(void *aimStruc, const char *path);
+
+__ProtoExt__ int
+  aim_mkDir(void *aimStruc, const char *path);
+
+__ProtoExt__ int
+  aim_rmDir(void *aimStruc, const char *path);
+
+__ProtoExt__ int
+  aim_system( void *aimInfo, /*@null@*/ const char *rpath,
+              const char *command );
 
 __ProtoExt__ int
   aim_getBodies( void *aimInfo, const char **intent, int *nBody, ego **bodies );
   
 __ProtoExt__ int
   aim_newGeometry( void *aimInfo );
+
+__ProtoExt__ int
+  aim_newAnalysisIn(void *aimStruc, int index);
 
 __ProtoExt__ int
   aim_numInstance( void *aimInfo );
@@ -49,8 +103,9 @@ __ProtoExt__ int
   aim_getUnitSys( void *aimInfo, char **unitSys );
 
 __ProtoExt__ int
-  aim_convert( void *aimInfo, const char  *inUnits, double   inValue,
-                              const char *outUnits, double *outValue );
+  aim_convert( void *aimInfo, const int count,
+               /*@null@*/ const char  *inUnits, double  *inValue,
+               /*@null@*/ const char *outUnits, double *outValue );
 
 __ProtoExt__ int
   aim_unitMultiply( void *aimInfo, const char  *inUnits1, const char *inUnits2,
@@ -69,12 +124,26 @@ __ProtoExt__ int
                  char **outUnits );
 
 __ProtoExt__ int
+  aim_unitOffset( void *aimStruc, const char *inUnit, const double offset,
+                  char **outUnits );
+
+__ProtoExt__ int
   aim_getIndex( void *aimInfo, /*@null@*/ const char *name,
                 enum capssType subtype );
   
 __ProtoExt__ int
   aim_getValue( void *aimInfo, int index, enum capssType subtype,
                 capsValue **value );
+
+__ProtoExt__ int
+  aim_initValue( capsValue *value );
+
+__ProtoExt__ void
+  aim_freeValue(capsValue *value);
+
+__ProtoExt__ int
+  aim_makeDynamicOutput( void *aimInfo, const char *dynObjName,
+                         capsValue *value );
   
 __ProtoExt__ int
   aim_getName( void *aimInfo, int index, enum capssType subtype,
@@ -82,10 +151,6 @@ __ProtoExt__ int
 
 __ProtoExt__ int
   aim_getGeomInType( void *aimInfo, int index );
-
-__ProtoExt__ int
-  aim_link( void *aimInfo, const char *name, enum capssType stype,
-            capsValue *val );
   
 __ProtoExt__ int
   aim_newTess( void *aimInfo, ego tess );
@@ -98,7 +163,7 @@ __ProtoExt__ int
   
 __ProtoExt__ int
   aim_getDataSet( capsDiscr *discr, const char *dname, enum capsdMethod *method,
-                  int *npts, int *rank, double **data );
+                  int *npts, int *rank, double **data, char **units );
 
 __ProtoExt__ int
   aim_getBounds( void *aimInfo, int *nTname, char ***tnames );
@@ -122,8 +187,8 @@ __ProtoExt__ int
                       double **dxyz );
 
 __ProtoExt__ int
-  aim_sensitivity( void *aimInfo, const char *GIname, int irow, int icol,
-                   ego tess, int *npts, double **dxyz );
+  aim_tessSensitivity( void *aimInfo, const char *GIname, int irow, int icol,
+                       ego tess, int *npts, double **dxyz );
 
 __ProtoExt__ int
   aim_isNodeBody( ego body, double *xyz );
@@ -170,8 +235,8 @@ __ProtoExt__ void
              const char *func, const int narg, ...);
 
 __ProtoExt__ void
-  aim_message(enum capseType etype, void *aimInfo, const char *file, const int line, const char *func,
-              const char *format, ...);
+  aim_message(void *aimInfo, enum capseType etype, int index, const char *file,
+              const int line, const char *func, const char *format, ...);
 
 __ProtoExt__ void
   aim_addLine(void *aimInfo, const char *format, ...);
@@ -226,13 +291,21 @@ __ProtoExt__ void
 
 #else // Non-Microsoft compilers
 
+#if defined(__clang__)
+#  if __clang_major__ > 3 || (__clang_major__ == 3  && __clang_minor__ >= 4)
+#    if __has_warning("-Wgnu-zero-variadic-macro-arguments")
+#      pragma clang diagnostic ignored "-Wgnu-zero-variadic-macro-arguments"
+#    endif
+#  endif
+#endif
+
 #  define GET_ARG_COUNT(...) \
-    INTERNAL_GET_ARG_COUNT_PRIVATE(0 __VA_OPT__(,) __VA_ARGS__, 70, 69, 68, 67, 66, 65, 64, \
+    INTERNAL_GET_ARG_COUNT_PRIVATE(0, ## __VA_ARGS__, 70, 69, 68, 67, 66, 65, 64, \
                                   63, 62, 61, 60, 59, 58, 57, 56, 55, 54, 53, 52, \
                                   51, 50, 49, 48, 47, 46, 45, 44, 43, 42, 41, 40, \
                                   39, 38, 37, 36, 35, 34, 33, 32, 31, 30, 29, 28, \
                                   27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16, \
-                                  15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0)
+                                  15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0, 0)
 #  define INTERNAL_GET_ARG_COUNT_PRIVATE(_0, _1_, _2_, _3_, _4_, _5_, \
                                          _6_, _7_, _8_, _9_, _10_, \
                                          _11_, _12_, _13_, _14_, _15_, \
@@ -249,14 +322,6 @@ __ProtoExt__ void
 
 #endif
 
-#if defined(__clang__)
-#  if __clang_major__ > 3 || (__clang_major__ == 3  && __clang_minor__ >= 4)
-#    if __has_warning("-Wgnu-zero-variadic-macro-arguments")
-#      pragma clang diagnostic ignored "-Wgnu-zero-variadic-macro-arguments"
-#    endif
-#  endif
-#endif
-
 #define AIM_STATUS(aimInfo, status, ...) \
  if (status != CAPS_SUCCESS) { \
    aim_status(aimInfo, status, __FILE__, __LINE__, __func__, GET_ARG_COUNT(__VA_ARGS__), ##__VA_ARGS__); \
@@ -264,19 +329,16 @@ __ProtoExt__ void
  }
 
 #define AIM_ANALYSISIN_ERROR(aimInfo, index, format, ...) \
- { \
-   aim_message(CERROR, aimInfo, __FILE__, __LINE__, __func__, format, ##__VA_ARGS__); \
-   aim_setIndexError(aimInfo, index); \
- }
+ { aim_message(aimInfo, CERROR, index, __FILE__, __LINE__, __func__, format, ##__VA_ARGS__); }
 
 #define AIM_ERROR(aimInfo, format, ...) \
- { aim_message(CERROR, aimInfo, __FILE__, __LINE__, __func__, format, ##__VA_ARGS__); }
+ { aim_message(aimInfo, CERROR, 0    , __FILE__, __LINE__, __func__, format, ##__VA_ARGS__); }
 
 #define AIM_WARNING(aimInfo, format, ...) \
- { aim_message(CWARN, aimInfo, __FILE__, __LINE__, __func__, format, ##__VA_ARGS__); }
+ { aim_message(aimInfo, CWARN , 0    , __FILE__, __LINE__, __func__, format, ##__VA_ARGS__); }
 
 #define AIM_INFO(aimInfo, format, ...) \
- { aim_message(CINFO, aimInfo, __FILE__, __LINE__, __func__, format, ##__VA_ARGS__); }
+ { aim_message(aimInfo, CINFO , 0    , __FILE__, __LINE__, __func__, format, ##__VA_ARGS__); }
 
 #define AIM_ADDLINE(aimInfo, format, ...) \
  { aim_addLine(aimInfo, format, ##__VA_ARGS__); }
@@ -310,20 +372,22 @@ extern ssize_t getline(char ** restrict linep, size_t * restrict linecapp,
       aim_status(aimInfo, status, __FILE__, __LINE__, __func__, 1, "AIM_ALLOC: %s != NULL", #ptr); \
       goto cleanup; \
    } \
-   ptr = (type *) EG_alloc((size)*sizeof(type)); \
+   size_t memorysize = size; \
+   ptr = (type *) EG_alloc(memorysize*sizeof(type)); \
    if (ptr == NULL) { \
      status = EGADS_MALLOC; \
-     aim_status(aimInfo, status, __FILE__, __LINE__, __func__, 3, "AIM_ALLOC: %s size %zu type %s", #ptr, size, #type); \
+     aim_status(aimInfo, status, __FILE__, __LINE__, __func__, 3, "AIM_ALLOC: %s size %zu type %s", #ptr, memorysize, #type); \
      goto cleanup; \
    } \
  }
 
 #define AIM_REALL(ptr, size, type, aimInfo, status) \
  { \
-   ptr = (type *) EG_reall(ptr, (size)*sizeof(type)); \
+   size_t memorysize = size;\
+   ptr = (type *) EG_reall(ptr, memorysize*sizeof(type)); \
    if (ptr == NULL) { \
      status = EGADS_MALLOC; \
-     aim_status(aimInfo, status, __FILE__, __LINE__, __func__, 3, "AIM_REALL: %s size %zu type %s", #ptr, size, #type); \
+     aim_status(aimInfo, status, __FILE__, __LINE__, __func__, 3, "AIM_REALL: %s size %zu type %s", #ptr, memorysize, #type); \
      goto cleanup; \
    } \
  }
@@ -358,9 +422,9 @@ extern ssize_t getline(char ** restrict linep, size_t * restrict linecapp,
 /* Prototypes of aim entry points to catch incorrect function signatures */
 
 int
-aimInitialize( int inst, /*@null@*/ const char *unitSys,
+aimInitialize( int inst, /*@null@*/ const char *unitSys, void *aimInfo,
                void **instStore, int *maj, int *min, int *nIn, int *nOut,
-               int *nFields, char ***fnames, int **ranks );
+               int *nFields, char ***fnames, int **franks, int **fInOut );
 
 int
 aimInputs( /*@null@*/ void *instStore, void *aimInfo, int index, char **ainame,
@@ -381,7 +445,7 @@ aimPostAnalysis( void *instStore, void *aimInfo, int restart,
                  /*@null@*/ capsValue *inputs );
 
 void
-aimCleanup( void *instStore );
+aimCleanup( /*@only@*/ void *instStore );
 
 int
 aimCalcOutput( void *instStore, void *aimInfo, int index, capsValue *val );
@@ -395,10 +459,6 @@ aimFreeDiscr( capsDiscr *discr );
 int
 aimLocateElement( capsDiscr *discr, double *params, double *param,
                   int *bIndex, int *eIndex, double *bary );
-
-int
-aimUsesDataSet( void *instStore, void *aimInfo, const char *bname,
-                const char *dname, enum capsdMethod dMethod );
 
 int
 aimTransfer( capsDiscr *discr, const char *fname, int npts, int rank,
@@ -424,10 +484,8 @@ int
 aimBackdoor( void *instStore, void *aimInfo, const char *JSONin,
              char **JSONout );
 
-/*************************************************************************/
-
 #ifdef __cplusplus
 }
 #endif
 
-#endif
+#endif /* AIMUTIL_H */
