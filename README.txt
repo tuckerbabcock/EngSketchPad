@@ -1,47 +1,57 @@
                         ESP: The Engineering Sketch Pad
-                           Rev 1.19beta -- March 2021
+                          Rev 1.21 beta -- March 2022
 
 
-0. Warnings!
-
-    If you have been using previous Betas and writing EGADS files with
-    Effective Topology Bodies, you need to delete the files. The internals
-    of the Effective Topology data has changed.
+0. Preamble
 
     Windows 7 & 8 are no longer supported, only Windows 10 is tested. 
     This also means that older versions of MS Visual Studio are no longer 
-    being tested either. Only MSVS versions 2015 and up are fully supported.
+    being tested either. Only MSVS versions 2017 and up are fully supported.
 
-    This ESP release no longer tests against Python 2.7. It should still
-    work, but we strongly advise going to at least Python 3.7. Also, we
-    now only support OpenCASCADE at Rev 7.3 or higher. And these must be
-    the versions taken from the ESP website (and not from elsewhere). At
-    this point we recommend 7.4.1 and are testing 7.5.1.
+    This ESP release no longer works with Python 2.7. The minimum supported
+    version is now Python 3.8. Also, we now only support OpenCASCADE at Rev 
+    7.4 or higher. And these must be the versions taken from the ESP website
+    (and not from elsewhere). At this point we recommend 7.6.0.
 
-    Apple's OSX Catalina (10.15) is a REAL problem. You cannot download the
-    distributions using a browser. For instructions on how to get ESP see 
-    OSXcatalina.txt on the web site. Big Sur (11.0) has not been tested.
+    The training material is no longer part of this distribution. The last
+    training was given for Rev 1.19 and can be found at the ESP website at
+    http://acdl.mit.edu/ESP/Training, which is in 2 parts. The first is on
+    ESP geometry construction and is found in the ESP subdirectory and the
+    second on analysis is found in the CAPS subdirectory. The PDFs and MP4s
+    of the lectures can be found in the (sub)subdirectory "lectures".
+    Do NOT apply the overlays -- they are specifically for ESP 1.19.
+
+    Apple notes: 
+    (1) You CANNOT download the distributions using a browser. For 
+        instructions on how to get ESP see MACdownloads.txt on the web site.
+    (2) You must have XQuartz at a minimum release of 2.8.1 for some supplied
+        executables to function.
+    (3) Big Sur and Monterey are now fully tested. 
+    (4) Apple M1 computers are natively supported but require Rosetta2 for 
+        the execution of some legacy CAPS apps. Rosetta2 can be installed by 
+        executing the following command: "softwareupdate --install-rosetta".
+    (5) M1 builds must be done in a "native" shell. That is, typing "arch"
+        must return "arm64".
 
 
 1. Prerequisites
 
     The most significant prerequisite for this software is OpenCASCADE.
-    This ESP release only supports the prebuilt versions marked 7.3.1 
-    and 7.4.1, which are available at http://acdl.mit.edu/ESP. Please DO 
+    This ESP release only supports the prebuilt versions marked 7.4.1 
+    and 7.6.0, which are available at http://acdl.mit.edu/ESP. Please DO 
     NOT report any problems with any other versions of OpenCASCADE, much 
     effort has been spent in "hardening" the OpenCASCADE code. It is advised 
-    that all ESP users update to 7.3.1/7.4.1 because of better robustness, 
+    that all ESP users update to 7.4.1/7.6.0 because of better robustness and
     performance. If you are still on a LINUX box with a version of gcc less 
-    than 4.8, you may want to consider an upgrade, so that at least 7.3.1 
-    can be used.
+    than 4.8, you will have to upgrade to a newer OS or version of gcc.
 
     Another prerequisite is a WebGL/Websocket capable Browser. In general 
     these include Mozilla's FireFox, Google Chrome and Apple's Safari. 
     Internet Explorer and legacy versions of Edge are NOT supported because 
     of a problem in their Websockets implementation. The "Chromium" version
-    of Microsoft Edge is now supported.   Also, note that there are some 
-    problems with Intel Graphics and some WebGL Browsers. For LINUX, "zlib"
-    development is required.
+    of Microsoft Edge is now supported. Also, note that there have been some
+    reports of problems with Intel Graphics and some WebGL Browsers. For 
+    LINUX, "zlib" development is required.
 
     CAPS has a dependency on UDUNITS2, and potentially on Python and other 
     applications. See Section 2.3.
@@ -66,7 +76,6 @@
     pyESP             - Python bindings
     SLUGS             - the browser code for Slugs (web Slugs client)
     src               - source files (contains EGADS, CAPS, wvServer & OpenCSM)
-    training          - training slides and examples
     udc               - a collection of User Defined Components
     wvClient          - simple examples of Web viewing used by EGADS
 
@@ -74,26 +83,36 @@
 
 1.2.1 EGADS
 
-    The significant updates made to EGADS from Rev 1.18 are:
+    The significant updates made to EGADS from Rev 1.19 are:
 
-    1) Refactored documentation
-    2) Effective (virtual) Topology support
-    3) The ability to save Effective Bodies (EBody) and Tessellation Objects
-       in Model Objects and write them in EGADS files.
+    1) EGADSlite now supports Effective (virtual) Topology.
+    2) IGES I/O handles length units (like STEP).
+    3) pyEGADS: The tuple returned from egads.getTopology is now consistent 
+       with the arguments to egads.makeTopology. Existing scripts will need 
+       to be updated.
 
-1.2.2 ESP
+1.2.2 OpenCSM & ESP
 
     In addition to many big fixes (see $ESP_ROOT/src/OpenCSMnotes.txt
-    for a full list), the significant upgrades are:
+    for a full list), the significant upgrades are documented in section 
+    8.1 of ESP-help.html; bug fixes are documented in section 8.2 of the 
+    same document.
+
+    The most notable change is a significant improvement in the speed, 
+    especially when recycling.  This was done by careful code 
+    optimization and by setting the _tParams attribute on a Body only
+    when a tessellation is done.
+
+1.2.3 Known issues in v1.21:
 
 
-1.2.3 Known issues in v1.19:
+1.2.4 CAPS
 
-    Sensitivities for BLENDS with C0 are done by finite differences.
-
-1.2.4 pyCAPS
-
-    pyCAPS has been rewritten.
+    1) Improved error handling in CAPS/AIMs (still a work in progress).
+    2) pyCAPS has been rewritten using Python's ctypes module and the
+       interface has been refactored.
+    3) Formalized process for working with units in Python
+    4) Many AIMs can now auto-execute
 
 
 2. Building the Software
@@ -104,7 +123,7 @@
 
     If using Windows, skip to section 2.2.
 
-2.1 Linux and MAC OSX
+2.1 Linux and MAC OS
 
     The configuration is built using the path where the OpenCASCADE runtime 
     distribution can be found.  This path can be located in an OpenCASCADE 
@@ -114,24 +133,23 @@
     the commands:
 
         % cd $ESP_ROOT/config
-        % ./makeEnv **name_of_OpenCASCADE_directory_containing_inc_and_lib**
+        % ./makeEnv **path_of_OpenCASCADE_directory_containing_inc_and_lib**
 
     An optional second argument to makeEnv is required if the distribution 
     of OpenCASCADE has multiple architectures. In this case it is the 
     subdirectory name that contains the libraries for the build of interest 
-    (CASARCH).
+    (CASARCH). Apple M1 CPUs should indicate "DARWINM1" as the architecture.
 
     This procedure produces 2 files at the top level: ESPenv.sh and
-    ESPenv.csh.  These are the environments for both sh (bash) and csh 
-    (tcsh) respectively.  The appropriate file can be "source"d or 
-    included in the user's startup scripts. This must be done before either 
-    building and/or running the software. For example, if using the csh or 
-    tcsh:
+    ESPenv.csh.  These are the environments for both sh (bash/zsh) and csh 
+    (tcsh) respectively.  The appropriate file can be "source"d or included 
+    in the user's startup scripts. This must be done before either building 
+    and/or running the software. For example, if using the csh or tcsh:
 
         % cd $ESP_ROOT
         % source ESPenv.csh
 
-    or if using bash:
+    or if using bash/zsh:
 
         $ cd $ESP_ROOT
         $ source ESPenv.sh
@@ -146,13 +164,13 @@
     The configuration is built from the path where the OpenCASCADE runtime 
     distribution can be found. MS Visual Studio is required and a command 
     shell where the 64bit C/C++ compiler should be opened and the following 
-    executed in that window (note that MS VS 2015, 2017 and 2019 are all 
-    fully supported). The Windows environment is built simply by going to 
-    the config subdirectory and executing the script "winEnv" in a bash 
-    shell (run from the command window):
+    executed in that window (note that MS VS 2017 and 2019 are fully 
+    supported). The Windows environment is built simply by going to the 
+    config subdirectory and executing the script "winEnv" in a bash shell 
+    (run from the command window):
 
         C:\> cd %ESP_ROOT%\config
-        C:\> bash winEnv D:\OpenCASCADE7.3.1
+        C:\> bash winEnv D:\OpenCASCADE7.4.1
 
     winEnv (like makeEnv) has an optional second argument that is only 
     required if the distribution of OpenCASCADE has multiple architectures. 
@@ -174,6 +192,9 @@
         C:\> mkdir bin
         C:\> mkdir lib
 
+    Also note that the winEnv script will find the version of Python if in
+    the PATH and on the same drive.
+
 2.3 CAPS Options
 
     CAPS requires the use of the Open Source Project UDUNITS2 for all unit 
@@ -189,35 +210,11 @@
 2.3.1 Python with CAPS (pyCAPS)
 
     Python may be used with CAPS to provide testing, general scripting and
-    demonstration capabilities. The Python development package is required
-    under Linux. The building of pyCAPS is turned on by 2 environment 
-    variables:
-
-    PYTHONINC  is the include path to find the Python includes for building
-    PYTHONLIB  is a description of the location of the Python libraries and
-               the library to use
-
-    The execution of pyCAPS requires a single environment variable:
+    demonstration capabilities. The execution of pyCAPS requires a single 
+    environment variable:
 
     PYTHONPATH is a Python environment variable that needs to have the path
-               $ESP_ROOT/lib included.
-
-    For MACs and LINUX the configuration procedure inserts these environment 
-    variables with the locations it finds by executing the version of Python 
-    available in the shell performing the build. If makeEnv emits any errors
-    related to Python, the resultant environment file(s) will need to be 
-    updated in order to use Python (the automatic procedure has failed).
-
-    For Windows ESPenv.bat must be edited (unless configured from a command 
-    prompt that has both the MSVS and Python environments), the "rem" 
-    removed and the appropriate information set (if Python exists on the 
-    machine). Also note that the bit size (32 or 64) of Python that gets 
-    used on Windows must be consistent with the build of ESP, which is 
-    64bit.
-
-    For Example on Windows (after downloading and installing Python on C:):
-      set PYTHONINC=C:\Python37\include
-      set PYTHONLIB=C:\Python37\Libs\python37.lib
+               $ESP_ROOT/pyESP included.
 
 2.3.2 3rd Party Environment Variables
 
@@ -230,14 +227,45 @@
 
     AFLR (See Section 4.1):
       AFLR      is the path where the AFLR distribution has been deposited
-      AFLR_ARCH is the architecture flag to use (MacOSX-x86-64, Linux-x86-64,
-                WIN64) -- note that this is set by the config procedure
+      AFLR_ARCH is the architecture flag to use (MacOSX-arm64, MacOSX-x86-64, 
+                Linux-x86-64 or WIN64) -- note that this is set by the config 
+                procedure
 
     AWAVE
       AWAVE is the location to find the FORTRAN source for AWAVE
 
     TETGEN
       TETGEN is the path where the TetGen distribution has been unpacked
+
+    Some of the AIMs have Python embedded. Building these AIMs with
+    Python embedding is enabled by 2 environment variables (the Python 
+    development package is required under Linux):
+    
+    PYTHONINC  is the include path to find the Python includes for building
+    PYTHONLIB  is a description of the location of the Python libraries and
+               the library to use
+
+    The exact same version of Python that was used to compile the embedding
+    must be used when executing Python scripts.
+
+    For MACs and LINUX the configuration procedure inserts these environment 
+    variables with the locations it finds by executing the version of Python 
+    available in the shell performing the build. If makeEnv emits any errors
+    related to Python, the resultant environment file(s) will need to be 
+    updated in order to use Python in the AIMs (the automatic procedure has 
+    failed).
+
+    For Windows ESPenv.bat may need be edited (unless configured from a 
+    command prompt that has both the MSVS and Python environments), the "rem" 
+    removed and the appropriate information set (if Python exists on the 
+    machine). Also note that the bit size (32 or 64) of Python that gets 
+    used on Windows must be consistent with the build of ESP, which is 
+    64bit.
+
+    For Example on Windows (after downloading and installing Python on C:):
+      set PYTHONINC=C:\Python38\include
+      set PYTHONLIB=C:\Python38\Libs\python38.lib
+      set PYTHONPATH=%ESP_ROOT%\lib:%ESP_ROOT%\pyESP
 
 2.3.3 The Cart3D Design Framework
 
@@ -355,20 +383,13 @@
     % python pyCAPSscript.py  (Note: many example Python scripts can be 
                                      found in $ESP_ROOT/CAPSexamples/pyCAPS)
 
-3.5 CAPS Portion of the Training
-
-    The examples and exercises in the $ESP_ROOT/training rely on 3rd party 
-    software. The PreBuilt distributions contain all executables needed to
-    run the CAPS part of the training except for ParaView (which is freely
-    available on the web) and Pointwise. 
-
 
 4.0 Notes on 3rd Party Analyses
 
 4.1 The AFLR suite
 
     Building the AFLR AIMs (AFLR2, AFLR3 and AFLR4) requires AFLR_LIB at
-    10.4.2 or higher. Note that built versions of the so/DLLs can be 
+    10.15.6 or higher. Note that built versions of the so/DLLs can be 
     found in the PreBuilt distributions and should be able to be used with 
     ESP that you build by placing them in the $ESP_ROOT/lib directory.
 
@@ -388,7 +409,7 @@
 
 4.4 Cart3D
 
-    The interfaces to Cart3D will only work with V1.5.5.
+    The interfaces to Cart3D will only work with V1.5.5 and V1.5.7.
 
 4.5 Fun3D
 
@@ -402,26 +423,26 @@
     environment variable points to the Mystran bin directory.
 
     Mystran currently only functions on Windows if CAPS is compiled with 
-    MSVC 2015 or higher. This may be addressed in future releases. 
+    MSVC 2017 or higher. This may be addressed in future releases. 
 
 4.7 NASTRAN
 
     Nastran bdf files are only correct on Windows if CAPS is compiled with 
-    MSVC 2015 or higher. This may be addressed in future releases. 
+    MSVC 2017 or higher. This may be addressed in future releases. 
 
 4.8 Pointwise
 
     The CAPS connection to Pointwise is now handled internally but requires,
-    at a minimum Pointwise V18.2 R2, but V18.3 R1 is recommended. This setup
+    at a minimum Pointwise V18.2 R2, but V18.4 is recommended. This setup
     performs automatic unstructured meshing. Note that the environment variable 
     CAPS_GLYPH is set by the ESP configure script and points to the Glyph 
     scripts that should be used with CAPS and the current release of Pointwise.
 
 4.9 SU2
 
-    Supported versions are: 4.1.1 (Cardinal), 5.0.0 (Raven), 6.1.0, and 6.2.0
-    (Falcon). SU2 version 6.0 will work except for the use of displacements 
-    in a Fluid/Structure Interaction setting.
+    Supported versions are: 4.1.1 (Cardinal), 5.0.0 (Raven), 6.2.0 (Falcon) 
+    and 7.2.0 (Blackbird). SU2 version 6.0 will work except for the use of 
+    displacements in a Fluid/Structure Interaction setting.
     
 4.10 xfoil
 
