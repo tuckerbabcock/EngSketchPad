@@ -10,19 +10,9 @@ ODIR  = .
 TDIR  = .
 !ENDIF
 
-TESTLIST =
-
-!ifdef TETGEN
-TESTLIST = $(TESTLIST) \
-		$(TDIR)\fun3dTetgenTest.exe \
+default: $(TDIR)\fun3dTetgenTest.exe \
 		$(TDIR)\aeroelasticTest.exe \
-!endif
-
-!ifdef AFLR
-TESTLIST = $(TESTLIST) $(TDIR)\fun3dAFLR2Test.exe
-!endif
-
-default: $(TESTLIST)
+		$(TDIR)\fun3dAFLR2Test.exe
 
 $(TDIR)\fun3dAFLR2Test.exe:  $(ODIR)\fun3dAFLR2Test.obj $(LDIR)\caps.lib
 	cl /Fe$(TDIR)/fun3dAFLR2Test.exe $(ODIR)\fun3dAFLR2Test.obj \

@@ -6,7 +6,7 @@ cfgpmtr   series       8412
 despmtr   chord        1.00000
 
 # Switch to toggle sharp trailing edge on airfoil
-despmtr sharpTE 1
+cfgpmtr sharpTE 1
 
 # Global attributes:
 attribute capsIntent $CFD
@@ -65,8 +65,8 @@ select edge 6
 ifthen sharpTE eq 0 
 
     select edge 7
-        attribute capsGroup $Airfoil
-        attribute capsMesh $Airfoil
+        attribute capsGroup $AirfoilTE
+        attribute capsMesh $AirfoilTE
 
 endif
 

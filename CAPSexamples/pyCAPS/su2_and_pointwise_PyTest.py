@@ -1,16 +1,14 @@
-from __future__ import print_function
-
-# Import pyCAPS class file
-from pyCAPS import capsProblem
+# Import pyCAPS module
+import pyCAPS
 
 # Import modules
 import os
 import argparse
 import platform
+import time
 
 # Import SU2 Python interface module
 from parallel_computation import parallel_computation as su2Run
-
 
 # Setup and read command line options. Please note that this isn't required for pyCAPS
 parser = argparse.ArgumentParser(description = 'SU2 and Pointwise Pytest Example',
@@ -18,88 +16,92 @@ parser = argparse.ArgumentParser(description = 'SU2 and Pointwise Pytest Example
                                  formatter_class = argparse.ArgumentDefaultsHelpFormatter)
 
 #Setup the available commandline options
-parser.add_argument('-workDir', default = "./", nargs=1, type=str, help = 'Set working/run directory')
+parser.add_argument('-workDir', default = ["." + os.sep], nargs=1, type=str, help = 'Set working/run directory')
 parser.add_argument('-numberProc', default = 1, nargs=1, type=float, help = 'Number of processors')
-parser.add_argument("-verbosity", default = 1, type=int, choices=[0, 1, 2], help="Set output verbosity")
+parser.add_argument("-outLevel", default = 1, type=int, choices=[0, 1, 2], help="Set output verbosity")
 args = parser.parse_args()
 
 workDir = os.path.join(str(args.workDir[0]), "SU2PointwiseAnalysisTest")
 
 projectName = "pyCAPS_SU2_Pointwise"
 
-# -----------------------------------------------------------------
-# Initialize capsProblem object
-# -----------------------------------------------------------------
-myProblem = capsProblem()
-
 # Load CSM file
 geometryScript = os.path.join("..","csmData","cfdMultiBody.csm")
-myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
+myProblem = pyCAPS.Problem(problemName=workDir,
+                           capsFile=geometryScript,
+                           outLevel=args.outLevel)
 
 # Load pointwise aim
-pointwise = myProblem.loadAIM(aim = "pointwiseAIM",
-                              analysisDir= workDir)
+pointwise = myProblem.analysis.create(aim = "pointwiseAIM",
+                                      name = "pointwise")
 
 # Global Min/Max number of points on edges
-pointwise.setAnalysisVal("Connector_Initial_Dim", 10)
-pointwise.setAnalysisVal("Connector_Min_Dim", 3)
-pointwise.setAnalysisVal("Connector_Max_Dim", 15)
+pointwise.input.Connector_Initial_Dim = 10
+pointwise.input.Connector_Min_Dim     = 3
+pointwise.input.Connector_Max_Dim     = 15
 
 # Run AIM pre-analysis
 pointwise.preAnalysis()
 
 ####### Run pointwise ####################
-currentDir = os.getcwd()
-os.chdir(pointwise.analysisDir)
-
 CAPS_GLYPH = os.environ["CAPS_GLYPH"]
-if platform.system() == "Windows":
-    PW_HOME = os.environ["PW_HOME"]
-    os.system(PW_HOME + "\win64\bin\tclsh.exe " + CAPS_GLYPH + " caps.egads capsUserDefaults.glf")
-else:
-    os.system("pointwise -b " + CAPS_GLYPH + " caps.egads capsUserDefaults.glf")
+for i in range(30):
+    try:
+        if platform.system() == "Windows":
+            PW_HOME = os.environ["PW_HOME"]
+            pointwise.system(PW_HOME + "\\win64\\bin\\tclsh.exe " + CAPS_GLYPH + "\\GeomToMesh.glf caps.egads capsUserDefaults.glf")
+        else:
+            pointwise.system("pointwise -b " + CAPS_GLYPH + "/GeomToMesh.glf caps.egads capsUserDefaults.glf")
+    except pyCAPS.CAPSError:
+        time.sleep(10) # wait and try again
+        continue
 
-os.chdir(currentDir)
+    time.sleep(1) # let the harddrive breathe
+    if os.path.isfile(os.path.join(pointwise.analysisDir,'caps.GeomToMesh.gma')) and \
+      (os.path.isfile(os.path.join(pointwise.analysisDir,'caps.GeomToMesh.ugrid')) or \
+       os.path.isfile(os.path.join(pointwise.analysisDir,'caps.GeomToMesh.lb8.ugrid'))): break
+    time.sleep(10) # wait and try again
 ##########################################
 
 # Run AIM post-analysis
 pointwise.postAnalysis()
 
-# Load SU2 aim - child of AFLR3 AIM
-su2 = myProblem.loadAIM(aim = "su2AIM",
-                        altName = "su2",
-                        analysisDir= workDir, parents = ["pointwiseAIM"])
+# Load SU2 aim
+su2 = myProblem.analysis.create(aim = "su2AIM",
+                                name = "su2")
+
+su2.input["Mesh"].link(myProblem.analysis["pointwise"].output["Volume_Mesh"])
 
 # Set SU2 Version
-su2.setAnalysisVal("SU2_Version","Falcon")
+su2.input.SU2_Version = "Blackbird"
 
 # Set project name
-su2.setAnalysisVal("Proj_Name", projectName)
+su2.input.Proj_Name = projectName
 
 # Set AoA number
-su2.setAnalysisVal("Alpha", 1.0)
+su2.input.Alpha = 1.0
 
 # Set Mach number
-su2.setAnalysisVal("Mach", 0.5901)
+su2.input.Mach = 0.5901
 
 # Set equation type
-su2.setAnalysisVal("Equation_Type","Compressible")
+su2.input.Equation_Type = "Compressible"
 
 # Set the output file formats
-su2.setAnalysisVal("Output_Format", "Tecplot")
+su2.input.Output_Format = "Tecplot"
 
 # Set number of iterations
-su2.setAnalysisVal("Num_Iter",5)
+su2.input.Num_Iter = 5
 
 # Set boundary conditions
 inviscidBC1 = {"bcType" : "Inviscid"}
 inviscidBC2 = {"bcType" : "Inviscid"}
-su2.setAnalysisVal("Boundary_Condition", [("Wing1", inviscidBC1),
-                                          ("Wing2", inviscidBC2),
-                                          ("Farfield","farfield")])
+su2.input.Boundary_Condition = {"Wing1"   : inviscidBC1,
+                                "Wing2"   : inviscidBC2,
+                                "Farfield":"farfield"}
 
 # Specifcy the boundares used to compute forces
-myProblem.analysis["su2"].setAnalysisVal("Surface_Monitor", ["Wing1", "Wing2"])
+myProblem.analysis["su2"].input.Surface_Monitor = ["Wing1", "Wing2"]
 
 # Run AIM pre-analysis
 su2.preAnalysis()
@@ -121,18 +123,15 @@ su2.postAnalysis()
 # Get force results
 print ("Total Force - Pressure + Viscous")
 # Get Lift and Drag coefficients
-print ("Cl = " , su2.getAnalysisOutVal("CLtot"), \
-       "Cd = "  , su2.getAnalysisOutVal("CDtot"))
+print ("Cl = " , su2.output.CLtot,
+       "Cd = " , su2.output.CDtot)
 
 # Get Cmx, Cmy, and Cmz coefficients
-print ("Cmx = " , su2.getAnalysisOutVal("CMXtot"), \
-       "Cmy = "  , su2.getAnalysisOutVal("CMYtot"), \
-       "Cmz = "  , su2.getAnalysisOutVal("CMZtot"))
+print ("Cmx = " , su2.output.CMXtot,
+       "Cmy = " , su2.output.CMYtot,
+       "Cmz = " , su2.output.CMZtot)
 
 # Get Cx, Cy, Cz coefficients
-print ("Cx = " , su2.getAnalysisOutVal("CXtot"), \
-       "Cy = "  , su2.getAnalysisOutVal("CYtot"), \
-       "Cz = "  , su2.getAnalysisOutVal("CZtot"))
-
-# Close CAPS
-myProblem.closeCAPS()
+print ("Cx = " , su2.output.CXtot,
+       "Cy = " , su2.output.CYtot,
+       "Cz = " , su2.output.CZtot)

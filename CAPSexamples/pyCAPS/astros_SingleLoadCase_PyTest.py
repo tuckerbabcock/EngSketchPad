@@ -1,7 +1,5 @@
-from __future__ import print_function
-
-# Import pyCAPS class file
-from pyCAPS import capsProblem
+# Import pyCAPS module
+import pyCAPS
 
 # Import os module
 import os
@@ -23,39 +21,41 @@ parser = argparse.ArgumentParser(description = 'Astros Single Load Case PyTest E
                                  formatter_class = argparse.ArgumentDefaultsHelpFormatter)
 
 #Setup the available commandline options
-parser.add_argument('-workDir', default = "." + os.sep, nargs=1, type=str, help = 'Set working/run directory')
+parser.add_argument('-workDir', default = ["." + os.sep], nargs=1, type=str, help = 'Set working/run directory')
 parser.add_argument('-noAnalysis', action='store_true', default = False, help = "Don't run analysis code")
-parser.add_argument("-verbosity", default = 1, type=int, choices=[0, 1, 2], help="Set output verbosity")
+parser.add_argument("-outLevel", default = 1, type=int, choices=[0, 1, 2], help="Set output verbosity")
 args = parser.parse_args()
-
-# Initialize capsProblem object
-myProblem = capsProblem()
-
-# Load CSM file
-geometryScript = os.path.join("..","csmData","feaSimplePlate.csm")
-myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
 
 # Create project name
 projectName = "AstrosSingleLoadPlate"
 
+# Working directory
+workDir = os.path.join(str(args.workDir[0]), projectName)
+
+# Load CSM file
+geometryScript = os.path.join("..","csmData","feaSimplePlate.csm")
+myProblem = pyCAPS.Problem(problemName=workDir,
+                           capsFile=geometryScript,
+                           outLevel=args.outLevel)
+
+
 # Load Astros aim
-myProblem.loadAIM( aim = "astrosAIM",
-                   altName = "astros",
-                   analysisDir = os.path.join(str(args.workDir[0]), projectName) )
+myProblem.analysis.create( aim = "astrosAIM",
+                           name = "astros" )
 
 # Set project name so a mesh file is generated
-myProblem.analysis["astros"].setAnalysisVal("Proj_Name", projectName)
+myProblem.analysis["astros"].input.Proj_Name = projectName
 
 # Set meshing parameters
-myProblem.analysis["astros"].setAnalysisVal("Edge_Point_Min", 3)
-myProblem.analysis["astros"].setAnalysisVal("Edge_Point_Max", 4)
+myProblem.analysis["astros"].input.Edge_Point_Min = 3
+myProblem.analysis["astros"].input.Edge_Point_Max = 4
 
-myProblem.analysis["astros"].setAnalysisVal("Quad_Mesh", True)
+myProblem.analysis["astros"].input.Quad_Mesh = True
 
-myProblem.analysis["astros"].setAnalysisVal("Tess_Params", [.25,.01,15])
+myProblem.analysis["astros"].input.Tess_Params = [.25,.01,15]
 
 # Set analysis type
-myProblem.analysis["astros"].setAnalysisVal("Analysis_Type", "Static");
+myProblem.analysis["astros"].input.Analysis_Type = "Static"
 
 # Set materials
 madeupium    = {"materialType" : "isotropic",
@@ -63,7 +63,7 @@ madeupium    = {"materialType" : "isotropic",
                 "poissonRatio": 0.33,
                 "density" : 2.8E3}
 
-myProblem.analysis["astros"].setAnalysisVal("Material", ("Madeupium", madeupium))
+myProblem.analysis["astros"].input.Material = {"Madeupium": madeupium}
 
 # Set properties
 shell  = {"propertyType" : "Shell",
@@ -72,13 +72,13 @@ shell  = {"propertyType" : "Shell",
           "bendingInertiaRatio" : 1.0, # Default
           "shearMembraneRatio"  : 5.0/6.0} # Default
 
-myProblem.analysis["astros"].setAnalysisVal("Property", ("plate", shell))
+myProblem.analysis["astros"].input.Property = {"plate": shell}
 
 # Set constraints
 constraint = {"groupName" : "plateEdge",
               "dofConstraint" : 123456}
 
-myProblem.analysis["astros"].setAnalysisVal("Constraint", ("edgeConstraint", constraint))
+myProblem.analysis["astros"].input.Constraint = {"edgeConstraint": constraint}
 
 # Set load
 load = {"groupName" : "plate",
@@ -86,38 +86,10 @@ load = {"groupName" : "plate",
         "pressureForce" : 2.e6}
 
 # Set loads
-myProblem.analysis["astros"].setAnalysisVal("Load", ("appliedPressure", load ))
+myProblem.analysis["astros"].input.Load = {"appliedPressure": load}
 
 # Set analysis
 # No analysis case information needs to be set for a single static load case
 
-# Run AIM pre-analysis
-myProblem.analysis["astros"].preAnalysis()
-
-####### Run Astros ####################
-print ("\n\nRunning Astros......")
-currentDirectory = os.getcwd() # Get our current working directory
-
-os.chdir(myProblem.analysis["astros"].analysisDir) # Move into test directory
-
-# Copy files needed to run astros
-astros_files = ["ASTRO.D01",  # *.DO1 file
-                "ASTRO.IDX"]  # *.IDX file
-for file in astros_files:
-    if not os.path.isfile(file):
-        shutil.copy(ASTROS_ROOT + os.sep + file, file)
-
-if (args.noAnalysis == False):
-    # Run Astros via system call
-    os.system("astros.exe < " + projectName +  ".dat > " + projectName + ".out");
-
-
-os.chdir(currentDirectory) # Move back to working directory
-print ("Done running Astros!")
-######################################
-
-# Run AIM post-analysis
-myProblem.analysis["astros"].postAnalysis()
-
-# Close CAPS
-myProblem.closeCAPS()
+# Run AIM
+myProblem.analysis["astros"].runAnalysis()

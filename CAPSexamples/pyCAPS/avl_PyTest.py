@@ -1,7 +1,3 @@
-## [importPrint]
-from __future__ import print_function
-## [importPrint]
-
 # Import pyCAPS and os module
 ## [import]
 import pyCAPS
@@ -17,15 +13,8 @@ parser = argparse.ArgumentParser(description = 'AVL Pytest Example',
 
 #Setup the available commandline options
 parser.add_argument('-workDir', default = "." + os.sep, nargs=1, type=str, help = 'Set working/run directory')
-parser.add_argument("-verbosity", default = 1, type=int, choices=[0, 1, 2], help="Set output verbosity")
+parser.add_argument("-outLevel", default = 1, type=int, choices=[0, 1, 2], help="Set output verbosity")
 args = parser.parse_args()
-
-# -----------------------------------------------------------------
-# Initialize capsProblem object
-# -----------------------------------------------------------------
-## [initateProblem]
-myProblem = pyCAPS.capsProblem()
-## [initateProblem]
 
 # -----------------------------------------------------------------
 # Load CSM file and Change a design parameter - area in the geometry
@@ -33,26 +22,27 @@ myProblem = pyCAPS.capsProblem()
 # They are: thick, camber, area, aspect, taper, sweep, washout, dihedral
 # -----------------------------------------------------------------
 
-## [geometry]
-geometryScript = os.path.join("..","csmData","avlWing.csm")
-myGeometry = myProblem.loadCAPS(geometryScript, verbosity=args.verbosity)
-
-myGeometry.setGeometryVal("area", 10.0)
-## [geometry]
-
 # Create working directory variable
 ## [localVariable]
 workDir = "AVLAnalysisTest"
 ## [localVariable]
 workDir = os.path.join(str(args.workDir[0]), workDir)
 
+## [geometry]
+geometryScript = os.path.join("..","csmData","avlWing.csm")
+myProblem = pyCAPS.Problem(problemName=workDir,
+                           capsFile=geometryScript,
+                           outLevel=args.outLevel)
+
+myProblem.geometry.despmtr.area = 10.0
+## [geometry]
+
 # -----------------------------------------------------------------
 # Load desired aim
 # -----------------------------------------------------------------
 print ("Loading AIM")
 ## [loadAIM]
-myAnalysis = myProblem.loadAIM(aim = "avlAIM",
-                               analysisDir = workDir)
+myAnalysis = myProblem.analysis.create(aim = "avlAIM", name = "avl")
 ## [loadAIM]
 # -----------------------------------------------------------------
 # Also available are all aimInput values
@@ -60,9 +50,9 @@ myAnalysis = myProblem.loadAIM(aim = "avlAIM",
 # -----------------------------------------------------------------
 
 ## [setInputs]
-myAnalysis.setAnalysisVal("Mach", 0.5)
-myAnalysis.setAnalysisVal("Alpha", 1.0)
-myAnalysis.setAnalysisVal("Beta", 0.0)
+myAnalysis.input.Mach  = 0.5
+myAnalysis.input.Alpha = 1.0
+myAnalysis.input.Beta  = 0.0
 
 wing = {"groupName"    : "Wing", # Notice Wing is the value for the capsGroup attribute
         "numChord"     : 8,
@@ -70,78 +60,46 @@ wing = {"groupName"    : "Wing", # Notice Wing is the value for the capsGroup at
         "numSpanTotal" : 24,
         "spaceSpan"    : 1.0}
 
-myAnalysis.setAnalysisVal("AVL_Surface", [("Wing", wing)])
-
+myAnalysis.input.AVL_Surface = {"Wing": wing}
 ## [setInputs]
-
-# -----------------------------------------------------------------
-# Run AIM pre-analysis
-# -----------------------------------------------------------------
-## [preAnalysis]
-myAnalysis.preAnalysis()
-## [preAnalysis]
-
-# -----------------------------------------------------------------
-# Run AVL
-# -----------------------------------------------------------------
-## [runAVL]
-print ("Running AVL")
-currentDirectory = os.getcwd() # Get our current working directory
-os.chdir(myAnalysis.analysisDir) # Move into test directory
-
-os.system("avl caps < avlInput.txt > avlOutput.txt");
-
-os.chdir(currentDirectory) # Move back to working directory
-## [runAVL]
-
-# -----------------------------------------------------------------
-# Run AIM post-analysis
-# -----------------------------------------------------------------
-## [postAnalysis]
-myAnalysis.postAnalysis()
-## [postAnalysis]
 
 # -----------------------------------------------------------------
 # Get Output Data from AVL
 # These calls access aimOutput data
 # -----------------------------------------------------------------
 ## [output]
-print ("CXtot  ", myAnalysis.getAnalysisOutVal("CXtot"))
-print ("CYtot  ", myAnalysis.getAnalysisOutVal("CYtot"))
-print ("CZtot  ", myAnalysis.getAnalysisOutVal("CZtot"))
-print ("Cltot  ", myAnalysis.getAnalysisOutVal("Cltot"))
-print ("Cmtot  ", myAnalysis.getAnalysisOutVal("Cmtot"))
-print ("Cntot  ", myAnalysis.getAnalysisOutVal("Cntot"))
-print ("Cl'tot ", myAnalysis.getAnalysisOutVal("Cl'tot"))
-print ("Cn'tot ", myAnalysis.getAnalysisOutVal("Cn'tot"))
-print ("CLtot  ", myAnalysis.getAnalysisOutVal("CLtot"))
-print ("CDtot  ", myAnalysis.getAnalysisOutVal("CDtot"))
-print ("CDvis  ", myAnalysis.getAnalysisOutVal("CDvis"))
-print ("CLff   ", myAnalysis.getAnalysisOutVal("CLff"))
-print ("CYff   ", myAnalysis.getAnalysisOutVal("CYff"))
-print ("CDind  ", myAnalysis.getAnalysisOutVal("CDind"))
-print ("CDff   ", myAnalysis.getAnalysisOutVal("CDff"))
-print ("e      ", myAnalysis.getAnalysisOutVal("e"))
+print ("CXtot  ", myAnalysis.output["CXtot" ].value)
+print ("CYtot  ", myAnalysis.output["CYtot" ].value)
+print ("CZtot  ", myAnalysis.output["CZtot" ].value)
+print ("Cltot  ", myAnalysis.output["Cltot" ].value)
+print ("Cmtot  ", myAnalysis.output["Cmtot" ].value)
+print ("Cntot  ", myAnalysis.output["Cntot" ].value)
+print ("Cl'tot ", myAnalysis.output["Cl'tot"].value)
+print ("Cn'tot ", myAnalysis.output["Cn'tot"].value)
+print ("CLtot  ", myAnalysis.output["CLtot" ].value)
+print ("CDtot  ", myAnalysis.output["CDtot" ].value)
+print ("CDvis  ", myAnalysis.output["CDvis" ].value)
+print ("CLff   ", myAnalysis.output["CLff"  ].value)
+print ("CYff   ", myAnalysis.output["CYff"  ].value)
+print ("CDind  ", myAnalysis.output["CDind" ].value)
+print ("CDff   ", myAnalysis.output["CDff"  ].value)
+print ("e      ", myAnalysis.output["e"     ].value)
 ## [output]
 
 ## [strip forces]
-StripForces = myAnalysis.getAnalysisOutVal("StripForces")
+StripForces = myAnalysis.output.StripForces
 print ("StripForces ")
-print (StripForces[0], " cl = ", StripForces[1]["cl"])
-print (StripForces[0], " cd = ", StripForces[1]["cd"])
+for name in StripForces.keys():
+    print (name, " cl = ", StripForces[name]["cl"])
+    print (name, " cd = ", StripForces[name]["cd"])
 ## [strip forces]
 
 ## [sensitivity]
-sensitivity = myAnalysis.getSensitivity("Alpha", "CLtot")
+#sensitivity = myAnalysis.output["CLtot"].deriv("Alpha")
 ## [sensitivity]
 
-Cl = myAnalysis.getAnalysisOutVal("CLtot")
-Cd = myAnalysis.getAnalysisOutVal("CDtot")
-
-# -----------------------------------------------------------------
-# Close CAPS
-# -----------------------------------------------------------------
-myProblem.closeCAPS()
+Cl = myAnalysis.output.CLtot
+Cd = myAnalysis.output.CDtot
 
 # Check assertation
 assert abs(Cl-0.30126) <= 1E-4 and abs(Cd-0.00465) <= 1E-4

@@ -12,37 +12,40 @@ COPY  =
 endif
 
 all: $(COPY) | $(TDIR) 
-	(cd cCAPS; make -f avlTest.make)
-	(cd cCAPS; make -f frictionTest.make)
-	(cd cCAPS; make -f fun3d.make)
-	(cd cCAPS; make -f hsm.make)
-	(cd cCAPS; make -f mystran.make)
-	(cd cCAPS; make -f su2.make)
-	(cd cCAPS; make -f aeroelastic_SU2.make)
-	(cd cCAPS; make -f pointwiseTest.make)
+	(make -C cCAPS -f aeroelastic_SU2.make)
+	(make -C cCAPS -f avlTest.make)
+	(make -C cCAPS -f awaveTest.make)
+	(make -C cCAPS -f frictionTest.make)
+	(make -C cCAPS -f fun3d.make)
+	(make -C cCAPS -f hsm.make)
+	(make -C cCAPS -f interferenceTest.make)
+	(make -C cCAPS -f msesTest.make)
+	(make -C cCAPS -f mystran.make)
+	(make -C cCAPS -f pointwiseTest.make)
 
 clean:
-	(cd cCAPS; make -f avlTest.make clean)
-	(cd cCAPS; make -f frictionTest.make clean)	
-	(cd cCAPS; make -f fun3d.make clean)
-	(cd cCAPS; make -f hsm.make clean)
-	(cd cCAPS; make -f mystran.make clean)
-	(cd cCAPS; make -f su2.make clean)
-	(cd cCAPS; make -f aeroelastic_SU2.make clean)
-	(cd cCAPS; make -f pointwiseTest.make clean)
+	(make -C cCAPS -f aeroelastic_SU2.make clean)
+	(make -C cCAPS -f avlTest.make clean)
+	(make -C cCAPS -f awaveTest.make clean)
+	(make -C cCAPS -f frictionTest.make clean)	
+	(make -C cCAPS -f fun3d.make clean)
+	(make -C cCAPS -f hsm.make clean)
+	(make -C cCAPS -f interferenceTest.make clean)
+	(make -C cCAPS -f msesTest.make clean)
+	(make -C cCAPS -f mystran.make clean)
+	(make -C cCAPS -f pointwiseTest.make clean)
 
 cleanall:
-	(cd cCAPS; make -f avlTest.make cleanall)
-	(cd cCAPS; make -f frictionTest.make cleanall)
-	(cd cCAPS; make -f fun3d.make cleanall)
-	(cd cCAPS; make -f hsm.make cleanall)
-	(cd cCAPS; make -f mystran.make cleanall)
-	(cd cCAPS; make -f su2.make cleanall)
-	(cd cCAPS; make -f aeroelastic_SU2.make cleanall)
-	(cd cCAPS; make -f pointwiseTest.make cleanall)
-
-ifdef ESP_BLOC
-endif
+	(make -C cCAPS -f aeroelastic_SU2.make cleanall)
+	(make -C cCAPS -f avlTest.make cleanall)
+	(make -C cCAPS -f awaveTest.make cleanall)
+	(make -C cCAPS -f frictionTest.make cleanall)
+	(make -C cCAPS -f fun3d.make cleanall)
+	(make -C cCAPS -f hsm.make cleanall)
+	(make -C cCAPS -f interferenceTest.make cleanall)
+	(make -C cCAPS -f msesTest.make cleanall)
+	(make -C cCAPS -f mystran.make cleanall)
+	(make -C cCAPS -f pointwiseTest.make cleanall)
 
 ifdef PYTHONINC
 test: cCAPStest pyCAPStest
@@ -70,11 +73,8 @@ CSMTEST=$(patsubst csmData/%,$(TDIR)/csmData/%,$(CSMFILES))
 REGFILES=$(wildcard regressionTest/*.*)
 REGTEST=$(patsubst regressionTest/%,$(TDIR)/regressionTest/%,$(REGFILES))
 
-DATAFILES=$(wildcard regressionTest/datafiles/*.*)
-DATATEST=$(patsubst regressionTest/datafiles/%,$(TDIR)/regressionTest/datafiles/%,$(DATAFILES))
-
 copy: $(TDIR)/csmData $(TDIR)/cCAPS $(TDIR)/pyCAPS $(TDIR)/regressionTest \
-	$(TDIR)/regressionTest/datafiles $(PYTEST) $(CSMTEST) $(REGTEST) $(DATATEST)
+	$(PYTEST) $(CSMTEST) $(REGTEST)
 
 $(TDIR):
 	mkdir -p $(TDIR)
@@ -86,8 +86,6 @@ $(TDIR)/csmData: | $(TDIR)
 	mkdir -p $(TDIR)/csmData
 $(TDIR)/regressionTest: | $(TDIR)
 	mkdir -p $(TDIR)/regressionTest
-$(TDIR)/regressionTest/datafiles: | $(TDIR)
-	mkdir -p $(TDIR)/regressionTest/datafiles
 	
 $(PYTEST): $(TDIR)/pyCAPS/%.py: pyCAPS/%.py | $(TDIR)/pyCAPS
 	cp -p -f $< $@
@@ -96,9 +94,6 @@ $(CSMTEST): $(TDIR)/csmData/%: csmData/% | $(TDIR)/csmData
 	cp -p -f $< $@
 
 $(REGTEST): $(TDIR)/regressionTest/%: regressionTest/% | $(TDIR)/regressionTest
-	cp -p -f $< $@
-	
-$(DATATEST): $(TDIR)/regressionTest/datafiles/%: regressionTest/datafiles/% | $(TDIR)/regressionTest/datafiles
 	cp -p -f $< $@
 
 endif
