@@ -11,7 +11,7 @@
  */
 
 /*
- * Copyright (C) 2013/2021  John F. Dannenhoffer, III (Syracuse University)
+ * Copyright (C) 2013/2022  John F. Dannenhoffer, III (Syracuse University)
  *
  * This library is free software; you can redistribute it and/or
  *    modify it under the terms of the GNU Lesser General Public
@@ -41,7 +41,7 @@
 
 /* data about possible arguments */
 static char  *argNames[NUMUDPARGS] = {"filename", "debug", "imax",   "jmax",   "cp", };
-static int    argTypes[NUMUDPARGS] = {ATTRSTRING, ATTRINT, -ATTRINT, -ATTRINT, 0,    };
+static int    argTypes[NUMUDPARGS] = {ATTRFILE,   ATTRINT, -ATTRINT, -ATTRINT, 0,    };
 static int    argIdefs[NUMUDPARGS] = {0,          0,       0,        0,        0,    };
 static double argDdefs[NUMUDPARGS] = {0.,         0.,      0.,       0.,       0.,   };
 
@@ -81,12 +81,15 @@ udpExecute(ego  context,                /* (in)  EGADS context */
     int     inode, iedge, jedge, iface, icp, icp0, icp1, *senses=NULL, *esense=NULL;
     int     oclass, mtype, nchild, *senses2, count, newnode, newedge;
     double  xtemp, ytemp, ztemp, cp[48], trange[4], data[18], tol=1.0e-7;
-    FILE    *fp;
+    char    *message=NULL, *filename, *token;
+    FILE    *fp=NULL;
     ego     ecurve, esurf, eloop, eshell, etemp[8], eref, *echild;
     ego     *enodes=NULL, *eedges=NULL, *efaces=NULL;
 
     ROUTINE(udpExecute);
-    
+
+    /* --------------------------------------------------------------- */
+
 #ifdef DEBUG
     printf("udpExecute(context=%llx)\n", (long long)context);
     printf("filename(0) = %s\n", FILENAME(0));
@@ -98,15 +101,18 @@ udpExecute(ego  context,                /* (in)  EGADS context */
     *nMesh  = 0;
     *string = NULL;
 
+    MALLOC(message, char, 100);
+    message[0] = '\0';
+
     /* check arguments */
     if (STRLEN(FILENAME(0)) == 0) {
-        printf(" udpExecute: filename must not be null\n");
+        snprintf(message, 100, "filename must not be null\n");
         status  = EGADS_NODATA;
         goto cleanup;
     }
 
     /* cache copy of arguments for future use */
-    status = cacheUdp();
+    status = cacheUdp(NULL);
     CHECK_STATUS(cacheUdp);
 
 #ifdef DEBUG
@@ -114,27 +120,60 @@ udpExecute(ego  context,                /* (in)  EGADS context */
     printf("debug(%d)    = %d\n", numUdp, DEBUGIT( numUdp));
 #endif
 
-    /* open the file */
-    fp = fopen(FILENAME(0), "r");
-    if (fp == NULL) {
-        status  = EGADS_NOTFOUND;
-        goto cleanup;
+    /* open the file or stream */
+    filename = FILENAME(numUdp);
+
+    if (strncmp(filename, "<<\n", 3) == 0) {
+        token = strtok(filename, " \t\n");
+        if (token == NULL) {
+            snprintf(message, 100, "premature enf-of-file found");
+            status = EGADS_NODATA;
+            goto cleanup;
+        }
+    } else {
+        fp = fopen(filename, "r");
+        if (fp == NULL) {
+            snprintf(message, 100, "could not open file \"%s\"", filename);
+            status = EGADS_NOTFOUND;
+            goto cleanup;
+        }
     }
 
     /* read the size of the bezier */
-    count = fscanf(fp, "%d %d", &imax, &jmax);
-    if (count != 2) {
-        status = EGADS_NODATA;
-        goto cleanup;
+    if (fp != NULL) {
+        count = fscanf(fp, "%d %d", &imax, &jmax);
+        if (count != 2) {
+            snprintf(message, 100, "error reading header");
+            status = EGADS_NODATA;
+            goto cleanup;
+        }
+    } else {
+        token = strtok(NULL, " \t\n");
+        if (token == NULL) {
+            snprintf(message, 100, "error reading imax");
+            status  = EGADS_NODATA;
+            goto cleanup;
+        } else {
+            imax = strtol(token, NULL, 10);
+        }
+
+        token = strtok(NULL, " \t\n");
+        if (token == NULL) {
+            snprintf(message, 100, "error reading jmax");
+            status  = EGADS_NODATA;
+            goto cleanup;
+        } else {
+            jmax = strtol(token, NULL, 10);
+        }
     }
 
     if        (imax < 4 || (imax-1)%3 != 0) {
-        printf(" udpExecute: bad value for imax=%d (from file)\n", imax);
+        snprintf(message, 100, "bad value for imax=%d (from file)\n", imax);
         status  = EGADS_NODATA;
         goto cleanup;
 
     } else if (jmax < 1 || (jmax-1)%3 != 0) {
-        printf(" udpExecute: bad value for jmax=%d (from file)\n", jmax);
+        snprintf(message, 100, "bad value for jmax=%d (from file)\n", jmax);
         status  = EGADS_NODATA;
         goto cleanup;
     }
@@ -148,21 +187,60 @@ udpExecute(ego  context,                /* (in)  EGADS context */
     /* read the data */
     for (j = 0; j < jmax; j++) {
         for (i = 0; i < imax; i++) {
-            count = fscanf(fp, "%lf %lf %lf", &xtemp, &ytemp, &ztemp);
 
-            if (count == 3) {
-                CP(numUdp,3*(i+j*imax)  ) = xtemp;
-                CP(numUdp,3*(i+j*imax)+1) = ytemp;
-                CP(numUdp,3*(i+j*imax)+2) = ztemp;
+            if (fp != NULL) {
+                count = fscanf(fp, "%lf %lf %lf", &xtemp, &ytemp, &ztemp);
+
+                if (count == 3) {
+                    CP(numUdp,3*(i+j*imax)  ) = xtemp;
+                    CP(numUdp,3*(i+j*imax)+1) = ytemp;
+                    CP(numUdp,3*(i+j*imax)+2) = ztemp;
+                } else if (count <= 0) {
+                    i--;
+                } else {
+                    snprintf(message, 100, "error reading point[%d,%d]", i, j);
+                    status  = EGADS_NODATA;
+                    goto cleanup;
+                }
             } else {
-                status  = EGADS_NODATA;
-                goto cleanup;
+                token = strtok(NULL, " \t\n");
+                if (token == NULL) {
+                    snprintf(message, 100, "error reading x[%d,%d]", i, j);
+                    status  = EGADS_NODATA;
+                    goto cleanup;
+                } else {
+                    xtemp = strtod(token, NULL);
+                }
+
+                token = strtok(NULL, " \t\n");
+                if (token == NULL) {
+                    snprintf(message, 100, "error reading x[%d,%d]", i, j);
+                    status  = EGADS_NODATA;
+                    goto cleanup;
+                } else {
+                    ytemp = strtod(token, NULL);
+                }
+
+                token = strtok(NULL, " \t\n");
+                if (token == NULL) {
+                    snprintf(message, 100, "error reading x[%d,%d]", i, j);
+                    status  = EGADS_NODATA;
+                    goto cleanup;
+                } else {
+                    ztemp = strtod(token, NULL);
+                }
             }
+
+            CP(numUdp,3*(i+j*imax)  ) = xtemp;
+            CP(numUdp,3*(i+j*imax)+1) = ytemp;
+            CP(numUdp,3*(i+j*imax)+2) = ztemp;
         }
     }
 
     /* close the file */
-    fclose(fp);
+    if (fp != NULL) {
+        fclose(fp);
+    }
 
     /* create WireBody */
     if (JMAX(numUdp) == 1) {
@@ -691,8 +769,14 @@ cleanup:
     if (efaces != NULL) EG_free(efaces);
     if (senses != NULL) EG_free(senses);
 
-    if (status != EGADS_SUCCESS) {
+    if (strlen(message) > 0) {
+        *string = message;
+        printf("%s\n", message);
+    } else if (status != EGADS_SUCCESS) {
+        FREE(message);
         *string = udpErrorStr(status);
+    } else {
+        FREE(message);
     }
 
     return status;
@@ -716,6 +800,10 @@ udpSensitivity(ego    ebody,            /* (in)  Body pointer */
    /*@unused@*/double vels[])           /* (out) velocities */
 {
     int iudp, judp;
+
+    ROUTINE(udpSensitivity);
+
+    /* --------------------------------------------------------------- */
 
     /* check that ebody matches one of the ebodys */
     iudp = 0;

@@ -10,7 +10,7 @@
  */
 
 /*
- * Copyright (C) 2011/2021  John F. Dannenhoffer, III (Syracuse University)
+ * Copyright (C) 2011/2022  John F. Dannenhoffer, III (Syracuse University)
  *
  * This library is free software; you can redistribute it and/or
  *    modify it under the terms of the GNU Lesser General Public
@@ -47,7 +47,7 @@
 
 /* data about possible arguments */
 static char  *argNames[NUMUDPARGS] = {"filename", "imax",  "jmax",  "kmax",  "xyz",    "x", "y", "z", };
-static int    argTypes[NUMUDPARGS] = {ATTRSTRING, ATTRINT, ATTRINT, ATTRINT, ATTRREAL, 0,   0,   0,   };
+static int    argTypes[NUMUDPARGS] = {ATTRFILE,   ATTRINT, ATTRINT, ATTRINT, ATTRREAL, 0,   0,   0,   };
 static int    argIdefs[NUMUDPARGS] = {0,          1,       1,       1,       0,        0,   0,   0,   };
 static double argDdefs[NUMUDPARGS] = {0.,         0.,      0.,      0.,      0.,       0.,  0.,  0.,  };
 
@@ -188,15 +188,18 @@ udpExecute(ego  context,                /* (in)  EGADS context */
 {
     int     status = EGADS_SUCCESS;
 
-    int     imax, jmax, kmax, i, j, k, ijk, senses[8], periodic, count, outLevel;
+    int     imax, jmax, kmax, i, j, k, ijk, senses[8], periodic, count, outLevel, ieof;
     double  *x2d=NULL, *y2d=NULL, *z2d=NULL;
     double  xtemp, ytemp, ztemp, data[18], tdata[2];
-    FILE    *fp;
+    char    *message=NULL, *filename, *token;
+    FILE    *fp=NULL;
     ego                ecurvs[12], esurfs[6];
     ego     enodes[8], eedges[12], efaces[6], etemp[8], eloop, eshell;
 
     ROUTINE(udpExecute);
-    
+
+    /* --------------------------------------------------------------- */
+
 #ifdef DEBUG
     printf("udpExecute(context=%llx)\n", (long long)context);
     printf("filename(0) = %s\n", FILENAME(0));
@@ -210,14 +213,16 @@ udpExecute(ego  context,                /* (in)  EGADS context */
     *nMesh  = 0;
     *string = NULL;
 
+    MALLOC(message, char, 100);
+    message[0] = '\0';
+
     /* check arguments */
 
     /* get the outLevel from OpenCSM */
-    outLevel = ocsmSetOutLevel(       0);
-    (void)     ocsmSetOutLevel(outLevel);
+    outLevel = ocsmSetOutLevel(-1);
 
     /* cache copy of arguments for future use */
-    status = cacheUdp();
+    status = cacheUdp(NULL);
     CHECK_STATUS(cacheUdp);
 
 #ifdef DEBUG
@@ -230,18 +235,63 @@ udpExecute(ego  context,                /* (in)  EGADS context */
     /* data is in a file */
     if (strlen(FILENAME(0)) > 0) {
 
-        /* open the file */
-        fp = fopen(FILENAME(0), "r");
-        if (fp == NULL) {
-            status = EGADS_NOTFOUND;
+        /* open the file or stream */
+        filename = FILENAME(numUdp);
+
+        if (strncmp(filename, "<<\n", 3) == 0) {
+            token = strtok(filename, " \t\n");
+            if (token == NULL) {
+                ieof = 1;
+            } else {
+                ieof = 0;
+            }
+        } else {
+            fp = fopen(filename, "r");
+            if (fp == NULL) {
+                snprintf(message, 100, "could not open file \"%s\"", filename);
+                status = EGADS_NOTFOUND;
+                goto cleanup;
+            }
+
+            ieof = feof(fp);
+        }
+        if (ieof == 1) {
+            snprintf(message, 100, "premature enf-of-file found");
+            status = EGADS_NODATA;
             goto cleanup;
         }
 
         /* read the size of the configuration */
-        count = fscanf(fp, "%d %d %d", &imax, &jmax, &kmax);
-        if (count != 3) {
-            status = EGADS_NODATA;
-            goto cleanup;
+        if (fp != NULL) {
+            count = fscanf(fp, "%d %d %d", &imax, &jmax, &kmax);
+            if (count != 3) {
+                status = EGADS_NODATA;
+                goto cleanup;
+            }
+        } else {
+            token = strtok(NULL, " \t\n");
+            if (token == NULL) {
+                snprintf(message, 100, "error while reading imax");
+                status = EGADS_NODATA;
+                goto cleanup;
+            }
+            imax = strtol(token, NULL, 10);
+
+            token = strtok(NULL, " \t\n");
+            if (token == NULL) {
+                snprintf(message, 100, "error while reading jmax");
+                status = EGADS_NODATA;
+                goto cleanup;
+            }
+            jmax = strtol(token, NULL, 10);
+
+            token = strtok(NULL, " \t\n");
+            if (token == NULL) {
+                snprintf(message, 100, "error while reading kmax");
+                status = EGADS_NODATA;
+                goto cleanup;
+            }
+            kmax = strtol(token, NULL, 10);
         }
 
         /* save the array size from the file */
@@ -261,23 +311,69 @@ udpExecute(ego  context,                /* (in)  EGADS context */
                         j == 0 || j == jmax-1 ||
                         k == 0 || k == kmax-1   ) {
                         ijk = (i) + imax * ((j) + jmax * (k));
-                        count = fscanf(fp, "%lf %lf %lf", &xtemp, &ytemp, &ztemp);
 
-                        if (count == 3) {
-                            X(numUdp,ijk) = xtemp;
-                            Y(numUdp,ijk) = ytemp;
-                            Z(numUdp,ijk) = ztemp;
+                        if (fp != NULL) {
+                            count = fscanf(fp, "%lf", &xtemp);
+                            if (count != 1) {
+                                snprintf(message, 100, "error while reading x[%d,%d,%d]", i, j, k);
+                                status = EGADS_NODATA;
+                                goto cleanup;
+                            }
                         } else {
-                            status  = EGADS_NODATA;
-                            goto cleanup;
+                            token = strtok(NULL, " \t\n");
+                            if (token == NULL) {
+                                snprintf(message, 100, "error while reading x[%d,%d,%d]", i, j, k);
+                                status = EGADS_NODATA;
+                                goto cleanup;
+                            }
+                            xtemp = strtod(token, NULL);
                         }
+                        X(numUdp,ijk) = xtemp;
+
+                        if (fp != NULL) {
+                            count = fscanf(fp, "%lf", &ytemp);
+                            if (count != 1) {
+                                snprintf(message, 100, "error while reading y[%d,%d,%d]", i, j, k);
+                                status = EGADS_NODATA;
+                                goto cleanup;
+                            }
+                        } else {
+                            token = strtok(NULL, " \t\n");
+                            if (token == NULL) {
+                                snprintf(message, 100, "error while reading y[%d,%d,%d]", i, j, k);
+                                status = EGADS_NODATA;
+                                goto cleanup;
+                            }
+                            ytemp = strtod(token, NULL);
+                        }
+                        Y(numUdp,ijk) = ytemp;
+
+                        if (fp != NULL) {
+                            count = fscanf(fp, "%lf", &ztemp);
+                            if (count != 1) {
+                                snprintf(message, 100, "error while reading z[%d,%d,%d]", i, j, k);
+                                status = EGADS_NODATA;
+                                goto cleanup;
+                            }
+                        } else {
+                            token = strtok(NULL, " \t\n");
+                            if (token == NULL) {
+                                snprintf(message, 100, "error while reading z[%d,%d,%d]", i, j, k);
+                                status = EGADS_NODATA;
+                                goto cleanup;
+                            }
+                            ztemp = strtod(token, NULL);
+                        }
+                        Z(numUdp,ijk) = ztemp;
                     }
                 }
             }
         }
 
         /* close the file */
-        fclose(fp);
+        if (fp != NULL) {
+            fclose(fp);
+        }
 
     /* data came in XYZ */
     } else if (udps[0].arg[4].size > 4) {
@@ -302,32 +398,32 @@ udpExecute(ego  context,                /* (in)  EGADS context */
 
     /* no data specified */
     } else {
-        printf(" udpExecute: filename and xyz both null\n");
+        snprintf(message, 100, "filename and xyz both null\n");
         return EGADS_NODATA;
     }
 
     /* plot the data */
-    #ifdef GRAFIC
-        {
-            int  io_kbd=5, io_scr=6, indgr=1+2+4+16+64;
-            char pltitl[80];
+#ifdef GRAFIC
+    {
+        int  io_kbd=5, io_scr=6, indgr=1+2+4+16+64;
+        char pltitl[80];
 
-            sprintf(pltitl, "~x~y~ imax=%d  jmax=%d  kmax=%d", imax, jmax, kmax);
+        sprintf(pltitl, "~x~y~ imax=%d  jmax=%d  kmax=%d", imax, jmax, kmax);
 
-            grinit_(&io_kbd, &io_scr, "udpFreeform", strlen("udpFreeform"));
-            grctrl_(plotData, &indgr, pltitl,
-                    (void*)(&imax),
-                    (void*)(&jmax),
-                    (void*)(&kmax),
-                    (void*)(udps[numUdp].arg[5].val),
-                    (void*)(udps[numUdp].arg[6].val),
-                    (void*)(udps[numUdp].arg[7].val),
-                    (void*)NULL,
-                    (void*)NULL,
-                    (void*)NULL,
+        grinit_(&io_kbd, &io_scr, "udpFreeform", strlen("udpFreeform"));
+        grctrl_(plotData, &indgr, pltitl,
+                (void*)(&imax),
+                (void*)(&jmax),
+                (void*)(&kmax),
+                (void*)(udps[numUdp].arg[5].val),
+                (void*)(udps[numUdp].arg[6].val),
+                (void*)(udps[numUdp].arg[7].val),
                 (void*)NULL,
-                    strlen(pltitl));
-        }
+                (void*)NULL,
+                (void*)NULL,
+                (void*)NULL,
+                strlen(pltitl));
+    }
     #endif
 
     /* allocate necessary (oversized) 2D arrays */
@@ -573,8 +669,14 @@ cleanup:
     if (y2d != NULL) EG_free(y2d);
     if (x2d != NULL) EG_free(x2d);
 
-    if (status != EGADS_SUCCESS) {
+    if (strlen(message) > 0) {
+        *string = message;
+        printf("%s\n", message);
+    } else if (status != EGADS_SUCCESS) {
+        FREE(message);
         *string = udpErrorStr(status);
+    } else {
+        FREE(message);
     }
 
     return status;
@@ -598,6 +700,10 @@ udpSensitivity(ego    ebody,            /* (in)  Body pointer */
    /*@unused@*/double vels[])           /* (out) velocities */
 {
     int iudp, judp;
+
+    ROUTINE(udpSensitivity);
+
+    /* --------------------------------------------------------------- */
 
     /* check that ebody matches one of the ebodys */
     iudp = 0;
@@ -800,83 +906,80 @@ spline1d(ego    context,
         /* convergence check */
         if (dxyzmax < dxyztol) break;
 
-        /* to enable this plotting:
-           1. set USING_GRAFIC to 1 in Makefile
-           2. change ${LINKC} to ${LINKF} in link line for freeform.so
-           3. add ${GRAFIC} before -legads in link line for freeform.so */
-//$$$        {
-//$$$            int    itype;
-//$$$            int    io_kbd = 5;
-//$$$            int    io_scr = 6;
-//$$$            int    indgr  = 1 + 4 + 8 + 16 + 64;
-//$$$            int    izero  = 0;
-//$$$            int    nline, ilin[2], isym[2], nper[2];
-//$$$            float  tplot[2001], xplot[2001], yplot[2001], zplot[2001];
-//$$$            float  xmin, xmax, ymin, ymax;
-//$$$            double t;
-//$$$            char   pltitl[80];
-//$$$
-//$$$            nline   =  1;
-//$$$            ilin[0] = +1;
-//$$$            isym[0] = -1;
-//$$$            nper[0] = 1001;
-//$$$
-//$$$            for (i = 0; i < 1001; i++) {
-//$$$                t        = (imax-1) * (double)(i) / (double)(1000);
-//$$$                status = EG_evaluate(*ecurv, &t, data);
-//$$$                tplot[i] = (float)(t);
-//$$$                xplot[i] = (float)(data[0]);
-//$$$                yplot[i] = (float)(data[1]);
-//$$$                zplot[i] = (float)(data[2]);
-//$$$            }
-//$$$
-//$$$            nline   =  2;
-//$$$            ilin[1] = -2;
-//$$$            isym[1] = +2;
-//$$$            nper[1] = imax;
-//$$$
-//$$$            for (i = 0; i < imax; i++) {
-//$$$                tplot[1001+i] = (float)(  i );
-//$$$                xplot[1001+i] = (float)(x[i]);
-//$$$                yplot[1001+i] = (float)(y[i]);
-//$$$                zplot[1001+i] = (float)(z[i]);
-//$$$            }
-//$$$
-//$$$            if (iter == 0) {
-//$$$                grinit_(&io_kbd, &io_scr, "udpFreeform", strlen("udpFreeform"));
-//$$$                grinpi_("0 for x, 1 for y, 2 for z", &itype, strlen("0 for x, 1 for y, 2 for z"));
-//$$$            } else {
-//$$$                indgr = 4 + 8 + 16 + 64;
-//$$$                grsset_(&xmin, &xmax, &ymin, &ymax);
-//$$$            }
-//$$$
-//$$$            if        (itype == 0) {
-//$$$                sprintf(pltitl, "~t~x~ iter=%d, dxyzmax=%12.3e", iter, dxyzmax);
-//$$$                grline_(ilin, isym, &nline, pltitl, &indgr, tplot, xplot, nper, strlen(pltitl));
-//$$$            } else if (itype == 1) {
-//$$$                sprintf(pltitl, "~t~y~ iter=%d, dxyzmax=%12.3e", iter, dxyzmax);
-//$$$                grline_(ilin, isym, &nline, pltitl, &indgr, tplot, yplot, nper, strlen(pltitl));
-//$$$            } else {
-//$$$                sprintf(pltitl, "~t~z~ iter=%d, dxyzmax=%12.3e", iter, dxyzmax);
-//$$$                grline_(ilin, isym, &nline, pltitl, &indgr, tplot, zplot, nper, strlen(pltitl));
-//$$$            }
-//$$$
-//$$$            if (iter == 0) {
-//$$$                grvalu_("XMINGR", &izero, &xmin, " ", strlen("XMINGR"), strlen(" "));
-//$$$                grvalu_("XMAXGR", &izero, &xmax, " ", strlen("XMAXGR"), strlen(" "));
-//$$$                grvalu_("YMINGR", &izero, &ymin, " ", strlen("YMINGR"), strlen(" "));
-//$$$                grvalu_("YMAXGR", &izero, &ymax, " ", strlen("YMAXGR"), strlen(" "));
-//$$$            }
-//$$$        }
-//$$$
+#ifdef GRAFIC
+        {
+            int    itype  = 0;
+            int    io_kbd = 5;
+            int    io_scr = 6;
+            int    indgr  = 1 + 4 + 8 + 16 + 64;
+            int    izero  = 0;
+            int    nline, ilin[2], isym[2], nper[2];
+            float  tplot[2001], xplot[2001], yplot[2001], zplot[2001];
+            float  xmin, xmax, ymin, ymax;
+            double t;
+            char   pltitl[80];
+
+            nline   =  1;
+            ilin[0] = +1;
+            isym[0] = -1;
+            nper[0] = 1001;
+
+            for (i = 0; i < 1001; i++) {
+                t        = (imax-1) * (double)(i) / (double)(1000);
+                status = EG_evaluate(*ecurv, &t, data);
+                tplot[i] = (float)(t);
+                xplot[i] = (float)(data[0]);
+                yplot[i] = (float)(data[1]);
+                zplot[i] = (float)(data[2]);
+            }
+
+            nline   =  2;
+            ilin[1] = -2;
+            isym[1] = +2;
+            nper[1] = imax;
+
+            for (i = 0; i < imax; i++) {
+                tplot[1001+i] = (float)(  i );
+                xplot[1001+i] = (float)(x[i]);
+                yplot[1001+i] = (float)(y[i]);
+                zplot[1001+i] = (float)(z[i]);
+            }
+
+            if (iter == 0) {
+                grinit_(&io_kbd, &io_scr, "udpFreeform", strlen("udpFreeform"));
+                grinpi_("0 for x, 1 for y, 2 for z", &itype, strlen("0 for x, 1 for y, 2 for z"));
+            } else {
+                indgr = 4 + 8 + 16 + 64;
+                grsset_(&xmin, &xmax, &ymin, &ymax);
+            }
+
+            if        (itype == 0) {
+                sprintf(pltitl, "~t~x~ iter=%d, dxyzmax=%12.3e", iter, dxyzmax);
+                grline_(ilin, isym, &nline, pltitl, &indgr, tplot, xplot, nper, strlen(pltitl));
+            } else if (itype == 1) {
+                sprintf(pltitl, "~t~y~ iter=%d, dxyzmax=%12.3e", iter, dxyzmax);
+                grline_(ilin, isym, &nline, pltitl, &indgr, tplot, yplot, nper, strlen(pltitl));
+            } else {
+                sprintf(pltitl, "~t~z~ iter=%d, dxyzmax=%12.3e", iter, dxyzmax);
+                grline_(ilin, isym, &nline, pltitl, &indgr, tplot, zplot, nper, strlen(pltitl));
+            }
+
+            if (iter == 0) {
+                grvalu_("XMINGR", &izero, &xmin, " ", strlen("XMINGR"), strlen(" "));
+                grvalu_("XMAXGR", &izero, &xmax, " ", strlen("XMAXGR"), strlen(" "));
+                grvalu_("YMINGR", &izero, &ymin, " ", strlen("YMINGR"), strlen(" "));
+                grvalu_("YMAXGR", &izero, &ymax, " ", strlen("YMAXGR"), strlen(" "));
+            }
+        }
+#endif
+
         /* make the new curve (after deleting old one) */
-//$$$        status = EG_deleteObject(*ecurv);
-//$$$        if (status != EGADS_SUCCESS) goto cleanup;
-//$$$
-//$$$        status = EG_makeGeometry(context, CURVE, BSPLINE, NULL,
-//$$$                                 header, cp, ecurv);
-//$$$        if (status != EGADS_SUCCESS) goto cleanup;
-//$$$    }
+        status = EG_deleteObject(*ecurv);
+        if (status != EGADS_SUCCESS) goto cleanup;
+
+        status = EG_makeGeometry(context, CURVE, BSPLINE, NULL,
+                                 header, cp, ecurv);
+        if (status != EGADS_SUCCESS) goto cleanup;
     }
 
 cleanup:
@@ -918,7 +1021,7 @@ spline2d(ego    context,
     double dxyztol = 1.0e-7, relax = 0.10;
 
     ROUTINE(spline2d);
-    
+
     icp   = imax + 2;
     iknot = imax + 6;
     jcp   = jmax + 2;

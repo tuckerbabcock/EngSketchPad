@@ -1,0 +1,6 @@
+EXPORTS
+timLoad
+timSave
+timQuit
+timMesg
+

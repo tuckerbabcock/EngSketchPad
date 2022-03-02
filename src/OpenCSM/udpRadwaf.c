@@ -10,7 +10,7 @@
  */
 
 /*
- * Copyright (C) 2011/2021  John F. Dannenhoffer, III (Syracuse University)
+ * Copyright (C) 2011/2022  John F. Dannenhoffer, III (Syracuse University)
  *
  * This library is free software; you can redistribute it and/or
  *    modify it under the terms of the GNU Lesser General Public
@@ -79,6 +79,8 @@ udpExecute(ego  context,                /* (in)  EGADS context */
 
     ROUTINE(udpExecute);
 
+    /* --------------------------------------------------------------- */
+
 #ifdef DEBUG
     printf("udpExecute(context=%llx)\n", (long long)context);
     printf("ysize( 0)   = %f\n", YSIZE( 0));
@@ -143,7 +145,7 @@ udpExecute(ego  context,                /* (in)  EGADS context */
     }
 
     /* cache copy of arguments for future use */
-    status = cacheUdp();
+    status = cacheUdp(NULL);
     CHECK_STATUS(cacheUdp);
 
 #ifdef DEBUG
@@ -200,7 +202,7 @@ udpExecute(ego  context,                /* (in)  EGADS context */
             senList[1] = SFORWARD;
 
             status = makeEdge(enodes1[ispoke], enodes0[ispoke], &edgList[2]);
-            senList[2] = SREVERSE;
+            senList[2] = SFORWARD;
             CHECK_STATUS(makeEdge);
 
             edgList[3] = eedges0[ispoke];
@@ -285,6 +287,10 @@ udpSensitivity(ego    ebody,            /* (in)  Body pointer */
 {
     int iudp, judp;
 
+    ROUTINE(udpSensitivity);
+
+    /* --------------------------------------------------------------- */
+
     /* check that ebody matches one of the ebodys */
     iudp = 0;
     for (judp = 1; judp <= numUdp; judp++) {
@@ -317,9 +323,17 @@ makeNode(ego    context,
 {
     int    status = EGADS_SUCCESS;
 
-    status = EG_makeTopology(context, NULL, NODE, 0, xyz, 0, NULL, NULL, enode);
+#ifdef DEBUG
+    printf("makeMode(%10.5f %10.5f %10.5f)\n", xyz[0], xyz[1], xyz[2]);
+#endif
 
+    status = EG_makeTopology(context, NULL, NODE, 0, xyz, 0, NULL, NULL, enode);
+    
 //cleanup:
+#ifdef DEBUG
+    ocsmPrintEgo(*enode);
+#endif
+
     if (status != EGADS_SUCCESS) {
         printf(" udpExecute: problem in makeNode(%f, %f, %f)\n", xyz[0], xyz[1], xyz[2]);
     }
@@ -349,6 +363,10 @@ makeEdge(ego     enode1,
 
     ROUTINE(makeEdge);
     
+#ifdef DEBUG
+    printf("makeEdge(%lx %lx)\n", (long)enode1, (long)enode2);
+#endif
+
     status = EG_getContext(enode1, &context);
     CHECK_STATUS(EG_getContext);
 
@@ -380,6 +398,10 @@ makeEdge(ego     enode1,
     CHECK_STATUS(EG_makeTopology);
 
 cleanup:
+#ifdef DEBUG
+    ocsmPrintEgo(*eedge);
+#endif
+
     if (status != EGADS_SUCCESS) {
         printf(" uedExecute: problem in makeEdge\n");
     }

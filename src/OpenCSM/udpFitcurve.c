@@ -9,7 +9,7 @@
  */
 
 /*
- * Copyright (C) 2013/2021  John F. Dannenhoffer, III (Syracuse University)
+ * Copyright (C) 2013/2022  John F. Dannenhoffer, III (Syracuse University)
  *
  * This library is free software; you can redistribute it and/or
  *    modify it under the terms of the GNU Lesser General Public
@@ -43,7 +43,7 @@
 
 /* data about possible arguments */
 static char  *argNames[NUMUDPARGS] = {"filename", "ncp",   "ordered", "periodic", "split", "xform",  "npnt",   "rms",     "xyz", };
-static int    argTypes[NUMUDPARGS] = {ATTRSTRING, ATTRINT, ATTRINT,   ATTRINT,    ATTRINT, ATTRREAL, -ATTRINT, -ATTRREAL, 0,     };
+static int    argTypes[NUMUDPARGS] = {ATTRFILE,   ATTRINT, ATTRINT,   ATTRINT,    ATTRINT, ATTRREAL, -ATTRINT, -ATTRREAL, 0,     };
 static int    argIdefs[NUMUDPARGS] = {0,          0,       1,         0,          0,       0,        0,        0,         0,     };
 static double argDdefs[NUMUDPARGS] = {0.,         0.,      1.,        0.,         0.,      0.,       0.,       0.,        0.,    };
 
@@ -104,16 +104,19 @@ udpExecute(ego  context,                /* (in)  EGADS context */
     int     status = EGADS_SUCCESS;
 
     int     *senses=NULL;
-    int     ipnt, jpnt, npnt, iedge, nedge, nument, idum, i;
+    int     ipnt, jpnt, mpnt, npnt, iedge, nedge, nument, idum, i, ieof;
     int     bitflag, wraparound, periodic;
     double  xin, yin, zin, rms, range[4], norm[3], range_save;
     double  data[18], uv_out[2], xyz_out[3], *cpdata=NULL;
-    FILE    *fp;
+    char    *message=NULL, *filename, *token;
+    FILE    *fp=NULL;
     ego     ecurve, eloop, eface, enew;
     ego     *enodes=NULL, *eedges=NULL;
 
     ROUTINE(udpExecute);
-    
+
+    /* --------------------------------------------------------------- */
+
 #ifdef DEBUG
     printf("udpExecute(context=%llx)\n", (long long)context);
     printf("filename(0) = %s\n", FILENAME(0));
@@ -132,51 +135,54 @@ udpExecute(ego  context,                /* (in)  EGADS context */
     *nMesh  = 0;
     *string = NULL;
 
+    MALLOC(message, char, 100);
+    message[0] = '\0';
+
     /* check arguments */
     if (strlen(FILENAME(0)) == 0) {
-        printf(" udpExecute: filename must not be null\n");
+        snprintf(message, 100, "filename must not be null\n");
         status  = EGADS_NODATA;
         goto cleanup;
 
     } else if (udps[0].arg[1].size > 1) {
-        printf(" udpExecute: ncp should be a scalar\n");
+        snprintf(message, 100, "ncp should be a scalar\n");
         status = EGADS_RANGERR;
         goto cleanup;
 
     } else if (NCP(0) < 3) {
-        printf(" udpExecute: ncp = %d < 3\n", NCP(0));
+        snprintf(message, 100, "ncp = %d < 3\n", NCP(0));
         status = EGADS_RANGERR;
         goto cleanup;
 
     } else if (udps[0].arg[2].size > 1) {
-        printf(" udpExecute: ordered should be a scalar\n");
+        snprintf(message, 100, "ordered should be a scalar\n");
         status = EGADS_RANGERR;
         goto cleanup;
 
     } else if (ORDERED(0) != 0 && ORDERED(0) != 1) {
-        printf(" udpExecute: ordered should be 0 or 1\n");
+        snprintf(message, 100, "ordered should be 0 or 1\n");
         status = EGADS_RANGERR;
         goto cleanup;
 
     } else if (udps[0].arg[3].size > 1) {
-        printf(" udpExecute: periodic should be a scalar\n");
+        snprintf(message, 100, "periodic should be a scalar\n");
         status = EGADS_RANGERR;
         goto cleanup;
 
     } else if (PERIODIC(0) != 0 && PERIODIC(0) != 1) {
-        printf(" udpExecute: periodic should be 0 or 1\n");
+        snprintf(message, 100, "periodic should be 0 or 1\n");
         status = EGADS_RANGERR;
         goto cleanup;
 
     } else if (udps[0].arg[5].size != 1 && udps[0].arg[5].size != 12) {
-        printf(" udpExecute: xform should have 1 or 12 elements\n");
+        snprintf(message, 100, "xform should have 1 or 12 elements\n");
         status = EGADS_RANGERR;
         goto cleanup;
 
     }
 
     /* cache copy of arguments for future use */
-    status = cacheUdp();
+    status = cacheUdp(NULL);
     CHECK_STATUS(cacheUdp);
 
 #ifdef DEBUG
@@ -191,42 +197,60 @@ udpExecute(ego  context,                /* (in)  EGADS context */
     printf("\n");
 #endif
 
-    /* open the file */
-    fp = fopen(FILENAME(0), "r");
-    if (fp == NULL) {
-        printf(" udpExecute: \"%s\" is not found\n", FILENAME(0));
-        status = EGADS_NOTFOUND;
+    /* open the file or stream */
+    filename = FILENAME(numUdp);
+
+    if (strncmp(filename, "<<\n", 3) == 0) {
+        token = strtok(filename, " \t\n");
+        if (token == NULL) {
+            ieof = 1;
+        } else {
+            ieof = 0;
+        }
+    } else {
+        fp = fopen(filename, "r");
+        if (fp == NULL) {
+            snprintf(message, 100, "could not open file \"%s\"", filename);
+            status = EGADS_NOTFOUND;
+            goto cleanup;
+        }
+
+        ieof = feof(fp);
+    }
+    if (ieof == 1) {
+        snprintf(message, 100, "premature enf-of-file found");
+        status = EGADS_NODATA;
         goto cleanup;
     }
 
-    /* determine the number of points in the file */
-    npnt = 0;
-    while (1) {
-        nument = fscanf(fp, "%lf %lf %lf\n", &xin, &yin, &zin);
-        if (nument != 3) break;
-        npnt++;
-    }
-    for (i = 0; i < udps[0].arg[4].size; i++) {
-        if (SPLIT(0,i) > 0) {
-            npnt++;
-        }
-    }
-#ifdef DEBUG
-    printf("npnt=%d\n", npnt);
-#endif
-
-    /* save the number of points in the file and allocate sufficient space */
-    NPNT(numUdp) = npnt;
-    RALLOC(udps[numUdp].arg[8].val, double, 3*npnt);
+    mpnt = 100;
+    RALLOC(udps[numUdp].arg[8].val, double, 3*mpnt);
 
     /* fill the table of points by re-reading the file */
-    rewind(fp);
-
     npnt  = 0;
     nedge = 1;
     while (1) {
-        nument = fscanf(fp, "%lf %lf %lf\n", &xin, &yin, &zin);
-        if (nument != 3) break;
+        if (npnt >= mpnt-1) {
+            mpnt += 100;
+            RALLOC(udps[numUdp].arg[8].val, double, 3*mpnt);
+        }
+
+        if (fp != NULL) {
+            nument = fscanf(fp, "%lf %lf %lf\n", &xin, &yin, &zin);
+            if (nument != 3) break;
+        } else {
+            token = strtok(NULL, " \t\n");
+            if (token == NULL) break;
+            xin = strtod(token, NULL);
+
+            token = strtok(NULL, " \t\n");
+            if (token == NULL) break;
+            yin = strtod(token, NULL);
+
+            token = strtok(NULL, " \t\n");
+            if (token == NULL) break;
+            zin = strtod(token, NULL);
+        }
 
         if (udps[numUdp].arg[5].size == 1) {
             XYZ(numUdp,3*npnt  ) = xin;
@@ -261,7 +285,9 @@ udpExecute(ego  context,                /* (in)  EGADS context */
     printf("nedge=%d\n", nedge);
 #endif
 
-    fclose(fp);
+    if (fp != NULL) {
+        fclose(fp);
+    }
 
     /* cannot have a wraparound geometry that only has one Edge */
     if (fabs(XYZ(numUdp,3*npnt-3)-XYZ(numUdp,0)) < EPS06 &&
@@ -276,7 +302,7 @@ udpExecute(ego  context,                /* (in)  EGADS context */
 #endif
 
     if (wraparound == 1 && nedge == 1) {
-        printf(" udpExecute: wraparound geometry with only one Edge\n");
+        snprintf(message, 100, "wraparound geometry with only one Edge\n");
         status = EGADS_DEGEN;
         goto cleanup;
     }
@@ -408,7 +434,7 @@ udpExecute(ego  context,                /* (in)  EGADS context */
             if (norm[2] < 0) {
                 status = EG_flipObject(eface, &enew);
                 CHECK_STATUS(EG_flipObject);
-                
+
                 eface = enew;
             }
 
@@ -433,8 +459,14 @@ cleanup:
     if (eedges != NULL) free(eedges);
     if (senses != NULL) free(senses);
 
-    if (status != EGADS_SUCCESS) {
+    if (strlen(message) > 0) {
+        *string = message;
+        printf("%s\n", message);
+    } else if (status != EGADS_SUCCESS) {
+        FREE(message);
         *string = udpErrorStr(status);
+    } else {
+        FREE(message);
     }
 
     return status;
@@ -458,6 +490,10 @@ udpSensitivity(ego    ebody,            /* (in)  Body pointer */
    /*@unused@*/double vels[])           /* (out) velocities */
 {
     int iudp, judp;
+
+    ROUTINE(udpSensitivity);
+
+    /* --------------------------------------------------------------- */
 
     /* check that ebody matches one of the ebodys */
     iudp = 0;
@@ -1589,7 +1625,7 @@ plotCurve(int    npnt,                  /* (in)  number of points in cloud */
     /* build plot arrays for control points */
     status = EG_getGeometry(ecurve, &oclass, &mtype, &eref, &tempIlist, &tempRlist);
     CHECK_STATUS(EG_getGeometry);
-    
+
     if (oclass != CURVE        ) goto cleanup;
     if (mtype  != BSPLINE      ) goto cleanup;
 

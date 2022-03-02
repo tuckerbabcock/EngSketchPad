@@ -10,7 +10,7 @@
  */
 
 /*
- * Copyright (C) 2011/2021  John F. Dannenhoffer, III (Syracuse University)
+ * Copyright (C) 2011/2022  John F. Dannenhoffer, III (Syracuse University)
  *
  * This library is free software; you can redistribute it and/or
  *    modify it under the terms of the GNU Lesser General Public
@@ -81,11 +81,11 @@ udpExecute(ego  context,                /* (in)  EGADS context */
 {
     int     status = EGADS_SUCCESS;
 
-    int      oclass, mtype, *senses;
-    int      nbody, ibody, nface, iface, nedge, iedge, nnode, inode, attrtype, attrlen, nremove;
+    int      oclass, mtype, mtype2, *senses, tessState, npts;
+    int      nbody, ibody, jbody, nface, iface, nedge, iedge, nnode, inode, attrtype, attrlen, nremove;
     CINT     *tempIlist;
     char     *message=NULL;
-    ego      geom, *bodies, *efaces, *eedges, *enodes;
+    ego      geom, *ebodys, *efaces, *eedges, *enodes, topRef, prev, next, myBody;
     TIMELONG dt;
 
 #ifdef WIN32
@@ -95,6 +95,8 @@ udpExecute(ego  context,                /* (in)  EGADS context */
 #endif
 
     ROUTINE(udpExecute);
+
+    /* --------------------------------------------------------------- */
 
 #ifdef DEBUG
     printf("udpExecute(context=%llx)\n", (long long)context);
@@ -125,7 +127,7 @@ udpExecute(ego  context,                /* (in)  EGADS context */
     }
 
     /* cache copy of arguments for future use */
-    status = cacheUdp();
+    status = cacheUdp(NULL);
     CHECK_STATUS(cacheUdp);
 
 #ifdef DEBUG
@@ -179,7 +181,7 @@ udpExecute(ego  context,                /* (in)  EGADS context */
     }
 
     status = EG_getTopology(emodel, &geom, &oclass, &mtype, NULL, &nbody,
-                            &bodies, &senses);
+                            &ebodys, &senses);
     CHECK_STATUS(EG_getTopology);
 
     nremove = 0;
@@ -188,7 +190,7 @@ udpExecute(ego  context,                /* (in)  EGADS context */
     if (BODYNUMBER(0) == -1) {
         for (ibody = 0; ibody < nbody; ibody++) {
             /* remove the _hist and __trace__ attributes (if they exist) */
-            status = EG_getBodyTopos(bodies[ibody], NULL, FACE, &nface, &efaces);
+            status = EG_getBodyTopos(ebodys[ibody], NULL, FACE, &nface, &efaces);
             if (status == EGADS_SUCCESS) {
                 for (iface = 0; iface < nface; iface++) {
                     status = EG_attributeRet(efaces[iface], "_hist",
@@ -216,8 +218,8 @@ udpExecute(ego  context,                /* (in)  EGADS context */
 
                 EG_free(efaces);
             }
-                
-            status = EG_getBodyTopos(bodies[ibody], NULL, EDGE, &nedge, &eedges);
+
+            status = EG_getBodyTopos(ebodys[ibody], NULL, EDGE, &nedge, &eedges);
             if (status == EGADS_SUCCESS) {
                 for (iedge = 0; iedge < nedge; iedge++) {
                     status = EG_attributeRet(eedges[iedge], "_hist",
@@ -245,8 +247,8 @@ udpExecute(ego  context,                /* (in)  EGADS context */
 
                 EG_free(eedges);
             }
-                
-            status = EG_getBodyTopos(bodies[ibody], NULL, NODE, &nnode, &enodes);
+
+            status = EG_getBodyTopos(ebodys[ibody], NULL, NODE, &nnode, &enodes);
             if (status == EGADS_SUCCESS) {
                 for (inode = 0; inode < nnode; inode++) {
                     status = EG_attributeRet(enodes[inode], "_hist",
@@ -276,6 +278,28 @@ udpExecute(ego  context,                /* (in)  EGADS context */
             }
         }
 
+        /* look at the entities in the Model that are not Bodys */
+        for (ibody = nbody; ibody < mtype; ibody++) {
+
+            /* process if a tessellation object */
+            status = EG_getInfo(ebodys[ibody], &oclass, &mtype2, &topRef, &prev, &next);
+            CHECK_STATUS(EG_getTopology);
+
+            if (oclass != TESSELLATION) continue;
+
+            /* find matching Body and put an attribute on it */
+            status = EG_statusTessBody(ebodys[ibody], &myBody, &tessState, &npts);
+            CHECK_STATUS(EG_statusTessBody);
+
+            for (jbody = 0; jbody < nbody; jbody++) {
+                if (myBody == ebodys[jbody]) {
+                    status = EG_attributeAdd(ebodys[jbody], "__hasTess__", ATTRINT, 1,
+                                             &ibody, NULL, NULL);
+                    CHECK_STATUS(EG_attributeAdd);
+                }
+            }
+        }
+
         status = EGADS_SUCCESS;
 
         /* return the whole Model */
@@ -286,7 +310,7 @@ udpExecute(ego  context,                /* (in)  EGADS context */
         if (BODYNUMBER(0) > nbody) {
             status = EGADS_RANGERR;
         } else {
-            status = EG_copyObject(bodies[BODYNUMBER(0)-1], NULL, ebody);
+            status = EG_copyObject(ebodys[BODYNUMBER(0)-1], NULL, ebody);
             CHECK_STATUS(EG_copyObject);
             if (*ebody == NULL) goto cleanup;     // needed for splint
 
@@ -319,7 +343,7 @@ udpExecute(ego  context,                /* (in)  EGADS context */
 
                 EG_free(efaces);
             }
-                
+
             status = EG_getBodyTopos(*ebody, NULL, EDGE, &nedge, &eedges);
             if (status == EGADS_SUCCESS) {
                 for (iedge = 0; iedge < nedge; iedge++) {
@@ -348,7 +372,7 @@ udpExecute(ego  context,                /* (in)  EGADS context */
 
                 EG_free(eedges);
             }
-                
+
             status = EG_getBodyTopos(*ebody, NULL, NODE, &nnode, &enodes);
             if (status == EGADS_SUCCESS) {
                 for (inode = 0; inode < nnode; inode++) {
@@ -437,6 +461,10 @@ udpSensitivity(ego    ebody,            /* (in)  Body pointer */
    /*@unused@*/double vels[])           /* (out) velocities */
 {
     int iudp, judp;
+
+    ROUTINE(udpSensitivity);
+
+    /* --------------------------------------------------------------- */
 
     /* check that ebody matches one of the ebodys */
     iudp = 0;

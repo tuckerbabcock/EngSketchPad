@@ -10,7 +10,7 @@
  */
 
 /*
- * Copyright (C) 2011/2021  John F. Dannenhoffer, III (Syracuse University)
+ * Copyright (C) 2011/2022  John F. Dannenhoffer, III (Syracuse University)
  *
  * This library is free software; you can redistribute it and/or
  *    modify it under the terms of the GNU Lesser General Public
@@ -43,7 +43,7 @@
 
 /* data about possible arguments */
 static char  *argNames[NUMUDPARGS] = {"attrname",  "input",     "output",   "overwrite", "filename", "verbose", "nchange", };
-static int    argTypes[NUMUDPARGS] = {ATTRSTRING,  ATTRSTRING,  ATTRSTRING, ATTRINT,     ATTRSTRING, ATTRINT,   -ATTRREAL  };
+static int    argTypes[NUMUDPARGS] = {ATTRSTRING,  ATTRSTRING,  ATTRSTRING, ATTRINT,     ATTRFILE,   ATTRINT,   -ATTRREAL  };
 static int    argIdefs[NUMUDPARGS] = {0,           0,           0,          0,           0,          0,         0,         };
 static double argDdefs[NUMUDPARGS] = {0.,          0.,          0.,         0.,          0.,         0.,        0.,        };
 
@@ -67,6 +67,11 @@ static int editEgo(const char attrname[], int atype, int alen,
                      ego eobj, int overwrite, int *nchange);
 static int getToken(char *text, int nskip, char sep, int maxtok, char *token);
 static int getBodyTopos(ego ebody, ego esrc, int oclass, int *nlist, ego **elist);
+#ifdef DEBUG
+static int printAttrs(ego ebody);
+#endif
+
+static void *realloc_temp=NULL;              /* used by RALLOC macro */
 
 
 /*
@@ -157,7 +162,7 @@ udpExecute(ego  emodel,                 /* (in)  Model containing Body */
     }
 
     /* cache copy of arguments for future use */
-    status = cacheUdp();
+    status = cacheUdp(NULL);
     CHECK_STATUS(cacheUdp);
 
 #ifdef DEBUG
@@ -678,10 +683,12 @@ processFile(ego    context,             /* (in)  EGADS context */
 {
     int       status = 0;               /* (out) return status */
 
-    int       nnode, nedge, nface, isel, nsel, istype, itoken;
+    int       nnode, nedge, nface, isel, nsel, istype, itoken, istream, ieof;
     int       nlist, ilist, nnbor, inbor, iremove, atype, alen, i;
     int       status1, status2, outLevel;
     int       nbrch, npmtr, npmtr_save, ipmtr, nbody, npat=0, iskip;
+    int       mline, nline, iend;
+    int       *begline=NULL, *endline=NULL;
     int       pat_pmtr[ ]={ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     int       pat_value[]={ 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
     int       pat_end[  ]={-1,-1,-1,-1,-1,-1,-1,-1,-1,-1};
@@ -694,7 +701,7 @@ processFile(ego    context,             /* (in)  EGADS context */
     CCHAR     *tempClist;
     ego       *esel=NULL, *elist=NULL, *enbor=NULL;
     void      *modl;
-    FILE      *fp;
+    FILE      *fp=NULL;
 
     ROUTINE(processFile);
 
@@ -708,8 +715,7 @@ processFile(ego    context,             /* (in)  EGADS context */
     CHECK_STATUS(EG_getUserPointer);
 
     /* get the outLevel from OpenCSM */
-    outLevel = ocsmSetOutLevel(       0);
-    (void)     ocsmSetOutLevel(outLevel);
+    outLevel = ocsmSetOutLevel(-1);
 
     /* remember how many Parameters there were (so that we can delete
        any that were created via a PATBEG statement) */
@@ -740,32 +746,109 @@ processFile(ego    context,             /* (in)  EGADS context */
 
     istype = 0;
 
-    /* open the file */
-    fp = fopen(filename, "r");
-    if (fp == NULL) {
-        snprintf(message, 100, "processFile: could not open file \"%s\"", filename);
-        status = EGADS_NOTFOUND;
-        goto cleanup;
+    /* determine if filename actually contains the name of a file
+       or a copy of a virtual file */
+    if (strncmp(filename, "<<\n", 3) == 0) {
+        istream = 1;
+    } else {
+        istream = 0;
     }
+
+    nline = 0;
+
+    /* if a file, open it now and remember if we are at the end of file */
+    if (istream == 0) {
+        fp = fopen(filename, "rb");
+        if (fp == NULL) {
+            snprintf(message, 100, "processFile: could not open file \"%s\"", filename);
+            status = EGADS_NOTFOUND;
+            goto cleanup;
+        }
+
+        ieof = feof(fp);
+
+    /* otherwise, find extents of each line of the input */
+    } else {
+        mline = 25;
+        nline = 0;
+        iend  = 0;
+
+        MALLOC(begline, int, mline);
+        MALLOC(endline, int, mline);
+
+        for (i = 3; i < STRLEN(filename); i++) {
+            if (iend == 0) {
+                if (filename[i] == ' '  || filename[i] == '\t' ||
+                    filename[i] == '\r' || filename[i] == '\n'   ) continue;
+
+                iend = i;
+
+                if (nline >= mline) {
+                    mline += 25;
+                    RALLOC(begline, int, mline);
+                    RALLOC(endline, int, mline);
+                }
+
+                begline[nline] = i;
+                endline[nline] = i + 1;
+                nline++;
+            } else if (filename[i] == '\r') {
+                filename[i] = ' ';
+            } else if (filename[i] == '\n') {
+                endline[nline-1] = iend + 1;
+                iend = 0;
+            } else if (filename[i] != ' ' && filename[i] != '\t') {
+                iend = i;
+            }
+        }
+
+        /* remember if we are at the end of the stream */
+        if (strlen(filename) <= 2) {
+            ieof = 1;
+        } else {
+            ieof = 0;
+        }
+    }
+
+    /* print copy of input file */
+//$$$    for (i = 0; i < nline; i++) {
+//$$$        memcpy(templine, filename+begline[i], endline[i]-begline[i]);
+//$$$        templine[endline[i]-begline[i]] = '\0';
+//$$$
+//$$$        printf("%5d :%s:\n", i, templine);
+//$$$    }
 
     /* by default, we are not skipping (which we do if we are
        in a PATBEG with no replicates) */
     iskip = 0;
 
     /* read until end of file */
-    while (feof(fp) == 0) {
+    while (ieof == 0) {
 
         /* read the next line */
-        (void) fgets(templine, 255, fp);
+        if (fp != NULL) {
+            (void) fgets(templine, 255, fp);
+            if (feof(fp) > 0) break;
 
-        if (feof(fp)) break;
-
-        if (outLevel >= 1) {
-            if (iskip <= 0) {
-                printf("    processing: %s\n", templine);
-            } else {
-                printf("    skipping:   %s\n", templine);
+            /* overwite the \n and \r at the end */
+            if (STRLEN(templine) > 0 && templine[STRLEN(templine)-1] == '\n') {
+                templine[STRLEN(templine)-1] = '\0';
             }
+            if (STRLEN(templine) > 0 && templine[STRLEN(templine)-1] == '\r') {
+                templine[STRLEN(templine)-1] = '\0';
+            }
+        } else {
+            if (istream-1 >= nline) {
+                break;
+            }
+
+            SPLINT_CHECK_FOR_NULL(begline);
+            SPLINT_CHECK_FOR_NULL(endline);
+
+            memcpy(templine, filename+begline[istream-1], endline[istream-1]-begline[istream-1]);
+            templine[endline[istream-1]-begline[istream-1]] = '\0';
+
+            istream++;
         }
 
         if (VERBOSE(0) > 0) {
@@ -792,15 +875,15 @@ processFile(ego    context,             /* (in)  EGADS context */
             }
         }
 
-        if (templine[0] == '#') continue;
+        if (outLevel >= 1) {
+            if (iskip <= 0) {
+                printf("    processing: %s\n", templine);
+            } else {
+                printf("    skipping:   %s\n", templine);
+            }
+        }
 
-        /* overwite the \n and \r at the end */
-        if (STRLEN(templine) > 0 && templine[STRLEN(templine)-1] == '\n') {
-            templine[STRLEN(templine)-1] = '\0';
-        }
-        if (STRLEN(templine) > 0 && templine[STRLEN(templine)-1] == '\r') {
-            templine[STRLEN(templine)-1] = '\0';
-        }
+        if (templine[0] == '#') continue;
 
         /* get and process the first token (command) */
         itoken = 0;
@@ -818,7 +901,7 @@ processFile(ego    context,             /* (in)  EGADS context */
         } else if (strcmp(token1, "END") == 0 || strcmp(token1, "end") == 0) {
             break;
 
-       /* begin a pattern */
+        /* begin a pattern */
         } else if (strcmp(token1, "PATBEG") == 0 || strcmp(token1, "patbeg") == 0) {
             if (npat < 9) {
                 npat++;
@@ -829,7 +912,11 @@ processFile(ego    context,             /* (in)  EGADS context */
             }
 
             /* remember where we in the file are so that we can get back here */
-            pat_seek[npat] = ftell(fp);
+            if (fp != NULL) {
+                pat_seek[npat] = ftell(fp);
+            } else {
+                pat_seek[npat] = istream;
+            }
 
             if (iskip > 0) {
                 pat_end[npat] = -1;
@@ -893,7 +980,11 @@ processFile(ego    context,             /* (in)  EGADS context */
                 CHECK_STATUS(ocsmSetValuD);
 
                 if (pat_seek[npat] != 0) {
-                    fseek(fp, pat_seek[npat], SEEK_SET);
+                    if (fp != NULL) {
+                        fseek(fp, pat_seek[npat], SEEK_SET);
+                    } else {
+                        istream = pat_seek[npat];
+                    }
                 }
 
                 /* otherwise, reset the pattern variables */
@@ -1063,6 +1154,10 @@ processFile(ego    context,             /* (in)  EGADS context */
                 }
             }
 
+#ifdef DEBUG
+            status = printAttrs(ebody);
+            CHECK_STATUS(printAttrs);
+#endif
             continue;
 
         /* all entries in esel will get specified Attribute name/value pairs added to existing Attributes */
@@ -1191,6 +1286,10 @@ processFile(ego    context,             /* (in)  EGADS context */
                 }
             }
 
+#ifdef DEBUG
+            status = printAttrs(ebody);
+            CHECK_STATUS(printAttrs);
+#endif
             continue;
 
         /* command type is not known */
@@ -1219,20 +1318,20 @@ processFile(ego    context,             /* (in)  EGADS context */
 
         /* start elist with all the Faces */
         if        (strcmp(token2, "ADJ2FACE") == 0 || strcmp(token2, "adj2face") == 0 ||
-                   ((strcmp(token2, "HAS") == 0 || strcmp(token2, "has") == 0 || status == 0) && istype == OCSM_FACE)) {
+                   ((strcmp(token2, "HAS") == 0 || strcmp(token2, "has") == 0 || status <= 0) && istype == OCSM_FACE)) {
             status = EG_getBodyTopos(ebody, NULL, FACE, &nlist, &elist);
             CHECK_STATUS(EG_getBodyTopos);
 
         /* start elist with all the Edges */
         } else if (strcmp(token2, "ADJ2EDGE") == 0 || strcmp(token2, "adj2edge") == 0 ||
-                   ((strcmp(token2, "HAS") == 0 || strcmp(token2, "has") == 0 || status == 0) && istype == OCSM_EDGE)) {
+                   ((strcmp(token2, "HAS") == 0 || strcmp(token2, "has") == 0 || status <= 0) && istype == OCSM_EDGE)) {
             status = EG_getBodyTopos(ebody, NULL, EDGE, &nlist, &elist);
             CHECK_STATUS(EG_getBodyTopos);
 
 
         /* start elist with all the Nodes */
         } else if (strcmp(token2, "ADJ2NODE") == 0 || strcmp(token2, "adj2node") == 0 ||
-                   ((strcmp(token2, "HAS") == 0 || strcmp(token2, "has") == 0 || status == 0) && istype == OCSM_NODE)) {
+                   ((strcmp(token2, "HAS") == 0 || strcmp(token2, "has") == 0 || status <= 0) && istype == OCSM_NODE)) {
             status = EG_getBodyTopos(ebody, NULL, NODE, &nlist, &elist);
             CHECK_STATUS(EG_getBodyTopos);
 
@@ -1542,11 +1641,18 @@ processFile(ego    context,             /* (in)  EGADS context */
             }
         }
 
+#ifdef DEBUG
+        status = printAttrs(ebody);
+        CHECK_STATUS(printAttrs);
+#endif
+
         EG_free(elist);
         elist = NULL;
     }
 
-    fclose(fp);
+    if (fp != NULL) {
+        fclose(fp);
+    }
 
     /* delete any Parameters that were added */
     status = ocsmInfo(modl, &nbrch, &npmtr, &nbody);
@@ -1558,6 +1664,9 @@ processFile(ego    context,             /* (in)  EGADS context */
     }
 
 cleanup:
+    FREE(begline);
+    FREE(endline);
+
     if (newList != NULL) free(newList);
 
     EG_free(elist);
@@ -1808,7 +1917,9 @@ getToken(char   *text,                  /* (in)  full text */
          int    maxtok,                 /* (in)  size of token */
          char   *token)                 /* (out) token */
 {
-    int     lentok, ibeg, i, j, count, iskip;
+    int  lentok = 0;                    /* (out) length of token (or -1 if not found) */
+
+    int     ibeg, i, j, count, iskip;
 
     /* --------------------------------------------------------------- */
 
@@ -1841,7 +1952,10 @@ getToken(char   *text,                  /* (in)  full text */
         }
     }
 
-    if (count < nskip) return 0;
+    if (count < nskip) {
+        lentok = -1;
+        goto cleanup;
+    }
 
     /* skip over nskip tokens */
     i = ibeg;
@@ -1860,12 +1974,15 @@ getToken(char   *text,                  /* (in)  full text */
         token[lentok  ] = '\0';
 
         if (lentok >= maxtok-1) {
-            printf("ERROR:: token exceeds maxtok=%d\n", maxtok);
-            break;
+            lentok = -1;
+            goto cleanup;
         }
     }
 
-    return STRLEN(token);
+    lentok = STRLEN(token);
+
+cleanup:
+    return lentok;
 }
 
 
@@ -2021,3 +2138,164 @@ getBodyTopos(ego    ebody,
 cleanup:
     return status;
 }
+
+#ifdef DEBUG
+
+/*
+ ************************************************************************
+ *                                                                      *
+ *   printAttrs - print attributes on given Body                        *
+ *                                                                      *
+ ************************************************************************
+ */
+
+static int
+printAttrs(ego    ebody)
+{
+
+    int    status = EGADS_SUCCESS;
+
+    int     nnode, inode, nedge, iedge, nface, iface, nattr, iattr, attrtype, attrlen, i;
+    CINT    *tempIlist;
+    CDOUBLE *tempRlist;
+    CCHAR   *tempClist, *attrname;
+    ego     *enodes=NULL, *eedges=NULL, *efaces=NULL;
+
+    ROUTINE(printAttrs);
+
+    /* --------------------------------------------------------------- */
+
+    status = EG_getBodyTopos(ebody, NULL, NODE, &nnode, &enodes);
+    CHECK_STATUS(EG_getBodyTopos);
+
+    for (inode = 0; inode < nnode; inode++) {
+        SPLINT_CHECK_FOR_NULL(enodes);
+
+        printf("Node %4d\n", inode+1);
+
+        status = EG_attributeNum(enodes[inode], &nattr);
+        CHECK_STATUS(EG_attributeNum);
+
+        for (iattr = 0; iattr < nattr; iattr++) {
+            status = EG_attributeGet(enodes[inode], iattr+1, &attrname, &attrtype, &attrlen,
+                                     &tempIlist, &tempRlist, &tempClist);
+            CHECK_STATUS(EG_attributeGet);
+
+            if (attrtype == ATTRINT) {
+                SPLINT_CHECK_FOR_NULL(tempIlist);
+
+                printf("     %20s:", attrname);
+                for (i = 0; i < attrlen; i++) {
+                    printf(" %5d", tempIlist[i]);
+                }
+                printf("\n");
+            } else if (attrtype == ATTRREAL) {
+                SPLINT_CHECK_FOR_NULL(tempRlist);
+
+                printf("     %20s:", attrname);
+                for (i = 0; i < attrlen; i++) {
+                    printf(" %10.5f", tempRlist[i]);
+                }
+                printf("\n");
+            } else if (attrtype == ATTRSTRING) {
+                SPLINT_CHECK_FOR_NULL(tempClist);
+
+                printf("     %20s: %s\n", attrname, tempClist);
+            } else if (attrtype == ATTRCSYS) {
+                printf("     %20s: <csystem>\n", attrname);
+            }
+        }
+    }
+
+    status = EG_getBodyTopos(ebody, NULL, EDGE, &nedge, &eedges);
+    CHECK_STATUS(EG_getBodyTopos);
+
+    for (iedge = 0; iedge < nedge; iedge++) {
+        SPLINT_CHECK_FOR_NULL(eedges);
+
+        printf("Edge %4d\n", iedge+1);
+
+        status = EG_attributeNum(eedges[iedge], &nattr);
+        CHECK_STATUS(EG_attributeNum);
+
+        for (iattr = 0; iattr < nattr; iattr++) {
+            status = EG_attributeGet(eedges[iedge], iattr+1, &attrname, &attrtype, &attrlen,
+                                     &tempIlist, &tempRlist, &tempClist);
+            CHECK_STATUS(EG_attributeGet);
+
+            if (attrtype == ATTRINT) {
+                SPLINT_CHECK_FOR_NULL(tempIlist);
+
+                printf("     %20s:", attrname);
+                for (i = 0; i < attrlen; i++) {
+                    printf(" %5d", tempIlist[i]);
+                }
+                printf("\n");
+            } else if (attrtype == ATTRREAL) {
+                SPLINT_CHECK_FOR_NULL(tempRlist);
+
+                printf("     %20s:", attrname);
+                for (i = 0; i < attrlen; i++) {
+                    printf(" %10.5f", tempRlist[i]);
+                }
+                printf("\n");
+            } else if (attrtype == ATTRSTRING) {
+                SPLINT_CHECK_FOR_NULL(tempClist);
+
+                printf("     %20s: %s\n", attrname, tempClist);
+            } else if (attrtype == ATTRCSYS) {
+                printf("     %20s: <csystem>\n", attrname);
+            }
+        }
+    }
+
+    status = EG_getBodyTopos(ebody, NULL, FACE, &nface, &efaces);
+    CHECK_STATUS(EG_getBodyTopos);
+
+    for (iface = 0; iface < nface; iface++) {
+        SPLINT_CHECK_FOR_NULL(efaces);
+
+        printf("Face %4d\n", iface+1);
+
+        status = EG_attributeNum(efaces[iface], &nattr);
+        CHECK_STATUS(EG_attributeNum);
+
+        for (iattr = 0; iattr < nattr; iattr++) {
+            status = EG_attributeGet(efaces[iface], iattr+1, &attrname, &attrtype, &attrlen,
+                                     &tempIlist, &tempRlist, &tempClist);
+            CHECK_STATUS(EG_attributeGet);
+
+            if (attrtype == ATTRINT) {
+                SPLINT_CHECK_FOR_NULL(tempIlist);
+
+                printf("     %20s:", attrname);
+                for (i = 0; i < attrlen; i++) {
+                    printf(" %5d", tempIlist[i]);
+                }
+                printf("\n");
+            } else if (attrtype == ATTRREAL) {
+                SPLINT_CHECK_FOR_NULL(tempRlist);
+
+                printf("     %20s:", attrname);
+                for (i = 0; i < attrlen; i++) {
+                    printf(" %10.5f", tempRlist[i]);
+                }
+                printf("\n");
+            } else if (attrtype == ATTRSTRING) {
+                SPLINT_CHECK_FOR_NULL(tempClist);
+
+                printf("     %20s: %s\n", attrname, tempClist);
+            } else if (attrtype == ATTRCSYS) {
+                printf("     %20s: <csystem>\n", attrname);
+            }
+        }
+    }
+
+cleanup:
+    if (enodes != NULL) EG_free(enodes);
+    if (eedges != NULL) EG_free(eedges);
+    if (efaces != NULL) EG_free(efaces);
+
+    return status;
+}
+#endif
