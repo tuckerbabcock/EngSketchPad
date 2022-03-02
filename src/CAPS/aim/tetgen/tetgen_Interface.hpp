@@ -2,7 +2,9 @@
 extern "C" {
 #endif
 
-int tetgen_VolumeMesh(meshInputStruct meshInput,
+int tetgen_VolumeMesh(void *aimInfo,
+                      meshInputStruct meshInput,
+                      const char *fileName,
                       meshStruct *surfaceMesh,
                       meshStruct *volumeMesh);
 

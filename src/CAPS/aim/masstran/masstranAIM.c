@@ -3,7 +3,7 @@
  *
  *             masstran AIM
  *
- *      Copyright 2014-2021, Massachusetts Institute of Technology
+ *      Copyright 2014-2022, Massachusetts Institute of Technology
  *      Licensed under The GNU Lesser General Public License, version 2.1
  *      See http://www.opensource.org/licenses/lgpl-2.1.php
  *
@@ -19,6 +19,8 @@
  *
  * An outline of the AIM's inputs, outputs and attributes are provided in \ref aimInputsMasstran and
  * \ref aimOutputsMasstran and \ref attributeMasstran, respectively.
+ *
+ * Details on the use of units are outlined in \ref aimUnitsMasstran.
  *
  * The mass properties are computed via the formulas:
  *
@@ -117,7 +119,7 @@ enum aimInputs
   NUMINPUT = Surface_Mesh        /* Total number of inputs */
 };
 
-#define NUMOUTPUT  14
+#define NUMOUTPUT  15
 
 
 typedef struct {
@@ -135,8 +137,7 @@ typedef struct {
    needed data should be added here & cleaned up in aimCleanup */
 typedef struct {
 
-  // Project name
-  char *projectName; // Project name
+  feaUnitsStruct units; // units system
 
   feaProblemStruct feaProblem;
 
@@ -159,16 +160,19 @@ static int initiate_aimStorage(aimStorage *masstranInstance)
 
     int status;
 
+    // Mesh holders
+    masstranInstance->numMesh = 0;
+    masstranInstance->feaMesh = NULL;
+
+    status = initiate_feaUnitsStruct(&masstranInstance->units);
+    if (status != CAPS_SUCCESS) return status;
+
     // Container for attribute to index map
     status = initiate_mapAttrToIndexStruct(&masstranInstance->attrMap);
     if (status != CAPS_SUCCESS) return status;
 
     status = initiate_feaProblemStruct(&masstranInstance->feaProblem);
     if (status != CAPS_SUCCESS) return status;
-
-    // Mesh holders
-    masstranInstance->numMesh = 0;
-    masstranInstance->feaMesh = NULL;
 
     return CAPS_SUCCESS;
 }
@@ -180,6 +184,10 @@ static int destroy_aimStorage(aimStorage *masstranInstance)
     int status;
     int i;
   
+    status = destroy_feaUnitsStruct(&masstranInstance->units);
+    if (status != CAPS_SUCCESS)
+      printf("Error: Status %d during destroy_feaUnitsStruct!\n", status);
+
     // Attribute to index map
     status = destroy_mapAttrToIndexStruct(&masstranInstance->attrMap);
     if (status != CAPS_SUCCESS)
@@ -194,7 +202,7 @@ static int destroy_aimStorage(aimStorage *masstranInstance)
               printf("Error: Status %d during destroy_meshStruct!\n", status);
         }
 
-        EG_free(masstranInstance->feaMesh);
+        AIM_FREE(masstranInstance->feaMesh);
     }
 
     masstranInstance->feaMesh = NULL;
@@ -234,7 +242,7 @@ static int checkAndCreateMesh(void *aimInfo, aimStorage *masstranInstance)
   capsValue *QuadMesh = NULL;
 
   for (i = 0; i < masstranInstance->numMesh; i++) {
-      remesh = remesh && (masstranInstance->feaMesh[i].bodyTessMap.egadsTess->oclass == EMPTY);
+      remesh = remesh && (masstranInstance->feaMesh[i].egadsTess->oclass == EMPTY);
   }
   if (remesh == (int) false) return CAPS_SUCCESS;
 
@@ -332,11 +340,17 @@ cleanup:
 /****************** exposed AIM entry points -- Analysis **********************/
 
 /* aimInitialize: Initialization Information for the AIM */
-int aimInitialize(int inst, /*@unused@*/ const char *uSys, void **aimStore,
-                  /*@unused@*/ int *maj, /*@unused@*/ int *min, int *nIn,
-                  int *nOut, int *nFields, char ***fnames, int **ranks)
+int aimInitialize(int inst, const char *unitSys, void *aimInfo,
+                  void **instStore, /*@unused@*/ int *major,
+                  /*@unused@*/ int *minor, int *nIn, int *nOut,
+                  int *nFields, char ***fnames, int **franks, int **fInOut)
 {
+  int status = CAPS_SUCCESS;
   aimStorage *masstranInstance;
+  const char *keyWord;
+  char *keyValue = NULL, *tmpUnits = NULL;
+  double real = 1.0;
+  feaUnitsStruct *units=NULL;
 
 #ifdef DEBUG
   printf("\n masstranAIM/aimInitialize  Instance!\n", inst);
@@ -350,23 +364,104 @@ int aimInitialize(int inst, /*@unused@*/ const char *uSys, void **aimStore,
   /* return if "query" only */
   if (inst == -1) return CAPS_SUCCESS;
 
-  /* specify the field variables this analysis can generate */
+  /* specify the field variables this analysis can generate and consume */
   *nFields = 0;
-
-  /* specify the dimension of each field variable */
-  *ranks   = NULL;
-
-  /* specify the name of each field variable */
   *fnames  = NULL;
+  *franks  = NULL;
+  *fInOut  = NULL;
 
   /* create our "local" storage for anything that needs to be persistent */
   masstranInstance = (aimStorage *) EG_alloc((inst+1)*sizeof(aimStorage));
   if (masstranInstance == NULL) return EGADS_MALLOC;
 
   initiate_aimStorage(masstranInstance);
-  *aimStore = masstranInstance;
+  *instStore = masstranInstance;
 
-  return CAPS_SUCCESS;
+  /*! \page aimUnitsMasstran AIM Units
+   *  A unit system may be optionally specified during AIM instance initiation. If
+   *  a unit system is provided, all AIM  input values which have associated units must be specified as well.
+   *  If no unit system is used, AIM inputs, which otherwise would require units, will be assumed
+   *  unit consistent. A unit system may be specified via a JSON string dictionary for example:
+   *  unitSys = "{"mass": "kg", "length": "m"}"
+   */
+  if (unitSys != NULL) {
+    units = &masstranInstance->units;
+
+    // Do we have a json string?
+    if (strncmp( unitSys, "{", 1) != 0) {
+      AIM_ERROR(aimInfo, "unitSys ('%s') is expected to be a JSON string dictionary", unitSys);
+      return CAPS_BADVALUE;
+    }
+
+    /*! \page aimUnitsMasstran
+     *  \section jsonStringMasstran JSON String Dictionary
+     *  The key arguments of the dictionary are described in the following:
+     *
+     *  <ul>
+     *  <li> <B>mass = "None"</B> </li> <br>
+     *  Mass units - e.g. "kilogram", "k", "slug", ...
+     *  </ul>
+     */
+    keyWord = "mass";
+    status  = search_jsonDictionary(unitSys, keyWord, &keyValue);
+    if (status == CAPS_SUCCESS) {
+      units->mass = string_removeQuotation(keyValue);
+      AIM_FREE(keyValue);
+      real = 1;
+      status = aim_convert(aimInfo, 1, units->mass, &real, "kg", &real);
+      AIM_STATUS(aimInfo, status, "unitSys ('%s'): %s is not a %s unit", unitSys, units->mass, keyWord);
+    } else {
+      AIM_ERROR(aimInfo, "unitSys ('%s') does not contain '%s'", unitSys, keyWord);
+      status = CAPS_BADVALUE;
+      goto cleanup;
+    }
+
+    /*! \page aimUnitsMasstran
+     *  <ul>
+     *  <li> <B>length = "None"</B> </li> <br>
+     *  Length units - e.g. "meter", "m", "inch", "in", "mile", ...
+     *  </ul>
+     */
+    keyWord = "length";
+    status  = search_jsonDictionary(unitSys, keyWord, &keyValue);
+    if (status == CAPS_SUCCESS) {
+      units->length = string_removeQuotation(keyValue);
+      AIM_FREE(keyValue);
+      real = 1;
+      status = aim_convert(aimInfo, 1, units->length, &real, "m", &real);
+      AIM_STATUS(aimInfo, status, "unitSys ('%s'): %s is not a %s unit", unitSys, units->length, keyWord);
+    } else {
+      AIM_ERROR(aimInfo, "unitSys ('%s') does not contain '%s'", unitSys, keyWord);
+      status = CAPS_BADVALUE;
+      goto cleanup;
+    }
+
+    // construct density volume unit
+    status = aim_unitRaise(aimInfo, units->length, -3, &tmpUnits); // 1/length^3
+    AIM_STATUS(aimInfo, status);
+    status = aim_unitMultiply(aimInfo, units->mass, tmpUnits, &units->densityVol); // mass/length^3, e.g volume density
+    AIM_STATUS(aimInfo, status);
+    AIM_FREE(tmpUnits);
+
+    // construct density area unit
+    status = aim_unitRaise(aimInfo, units->length, -2, &tmpUnits); // 1/length^2
+    AIM_STATUS(aimInfo, status);
+    status = aim_unitMultiply(aimInfo, units->mass, tmpUnits, &units->densityArea); // mass/length^2, e.g area density
+    AIM_STATUS(aimInfo, status);
+    AIM_FREE(tmpUnits);
+
+    status = aim_unitRaise(aimInfo, units->length, 2, &tmpUnits ); // length^2
+    AIM_STATUS(aimInfo, status);
+    status = aim_unitMultiply(aimInfo, units->mass, tmpUnits, &units->momentOfInertia ); // mass*length^2, e.g moment of inertia
+    AIM_STATUS(aimInfo, status);
+    AIM_FREE(tmpUnits);
+  }
+
+cleanup:
+  AIM_FREE(keyValue);
+  AIM_FREE(tmpUnits);
+
+  return status;
 }
 
 
@@ -392,12 +487,11 @@ int aimInputs(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
     *ainame               = EG_strdup("Tess_Params");
     defval->type          = Double;
     defval->dim           = Vector;
-    defval->length        = 3;
     defval->nrow          = 3;
     defval->ncol          = 1;
     defval->units         = NULL;
     defval->lfixed        = Fixed;
-    defval->vals.reals    = (double *) EG_alloc(defval->length*sizeof(double));
+    defval->vals.reals    = (double *) EG_alloc(defval->nrow*sizeof(double));
     if (defval->vals.reals != NULL) {
       defval->vals.reals[0] = 0.025;
       defval->vals.reals[1] = 0.001;
@@ -436,7 +530,6 @@ int aimInputs(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
     *ainame               = EG_strdup("Edge_Point_Max");
     defval->type          = Integer;
     defval->vals.integer  = 50;
-    defval->length        = 1;
     defval->lfixed        = Fixed;
     defval->nrow          = 1;
     defval->ncol          = 1;
@@ -489,6 +582,7 @@ int aimInputs(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
       defval->lfixed      = Change;
       defval->sfixed      = Change;
       defval->vals.AIMptr = NULL;
+      defval->nullVal     = IsNull;
       AIM_STRDUP(defval->units, "meshStruct", aimInfo, status);
 
       /*! \page aimInputsMasstran
@@ -530,28 +624,62 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
   double xelem[4], yelem[4], zelem[4], elemArea, thick, density, elemWeight;
   double xcent, ycent, zcent;
   double dx1[3], dx2[3], n[3];
+  double Lscale = 1;
 
   int elem[4];
   int *n2a = NULL;
+
+  int numBody = 0;
+  ego *bodies=NULL;
+
+  const char *bodyLunits=NULL;
+  const char *intents=NULL;
 
   feaMeshDataStruct *feaData = NULL;
   int propertyID, materialID;
   //meshElementSubTypeEnum elementSubType;
   feaPropertyStruct *feaProperty;
   feaMaterialStruct *feaMaterial;
+  feaUnitsStruct *units=NULL;
 
   meshStruct     *nasMesh;
   massProperties *massProp;
   aimStorage     *masstranInstance;
-  
+
   masstranInstance = (aimStorage *) instStore;
-  
+
   if (aimInputs == NULL) return CAPS_NULLVALUE;
 
   // Get FEA mesh if we don't already have one
   if (aim_newGeometry(aimInfo) == CAPS_SUCCESS) {
-      status = checkAndCreateMesh(aimInfo, masstranInstance);
-      if (status != CAPS_SUCCESS) goto cleanup;
+    status = checkAndCreateMesh(aimInfo, masstranInstance);
+    if (status != CAPS_SUCCESS) goto cleanup;
+  }
+
+  if (masstranInstance->units.length != NULL) {
+    units = &masstranInstance->units;
+
+    status = aim_getBodies(aimInfo, &intents, &numBody, &bodies);
+    AIM_STATUS(aimInfo, status);
+
+    if (numBody == 0 || bodies == NULL) {
+      AIM_ERROR(aimInfo, "No Bodies!");
+      status = CAPS_SOURCEERR;
+      goto cleanup;
+    }
+
+    // Get length units
+    status = check_CAPSLength(numBody, bodies, &bodyLunits);
+    if (status != CAPS_SUCCESS) {
+      AIM_ERROR(aimInfo, "capsLength is not set in *.csm file!");
+      status = CAPS_BADVALUE;
+      goto cleanup;
+    }
+
+    // conversion of the csm model units into units of Lunits
+    Lscale = 1.0;
+    status = aim_convert(aimInfo, 1, bodyLunits, &Lscale, units->length, &Lscale);
+    AIM_STATUS(aimInfo, status);
   }
 
   // Note: Setting order is important here.
@@ -561,27 +689,31 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
 
   // Set material properties
   if (aimInputs[Material-1].nullVal == NotNull) {
-      status = fea_getMaterial(aimInputs[Material-1].length,
-                               aimInputs[Material-1].vals.tuple,
-                               &masstranInstance->feaProblem.numMaterial,
-                               &masstranInstance->feaProblem.feaMaterial);
-      if (status != CAPS_SUCCESS) return status;
+    status = fea_getMaterial(aimInfo,
+                             aimInputs[Material-1].length,
+                             aimInputs[Material-1].vals.tuple,
+                             &masstranInstance->units,
+                             &masstranInstance->feaProblem.numMaterial,
+                             &masstranInstance->feaProblem.feaMaterial);
+    AIM_STATUS(aimInfo, status);
   } else printf("Material tuple is NULL - No materials set\n");
 
   // Set property properties
   if (aimInputs[Property-1].nullVal == NotNull) {
-      status = fea_getProperty(aimInputs[Property-1].length,
-                               aimInputs[Property-1].vals.tuple,
-                               &masstranInstance->attrMap,
-                               &masstranInstance->feaProblem);
-      if (status != CAPS_SUCCESS) return status;
+    status = fea_getProperty(aimInfo,
+                             aimInputs[Property-1].length,
+                             aimInputs[Property-1].vals.tuple,
+                             &masstranInstance->attrMap,
+                             &masstranInstance->units,
+                             &masstranInstance->feaProblem);
+    AIM_STATUS(aimInfo, status);
 
 
-      // Assign element "subtypes" based on properties set
-      status = fea_assignElementSubType(masstranInstance->feaProblem.numProperty,
-                                        masstranInstance->feaProblem.feaProperty,
-                                        &masstranInstance->feaProblem.feaMesh);
-      if (status != CAPS_SUCCESS) return status;
+    // Assign element "subtypes" based on properties set
+    status = fea_assignElementSubType(masstranInstance->feaProblem.numProperty,
+                                      masstranInstance->feaProblem.feaProperty,
+                                      &masstranInstance->feaProblem.feaMesh);
+    AIM_STATUS(aimInfo, status);
 
   } else printf("Property tuple is NULL - No properties set\n");
 
@@ -590,11 +722,7 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
 
   // maps from nodeID to mesh->node index
   mesh_nodeID2Array(nasMesh, &n2a);
-  if (n2a == NULL) {
-    printf(" Error: n2a = NULL!\n");
-    status = CAPS_NULLOBJ;
-    goto cleanup;
-  }
+  AIM_NOTNULL(n2a, aimInfo, status);
 
   for (i = 0; i < nasMesh->numElement; i++) {
 
@@ -634,21 +762,21 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
 
         elem[0] = n2a[nasMesh->element[i].connectivity[0]];
 
-        xcent = nasMesh->node[elem[0]].xyz[0] + feaProperty->massOffset[0];
-        ycent = nasMesh->node[elem[0]].xyz[1] + feaProperty->massOffset[1];
-        zcent = nasMesh->node[elem[0]].xyz[2] + feaProperty->massOffset[2];
+        xcent = nasMesh->node[elem[0]].xyz[0] * Lscale + feaProperty->massOffset[0];
+        ycent = nasMesh->node[elem[0]].xyz[1] * Lscale + feaProperty->massOffset[1];
+        zcent = nasMesh->node[elem[0]].xyz[2] * Lscale + feaProperty->massOffset[2];
 
         elemArea = 0;
 
         elemWeight = feaProperty->mass;
 
         // add the inertia at the point
-        Ixx    += feaProperty->massInertia[I11];
-        Iyy    += feaProperty->massInertia[I22];
-        Izz    += feaProperty->massInertia[I33];
-        Ixy    -= feaProperty->massInertia[I21];
-        Ixz    -= feaProperty->massInertia[I31];
-        Iyz    -= feaProperty->massInertia[I32];
+        Ixx  += feaProperty->massInertia[I11];
+        Iyy  += feaProperty->massInertia[I22];
+        Izz  += feaProperty->massInertia[I33];
+        Ixy  -= feaProperty->massInertia[I21];
+        Ixz  -= feaProperty->massInertia[I31];
+        Iyz  -= feaProperty->massInertia[I32];
       } else {
         continue; // nothing to do if the node is not a concentrated mass
       }
@@ -659,15 +787,15 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
       elem[1] = n2a[nasMesh->element[i].connectivity[1]];
       elem[2] = n2a[nasMesh->element[i].connectivity[2]];
 
-      xelem[0] = nasMesh->node[elem[0]].xyz[0];
-      yelem[0] = nasMesh->node[elem[0]].xyz[1];
-      zelem[0] = nasMesh->node[elem[0]].xyz[2];
-      xelem[1] = nasMesh->node[elem[1]].xyz[0];
-      yelem[1] = nasMesh->node[elem[1]].xyz[1];
-      zelem[1] = nasMesh->node[elem[1]].xyz[2];
-      xelem[2] = nasMesh->node[elem[2]].xyz[0];
-      yelem[2] = nasMesh->node[elem[2]].xyz[1];
-      zelem[2] = nasMesh->node[elem[2]].xyz[2];
+      xelem[0] = nasMesh->node[elem[0]].xyz[0] * Lscale;
+      yelem[0] = nasMesh->node[elem[0]].xyz[1] * Lscale;
+      zelem[0] = nasMesh->node[elem[0]].xyz[2] * Lscale;
+      xelem[1] = nasMesh->node[elem[1]].xyz[0] * Lscale;
+      yelem[1] = nasMesh->node[elem[1]].xyz[1] * Lscale;
+      zelem[1] = nasMesh->node[elem[1]].xyz[2] * Lscale;
+      xelem[2] = nasMesh->node[elem[2]].xyz[0] * Lscale;
+      yelem[2] = nasMesh->node[elem[2]].xyz[1] * Lscale;
+      zelem[2] = nasMesh->node[elem[2]].xyz[2] * Lscale;
 
       xcent  = (xelem[0] + xelem[1] + xelem[2]) / 3;
       ycent  = (yelem[0] + yelem[1] + yelem[2]) / 3;
@@ -691,18 +819,18 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
       elem[2] = n2a[nasMesh->element[i].connectivity[2]];
       elem[3] = n2a[nasMesh->element[i].connectivity[3]];
 
-      xelem[0] = nasMesh->node[elem[0]].xyz[0];
-      yelem[0] = nasMesh->node[elem[0]].xyz[1];
-      zelem[0] = nasMesh->node[elem[0]].xyz[2];
-      xelem[1] = nasMesh->node[elem[1]].xyz[0];
-      yelem[1] = nasMesh->node[elem[1]].xyz[1];
-      zelem[1] = nasMesh->node[elem[1]].xyz[2];
-      xelem[2] = nasMesh->node[elem[2]].xyz[0];
-      yelem[2] = nasMesh->node[elem[2]].xyz[1];
-      zelem[2] = nasMesh->node[elem[2]].xyz[2];
-      xelem[3] = nasMesh->node[elem[3]].xyz[0];
-      yelem[3] = nasMesh->node[elem[3]].xyz[1];
-      zelem[3] = nasMesh->node[elem[3]].xyz[2];
+      xelem[0] = nasMesh->node[elem[0]].xyz[0] * Lscale;
+      yelem[0] = nasMesh->node[elem[0]].xyz[1] * Lscale;
+      zelem[0] = nasMesh->node[elem[0]].xyz[2] * Lscale;
+      xelem[1] = nasMesh->node[elem[1]].xyz[0] * Lscale;
+      yelem[1] = nasMesh->node[elem[1]].xyz[1] * Lscale;
+      zelem[1] = nasMesh->node[elem[1]].xyz[2] * Lscale;
+      xelem[2] = nasMesh->node[elem[2]].xyz[0] * Lscale;
+      yelem[2] = nasMesh->node[elem[2]].xyz[1] * Lscale;
+      zelem[2] = nasMesh->node[elem[2]].xyz[2] * Lscale;
+      xelem[3] = nasMesh->node[elem[3]].xyz[0] * Lscale;
+      yelem[3] = nasMesh->node[elem[3]].xyz[1] * Lscale;
+      zelem[3] = nasMesh->node[elem[3]].xyz[2] * Lscale;
 
       xcent  = (xelem[0] + xelem[1] + xelem[2] + xelem[3]) / 4;
       ycent  = (yelem[0] + yelem[1] + yelem[2] + yelem[3]) / 4;
@@ -720,8 +848,9 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
       elemArea  = sqrt(DOT(n, n))/2.0;      /* 1/2 for area */
 
     } else {
-      printf("Error: Unknown element type %d\n", nasMesh->element[i].elementType);
-      return CAPS_BADVALUE;
+      AIM_ERROR(aimInfo, "Unknown element type %d", nasMesh->element[i].elementType);
+      status = CAPS_BADVALUE;
+      goto cleanup;
     }
 
     if (feaData == NULL || feaData->elementSubType != ConcentratedMassElement) {
@@ -741,6 +870,12 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
 
       feaMaterial = masstranInstance->feaProblem.feaMaterial + j;
 
+      if (feaMaterial->density > 0 && feaProperty->massPerArea) {
+        AIM_ERROR(aimInfo, "Cannot specify both Material 'density' and Property 'massPerArea");
+        status = CAPS_BADVALUE;
+        goto cleanup;
+      }
+
       density = 1;
       if (feaMaterial->density > 0)
         density = feaMaterial->density;
@@ -750,7 +885,6 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
         thick   = feaProperty->membraneThickness;
       }
 
-      //TODO: Should massPerArea override density?
       if (feaProperty->massPerArea > 0) {
         density = feaProperty->massPerArea;
         thick = 1;
@@ -816,10 +950,7 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
   status = CAPS_SUCCESS;
 
 cleanup:
-  EG_free(n2a);
-
-  if (status != CAPS_SUCCESS)
-      printf("Error: Status %d during masstranAIM preAnalysis\n", status);
+  AIM_FREE(n2a);
 
   return status;
 }
@@ -851,6 +982,14 @@ int aimOutputs(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
 #ifdef DEBUG
   printf(" masstranAIM/aimOutputs  index  = %d!\n", index);
 #endif
+  feaUnitsStruct *units=NULL;
+  aimStorage     *masstranInstance;
+  char *tmpUnits = NULL;
+
+  masstranInstance = (aimStorage *) instStore;
+  AIM_NOTNULL(masstranInstance, aimInfo, status);
+
+  units = &masstranInstance->units;
 
   /*! \page aimOutputsMasstran AIM Outputs
    * The following list outlines the Masstran outputs available through the AIM interface.
@@ -891,93 +1030,110 @@ int aimOutputs(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
 
   if (index == 1) {
       *aoname = EG_strdup("Area");
-      form->length = 1;
-      form->dim    = Scalar;
+      form->dim  = Scalar;
+
+      if (units->length != NULL) {
+        status = aim_unitRaise(aimInfo, units->length, 2, &form->units); // length^2
+        AIM_STATUS(aimInfo, status);
+      }
 
   } else if (index == 2) {
       *aoname = EG_strdup("Mass");
-      form->length = 1;
-      form->dim    = Scalar;
+      form->dim  = Scalar;
+
+      if (units->mass != NULL) {
+        AIM_STRDUP(form->units, units->mass, aimInfo, status);
+      }
 
   } else if (index == 3) {
       *aoname = EG_strdup("Centroid");
-      form->length = 3;
-      form->dim    = Vector;
+      form->nrow = 3;
+      form->dim  = Vector;
+
+      if (units->length != NULL) {
+        AIM_STRDUP(form->units, units->length, aimInfo, status);
+      }
 
   } else if (index == 4) {
       *aoname = EG_strdup("CG");
-      form->length = 3;
-      form->dim    = Vector;
+      form->nrow = 3;
+      form->dim  = Vector;
+
+      if (units->length != NULL) {
+        AIM_STRDUP(form->units, units->length, aimInfo, status);
+      }
 
   } else if (index == 5) {
       *aoname = EG_strdup("Ixx");
-      form->length = 1;
-      form->dim    = Scalar;
+      form->dim  = Scalar;
 
   } else if (index == 6) {
       *aoname = EG_strdup("Iyy");
-      form->length = 1;
-      form->dim    = Scalar;
+      form->dim  = Scalar;
 
   } else if (index == 7) {
       *aoname = EG_strdup("Izz");
-      form->length = 1;
-      form->dim    = Scalar;
+      form->dim  = Scalar;
 
   } else if (index == 8) {
       *aoname = EG_strdup("Ixy");
-      form->length = 1;
-      form->dim    = Scalar;
+      form->dim  = Scalar;
 
   } else if (index == 9) {
       *aoname = EG_strdup("Ixz");
-      form->length = 1;
-      form->dim    = Scalar;
+      form->dim  = Scalar;
 
   } else if (index == 10) {
       *aoname = EG_strdup("Iyz");
-      form->length = 1;
-      form->dim    = Scalar;
+      form->dim  = Scalar;
 
   } else if (index == 11) {
       *aoname = EG_strdup("I_Vector");
-      form->length = 6;
-      form->dim    = Vector;
+      form->nrow = 6;
+      form->dim  = Vector;
 
   } else if (index == 12) {
       *aoname = EG_strdup("I_Lower");
-      form->length = 6;
-      form->dim    = Vector;
+      form->nrow = 6;
+      form->dim  = Vector;
 
   } else if (index == 13) {
       *aoname = EG_strdup("I_Upper");
-      form->length = 6;
-      form->dim    = Vector;
+      form->nrow = 6;
+      form->dim  = Vector;
 
   } else if (index == 14) {
       *aoname = EG_strdup("I_Tensor");
-      form->length = 9;
-      form->dim    = Array2D;
+      form->nrow = 9;
+      form->dim  = Array2D;
+
+  } else if (index == 15) {
+      *aoname = EG_strdup("MassProp");
+      form->type = String;
+      form->nullVal = IsNull;
+      goto cleanup;
 
   }
 
-#if NUMOUTPUT != 14
+#if NUMOUTPUT != 15
 #error "NUMOUTPUT is inconsistent with the list of inputs"
 #endif
 
   if (*aoname == NULL) return EGADS_MALLOC;
 
   form->type       = Double;
-  form->units      = NULL;
-  form->nrow       = form->length;
-  form->lfixed     = Change;
-  form->sfixed     = Change;
+  form->lfixed     = Fixed;
+  form->sfixed     = Fixed;
   form->vals.reals = NULL;
   form->vals.real  = 0;
 
-  if (form->length > 1) {
-    AIM_ALLOC(form->vals.reals, form->length, double, aimInfo, status);
-    memset(form->vals.reals, 0, form->length*sizeof(double));
+  if (form->nrow > 1) {
+    AIM_ALLOC(form->vals.reals, form->nrow, double, aimInfo, status);
+    memset(form->vals.reals, 0, form->nrow*sizeof(double));
+  }
+
+  if (index >= 5 && units->momentOfInertia != NULL) {
+    AIM_STRDUP(form->units, units->momentOfInertia, aimInfo, status);
   }
 
   if (index == 14) {
@@ -986,6 +1142,8 @@ int aimOutputs(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
   }
 
 cleanup:
+  AIM_FREE(tmpUnits);
+
   return status;
 }
 
@@ -995,6 +1153,7 @@ int aimCalcOutput(void *instStore, /*@unused@*/ void *aimInfo,
                   /*@unused@*/ int index, capsValue *val)
 {
   int status = CAPS_SUCCESS;
+  double mass = 0, CGx = 0, CGy = 0, CGz = 0;
   double Ixx = 0;
   double Ixy = 0;
   double Izz = 0;
@@ -1002,6 +1161,8 @@ int aimCalcOutput(void *instStore, /*@unused@*/ void *aimInfo,
   double Iyy = 0;
   double Iyz = 0;
   double *I;
+  char massProp[512];
+  feaUnitsStruct *units=NULL;
   aimStorage *masstranInstance;
 
 #ifdef DEBUG
@@ -1013,6 +1174,8 @@ int aimCalcOutput(void *instStore, /*@unused@*/ void *aimInfo,
 #endif
   
   masstranInstance = (aimStorage *) instStore;
+
+  units = &masstranInstance->units;
 
   if (val->length > 1) {
     AIM_ALLOC(val->vals.reals, val->length, double, aimInfo, status);
@@ -1090,6 +1253,35 @@ int aimCalcOutput(void *instStore, /*@unused@*/ void *aimInfo,
     I[0] =  Ixx; I[1] = -Ixy; I[2] = -Ixz;
     I[3] = -Ixy; I[4] =  Iyy; I[5] = -Iyz;
     I[6] = -Ixz; I[7] = -Iyz; I[8] =  Izz;
+
+  } else if (index == 15) {
+
+    mass = masstranInstance->massProp.mass;
+
+    CGx = masstranInstance->massProp.CGx;
+    CGy = masstranInstance->massProp.CGy;
+    CGz = masstranInstance->massProp.CGz;
+
+    Ixx = masstranInstance->massProp.Ixx;
+    Iyy = masstranInstance->massProp.Iyy;
+    Iyz = masstranInstance->massProp.Iyz;
+    Ixy = masstranInstance->massProp.Ixy;
+    Ixz = masstranInstance->massProp.Ixz;
+    Izz = masstranInstance->massProp.Izz;
+
+    if (units->mass != NULL) {
+
+      snprintf(massProp, 512, "{\"mass\":[%20.14le, %s], \"CG\":[[%20.14le,%20.14le,%20.14le], %s], \"massInertia\":[[%20.14le, %20.14le, %20.14le, %20.14le, %20.14le, %20.14le], %s]}",
+          mass, units->mass, CGx, CGy, CGz, units->length, Ixx, Iyy, Izz, Ixy, Ixz, Iyz, units->momentOfInertia);
+
+    } else {
+
+      snprintf(massProp, 512, "{\"mass\":%20.14le, \"CG\":[%20.14le,%20.14le,%20.14le], \"massInertia\":[%20.14le, %20.14le, %20.14le, %20.14le, %20.14le, %20.14le]}",
+          mass, CGx, CGy, CGz, Ixx, Iyy, Izz, Ixy, Ixz, Iyz);
+
+    }
+
+    AIM_STRDUP(val->vals.string, massProp, aimInfo, status);
   }
 
 cleanup:

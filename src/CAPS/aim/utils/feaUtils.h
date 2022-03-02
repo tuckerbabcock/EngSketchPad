@@ -11,7 +11,7 @@ extern "C" {
 
 // Retrieves a mesh via linkage or generates a mesh with fea_bodyToBEM
 int fea_createMesh(void *aimInfo,
-                   double paramTess[3],                 // (in)  Tessellation parameters
+        /*@null@*/ double paramTess[3],                 // (in)  Tessellation parameters
                    int    edgePointMin,                 // (in)  minimum points along any Edge
                    int    edgePointMax,                 // (in)  maximum points along any Edge
                    int    quadMesh,                     // (in)  only do tris-for faces
@@ -28,7 +28,8 @@ int fea_createMesh(void *aimInfo,
 // Convert an EGADS body to a boundary element model, modified by Ryan Durscher (AFRL)
 // from code written by John Dannenhoffer @ Syracuse University, patterned after code
 // written by Bob Haimes  @ MIT
-int fea_bodyToBEM(ego    ebody,                        // (in)  EGADS Body
+int fea_bodyToBEM(void *aimInfo,                       // (in)  AIM structure
+                  ego    ebody,                        // (in)  EGADS Body
                   double paramTess[3],                 // (in)  Tessellation parameters
                   int    edgePointMin,                 // (in)  minimum points along any Edge
                   int    edgePointMax,                 // (in)  maximum points along any Edge
@@ -43,7 +44,8 @@ int fea_bodyToBEM(ego    ebody,                        // (in)  EGADS Body
                   meshStruct *feaMesh);                // (out) FEA mesh structure
 
 // Set the fea analysis meta data in a mesh
-int fea_setAnalysisData( mapAttrToIndexStruct *attrMap,       // (in)  map from CAPSGroup names to indexes
+int fea_setAnalysisData( void *aimInfo,                       // (in)  AIM structure
+                         mapAttrToIndexStruct *attrMap,       // (in)  map from CAPSGroup names to indexes
                          mapAttrToIndexStruct *coordSystemMap,// (in)  map from CoordSystem names to indexes
                          mapAttrToIndexStruct *constraintMap, // (in)  map from CAPSConstraint names to indexes
                          mapAttrToIndexStruct *loadMap,       // (in)  map from CAPSLoad names to indexes
@@ -65,15 +67,19 @@ int fea_setFEADataPoint(ego *faces, ego *edges, ego *nodes,
                         feaMeshDataStruct *feaData);// Set the feaData structure
 
 // Get the material properties from a capsTuple
-int fea_getMaterial(int numMaterialTuple,
+int fea_getMaterial(void *aimInfo,
+                    int numMaterialTuple,
                     capsTuple materialTuple[],
+                    feaUnitsStruct *feaMaterialUnits,
                     int *numMaterial,
                     feaMaterialStruct *feaMaterial[]) ;
 
 // Get the property properties from a capsTuple
-int fea_getProperty(int numPropertyTuple,
+int fea_getProperty(void *aimInfo,
+                    int numPropertyTuple,
                     capsTuple propertyTuple[],
                     mapAttrToIndexStruct *attrMap,
+                    feaUnitsStruct *feaUnits,
                     feaProblemStruct *feaProblem);
 
 // Get the constraint properties from a capsTuple
@@ -106,7 +112,9 @@ int fea_getLoad(int numLoadTuple,
                 feaProblemStruct *feaProblem);
 
 // Get the design variables from a capsTuple
-int fea_getDesignVariable(int numDesignVariableTuple,
+int fea_getDesignVariable(void *aimInfo,
+                          int requireGroup,
+                          int numDesignVariableTuple,
                           capsTuple designVariableTuple[],
                           int numDesignVariableRelationTuple,
                           capsTuple designVariableRelationTuple[],
@@ -215,6 +223,12 @@ int initiate_feaMaterialStruct(feaMaterialStruct *feaMaterial);
 
 // Destroy (0 out all values and free and NULL all pointers) of feaMaterial in the feaMaterialStruct structure format
 int destroy_feaMaterialStruct(feaMaterialStruct *feaMaterial);
+
+// Initiate (0 out all values and NULL all pointers) of feaUnits in the feaUnitsStruct structure format
+int initiate_feaUnitsStruct(feaUnitsStruct *feaUnits);
+
+// Destroy (0 out all values and NULL all pointers) of feaUnits in the feaUnitsStruct structure format
+int destroy_feaUnitsStruct(feaUnitsStruct *feaUnits);
 
 // Initiate (0 out all values and NULL all pointers) of feaConstraint in the feaConstraintStruct structure format
 int initiate_feaConstraintStruct(feaConstraintStruct *feaConstraint);

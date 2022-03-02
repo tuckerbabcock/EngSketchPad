@@ -4,6 +4,8 @@
 #include "egads.h"     // Bring in egads utilss
 #include "capsTypes.h" // Bring in CAPS types
 #include "aimUtil.h"   // Bring in AIM utils
+#include "aimMesh.h"// Bring in AIM meshing utils
+
 #include "miscUtils.h" // Bring in misc. utility functions
 #include "meshUtils.h" // Bring in meshing utility functions
 #include "cfdTypes.h"  // Bring in cfd specific types
@@ -11,12 +13,13 @@
 
 // Write SU2 configuration file for version Cardinal (4.0)
 int su2_writeCongfig_Cardinal(void *aimInfo,  capsValue *aimInputs,
+                              const char *meshfilename,
                               cfdBoundaryConditionStruct bcProps)
 {
 
     int status; // Function return status
 
-    int i; // Indexing
+    int i, slen; // Indexing
 
     int stringLength;
 
@@ -42,7 +45,7 @@ int su2_writeCongfig_Cardinal(void *aimInfo,  capsValue *aimInputs,
     strcpy(filename, aimInputs[Proj_Name-1].vals.string);
     strcat(filename, fileExt);
 
-    fp = fopen(filename,"w");
+    fp = aim_fopen(aimInfo, filename,"w");
     if (fp == NULL) {
         status =  CAPS_IOERR;
         goto cleanup;
@@ -68,7 +71,8 @@ int su2_writeCongfig_Cardinal(void *aimInfo,  capsValue *aimInputs,
 
     fprintf(fp,"%%\n");
     fprintf(fp,"%% Specify turbulence model (NONE, SA, SA_NEG, SST)\n");
-    fprintf(fp,"KIND_TURB_MODEL= NONE\n");
+    string_toUpperCase(aimInputs[Turbulence_Model-1].vals.string);
+    fprintf(fp,"KIND_TURB_MODEL = %s\n", aimInputs[Turbulence_Model-1].vals.string);
     fprintf(fp,"%%\n");
     fprintf(fp,"%% Mathematical problem (DIRECT, CONTINUOUS_ADJOINT)\n");
     fprintf(fp,"MATH_PROBLEM= DIRECT\n");
@@ -121,7 +125,10 @@ int su2_writeCongfig_Cardinal(void *aimInfo,  capsValue *aimInputs,
     fprintf(fp,"%%\n");
     fprintf(fp,"%% Init option to choose between Reynolds (default) or thermodynamics quantities\n");
     fprintf(fp,"%% for initializing the solution (REYNOLDS, TD_CONDITIONS)\n");
-    fprintf(fp,"INIT_OPTION= REYNOLDS\n");
+    if (aimInputs[Init_Option-1].nullVal == NotNull) {
+      string_toUpperCase(aimInputs[Init_Option-1].vals.string);
+      fprintf(fp,"INIT_OPTION= %s\n", aimInputs[Init_Option-1].vals.string);
+    }
     fprintf(fp,"%%\n");
     fprintf(fp,"%% Free-stream option to choose between density and temperature (default) for\n");
     fprintf(fp,"%% initializing the solution (TEMPERATURE_FS, DENSITY_FS)\n");
@@ -314,7 +321,7 @@ int su2_writeCongfig_Cardinal(void *aimInfo,  capsValue *aimInputs,
                 bcProps.surfaceProp[i].surfaceType == Viscous) {
 
             if (counter > 0) fprintf(fp, ",");
-            fprintf(fp," %d", bcProps.surfaceProp[i].bcID);
+            fprintf(fp," BC_%d", bcProps.surfaceProp[i].bcID);
 
             counter += 1;
         }
@@ -477,7 +484,7 @@ int su2_writeCongfig_Cardinal(void *aimInfo,  capsValue *aimInputs,
         if (bcProps.surfaceProp[i].surfaceType == Inviscid) {
 
             if (counter > 0) fprintf(fp, ",");
-            fprintf(fp," %d", bcProps.surfaceProp[i].bcID);
+            fprintf(fp," BC_%d", bcProps.surfaceProp[i].bcID);
 
             counter += 1;
         }
@@ -498,7 +505,7 @@ int su2_writeCongfig_Cardinal(void *aimInfo,  capsValue *aimInputs,
                 bcProps.surfaceProp[i].wallTemperature < 0) {
 
             if (counter > 0) fprintf(fp, ",");
-            fprintf(fp," %d, %f", bcProps.surfaceProp[i].bcID, bcProps.surfaceProp[i].wallHeatFlux);
+            fprintf(fp," BC_%d, %f", bcProps.surfaceProp[i].bcID, bcProps.surfaceProp[i].wallHeatFlux);
 
             counter += 1;
         }
@@ -519,7 +526,7 @@ int su2_writeCongfig_Cardinal(void *aimInfo,  capsValue *aimInputs,
             bcProps.surfaceProp[i].wallTemperature >= 0) {
 
             if (counter > 0) fprintf(fp, ",");
-            fprintf(fp," %d, %f", bcProps.surfaceProp[i].bcID, bcProps.surfaceProp[i].wallTemperature);
+            fprintf(fp," BC_%d, %f", bcProps.surfaceProp[i].bcID, bcProps.surfaceProp[i].wallTemperature);
 
             counter += 1;
         }
@@ -537,7 +544,7 @@ int su2_writeCongfig_Cardinal(void *aimInfo,  capsValue *aimInputs,
         if (bcProps.surfaceProp[i].surfaceType == Farfield) {
 
             if (counter > 0) fprintf(fp, ",");
-            fprintf(fp," %d", bcProps.surfaceProp[i].bcID);
+            fprintf(fp," BC_%d", bcProps.surfaceProp[i].bcID);
 
             counter += 1;
         }
@@ -555,7 +562,7 @@ int su2_writeCongfig_Cardinal(void *aimInfo,  capsValue *aimInputs,
         if (bcProps.surfaceProp[i].surfaceType == Symmetry) {
 
             if (counter > 0) fprintf(fp, ",");
-            fprintf(fp," %d", bcProps.surfaceProp[i].bcID);
+            fprintf(fp," BC_%d", bcProps.surfaceProp[i].bcID);
 
             counter += 1;
         }
@@ -598,7 +605,7 @@ int su2_writeCongfig_Cardinal(void *aimInfo,  capsValue *aimInputs,
         if (bcProps.surfaceProp[i].surfaceType == SubsonicInflow) {
 
             if (counter > 0) fprintf(fp, ",");
-            fprintf(fp," %d, %f, %f, %f, %f, %f", bcProps.surfaceProp[i].bcID,
+            fprintf(fp," BC_%d, %f, %f, %f, %f, %f", bcProps.surfaceProp[i].bcID,
                                                   bcProps.surfaceProp[i].totalTemperature,
                                                   bcProps.surfaceProp[i].totalPressure,
                                                   bcProps.surfaceProp[i].uVelocity,
@@ -627,7 +634,7 @@ int su2_writeCongfig_Cardinal(void *aimInfo,  capsValue *aimInputs,
             bcProps.surfaceProp[i].surfaceType == SubsonicOutflow) {
 
             if (counter > 0) fprintf(fp, ",");
-            fprintf(fp," %d, %f", bcProps.surfaceProp[i].bcID,
+            fprintf(fp," BC_%d, %f", bcProps.surfaceProp[i].bcID,
                                   bcProps.surfaceProp[i].staticPressure);
 
             counter += 1;
@@ -695,7 +702,7 @@ int su2_writeCongfig_Cardinal(void *aimInfo,  capsValue *aimInputs,
             bcProps.surfaceProp[i].surfaceType == Viscous) {
 
             if (counter > 0) fprintf(fp, ",");
-            fprintf(fp," %d", bcProps.surfaceProp[i].bcID);
+            fprintf(fp," BC_%d", bcProps.surfaceProp[i].bcID);
 
             counter += 1;
         }
@@ -972,7 +979,7 @@ int su2_writeCongfig_Cardinal(void *aimInfo,  capsValue *aimInputs,
                 bcProps.surfaceProp[i].surfaceType == Viscous) {
 
                 if (counter > 0) fprintf(fp, ",");
-                fprintf(fp," %d", bcProps.surfaceProp[i].bcID);
+                fprintf(fp," BC_%d", bcProps.surfaceProp[i].bcID);
 
                 counter += 1;
             }
@@ -1094,7 +1101,7 @@ int su2_writeCongfig_Cardinal(void *aimInfo,  capsValue *aimInputs,
     fprintf(fp,"%% ------------------------- INPUT/OUTPUT INFORMATION --------------------------%%\n");
     fprintf(fp,"%%\n");
     fprintf(fp,"%% Mesh input file\n");
-    fprintf(fp,"MESH_FILENAME= %s.su2\n", aimInputs[Proj_Name-1].vals.string);
+    fprintf(fp,"MESH_FILENAME= %s\n", meshfilename);
     fprintf(fp,"%%\n");
     fprintf(fp,"%% Mesh input file format (SU2, CGNS)\n");
     fprintf(fp,"MESH_FORMAT= SU2\n");
@@ -1234,6 +1241,16 @@ int su2_writeCongfig_Cardinal(void *aimInfo,  capsValue *aimInputs,
     fprintf(fp,"%%\n");
     fprintf(fp,"%% Optimization design variables, separated by semicolons\n");
     fprintf(fp,"DEFINITION_DV= ( 1, 1.0 | airfoil | 0, 0.05 ); ( 1, 1.0 | airfoil | 0, 0.10 ); ( 1, 1.0 | airfoil | 0, 0.15 ); ( 1, 1.0 | airfoil | 0, 0.20 ); ( 1, 1.0 | airfoil | 0, 0.25 ); ( 1, 1.0 | airfoil | 0, 0.30 ); ( 1, 1.0 | airfoil | 0, 0.35 ); ( 1, 1.0 | airfoil | 0, 0.40 ); ( 1, 1.0 | airfoil | 0, 0.45 ); ( 1, 1.0 | airfoil | 0, 0.50 ); ( 1, 1.0 | airfoil | 0, 0.55 ); ( 1, 1.0 | airfoil | 0, 0.60 ); ( 1, 1.0 | airfoil | 0, 0.65 ); ( 1, 1.0 | airfoil | 0, 0.70 ); ( 1, 1.0 | airfoil | 0, 0.75 ); ( 1, 1.0 | airfoil | 0, 0.80 ); ( 1, 1.0 | airfoil | 0, 0.85 ); ( 1, 1.0 | airfoil | 0, 0.90 ); ( 1, 1.0 | airfoil | 0, 0.95 ); ( 1, 1.0 | airfoil | 1, 0.05 ); ( 1, 1.0 | airfoil | 1, 0.10 ); ( 1, 1.0 | airfoil | 1, 0.15 ); ( 1, 1.0 | airfoil | 1, 0.20 ); ( 1, 1.0 | airfoil | 1, 0.25 ); ( 1, 1.0 | airfoil | 1, 0.30 ); ( 1, 1.0 | airfoil | 1, 0.35 ); ( 1, 1.0 | airfoil | 1, 0.40 ); ( 1, 1.0 | airfoil | 1, 0.45 ); ( 1, 1.0 | airfoil | 1, 0.50 ); ( 1, 1.0 | airfoil | 1, 0.55 ); ( 1, 1.0 | airfoil | 1, 0.60 ); ( 1, 1.0 | airfoil | 1, 0.65 ); ( 1, 1.0 | airfoil | 1, 0.70 ); ( 1, 1.0 | airfoil | 1, 0.75 ); ( 1, 1.0 | airfoil | 1, 0.80 ); ( 1, 1.0 | airfoil | 1, 0.85 ); ( 1, 1.0 | airfoil | 1, 0.90 ); ( 1, 1.0 | airfoil | 1, 0.95 )\n");
+    fprintf(fp,"%%\n");
+    if (aimInputs[Input_String-1].nullVal != IsNull) {
+        fprintf(fp,"%% CAPS Input_String\n");
+        for (slen = i = 0; i < aimInputs[Input_String-1].length; i++) {
+            string_toUpperCase(aimInputs[Input_String-1].vals.string + slen);
+            fprintf(fp,"%s\n", aimInputs[Input_String-1].vals.string + slen);
+            slen += strlen(aimInputs[Input_String-1].vals.string + slen) + 1;
+        }
+    }
+    fprintf(fp,"\n");
 
     status = CAPS_SUCCESS;
     goto cleanup;

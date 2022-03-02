@@ -20,8 +20,11 @@ all:
 	(cd hsm; make)
 	(cd skeleton; make)
 	(cd su2; make)
+	(cd tacs; make)
 	(cd tsfoil; make)
 	(cd xfoil; make)
+	(cd mses; make)
+	(cd interference; make)
 ifdef AFLR
 	(cd aflr2; make)
 	(cd aflr3; make)
@@ -40,6 +43,7 @@ ifneq ("$(ESP_ARCH)","CYGWIN64")
 	(cd cart3d; make)
 endif
 	(cd pointwise; make)
+	(cd meshWriter; make)
 	(cd custom; make)
 
 lint:
@@ -55,8 +59,11 @@ lint:
 	(cd hsm; make lint)
 	(cd skeleton; make lint)
 	(cd su2; make lint)
+	(cd tacs; make lint)
 	(cd tsfoil; make lint)
 	(cd xfoil; make lint)
+	(cd mses; make lint)
+	(cd interference; make lint)
 ifdef AFLR
 	(cd aflr2; make lint)
 	(cd aflr3; make lint)
@@ -72,6 +79,7 @@ ifneq ("$(ESP_ARCH)","CYGWIN64")
 	(cd cart3d; make lint)
 endif
 	(cd pointwise; make lint)
+	(cd meshWriter; make lint)
 	(cd utils; make lint)
 
 clean:
@@ -88,8 +96,11 @@ clean:
 	(cd hsm; make clean)
 	(cd skeleton; make clean)
 	(cd su2; make clean)
+	(cd tacs; make clean)
 	(cd tsfoil; make clean)
 	(cd xfoil; make clean)
+	(cd mses; make clean)
+	(cd interference; make clean)
 ifdef AFLR
 	(cd aflr2; make clean)
 	(cd aflr3; make clean)
@@ -108,6 +119,7 @@ ifneq ("$(ESP_ARCH)","CYGWIN64")
 	(cd cart3d; make clean)
 endif
 	(cd pointwise; make clean)
+	(cd meshWriter; make clean)
 	(cd custom; make clean)
 
 cleanall:
@@ -124,8 +136,11 @@ cleanall:
 	(cd nastran; make cleanall)
 	(cd astros; make cleanall)
 	(cd hsm; make cleanall)
+	(cd tacs; make cleanall)
 	(cd tsfoil; make cleanall)
 	(cd xfoil; make cleanall)
+	(cd mses; make cleanall)
+	(cd interference; make cleanall)
 ifdef AFLR
 	(cd aflr2; make cleanall)
 	(cd aflr3; make cleanall)
@@ -144,6 +159,7 @@ ifneq ("$(ESP_ARCH)","CYGWIN64")
 	(cd cart3d; make cleanall)
 endif
 	(cd pointwise; make cleanall)
+	(cd meshWriter; make cleanall)
 	(cd custom; make cleanall)
 
 dox:
@@ -164,8 +180,11 @@ dox:
 	(cd aflr4; make dox)
 	(cd pumi; make dox)
 	(cd tetgen; make dox)
+	(cd tacs; make dox)
 	(cd tsfoil; make dox)
 	(cd xfoil; make dox)
+	(cd mses; make dox)
+	(cd interference; make dox)
 	(cd cart3d; make dox)
 	(cd pointwise; make dox)
 
@@ -187,7 +206,10 @@ doxclean:
 	(cd aflr4; make doxclean)
 	(cd pumi; make doxclean)
 	(cd tetgen; make doxclean)
+	(cd tacs; make doxclean)
 	(cd tsfoil; make doxclean)
 	(cd xfoil; make doxclean)
+	(cd mses; make doxclean)
+	(cd interference; make doxclean)
 	(cd cart3d; make doxclean)
 	(cd pointwise; make doxclean)

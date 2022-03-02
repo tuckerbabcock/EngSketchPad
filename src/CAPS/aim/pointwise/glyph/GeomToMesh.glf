@@ -554,8 +554,8 @@ proc geomtomesh { } {
 
     pw::Display update
 
-    set domList [pw::Grid getAll -type pw::DomainUnstructured]
-    puts "Domain list has [llength $domList] entries."
+    set udomList [pw::Grid getAll -type pw::DomainUnstructured]
+    puts "Domain list has [llength $udomList] entries."
 
     #    ------------------------------
     #   |   Setup periodic domains     |
@@ -568,14 +568,14 @@ proc geomtomesh { } {
     if { 0 < [llength $targetDomList] } {
         # reconstruct domain list minus target domain list
         set alldoms [pw::Grid getAll -type pw::DomainUnstructured]
-        set domList [list]
+        set udomList [list]
         foreach dom $alldoms {
             set i [lsearch $targetDomList $dom]
             if { -1 == $i } {
-                lappend domList $dom
+                lappend udomList $dom
             }
         }
-        puts "After removing target domains, domains list has [llength $domList] entries."
+        puts "After removing target domains, unstructured domains list has [llength $udomList] entries."
 
         # Performing regular merge on connectors
         set mergeMode [pw::Application begin Merge]
@@ -586,7 +586,7 @@ proc geomtomesh { } {
         set conList [pw::Grid getAll -type pw::Connector]
     }
 
-    if { [llength $domList] == 0 } {
+    if { [llength $udomList] == 0 } {
         exit -1
     }
 
@@ -597,10 +597,10 @@ proc geomtomesh { } {
     #    -------------------------
 
     # search for domain attributes from geometry
-    set udomList [pw::Grid getAll -type pw::DomainUnstructured]
+    set alludomList [pw::Grid getAll -type pw::DomainUnstructured]
     set sdomList [pw::Grid getAll -type pw::DomainStructured]
-    loadDomainAttributes $udomList $sdomList
-    CheckForBluntDomains $udomList $nodeList $nodeSpacing
+    loadDomainAttributes $alludomList $sdomList
+    CheckForBluntDomains $alludomList $nodeList $nodeSpacing
     
     
     #    ----------------------------------
@@ -635,7 +635,6 @@ proc geomtomesh { } {
     }
 
 
-    set udomList [pw::Grid getAll -type pw::DomainUnstructured]
     set numBaffles 0
     foreach dom $udomList {
         $dom setUnstructuredSolverAttribute SwapCellsWithNoInteriorPoints True
@@ -769,8 +768,9 @@ proc geomtomesh { } {
                 unset tmp
             }
             puts "Reapplying geometry name attributes on domains."
-            set udomList [pw::Grid getAll -type pw::DomainUnstructured]
-            foreach dom $udomList {
+            set alludomList [pw::Grid getAll -type pw::DomainUnstructured]
+            set udomList [list]
+            foreach dom $alludomList {
                 set name [domAttributeFromGeometry $dom "PW:Name"]
                 if { "" != $name } {
                     puts "Domain [$dom getName] boundary name = $name."
@@ -782,6 +782,10 @@ proc geomtomesh { } {
                         puts "    $name already in boundary name list."
                     }
                     $bc apply $dom
+                }
+                set i [lsearch $targetDomList $dom]
+                if { -1 == $i } {
+                    lappend udomList $dom
                 }
             }
             puts "Deleting [llength $sdomList] domains in structured list."
@@ -796,16 +800,14 @@ proc geomtomesh { } {
     #    --------------------------
 
     # create single unstructured block
-    puts "Total number of domains = [llength $domList]"
 
     # assembling domain list that excludes baffles
-    set domList [pw::Grid getAll -type pw::DomainUnstructured]
-    puts "Unstructured domain list for assembly has [llength $domList] entries."
+    puts "Unstructured domain list for assembly has [llength $udomList] entries."
     set bdomList [list]
     set rdomList [list]
     set unusedDoms [list]
     set numBaffles 0
-    foreach dom $domList {
+    foreach dom $udomList {
         set baffle [domAttributeFromGeometry $dom "PW:Baffle"]
         if { "Baffle" == $baffle } {
             incr numBaffles 1
@@ -829,6 +831,10 @@ proc geomtomesh { } {
         } else {
             lappend rdomList $dom
         }
+    }
+    puts "Periodic target domain list for assembly has [llength $targetDomList] entries."
+    foreach dom $targetDomList {
+        lappend rdomList $dom
     }
 
     puts "Creating unstructured block from [llength $rdomList] domains."

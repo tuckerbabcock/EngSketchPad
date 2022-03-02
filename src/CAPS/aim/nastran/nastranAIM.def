@@ -9,7 +9,6 @@ aimOutputs
 aimCalcOutput
 aimFreeDiscrPtr
 aimDiscr
-aimUsesDataSet
 aimLocateElement
 aimTransfer
 aimInterpolation

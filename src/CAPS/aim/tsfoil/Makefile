@@ -18,7 +18,7 @@ endif
 $(LDIR)/tsfoilAIM.so: $(ODIR)/tsfoilAIM.o $(LDIR)/libaimUtil.a \
 			$(LDIR)/libutils.a
 	$(CC) $(SOFLGS) -o $(LDIR)/tsfoilAIM.so $(ODIR)/tsfoilAIM.o \
-		-L$(LDIR) -lutils -laimUtil -locsm -legads -ludunits2 -lm
+		-L$(LDIR) -lutils -laimUtil -locsm -legads -ludunits2 -ldl -lm
 
 $(ODIR)/tsfoilAIM.o: tsfoilAIM.c $(IDIR)/capsTypes.h
 	$(CC) -c $(COPTS) $(DEFINE) -I$(IDIR) -I../utils \
@@ -33,8 +33,9 @@ clean:
 cleanall:	clean
 	-rm $(LDIR)/tsfoilAIM.so
 
-dox:
-	(cd doc; doxygen tsfoilAIM_dox.cfg; cd latex; make; mv refman.pdf TSFOILAIM.pdf)
+dox: doc/html/index.html
+doc/html/index.html: $(wildcard *.c) $(wildcard ../utils/*.c) $(wildcard doc/*.cfg) $(wildcard doc/*.tex) $(wildcard doc/*.xml) $(wildcard doc/*.dox)
+	(cd doc; doxygen tsfoilAIM_dox.cfg; cd latex; make; mv refman.pdf tsfoilAIM.pdf)
 
 doxclean:
 	(cd doc; rm -f INPUT; rm -rf html latex; rm -f tsfoilAIM.tag)

@@ -25,9 +25,11 @@ $(LDIR)/pointwiseAIM.so:	$(ODIR)/pointwiseAIM.o $(ODIR)/hashElement.o \
 	touch $(LDIR)/pointwiseAIM.so
 	rm $(LDIR)/pointwiseAIM.so
 	$(CC) $(SOFLGS) -o $(LDIR)/pointwiseAIM.so $(ODIR)/pointwiseAIM.o $(ODIR)/hashElement.o \
-		-L$(LDIR) -lutils -laimUtil -locsm -legads -ludunits2 $(RPATH) -lm -lpthread
+		-L$(LDIR) -lutils -laimUtil -locsm -legads -ludunits2 -ldl \
+		$(RPATH) -lm -lpthread
 
-$(ODIR)/pointwiseAIM.o:	pointwiseAIM.c hashElement.h $(IDIR)/capsTypes.h 
+$(ODIR)/pointwiseAIM.o:	pointwiseAIM.c hashElement.h $(IDIR)/capsTypes.h \
+			$(IDIR)/aimUtil.h  $(IDIR)/aimMesh.h
 	$(CC) -c $(COPTS) $(DEFINE) -I$(IDIR) -I../utils pointwiseAIM.c \
 		-o $(ODIR)/pointwiseAIM.o
 
@@ -53,7 +55,8 @@ clean:
 cleanall:	clean
 	-rm -f $(TDIR)/egads2nmb $(LDIR)/pointwiseAIM.so
 
-dox:
+dox: doc/html/index.html
+doc/html/index.html: $(wildcard *.c) $(wildcard ../utils/*.c) $(wildcard doc/*.cfg) $(wildcard doc/*.tex) $(wildcard doc/*.xml) $(wildcard doc/*.dox)
 	(cd doc; doxygen pointwiseAIM_dox.cfg; cd latex; make; mv refman.pdf pointwiseAIM.pdf)
 
 doxclean:

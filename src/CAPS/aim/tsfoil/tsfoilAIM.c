@@ -18,10 +18,9 @@
  *
  * An outline of the AIM's inputs and outputs are provided in \ref aimInputsTSFOIL and \ref aimOutputsTSFOIL, respectively.
  *
- * The accepted and expected geometric representation and analysis intentions are detailed in \ref geomRepIntentTSFOIL.
- *
  * Upon running preAnalysis the AIM generates two files: 1. "tsfoilInput.txt" which contains instructions for
  * TSFOIL to execute and 2. "caps.tsfoil" which contains the geometry to be analyzed.
+ * The TSFOIL AIM can automatically execute TSFOIL, with details provided in \ref aimExecuteTSFOIL.
  *
  * \section assumptionsTSFOIL Assumptions
  * TSFOIL inherently assumes the airfoil cross-section is in the x-y plane, if it isn't an attempt is made
@@ -67,10 +66,10 @@ enum aimOutputs
 
 
 /* ********************** Exposed AIM Functions ***************************** */
-int aimInitialize(int inst, /*@unused@*/ /*@null@*/ const char *unitSys,
-                  /*@unused@*/ void **aimStore, /*@unused@*/ int *major,
-                  /*@unused@*/ int *minor, int *nIn, int *nOut, int *nFields,
-                  char ***fnames, int **ranks)
+int aimInitialize(int inst, /*@unused@*/ const char *unitSys, /*@unused@*/ void *aimInfo,
+                  /*@unused@*/ void **instStore, /*@unused@*/ int *major,
+                  /*@unused@*/ int *minor, int *nIn, int *nOut,
+                  int *nFields, char ***fnames, int **franks, int **fInOut)
 {
 
 #ifdef DEBUG
@@ -83,15 +82,17 @@ int aimInitialize(int inst, /*@unused@*/ /*@null@*/ const char *unitSys,
 
     if (inst == -1) return CAPS_SUCCESS;
 
-    /* specify the field variables this analysis can generate */
+    /* specify the field variables this analysis can generate and consume */
     *nFields = 0;
-    *ranks   = NULL;
     *fnames  = NULL;
+    *franks  = NULL;
+    *fInOut  = NULL;
 
     return CAPS_SUCCESS;
 }
 
 
+// ********************** AIM Function Break *****************************
 int aimInputs(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
               int index, char **ainame, capsValue *defval)
 {
@@ -131,7 +132,7 @@ int aimInputs(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
         *ainame           = EG_strdup("Alpha");
         defval->type      = Double;
         defval->lfixed    = Fixed;
-        defval->units     = EG_strdup("degree");
+        //defval->units     = EG_strdup("degree");
 
         /*! \page aimInputsTSFOIL
          * - <B> Alpha = 0.0 </B> <br>
@@ -144,6 +145,7 @@ int aimInputs(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
 }
 
 
+// ********************** AIM Function Break *****************************
 int aimPreAnalysis(/*@unused@*/ void *instStore, void *aimInfo,
                    capsValue *aimInputs)
 {
@@ -242,7 +244,7 @@ int aimPreAnalysis(/*@unused@*/ void *instStore, void *aimInfo,
     }
 
     // Open and write the input to control the TSFOIL session
-    fp = fopen(tsfoilFilename, "w");
+    fp = aim_fopen(aimInfo, tsfoilFilename, "w");
     if (fp == NULL) {
         printf("\tUnable to open file %s\n!", tsfoilFilename);
         status = CAPS_IOERR;
@@ -444,7 +446,8 @@ int aimPreAnalysis(/*@unused@*/ void *instStore, void *aimInfo,
     } // End body loop
 
     // Open and write the input to control the TSFOIL session
-    fp = fopen(inputFilename, "w");
+    if (fp != NULL) fclose(fp);
+    fp = aim_fopen(aimInfo, inputFilename, "w");
     if (fp == NULL) {
         printf("Unable to open file %s\n!", inputFilename);
         status = CAPS_IOERR;
@@ -476,6 +479,63 @@ int aimPreAnalysis(/*@unused@*/ void *instStore, void *aimInfo,
 }
 
 
+// ********************** AIM Function Break *****************************
+int aimExecute(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
+               int *state)
+{
+  /*! \page aimExecuteTSFOIL AIM Execution
+   *
+   * If auto execution is enabled when creating an TSFOIL AIM,
+   * the AIM will execute TSFOIL just-in-time with the command line:
+   *
+   * \code{.sh}
+   * tsfoil2 < tsfoilInput.txt > Info.out
+   * \endcode
+   *
+   * where preAnalysis generated the file "frictionInput.txt" which contains the input information.
+   *
+   * The analysis can be also be explicitly executed with caps_execute in the C-API
+   * or via Analysis.runAnalysis in the pyCAPS API.
+   *
+   * Calling preAnalysis and postAnalysis is NOT allowed when auto execution is enabled.
+   *
+   * Auto execution can also be disabled when creating an TSFOIL AIM object.
+   * In this mode, caps_execute and Analysis.runAnalysis can be used to run the analysis,
+   * or TSFOIL can be executed by calling preAnalysis, system call, and posAnalysis as demonstrated
+   * below with a pyCAPS example:
+   *
+   * \code{.py}
+   * print ("\n\preAnalysis......")
+   * tsfoil.preAnalysis()
+   *
+   * print ("\n\nRunning......")
+   * tsfoil.system("tsfoil2 < tsfoilInput.txt > Info.out"); # Run via system call
+   *
+   * print ("\n\postAnalysis......")
+   * tsfoil.postAnalysis()
+   * \endcode
+   */
+
+  *state = 0;
+  return aim_system(aimInfo, NULL, "tsfoil2 < tsfoilInput.txt > Info.out");
+}
+
+
+// ********************** AIM Function Break *****************************
+int aimPostAnalysis(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
+                    /*@unused@*/ int restart, /*@unused@*/ capsValue *inputs)
+{
+  // check the friction output file
+  if (aim_isFile(aimInfo, "tsfoilOutput.txt") != CAPS_SUCCESS) {
+    AIM_ERROR(aimInfo, "tsfoil2 execution did not produce tsfoilOutput.txt");
+    return CAPS_EXECERR;
+  }
+
+  return CAPS_SUCCESS;
+}
+
+
+// ********************** AIM Function Break *****************************
 int aimOutputs(/*@unused@*/ void *instStore, /*@unused@*/ void *aimStruc,
                int index, char **aoname, capsValue *form)
 {
@@ -527,7 +587,6 @@ int aimOutputs(/*@unused@*/ void *instStore, /*@unused@*/ void *aimStruc,
 
     form->type   = Double;
     form->dim    = Vector;
-    form->length = 1;
     form->nrow   = 1;
     form->ncol   = 1;
     form->units  = NULL;
@@ -540,14 +599,7 @@ int aimOutputs(/*@unused@*/ void *instStore, /*@unused@*/ void *aimStruc,
 }
 
 
-/* no longer optional and needed for restart */
-int aimPostAnalysis(/*@unused@*/ void *instStore, /*@unused@*/ void *aimStruc,
-                    /*@unused@*/ int restart, /*@unused@*/ capsValue *inputs)
-{
-  return CAPS_SUCCESS;
-}
-
-
+// ********************** AIM Function Break *****************************
 int aimCalcOutput(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
                   int index, capsValue *val)
 {
@@ -562,7 +614,7 @@ int aimCalcOutput(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
     char *valstr = NULL;
 
     // open the TSFOIL output file
-    fp = fopen("tsfoilOutput.txt", "r");
+    fp = aim_fopen(aimInfo, "tsfoilOutput.txt", "r");
     if (fp == NULL) return CAPS_DIRERR;
 
     status = CAPS_NOTFOUND;
@@ -667,6 +719,7 @@ int aimCalcOutput(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
 }
 
 
+// ********************** AIM Function Break *****************************
 void aimCleanup(/*@unused@*/ void *instStore)
 {
 

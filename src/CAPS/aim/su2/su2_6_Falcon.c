@@ -4,6 +4,8 @@
 #include "egads.h"     // Bring in egads utilss
 #include "capsTypes.h" // Bring in CAPS types
 #include "aimUtil.h"   // Bring in AIM utils
+#include "aimMesh.h"// Bring in AIM meshing utils
+
 #include "miscUtils.h" // Bring in misc. utility functions
 #include "meshUtils.h" // Bring in meshing utility functions
 #include "cfdTypes.h"  // Bring in cfd specific types
@@ -11,14 +13,27 @@
 
 // Write SU2 configuration file for version Falcon (6.2)
 int su2_writeCongfig_Falcon(void *aimInfo, capsValue *aimInputs,
+                            const char *meshfilename,
                             cfdBoundaryConditionStruct bcProps, int withMotion)
 {
 
     int status; // Function return status
 
-    int i; // Indexing
+    int i, slen; // Indexing
 
     int stringLength;
+
+    // units
+    const char *length=NULL;
+    const char *mass=NULL;
+    const char *temperature=NULL;
+    const char *force=NULL;
+    const char *pressure=NULL;
+    const char *density=NULL;
+    const char *speed=NULL;
+    const char *viscosity=NULL;
+    const char *area=NULL;
+    double real=1.0;
 
     // For SU2 boundary tagging
     int counter;
@@ -41,7 +56,7 @@ int su2_writeCongfig_Falcon(void *aimInfo, capsValue *aimInputs,
     strcpy(filename, aimInputs[Proj_Name-1].vals.string);
     strcat(filename, fileExt);
 
-    fp = fopen(filename,"w");
+    fp = aim_fopen(aimInfo, filename,"w");
     if (fp == NULL) {
         status =  CAPS_IOERR;
         goto cleanup;
@@ -67,7 +82,8 @@ int su2_writeCongfig_Falcon(void *aimInfo, capsValue *aimInputs,
 
     fprintf(fp,"%%\n");
     fprintf(fp,"%% Specify turbulence model (NONE, SA, SA_NEG, SST, SA_E, SA_COMP, SA_E_COMP)\n");
-    fprintf(fp,"%% KIND_TURB_MODEL= NONE\n");
+    string_toUpperCase(aimInputs[Turbulence_Model-1].vals.string);
+    fprintf(fp,"KIND_TURB_MODEL = %s\n", aimInputs[Turbulence_Model-1].vals.string);
     fprintf(fp,"%%\n");
     fprintf(fp,"%% Specify Hybrid RANS/LES model (SA_DES, SA_DDES, SA_ZDES, SA_EDDES)\n");
     fprintf(fp,"%% HYBRID_RANSLES= SA_DDES\n");
@@ -106,6 +122,21 @@ int su2_writeCongfig_Falcon(void *aimInfo, capsValue *aimInputs,
     string_toUpperCase(aimInputs[Unit_System-1].vals.string);
     fprintf(fp,"SYSTEM_MEASUREMENTS= %s\n", aimInputs[Unit_System-1].vals.string);
 
+    if (aimInputs[Freestream_Pressure-1].units != NULL) {
+        // Get the units based on the Unit_System
+        status = su2_unitSystem(aimInputs[Unit_System-1].vals.string,
+                                &length,
+                                &mass,
+                                &temperature,
+                                &force,
+                                &pressure,
+                                &density,
+                                &speed,
+                                &viscosity,
+                                &area);
+        AIM_STATUS(aimInfo, status);
+    }
+
     fprintf(fp,"%%\n");
     fprintf(fp,"%% ------------------------------- DES Parameters ------------------------------%%\n");
     fprintf(fp,"%%\n");
@@ -131,7 +162,10 @@ int su2_writeCongfig_Falcon(void *aimInfo, capsValue *aimInputs,
     fprintf(fp,"%%\n");
     fprintf(fp,"%% Init option to choose between Reynolds (default) or thermodynamics quantities\n");
     fprintf(fp,"%% for initializing the solution (REYNOLDS, TD_CONDITIONS)\n");
-    fprintf(fp,"INIT_OPTION= REYNOLDS\n");
+    if (aimInputs[Init_Option-1].nullVal == NotNull) {
+      string_toUpperCase(aimInputs[Init_Option-1].vals.string);
+      fprintf(fp,"INIT_OPTION= %s\n", aimInputs[Init_Option-1].vals.string);
+    }
     fprintf(fp,"%%\n");
     fprintf(fp,"%% Free-stream option to choose between density and temperature (default) for\n");
     fprintf(fp,"%% initializing the solution (TEMPERATURE_FS, DENSITY_FS)\n");
@@ -139,7 +173,10 @@ int su2_writeCongfig_Falcon(void *aimInfo, capsValue *aimInputs,
     fprintf(fp,"%%\n");
     fprintf(fp,"%% Free-stream pressure (101325.0 N/m^2, 2116.216 psf by default)\n");
     if (aimInputs[Freestream_Pressure-1].nullVal == NotNull) {
-        fprintf(fp,"FREESTREAM_PRESSURE= %f\n", aimInputs[Freestream_Pressure-1].vals.real);
+        status = aim_convert(aimInfo, 1, aimInputs[Freestream_Pressure-1].units, &aimInputs[Freestream_Pressure-1].vals.real,
+                                         pressure, &real);
+        AIM_STATUS(aimInfo, status);
+        fprintf(fp,"FREESTREAM_PRESSURE= %f\n", real);
     } else {
         fprintf(fp,"FREESTREAM_PRESSURE= 101325.0\n");
     }
@@ -147,7 +184,10 @@ int su2_writeCongfig_Falcon(void *aimInfo, capsValue *aimInputs,
     fprintf(fp,"%%\n");
     fprintf(fp,"%% Free-stream temperature (288.15 K, 518.67 R by default)\n");
     if (aimInputs[Freestream_Temperature-1].nullVal == NotNull) {
-        fprintf(fp,"FREESTREAM_TEMPERATURE= %f\n", aimInputs[Freestream_Temperature-1].vals.real);
+        status = aim_convert(aimInfo, 1, aimInputs[Freestream_Temperature-1].units, &aimInputs[Freestream_Temperature-1].vals.real,
+                                         temperature, &real);
+        AIM_STATUS(aimInfo, status);
+        fprintf(fp,"FREESTREAM_TEMPERATURE= %f\n", real);
     }
 
     fprintf(fp,"%%\n");
@@ -162,13 +202,19 @@ int su2_writeCongfig_Falcon(void *aimInfo, capsValue *aimInputs,
     fprintf(fp,"%%\n");
     fprintf(fp,"%% Free-stream density (1.2886 Kg/m^3, 0.0025 slug/ft^3 by default)\n");
     if (aimInputs[Freestream_Density-1].nullVal == NotNull) {
-        fprintf(fp,"FREESTREAM_DENSITY= %f\n", aimInputs[Freestream_Density-1].vals.real);
+        status = aim_convert(aimInfo, 1, aimInputs[Freestream_Density-1].units, &aimInputs[Freestream_Density-1].vals.real,
+                                         density, &real);
+        AIM_STATUS(aimInfo, status);
+        fprintf(fp,"FREESTREAM_DENSITY= %f\n", real);
     }
 
     fprintf(fp,"%%\n");
     fprintf(fp,"%% Free-stream velocity (1.0 m/s, 1.0 ft/s by default)\n");
     if (aimInputs[Freestream_Velocity-1].nullVal == NotNull) {
-        fprintf(fp,"FREESTREAM_VELOCITY= (%f, 0.0, 0.0) \n", aimInputs[Freestream_Velocity-1].vals.real);
+        status = aim_convert(aimInfo, 1, aimInputs[Freestream_Velocity-1].units, &aimInputs[Freestream_Velocity-1].vals.real,
+                                         speed, &real);
+        AIM_STATUS(aimInfo, status);
+        fprintf(fp,"FREESTREAM_VELOCITY= (%f, 0.0, 0.0) \n", real);
     } else {
         fprintf(fp,"FREESTREAM_VELOCITY= (1.0, 0.0, 0.0)\n");
     }
@@ -176,7 +222,10 @@ int su2_writeCongfig_Falcon(void *aimInfo, capsValue *aimInputs,
     fprintf(fp,"%%\n");
     fprintf(fp,"%% Free-stream viscosity (1.853E-5 N s/m^2, 3.87E-7 lbf s/ft^2 by default)\n");
     if (aimInputs[Freestream_Viscosity-1].nullVal == NotNull) {
-        fprintf(fp,"FREESTREAM_VISCOSITY= %e\n", aimInputs[Freestream_Viscosity-1].vals.real);
+        status = aim_convert(aimInfo, 1, aimInputs[Freestream_Viscosity-1].units, &aimInputs[Freestream_Viscosity-1].vals.real,
+                                         viscosity, &real);
+        AIM_STATUS(aimInfo, status);
+        fprintf(fp,"FREESTREAM_VISCOSITY= %e\n", real);
     }
 
     fprintf(fp,"%%\n");
@@ -215,7 +264,10 @@ int su2_writeCongfig_Falcon(void *aimInfo, capsValue *aimInputs,
     fprintf(fp,"%%\n");
     fprintf(fp,"%% Reference length for moment non-dimensional coefficients (m or in)\n");
     if (aimInputs[Moment_Length-1].nullVal == NotNull) {
-        fprintf(fp,"REF_LENGTH= %f\n", aimInputs[Moment_Length-1].vals.real);
+        status = aim_convert(aimInfo, 1, aimInputs[Moment_Length-1].units, &aimInputs[Moment_Length-1].vals.real,
+                                         length, &real);
+        AIM_STATUS(aimInfo, status);
+        fprintf(fp,"REF_LENGTH= %f\n", real);
     } else {
         fprintf(fp,"REF_LENGTH= 1.00\n");
     }
@@ -224,7 +276,10 @@ int su2_writeCongfig_Falcon(void *aimInfo, capsValue *aimInputs,
     fprintf(fp,"%% Reference area for non-dimensional force coefficients (0 implies automatic\n");
     fprintf(fp,"%% calculation) (m^2 or in^2)\n");
     if (aimInputs[Reference_Area-1].nullVal == NotNull) {
-        fprintf(fp,"REF_AREA= %f\n", aimInputs[Reference_Area-1].vals.real);
+        status = aim_convert(aimInfo, 1, aimInputs[Reference_Area-1].units, &aimInputs[Reference_Area-1].vals.real,
+                                         area, &real);
+        AIM_STATUS(aimInfo, status);
+        fprintf(fp,"REF_AREA= %f\n", real);
     } else {
         fprintf(fp,"REF_AREA= 1.00\n");
     }
@@ -331,7 +386,7 @@ int su2_writeCongfig_Falcon(void *aimInfo, capsValue *aimInputs,
             bcProps.surfaceProp[i].surfaceType == Viscous) {
 
             if (counter > 0) fprintf(fp, ",");
-            fprintf(fp," %d", bcProps.surfaceProp[i].bcID);
+            fprintf(fp," BC_%d", bcProps.surfaceProp[i].bcID);
 
             counter += 1;
         }
@@ -519,7 +574,7 @@ int su2_writeCongfig_Falcon(void *aimInfo, capsValue *aimInputs,
         if (bcProps.surfaceProp[i].surfaceType == Inviscid) {
 
             if (counter > 0) fprintf(fp, ",");
-            fprintf(fp," %d", bcProps.surfaceProp[i].bcID);
+            fprintf(fp," BC_%d", bcProps.surfaceProp[i].bcID);
 
             counter += 1;
         }
@@ -539,7 +594,7 @@ int su2_writeCongfig_Falcon(void *aimInfo, capsValue *aimInputs,
             bcProps.surfaceProp[i].wallTemperature < 0) {
 
             if (counter > 0) fprintf(fp, ",");
-            fprintf(fp," %d, %f", bcProps.surfaceProp[i].bcID, bcProps.surfaceProp[i].wallHeatFlux);
+            fprintf(fp," BC_%d, %f", bcProps.surfaceProp[i].bcID, bcProps.surfaceProp[i].wallHeatFlux);
 
             counter += 1;
         }
@@ -559,7 +614,7 @@ int su2_writeCongfig_Falcon(void *aimInfo, capsValue *aimInputs,
             bcProps.surfaceProp[i].wallTemperature >= 0) {
 
             if (counter > 0) fprintf(fp, ",");
-            fprintf(fp," %d, %f", bcProps.surfaceProp[i].bcID, bcProps.surfaceProp[i].wallTemperature);
+            fprintf(fp," BC_%d, %f", bcProps.surfaceProp[i].bcID, bcProps.surfaceProp[i].wallTemperature);
 
             counter += 1;
         }
@@ -576,7 +631,7 @@ int su2_writeCongfig_Falcon(void *aimInfo, capsValue *aimInputs,
         if (bcProps.surfaceProp[i].surfaceType == Farfield) {
 
             if (counter > 0) fprintf(fp, ",");
-            fprintf(fp," %d", bcProps.surfaceProp[i].bcID);
+            fprintf(fp," BC_%d", bcProps.surfaceProp[i].bcID);
 
             counter += 1;
         }
@@ -593,7 +648,7 @@ int su2_writeCongfig_Falcon(void *aimInfo, capsValue *aimInputs,
         if (bcProps.surfaceProp[i].surfaceType == Symmetry) {
 
             if (counter > 0) fprintf(fp, ",");
-            fprintf(fp," %d", bcProps.surfaceProp[i].bcID);
+            fprintf(fp," BC_%d", bcProps.surfaceProp[i].bcID);
 
             counter += 1;
         }
@@ -631,7 +686,7 @@ int su2_writeCongfig_Falcon(void *aimInfo, capsValue *aimInputs,
         if (bcProps.surfaceProp[i].surfaceType == SubsonicInflow) {
 
             if (counter > 0) fprintf(fp, ",");
-            fprintf(fp," %d, %f, %f, %f, %f, %f", bcProps.surfaceProp[i].bcID,
+            fprintf(fp," BC_%d, %f, %f, %f, %f, %f", bcProps.surfaceProp[i].bcID,
                                                   bcProps.surfaceProp[i].totalTemperature,
                                                   bcProps.surfaceProp[i].totalPressure,
                                                   bcProps.surfaceProp[i].uVelocity,
@@ -655,7 +710,7 @@ int su2_writeCongfig_Falcon(void *aimInfo, capsValue *aimInputs,
             bcProps.surfaceProp[i].surfaceType == SubsonicOutflow) {
 
             if (counter > 0) fprintf(fp, ",");
-            fprintf(fp," %d, %f", bcProps.surfaceProp[i].bcID,
+            fprintf(fp," BC_%d, %f", bcProps.surfaceProp[i].bcID,
                                     bcProps.surfaceProp[i].staticPressure);
 
             counter += 1;
@@ -825,7 +880,7 @@ int su2_writeCongfig_Falcon(void *aimInfo, capsValue *aimInputs,
             bcProps.surfaceProp[i].surfaceType == Viscous) {
 
             if (counter > 0) fprintf(fp, ",");
-            fprintf(fp," %d", bcProps.surfaceProp[i].bcID);
+            fprintf(fp," BC_%d", bcProps.surfaceProp[i].bcID);
 
             counter += 1;
         }
@@ -1145,7 +1200,7 @@ int su2_writeCongfig_Falcon(void *aimInfo, capsValue *aimInputs,
                 bcProps.surfaceProp[i].surfaceType == Viscous) {
 
                 if (counter > 0) fprintf(fp, ",");
-                fprintf(fp," %d", bcProps.surfaceProp[i].bcID);
+                fprintf(fp," BC_%d", bcProps.surfaceProp[i].bcID);
 
                 counter += 1;
             }
@@ -1309,7 +1364,7 @@ int su2_writeCongfig_Falcon(void *aimInfo, capsValue *aimInputs,
     fprintf(fp,"%% ------------------------- INPUT/OUTPUT INFORMATION --------------------------%%\n");
     fprintf(fp,"%%\n");
     fprintf(fp,"%% Mesh input file\n");
-    fprintf(fp,"MESH_FILENAME= %s.su2\n", aimInputs[Proj_Name-1].vals.string);
+    fprintf(fp,"MESH_FILENAME= %s\n", meshfilename);
 
     fprintf(fp,"%%\n");
     fprintf(fp,"%% Mesh input file format (SU2, CGNS)\n");
@@ -1499,6 +1554,16 @@ int su2_writeCongfig_Falcon(void *aimInfo, capsValue *aimInputs,
     fprintf(fp,"%%\n");
     fprintf(fp,"%% Use combined objective within gradient evaluation: may reduce cost to compute gradients when using the adjoint formulation.\n");
     fprintf(fp,"%% OPT_COMBINE_OBJECTIVE = NO\n");
+    fprintf(fp,"%%\n");
+    if (aimInputs[Input_String-1].nullVal != IsNull) {
+        fprintf(fp,"%% CAPS Input_String\n");
+        for (slen = i = 0; i < aimInputs[Input_String-1].length; i++) {
+            string_toUpperCase(aimInputs[Input_String-1].vals.string + slen);
+            fprintf(fp,"%s\n", aimInputs[Input_String-1].vals.string + slen);
+            slen += strlen(aimInputs[Input_String-1].vals.string + slen) + 1;
+        }
+    }
+    fprintf(fp,"\n");
     fprintf(fp,"%% ---------------- End of SU2 Configuration File -------------------%%\n");
 
     status = CAPS_SUCCESS;

@@ -39,13 +39,10 @@ extern void PRINT_ERROR(const char *reason, ...);
 extern void PRINT_WARNING(const char *fmt, ...);
 #endif
 
-// Does a file exist?
-int file_exist(char *file);
-
 // Convert a string in tuple form to an array of strings - tuple is assumed to be bounded by '(' and ')' and comma separated
 //  for example ["3.0", "hey", "foo"] - note the strings should NOT contain commas. If the
 //  string coming in is not a tuple the string is simply copied. Also quotations are removed
-int json_parseTuple(/*@null@*/ char *stringToParse, int *arraySize,
+int json_parseTuple(/*@null@*/ const char *stringToParse, int *arraySize,
                     char **stringArray[]);
 
 // Simple json dictionary parser - currently doesn't support nested arrays for keyValue
@@ -58,12 +55,23 @@ int string_toProgArgs(char *meshInputString, int *prog_argc, char ***prog_argv);
 // Convert a string to double
 int string_toDouble(const char *string, double *number);
 
+// Convert a string tuple of double with data-units to double in units
+int string_toDoubleUnits(void *aimInfo, const char *string, const char *units, double *number);
+
 // Convert a string to double array
 int string_toDoubleArray(char *string, int arraySize, double numberArray[]);
+
+// Convert a string tuple of array double with data-units to array double in units
+int string_toDoubleArrayUnits(void *aimInfo, const char *string,
+                              const char *units, int arraySize, double *numberArray);
 
 // Convert a string to an array of doubles
 int string_toDoubleDynamicArray(char *stringToSearch, int *arraySize,
                                 double *numberArray[]);
+
+// Convert a string tuple of array double with data-units to array double in units
+int string_toDoubleDynamicArrayUnits(void *aimInfo, const char *string,
+                                     const char *units, int *arraySize, double **numberArray);
 
 // Convert a string to an array of strings
 int string_toStringArray(char *stringToSearch, int arraySize,
@@ -92,7 +100,7 @@ int string_freeArray(int numString, char **strings[]);
 
 // Remove quotation marks around a string - Returning char * should be free'd after use
 /*@null@*/
-char * string_removeQuotation(char *string);
+char * string_removeQuotation(/*@null@*/ const char *string);
 
 // Force a string to upper case
 void string_toUpperCase ( char *sPtr );
@@ -105,9 +113,6 @@ char * string_format(char *format, ...);
 
 // Return whether string `find` is in `array`
 int string_isInArray(char *find, int arraySize, char **array);
-
-// Free and null a char pointer
-void string_free( char **string);
 
 // The max x,y,z coordinates where P(3*i + 0) = x_i, P(3*i + 1) = y_i, and P(3*i + 2) = z_i
 void maxCoords(int sizeP, double *P, double *x, double *y, double *z);
@@ -146,11 +151,17 @@ char * convert_integerToString(int integerVal, int fieldWidth, int leftOrRight);
 /*@null@*/
 char * convert_doubleToString(double doubleVal, int fieldWidth, int leftOrRight);
 
+// Factorizes in place the square linear system A using simple LU decomposition
+int factorLU(int n, double A[] );
+
+// Solves the factorized square linear system LU x = b
+int backsolveLU(int n, double LU[], double b[], double x[] );
+
 // Solves the square linear system A x = b using simple LU decomposition
 int solveLU(int n, double A[], double b[], double x[] );
 
 // Prints all attributes on an ego
-int print_AllAttr( ego obj );
+int print_AllAttr( void *aimInfo, ego obj );
 
 // Initiate (0 out all values and NULL all pointers) an attribute map in the mapAttrToIndexStruct structure format
 int initiate_mapAttrToIndexStruct(mapAttrToIndexStruct *attrMap);

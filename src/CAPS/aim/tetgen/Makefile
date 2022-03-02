@@ -22,13 +22,14 @@ $(LDIR)/tetgenAIM.so:	$(ODIR)/tetgenAIM.o $(ODIR)/tetgen_Interface.o \
 	$(CXX) $(SOFLGS) -o $(LDIR)/tetgenAIM.so $(ODIR)/tetgenAIM.o \
 		$(ODIR)/tetgen_Interface.o $(ODIR)/tetgen.o \
 		$(ODIR)/predicates.o -L$(LDIR) -lutils -laimUtil -locsm \
-		-legads -ludunits2 $(RPATH) -lm
+		-legads -ludunits2 -ldl $(RPATH) -lm
 
-$(ODIR)/tetgenAIM.o:	tetgenAIM.cpp $(IDIR)/capsTypes.h ../utils/meshUtils.h
+$(ODIR)/tetgenAIM.o:	tetgenAIM.cpp $(IDIR)/capsTypes.h \
+			$(IDIR)/aimUtil.h  $(IDIR)/aimMesh.h ../utils/meshUtils.h
 	$(CXX) -c $(COPTS) $(DEFINE) -I$(IDIR) -I../utils tetgenAIM.cpp \
 		-o $(ODIR)/tetgenAIM.o
 
-$(ODIR)/tetgen_Interface.o:	tetgen_Interface.cpp ../utils/meshUtils.h
+$(ODIR)/tetgen_Interface.o:	$(TETGEN)/tetgen.h tetgen_Interface.cpp ../utils/meshUtils.h
 	$(CXX) -c $(COPTS) $(DEFINE) -I$(IDIR) -I$(TETGEN) -I../utils \
 		-DTETLIBRARY tetgen_Interface.cpp -o $(ODIR)/tetgen_Interface.o
 
@@ -48,8 +49,9 @@ clean:
 cleanall:	clean
 	-rm -f $(LDIR)/tetgenAIM.so
 
-dox:
-	(cd doc; doxygen tetgenAIM_dox.cfg; cd latex; make; mv refman.pdf TetgenAIM.pdf)
+dox: doc/html/index.html
+doc/html/index.html: $(wildcard *.c) $(wildcard ../utils/*.c) $(wildcard doc/*.cfg) $(wildcard doc/*.tex) $(wildcard doc/*.xml) $(wildcard doc/*.dox)
+	(cd doc; doxygen tetgenAIM_dox.cfg; cd latex; make; mv refman.pdf tetgenAIM.pdf)
 
 doxclean:
 	(cd doc; rm -f INPUT; rm -rf html latex; rm -f tetgenAIM.tag)

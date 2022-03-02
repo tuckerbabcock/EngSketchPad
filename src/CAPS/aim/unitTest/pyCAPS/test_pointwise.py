@@ -1,15 +1,13 @@
-# Import other need modules
-from __future__ import print_function
-
 import unittest
 import os
-import argparse
+import glob
+import shutil
+
 import platform
 import time
 
 # Import pyCAPS class file
 import pyCAPS
-from pyCAPS import capsProblem
 
 # Helper function to check if an executable exists
 def which(program):
@@ -34,14 +32,28 @@ class TestPointwise(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
 
-        # Initialize capsProblem object
-        cls.myProblem = capsProblem()
+        cls.problemName = "workDir_PointwiseTest"
+        cls.iProb = 1
 
-        # Working directory prefix
-        cls.workDir = "workDir_PointwiseTest"
+        cls.cleanUp()
 
-        # Load CSM file
-        cls.myGeometry = cls.myProblem.loadCAPS(os.path.join("..","csmData","cornerGeom.csm"))
+        # Initialize Problem object
+        cls.myProblem = pyCAPS.Problem(problemName = cls.problemName,
+                                       capsFile = os.path.join("..","csmData","cornerGeom.csm"))
+
+    @classmethod
+    def tearDownClass(cls):
+        del cls.myProblem
+        cls.cleanUp()
+
+    @classmethod
+    def cleanUp(cls):
+
+        # Remove problem directories
+        dirs = glob.glob( cls.problemName + '*')
+        for dir in dirs:
+            if os.path.isdir(dir):
+                shutil.rmtree(dir)
 
     # This is executed prior to each test
     def setUp(self):
@@ -61,29 +73,31 @@ class TestPointwise(unittest.TestCase):
 
         ####### Run pointwise ####################
         print ("\n\nRunning pointwise......")
-        currentDirectory = os.getcwd() # Get our current working directory
-
-        os.chdir(pointwise.analysisDir) # Move into test directory
 
         # Run pointwise via system call
-        # try up to 30 times
+        # try up to 30 times in case license is not available
         CAPS_GLYPH = os.environ["CAPS_GLYPH"]
         for i in range(30):
-            if platform.system() == "Windows":
-                PW_HOME = os.environ["PW_HOME"]
-                os.system(PW_HOME + r"\win64\bin\tclsh.exe " + CAPS_GLYPH + r"\GeomToMesh.glf caps.egads capsUserDefaults.glf")
-            else:
-                os.system("pointwise -b " + CAPS_GLYPH + "/GeomToMesh.glf caps.egads capsUserDefaults.glf")
+            try:
+                if platform.system() == "Windows":
+                    PW_HOME = os.environ["PW_HOME"]
+                    pointwise.system(PW_HOME + r"\win64\bin\tclsh.exe " + CAPS_GLYPH + r"\GeomToMesh.glf caps.egads capsUserDefaults.glf")
+                else:
+                    pointwise.system("pointwise -b " + CAPS_GLYPH + "/GeomToMesh.glf caps.egads capsUserDefaults.glf")
+            except pyCAPS.CAPSError:
+                time.sleep(10) # wait and try again
+                continue
 
             time.sleep(1) # let the harddrive breathe
-            if os.path.isfile('caps.GeomToMesh.gma') and os.path.isfile('caps.GeomToMesh.ugrid'): break
+            if os.path.isfile(os.path.join(pointwise.analysisDir,'caps.GeomToMesh.gma')) and \
+              (os.path.isfile(os.path.join(pointwise.analysisDir,'caps.GeomToMesh.ugrid')) or \
+               os.path.isfile(os.path.join(pointwise.analysisDir,'caps.GeomToMesh.lb8.ugrid'))): break
             time.sleep(10) # wait and try again
 
-        os.chdir(currentDirectory) # Move back to top directory
-
         # make sure the execution was successful
-        self.assertTrue(os.path.isfile(os.path.join(pointwise.analysisDir,'caps.GeomToMesh.gma')) and
-                        os.path.isfile(os.path.join(pointwise.analysisDir,'caps.GeomToMesh.ugrid')))
+        self.assertTrue( os.path.isfile(os.path.join(pointwise.analysisDir,'caps.GeomToMesh.gma')) and
+                        (os.path.isfile(os.path.join(pointwise.analysisDir,'caps.GeomToMesh.ugrid')) or
+                         os.path.isfile(os.path.join(pointwise.analysisDir,'caps.GeomToMesh.lb8.ugrid'))))
 
         # Run AIM post-analysis
         pointwise.postAnalysis()
@@ -91,32 +105,32 @@ class TestPointwise(unittest.TestCase):
     def test_executeError(self):
 
         # Load pointwise aim
-        pointwise = self.myProblem.loadAIM(aim = "pointwiseAIM",
-                                           analysisDir = self.workDir + "BoxError",
-                                           capsIntent = ["box", "farfield"])
+        self.pointwise = self.myProblem.analysis.create(aim = "pointwiseAIM",
+                                                        name = "BoxError",
+                                                        capsIntent = ["box", "farfield"])
         # Run AIM post-analysis
-        pointwise.preAnalysis()
+        self.pointwise.preAnalysis()
 
         # Check for error when pointwise was not executed
         with self.assertRaises(pyCAPS.CAPSError) as e:
-            pointwise.postAnalysis()
+            self.pointwise.postAnalysis()
 
         self.assertEqual(e.exception.errorName, "CAPS_IOERR")
+        del self.pointwise
 
     def test_SingleBody(self):
 
         file = os.path.join("..","csmData","cfdSingleBody.csm")
-        myProblem = pyCAPS.capsProblem()
+        myProblem = pyCAPS.Problem(self.problemName+str(self.iProb),
+                                   capsFile = file); self.__class__.iProb += 1
 
-        myGeometry = myProblem.loadCAPS(file)
-
-        pointwise = myProblem.loadAIM(aim = "pointwiseAIM",
-                                      analysisDir = self.workDir + "SingleBody")
+        pointwise = myProblem.analysis.create(aim = "pointwiseAIM",
+                                              name = "SingleBody")
 
         # Global Min/Max number of points on edges
-        pointwise.setAnalysisVal("Connector_Initial_Dim", 10)
-        pointwise.setAnalysisVal("Connector_Min_Dim", 3)
-        pointwise.setAnalysisVal("Connector_Max_Dim", 12)
+        pointwise.input.Connector_Initial_Dim = 10
+        pointwise.input.Connector_Min_Dim     = 3
+        pointwise.input.Connector_Max_Dim     = 12
 
         # Run
         self.run_pointwise(pointwise)
@@ -124,17 +138,16 @@ class TestPointwise(unittest.TestCase):
     def test_MultiBody(self):
 
         file = os.path.join("..","csmData","cfdMultiBody.csm")
-        myProblem = pyCAPS.capsProblem()
+        myProblem = pyCAPS.Problem(self.problemName+str(self.iProb),
+                                   capsFile = file); self.__class__.iProb += 1
 
-        myGeometry = myProblem.loadCAPS(file)
-
-        pointwise = myProblem.loadAIM(aim = "pointwiseAIM",
-                                      analysisDir = self.workDir + "MultiBody")
+        pointwise = myProblem.analysis.create(aim = "pointwiseAIM",
+                                              name = "MultiBody")
 
         # Global Min/Max number of points on edges
-        pointwise.setAnalysisVal("Connector_Initial_Dim", 10)
-        pointwise.setAnalysisVal("Connector_Min_Dim", 3)
-        pointwise.setAnalysisVal("Connector_Max_Dim", 12)
+        pointwise.input.Connector_Initial_Dim = 10
+        pointwise.input.Connector_Min_Dim     = 3
+        pointwise.input.Connector_Max_Dim     = 12
 
         # Run
         self.run_pointwise(pointwise)
@@ -142,25 +155,24 @@ class TestPointwise(unittest.TestCase):
     def test_reenter(self):
 
         file = "../csmData/cfdSingleBody.csm"
-        myProblem = pyCAPS.capsProblem()
+        myProblem = pyCAPS.Problem(self.problemName+str(self.iProb),
+                                   capsFile = file); self.__class__.iProb += 1
 
-        myGeometry = myProblem.loadCAPS(file)
-
-        pointwise = myProblem.loadAIM(aim = "pointwiseAIM",
-                                      analysisDir = self.workDir + "SingleBody2")
+        pointwise = myProblem.analysis.create(aim = "pointwiseAIM",
+                                              name = "SingleBody2")
 
         # Global Min/Max number of points on edges
-        pointwise.setAnalysisVal("Connector_Initial_Dim", 10)
-        pointwise.setAnalysisVal("Connector_Min_Dim", 3)
-        pointwise.setAnalysisVal("Connector_Max_Dim", 12)
+        pointwise.input.Connector_Initial_Dim = 10
+        pointwise.input.Connector_Min_Dim     = 3
+        pointwise.input.Connector_Max_Dim     = 12
 
         # Run 1st time
         self.run_pointwise(pointwise)
 
         # Global Min/Max number of points on edges
-        pointwise.setAnalysisVal("Connector_Initial_Dim", 6)
-        pointwise.setAnalysisVal("Connector_Min_Dim", 3)
-        pointwise.setAnalysisVal("Connector_Max_Dim", 8)
+        pointwise.input.Connector_Initial_Dim = 6
+        pointwise.input.Connector_Min_Dim     = 3
+        pointwise.input.Connector_Max_Dim     = 8
 
         # Run 2nd time coarser
         self.run_pointwise(pointwise)
@@ -169,16 +181,16 @@ class TestPointwise(unittest.TestCase):
     def test_box(self):
 
         # Load pointwise aim
-        pointwise = self.myProblem.loadAIM(aim = "pointwiseAIM",
-                                           analysisDir = self.workDir + "Box",
-                                           capsIntent = ["box", "farfield"])
+        pointwise = self.myProblem.analysis.create(aim = "pointwiseAIM",
+                                                   name = "Box",
+                                                   capsIntent = ["box", "farfield"])
 
         #pointwise.saveGeometry("Box")
 
         # Global Min/Max number of points on edges
-        pointwise.setAnalysisVal("Connector_Initial_Dim", 6)
-        pointwise.setAnalysisVal("Connector_Min_Dim", 3)
-        pointwise.setAnalysisVal("Connector_Max_Dim", 8)
+        pointwise.input.Connector_Initial_Dim = 6
+        pointwise.input.Connector_Min_Dim     = 3
+        pointwise.input.Connector_Max_Dim     = 8
 
         # Just make sure it runs without errors...
         self.run_pointwise(pointwise)
@@ -186,16 +198,16 @@ class TestPointwise(unittest.TestCase):
     def test_cylinder(self):
 
         # Load pointwise aim
-        pointwise = self.myProblem.loadAIM(aim = "pointwiseAIM",
-                                           analysisDir = self.workDir + "Cylinder",
-                                           capsIntent = ["cylinder", "farfield"])
+        pointwise = self.myProblem.analysis.create(aim = "pointwiseAIM",
+                                                   name = "Cylinder",
+                                                   capsIntent = ["cylinder", "farfield"])
 
         #pointwise.saveGeometry("Cylinder")
 
         # Global Min/Max number of points on edges
-        pointwise.setAnalysisVal("Connector_Initial_Dim", 6)
-        pointwise.setAnalysisVal("Connector_Min_Dim", 3)
-        pointwise.setAnalysisVal("Connector_Max_Dim", 8)
+        pointwise.input.Connector_Initial_Dim = 6
+        pointwise.input.Connector_Min_Dim     = 3
+        pointwise.input.Connector_Max_Dim     = 8
 
         # Just make sure it runs without errors...
         self.run_pointwise(pointwise)
@@ -204,16 +216,16 @@ class TestPointwise(unittest.TestCase):
     def test_cone(self):
 
         # Load pointwise aim
-        pointwise = self.myProblem.loadAIM(aim = "pointwiseAIM",
-                                           analysisDir = self.workDir + "Cone",
-                                           capsIntent = ["cone", "farfield"])
+        pointwise = self.myProblem.analysis.create(aim = "pointwiseAIM",
+                                                   name = "Cone",
+                                                   capsIntent = ["cone", "farfield"])
 
         #pointwise.saveGeometry("Cone")
 
         # Global Min/Max number of points on edges
-        pointwise.setAnalysisVal("Connector_Initial_Dim", 6)
-        pointwise.setAnalysisVal("Connector_Min_Dim", 3)
-        pointwise.setAnalysisVal("Connector_Max_Dim", 8)
+        pointwise.input.Connector_Initial_Dim = 6
+        pointwise.input.Connector_Min_Dim     = 3
+        pointwise.input.Connector_Max_Dim     = 8
 
         # Just make sure it runs without errors...
         self.run_pointwise(pointwise)
@@ -221,16 +233,16 @@ class TestPointwise(unittest.TestCase):
     def off_test_torus(self):
 
         # Load pointwise aim
-        pointwise = self.myProblem.loadAIM(aim = "pointwiseAIM",
-                                           analysisDir = self.workDir + "Torus",
-                                           capsIntent = ["torus", "farfield"])
+        pointwise = self.myProblem.analysis.create(aim = "pointwiseAIM",
+                                                   name = "Torus",
+                                                   capsIntent = ["torus", "farfield"])
 
         #pointwise.saveGeometry("Torus")
 
         # Global Min/Max number of points on edges
-        pointwise.setAnalysisVal("Connector_Initial_Dim", 6)
-        pointwise.setAnalysisVal("Connector_Min_Dim", 3)
-        pointwise.setAnalysisVal("Connector_Max_Dim", 8)
+        pointwise.input.Connector_Initial_Dim = 6
+        pointwise.input.Connector_Min_Dim     = 3
+        pointwise.input.Connector_Max_Dim     = 8
 
         # Just make sure it runs without errors...
         self.run_pointwise(pointwise)
@@ -238,35 +250,35 @@ class TestPointwise(unittest.TestCase):
     def test_sphere(self):
 
         # Load pointwise aim
-        pointwise = self.myProblem.loadAIM(aim = "pointwiseAIM",
-                                           analysisDir = self.workDir + "Sphere",
-                                           capsIntent = ["sphere", "farfield"])
+        pointwise = self.myProblem.analysis.create(aim = "pointwiseAIM",
+                                                   name = "Sphere",
+                                                   capsIntent = ["sphere", "farfield"])
 
         #pointwise.saveGeometry("Sphere")
 
         # Global Min/Max number of points on edges
-        pointwise.setAnalysisVal("Connector_Initial_Dim", 6)
-        pointwise.setAnalysisVal("Connector_Min_Dim", 3)
-        pointwise.setAnalysisVal("Connector_Max_Dim", 8)
+        pointwise.input.Connector_Initial_Dim = 6
+        pointwise.input.Connector_Min_Dim     = 3
+        pointwise.input.Connector_Max_Dim     = 8
 
         # Just make sure it runs without errors...
         self.run_pointwise(pointwise)
 
-        #pointwise.viewGeometry()
+        #pointwise.view()
 
     def off_test_boxhole(self):
 
         # Load pointwise aim
-        pointwise = self.myProblem.loadAIM(aim = "pointwiseAIM",
-                                           analysisDir = self.workDir + "BoxHole",
-                                           capsIntent = ["boxhole", "farfield"])
+        pointwise = self.myProblem.analysis.create(aim = "pointwiseAIM",
+                                                   name = "BoxHole",
+                                                   capsIntent = ["boxhole", "farfield"])
 
         #pointwise.saveGeometry("BoxHole")
 
         # Global Min/Max number of points on edges
-        pointwise.setAnalysisVal("Connector_Initial_Dim", 6)
-        pointwise.setAnalysisVal("Connector_Min_Dim", 3)
-        pointwise.setAnalysisVal("Connector_Max_Dim", 8)
+        pointwise.input.Connector_Initial_Dim = 6
+        pointwise.input.Connector_Min_Dim     = 3
+        pointwise.input.Connector_Max_Dim     = 8
 
         # Just make sure it runs without errors...
         self.run_pointwise(pointwise)
@@ -274,16 +286,16 @@ class TestPointwise(unittest.TestCase):
     def test_bullet(self):
 
         # Load pointwise aim
-        pointwise = self.myProblem.loadAIM(aim = "pointwiseAIM",
-                                           analysisDir = self.workDir + "Bullet",
-                                           capsIntent = ["bullet", "farfield"])
+        pointwise = self.myProblem.analysis.create(aim = "pointwiseAIM",
+                                                   name = "Bullet",
+                                                   capsIntent = ["bullet", "farfield"])
 
         #pointwise.saveGeometry("Bullet")
 
         # Global Min/Max number of points on edges
-        pointwise.setAnalysisVal("Connector_Initial_Dim", 6)
-        pointwise.setAnalysisVal("Connector_Min_Dim", 3)
-        pointwise.setAnalysisVal("Connector_Max_Dim", 8)
+        pointwise.input.Connector_Initial_Dim = 6
+        pointwise.input.Connector_Min_Dim     = 3
+        pointwise.input.Connector_Max_Dim     = 8
 
         # Just make sure it runs without errors...
         self.run_pointwise(pointwise)
@@ -291,27 +303,21 @@ class TestPointwise(unittest.TestCase):
     def test_all(self):
 
         # Load pointwise aim
-        pointwise = self.myProblem.loadAIM(aim = "pointwiseAIM",
-                                           analysisDir = self.workDir + "All",
-                                           capsIntent = ["box", "cone", "sphere", "cylinder", "bullet", "farfield"]) #, "torus", "boxhole"
+        pointwise = self.myProblem.analysis.create(aim = "pointwiseAIM",
+                                                   name = "All",
+                                                   capsIntent = ["box", "cone", "sphere", "bullet", "farfield"]) #, "cylinder", "torus", "boxhole"
 
         #pointwise.saveGeometry("GeomAll")
 
         # Global Min/Max number of points on edges
-        pointwise.setAnalysisVal("Connector_Initial_Dim", 6)
-        pointwise.setAnalysisVal("Connector_Min_Dim", 3)
-        pointwise.setAnalysisVal("Connector_Max_Dim", 8)
+        pointwise.input.Connector_Initial_Dim = 6
+        pointwise.input.Connector_Min_Dim     = 3
+        pointwise.input.Connector_Max_Dim     = 8
 
         # Just make sure it runs without errors...
         self.run_pointwise(pointwise)
 
-        #pointwise.viewGeometry()
-
-    @classmethod
-    def tearDownClass(cls):
-
-        # Close CAPS - Optional
-        cls.myProblem.closeCAPS()
+        #pointwise.view()
 
 if __name__ == '__main__':
     unittest.main()

@@ -2,7 +2,9 @@ from __future__ import print_function
 import unittest
 
 import os
+import glob
 import shutil
+
 import sys
 
 import pyCAPS
@@ -40,13 +42,26 @@ def which(program):
 
 class TestAstros(unittest.TestCase):
 
+    @classmethod
+    def setUpClass(cls):
 
-#    @classmethod
-#    def setUpClass(cls):
+        cls.problemName = "workDir_astros"
+        cls.iProb = 1
+        cls.cleanUp()
 
-#    @classmethod
-#    def tearDownClass(cls):
+    @classmethod
+    def tearDownClass(cls):
+        cls.cleanUp()
 
+    @classmethod
+    def cleanUp(cls):
+
+        # Remove analysis directories
+        dirs = glob.glob( cls.problemName + '*')
+        for dir in dirs:
+            if os.path.isdir(dir):
+                shutil.rmtree(dir)
+            
     # This is executed prior to each test
     def setUp(self):
         self.astros_exe = which("astros.exe")
@@ -54,34 +69,25 @@ class TestAstros(unittest.TestCase):
             self.skipTest("No astros.exe executable")
             return
 
-        # Initialize capsProblem object
-        self.myProblem = pyCAPS.capsProblem()
-
-
     def run_astros(self, astros):
 
-        projectName = astros.getAnalysisVal("Proj_Name")
+        Proj_Name = astros.input.Proj_Name
 
         # Run AIM pre-analysis
         astros.preAnalysis()
 
         ####### Run astros####################
         print ("\n\nRunning Astros......")
-        currentDirectory = os.getcwd() # Get our current working directory
-
-        os.chdir(astros.analysisDir) # Move into test directory
 
         # Copy files needed to run astros
         astros_files = ["ASTRO.D01",  # *.DO1 file
                         "ASTRO.IDX"]  # *.IDX file
         for file in astros_files:
             if not os.path.isfile(file):
-                shutil.copy2(ASTROS_ROOT + os.sep + file, file)
+                shutil.copy2(ASTROS_ROOT + os.sep + file, os.path.join(astros.analysisDir, file))
 
         # Run Astros via system call
-        os.system(self.astros_exe + " < " + projectName +  ".dat > " + projectName + ".out");
-
-        os.chdir(currentDirectory) # Move back to working directory
+        astros.system(self.astros_exe + " < " + Proj_Name +  ".dat > " + Proj_Name + ".out");
 
         print ("Done running Astros!")
         ########################################
@@ -93,26 +99,25 @@ class TestAstros(unittest.TestCase):
     def test_Plate(self):
 
         filename = os.path.join("..","csmData","feaSimplePlate.csm")
-        myGeometry = self.myProblem.loadCAPS(filename, verbosity=0)
+        myProblem = pyCAPS.Problem(self.problemName+str(self.iProb), capsFile=filename, outLevel=0); self.__class__.iProb += 1
 
-        mesh = self.myProblem.loadAIM(aim="egadsTessAIM")
+        mesh = myProblem.analysis.create(aim="egadsTessAIM")
         
-        astros = self.myProblem.loadAIM(aim = "astrosAIM",
-                                        analysisDir = "workDir_astrosPlate", 
-                                        parents = mesh.aimName)
+        astros = myProblem.analysis.create(aim = "astrosAIM",
+                                           name = "astrosPlate")
 
-        mesh.setAnalysisVal("Edge_Point_Min", 3)
-        mesh.setAnalysisVal("Edge_Point_Max", 4)
+        mesh.input.Edge_Point_Min = 3
+        mesh.input.Edge_Point_Max = 4
 
-        mesh.setAnalysisVal("Mesh_Elements", "Quad")
+        mesh.input.Mesh_Elements = "Quad"
 
-        mesh.setAnalysisVal("Tess_Params", [.25,.01,15])
-        mesh.preAnalysis()
-        mesh.postAnalysis()
-
+        mesh.input.Tess_Params = [.25,.01,15]
+        
+        # Link the mesh
+        astros.input["Mesh"].link(mesh.output["Surface_Mesh"])
 
         # Set analysis type
-        astros.setAnalysisVal("Analysis_Type", "Static");
+        astros.input.Analysis_Type = "Static"
 
         # Set materials
         madeupium    = {"materialType" : "isotropic",
@@ -120,7 +125,7 @@ class TestAstros(unittest.TestCase):
                         "poissonRatio": 0.33,
                         "density" : 2.8E3}
 
-        astros.setAnalysisVal("Material", ("Madeupium", madeupium))
+        astros.input.Material = {"Madeupium": madeupium}
 
         # Set properties
         shell  = {"propertyType" : "Shell",
@@ -129,13 +134,13 @@ class TestAstros(unittest.TestCase):
                   "bendingInertiaRatio" : 1.0, # Default
                   "shearMembraneRatio"  : 5.0/6.0} # Default
 
-        astros.setAnalysisVal("Property", ("plate", shell))
+        astros.input.Property = {"plate": shell}
 
         # Set constraints
         constraint = {"groupName" : "plateEdge",
                       "dofConstraint" : 123456}
 
-        astros.setAnalysisVal("Constraint", ("edgeConstraint", constraint))
+        astros.input.Constraint = {"edgeConstraint": constraint}
 
         # Set load
         load = {"groupName" : "plate",
@@ -143,54 +148,55 @@ class TestAstros(unittest.TestCase):
                 "pressureForce" : 2.e6}
 
         # Set loads
-        astros.setAnalysisVal("Load", ("appliedPressure", load ))
+        astros.input.Load = {"appliedPressure": load }
 
 
-        astros.setAnalysisVal("File_Format", "Small")
-        astros.setAnalysisVal("Mesh_File_Format", "Small")
-        astros.setAnalysisVal("Proj_Name", "astrosPlateSmall")
+        astros.input.File_Format = "Small"
+        astros.input.Mesh_File_Format = "Small"
+        astros.input.Proj_Name = "astrosPlateSmall"
 
         # Run Small format
-        self.run_astros(astros)
+        astros.runAnalysis()
 
-        astros.setAnalysisVal("File_Format", "Large")
-        astros.setAnalysisVal("Mesh_File_Format", "Large")
-        astros.setAnalysisVal("Proj_Name", "astrosPlateLarge")
+        astros.input.File_Format = "Large"
+        astros.input.Mesh_File_Format = "Large"
+        astros.input.Proj_Name = "astrosPlateLarge"
 
         # Run Large format
-        self.run_astros(astros)
+        astros.runAnalysis()
 
-        astros.setAnalysisVal("File_Format", "Free")
-        astros.setAnalysisVal("Mesh_File_Format", "Free")
-        astros.setAnalysisVal("Proj_Name", "astrosPlateFree")
+        astros.input.File_Format = "Free"
+        astros.input.Mesh_File_Format = "Free"
+        astros.input.Proj_Name = "astrosPlateFree"
 
         # Run Free format
-        self.run_astros(astros)
+        astros.runAnalysis()
 
     def test_Aeroelastic(self):
 
         filename = os.path.join("..","csmData","feaWingOMLAero.csm")
-        myGeometry = self.myProblem.loadCAPS(filename)
+        myProblem = pyCAPS.Problem(self.problemName+str(self.iProb), capsFile=filename, outLevel=0); self.__class__.iProb += 1
 
-        mesh = self.myProblem.loadAIM(aim="egadsTessAIM")
+        mesh =  myProblem.analysis.create(aim="egadsTessAIM")
         
-        astros = self.myProblem.loadAIM(aim = "astrosAIM",
-                                        analysisDir = "workDir_astrosAero", 
-                                        parents = mesh.aimName)
+        astros =  myProblem.analysis.create(aim = "astrosAIM",
+                                            name = "astrosAero",
+                                            autoExec = False)
 
-        astros.setAnalysisVal("Proj_Name", "astrosAero")
+        astros.input.Proj_Name = "astrosAero"
 
-        mesh.setAnalysisVal("Edge_Point_Min", 3)
-        mesh.setAnalysisVal("Edge_Point_Max", 4)
+        mesh.input.Edge_Point_Min = 3
+        mesh.input.Edge_Point_Max = 4
 
-        mesh.setAnalysisVal("Mesh_Elements", "Quad")
+        mesh.input.Mesh_Elements = "Quad"
 
-        mesh.setAnalysisVal("Tess_Params", [.25,.01,15])
-        mesh.preAnalysis()
-        mesh.postAnalysis()
+        mesh.input.Tess_Params = [.25,.01,15]
+
+        # Link the mesh
+        astros.input["Mesh"].link(mesh.output["Surface_Mesh"])
 
         # Set analysis type
-        astros.setAnalysisVal("Analysis_Type", "Aeroelastic")
+        astros.input.Analysis_Type = "Aeroelastic"
 
         # Set analysis
         trim1 = { "analysisType" : "AeroelasticStatic",
@@ -206,14 +212,14 @@ class TestAstros(unittest.TestCase):
                   }
 
 
-        astros.setAnalysisVal("Analysis", [("Trim1", trim1)])
+        astros.input.Analysis = {"Trim1" : trim1}
 
         # Set materials
         unobtainium  = {"youngModulus" : 2.2E6 ,
                         "poissonRatio" : .5,
                         "density"      : 7850}
 
-        astros.setAnalysisVal("Material", ("Unobtainium", unobtainium))
+        astros.input.Material = {"Unobtainium" : unobtainium}
 
         # Set property
         shell  = {"propertyType"        : "Shell",
@@ -226,28 +232,28 @@ class TestAstros(unittest.TestCase):
                   "bendingInertiaRatio" : 1.0, # Default
                   "shearMembraneRatio"  : 5.0/6.0} # Default }
 
-        astros.setAnalysisVal("Property", [("Rib_Root", shell),
-                                           ("Skin", shell2)])
+        astros.input.Property = {"Rib_Root": shell,
+                                 "Skin": shell2}
 
 
         # Defined Connections
         connection = {"dofDependent"   : 123456,
                       "connectionType" : "RigidBody"}
 
-        astros.setAnalysisVal("Connect",("Rib_Root", connection))
+        astros.input.Connect = {"Rib_Root": connection}
 
 
         # Set constraints
         constraint = {"groupName"     : ["Rib_Root_Point"],
                       "dofConstraint" : 12456}
 
-        astros.setAnalysisVal("Constraint", ("ribConstraint", constraint))
+        astros.input.Constraint = {"ribConstraint": constraint}
 
         # Set supports
         support = {"groupName" : ["Rib_Root_Point"],
                    "dofSupport": 3}
 
-        astros.setAnalysisVal("Support", ("ribSupport", support))
+        astros.input.Support = {"ribSupport": support}
 
         # Aero
         wing = {"groupName"    : "Wing",
@@ -256,7 +262,7 @@ class TestAstros(unittest.TestCase):
 
         # Note the surface name corresponds to the capsBound found in the *.csm file. This links
         # the spline for the aerodynamic surface to the structural model
-        astros.setAnalysisVal("VLM_Surface", ("Skin_Top", wing))
+        astros.input.VLM_Surface = {"Skin_Top": wing}
 
         # Run
         self.run_astros(astros)

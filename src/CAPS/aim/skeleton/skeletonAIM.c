@@ -3,7 +3,7 @@
  *
  *             Skeleton AIM Example Code
  *
- *      Copyright 2014-2021, Massachusetts Institute of Technology
+ *      Copyright 2014-2022, Massachusetts Institute of Technology
  *      Licensed under The GNU Lesser General Public License, version 2.1
  *      See http://www.opensource.org/licenses/lgpl-2.1.php
  *
@@ -55,13 +55,13 @@ typedef struct {
 
 /* aimInitialize: Initialization Information for the AIM */
 int
-aimInitialize(int inst, /*@unused@*/ const char *unitSys,
+aimInitialize(int inst, /*@unused@*/ const char *unitSys, void *aimInfo,
               /*@unused@*/ void **instStore, /*@unused@*/ int *major,
-              /*@unused@*/ int *minor, int *nIn, int *nOut, int *nFields,
-              char ***fnames, int **ranks)
+              /*@unused@*/ int *minor, int *nIn, int *nOut,
+              int *nFields, char ***fnames, int **franks, int **fInOut)
 {
   int status = CAPS_SUCCESS;
-  int  *ints, i;
+  int  *ints=NULL, i;
   char **strs = NULL;
   aimStorage *aimStore = NULL;
 
@@ -80,56 +80,52 @@ aimInitialize(int inst, /*@unused@*/ const char *unitSys,
   /* return if "query" only */
   if (inst == -1) return CAPS_SUCCESS;
 
-  /* specify the field variables this analysis can generate */
+  /* specify the field variables this analysis can generate and consume */
   *nFields = 2;
 
-  /* specify the dimension of each field variable */
-  ints     = (int *) EG_alloc(*nFields*sizeof(int));
-  if (ints == NULL) {
-    status = EGADS_MALLOC;
-    goto cleanup;
-  }
-  ints[0]  = 1;
-  ints[1]  = 3;
-  *ranks   = ints;
-
   /* specify the name of each field variable */
-  strs     = (char **) EG_alloc(*nFields*sizeof(char *));
-  if (strs == NULL) {
-    status = EGADS_MALLOC;
-    goto cleanup;
-  }
+  AIM_ALLOC(strs, *nFields, char *, aimInfo, status);
+
   strs[0]  = EG_strdup("scalar");
   strs[1]  = EG_strdup("coordinates");
   for (i = 0; i < *nFields; i++)
-    if (strs[i] == NULL) {
-      status = EGADS_MALLOC;
-      goto cleanup;
-    }
+    if (strs[i] == NULL) { status = EGADS_MALLOC; goto cleanup; }
   *fnames  = strs;
 
+  /* specify the dimension of each field variable */
+  AIM_ALLOC(ints, *nFields, int, aimInfo, status);
+  ints[0]  = 1;
+  ints[1]  = 3;
+  *franks  = ints;
+  ints = NULL;
+
+  /* specify if a field is an input field or output field */
+  AIM_ALLOC(ints, *nFields, int, aimInfo, status);
+
+  ints[0]  = FieldIn;
+  ints[1]  = FieldOut;
+  *fInOut  = ints;
+  ints = NULL;
+
   /* setup our AIM specific state */
-  status = EGADS_MALLOC;
-  aimStore = (aimStorage *) EG_alloc(sizeof(aimStorage));
-  if (aimStore == NULL) goto cleanup;
+  AIM_ALLOC(aimStore, 1, aimStorage, aimInfo, status);
+  *instStore = aimStore;
 
   aimStore->nBody = 0;
   aimStore->tess  = NULL;
-  *instStore = aimStore;
 
   status = CAPS_SUCCESS;
 
 cleanup:
   if (status != CAPS_SUCCESS) {
     /* release all possibly allocated memory on error */
-    printf("skeletonAIM/aimInitialize: failed to allocate memory\n");
-    *nFields = 0;
-
-    AIM_FREE(*ranks);
     if (*fnames != NULL)
-      for (i = 0; i < *nFields; i++) AIM_FREE(strs[i]);
+      for (i = 0; i < *nFields; i++) AIM_FREE((*fnames)[i]);
+    AIM_FREE(*franks);
+    AIM_FREE(*fInOut);
     AIM_FREE(*fnames);
     AIM_FREE(*instStore);
+    *nFields = 0;
   }
   
   return status;
@@ -141,7 +137,7 @@ int
 aimInputs(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo, int index,
           char **ainame, capsValue *defval)
 {
-  int status = CAPS_SUCCESS;
+  int i, status = CAPS_SUCCESS;
   capsTuple *tuple=NULL;
   
 #ifdef DEBUG
@@ -167,7 +163,7 @@ aimInputs(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo, int index,
     defval->units     = EG_strdup("cm");
 
     /*! \page aimInputsSkeleton
-     * - <B> skeletonAIMin = 5 cm</B> <br>
+     * - <B> SkeletonAIMin = 5 cm</B> <br>
      * A real input with units
      */
 
@@ -201,6 +197,10 @@ aimInputs(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo, int index,
     *ainame = AIM_NAME(Table);
 
     AIM_ALLOC( tuple, 3, capsTuple, aimInfo, status);
+    for (i = 0; i < 3; i++) {
+      tuple[i].name = NULL;
+      tuple[i].value = NULL;
+    }
     AIM_STRDUP(tuple[0].name , "Entry1", aimInfo, status);
     AIM_STRDUP(tuple[1].name , "Entry2", aimInfo, status);
     AIM_STRDUP(tuple[2].name , "Entry3", aimInfo, status);
@@ -448,7 +448,6 @@ aimDiscr(char *tname, capsDiscr *discr)
                ibody+1);
     AIM_NOTNULL(faces, discr->aInfo, status);
 
-    found = 0;
     for (iface = 0; iface < nFace; iface++) {
       status = EG_attributeRet(faces[iface], "capsBound", &atype, &alen,
                                &ints, &reals, &string);
@@ -459,10 +458,10 @@ aimDiscr(char *tname, capsDiscr *discr)
       printf(" skeletonAIM/aimDiscr: Body %d/Face %d matches %s!\n",
              ibody+1, iface+1, tname);
 #endif
-      /* count the number of face with capsBound */
-      found = 1;
+      /* count the number of Bodys with capsBound */
+      nBodyDisc++;
+      break;
     }
-    if (found == 1) nBodyDisc++;
     AIM_FREE(faces);
   }
   if (nBodyDisc == 0) {
@@ -478,8 +477,10 @@ aimDiscr(char *tname, capsDiscr *discr)
   discr->types[0].ndata = 0;         /* data at geom reference positions
                                         (i.e. vertex centered/iso-parametric) */
   discr->types[0].ntri  = 1;
+  discr->types[0].nseg  = 0;
   discr->types[0].nmat  = 0;         /* match points at geom ref positions */
   discr->types[0].tris  = NULL;
+  discr->types[0].segs  = NULL;
   discr->types[0].gst   = NULL;
   discr->types[0].dst   = NULL;
   discr->types[0].matst = NULL;
@@ -624,25 +625,6 @@ cleanup:
   AIM_FREE(vid);
 
   return status;
-}
-
-
-/* aimUsesDataSet: Is the DataSet required by aimPreAnalysis -- Optional */
-int aimUsesDataSet(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
-                   /*@unused@*/ const char *bname,
-                   const char *dname, /*@unused@*/ enum capsdMethod dMethod)
-{
-  /* This function checks if a data set name can be consumed by this aim.
-   *
-   * Return CAPS_SUCCESS if the aim can consume the data set. Otherwise
-   * return CAPS_NOTNEEDED
-   */
-
-  if (strcasecmp(dname, "scalar") == 0) {
-      return CAPS_SUCCESS;
-  }
-
-  return CAPS_NOTNEEDED;
 }
 
 

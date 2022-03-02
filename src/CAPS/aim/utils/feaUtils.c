@@ -28,16 +28,16 @@
 
 
 int fea_createMesh(void *aimInfo,
-                   double paramTess[3],                 // (in)  Tessellation parameters
+       /*@null@*/  double paramTess[3],                 // (in)  Tessellation parameters
                    int    edgePointMin,                 // (in)  minimum points along any Edge
                    int    edgePointMax,                 // (in)  maximum points along any Edge
                    int    quadMesh,                     // (in)  only do tris-for faces
-                   mapAttrToIndexStruct *attrMap,       // (in)  map from CAPSGroup names to indexes
+                   mapAttrToIndexStruct *groupMap,      // (in)  map from CAPSGroup names to indexes
                    mapAttrToIndexStruct *constraintMap, // (in)  map from CAPSConstraint names to indexes
                    mapAttrToIndexStruct *loadMap,       // (in)  map from CAPSLoad names to indexes
                    mapAttrToIndexStruct *transferMap,   // (in)  map from CAPSTransfer names to indexes
                    mapAttrToIndexStruct *connectMap,    // (in)  map from CAPSConnect names to indexes
-                   mapAttrToIndexStruct *responseMap,    // (in)  map from CAPSResponse names to indexes
+                   mapAttrToIndexStruct *responseMap,   // (in)  map from CAPSResponse names to indexes
                    int *numMesh,                        // (out) total number of FEA mesh structures
                    meshStruct **feaMesh,                // (out) FEA mesh structure
                    feaProblemStruct *feaProblem ) {     // (out) FEA problem structure
@@ -84,7 +84,7 @@ int fea_createMesh(void *aimInfo,
 
     // Get AIM bodies
     status = aim_getBodies(aimInfo, &intents, &numBody, &bodies);
-    if (status != CAPS_SUCCESS) return status;
+    AIM_STATUS(aimInfo, status);
 
     if ((numBody <= 0) || (bodies == NULL)) {
         AIM_ERROR(aimInfo, "No Bodies!\n");
@@ -175,20 +175,25 @@ int fea_createMesh(void *aimInfo,
     status = create_CAPSGroupAttrToIndexMap(numBody,
                                             bodies,
                                             3, //>2 - search the body, faces, edges, and all the nodes
-                                            attrMap);
+                                            groupMap);
     AIM_STATUS(aimInfo, status);
 
     // Get the mesh input Value
     meshInd = aim_getIndex(aimInfo, "Mesh", ANALYSISIN);
     if (meshInd < 1)
-      meshInd = aim_getIndex(aimInfo, "Surface_Mesh", ANALYSISIN);
+        meshInd = aim_getIndex(aimInfo, "Surface_Mesh", ANALYSISIN);
+    if (meshInd < 1) {
+        AIM_ERROR(aimInfo, "No 'Mesh' or 'Surface_Mesh' ANALYSISIN Index!");
+        status = CAPS_BADINDEX;
+        goto cleanup;
+    }
 
     status = aim_getValue(aimInfo, meshInd, ANALYSISIN, &meshVal);
     AIM_STATUS(aimInfo, status);
 
     feaMeshInherited = (int) false;
 
-    if (meshVal->vals.AIMptr != NULL) {
+    if (meshVal->nullVal != IsNull) {
 
         numFEAMesh = meshVal->length;
         tempMesh = (meshStruct *) meshVal->vals.AIMptr;
@@ -203,7 +208,7 @@ int fea_createMesh(void *aimInfo,
 
                     tempMesh = &((meshStruct *) meshVal->vals.AIMptr)[body];
                                                                                          // Dummy arguments
-                    status = EG_statusTessBody(tempMesh->bodyTessMap.egadsTess, &tempBody, &stat, &nGlobal);
+                    status = EG_statusTessBody(tempMesh->egadsTess, &tempBody, &stat, &nGlobal);
                     if (status != EGADS_SUCCESS) goto cleanup;
 
                     status = retrieve_CAPSDisciplineAttr(tempBody, &discipline);
@@ -220,27 +225,24 @@ int fea_createMesh(void *aimInfo,
                         status= CAPS_SOURCEERR;
                         goto cleanup;
                     }
+
+                    // need a check to make sure all tempMesh->groupMap are identical
                 }
 
-                // We need to update our attribute map
-                 status = copy_mapAttrToIndexStruct( attrMap, &attrMapTemp1 );
-                 AIM_STATUS(aimInfo, status);
+                // We need to update our capsGroup attribute map
 
-                 // Get capsGroup name and index mapping to make sure all faces have a capsGroup value
-                 status = create_CAPSGroupAttrToIndexMap(numBody,
-                                                         bodies,
-                                                         3, //>2 - search the body, faces, edges, and all the nodes
-                                                         &attrMapTemp2);
-                 AIM_STATUS(aimInfo, status);
+                // Get capsGroup name and index mapping to make sure all faces have a capsGroup value
+                status = create_CAPSGroupAttrToIndexMap(numBody,
+                                                        bodies,
+                                                        3, //>2 - search the body, faces, edges, and all the nodes
+                                                        &attrMapTemp2);
+                AIM_STATUS(aimInfo, status);
 
-                 status = merge_mapAttrToIndexStruct(&attrMapTemp1, &attrMapTemp2, attrMap);
-                 AIM_STATUS(aimInfo, status);
-
+                status = merge_mapAttrToIndexStruct(&tempMesh->groupMap, &attrMapTemp2, groupMap);
+                AIM_STATUS(aimInfo, status);
             }
 
-            feaMeshes = (meshStruct *) EG_alloc(numFEAMesh*sizeof(meshStruct));
-            if (feaMeshes == NULL) { status = EGADS_MALLOC; goto cleanup; }
-
+            AIM_ALLOC(feaMeshes, numFEAMesh, meshStruct, aimInfo, status);
             for (body = 0; body < numFEAMesh; body++) (void) initiate_meshStruct(&feaMeshes[body]);
 
             for (body = 0; body < numFEAMesh; body++) {
@@ -261,7 +263,8 @@ int fea_createMesh(void *aimInfo,
                 AIM_STATUS(aimInfo, status);
 
                 // Get FEA Problem from EGADs body
-                status = fea_setAnalysisData(attrMap,
+                status = fea_setAnalysisData(aimInfo,
+                                             groupMap,
                                              &coordSystemMap,
                                              constraintMap,
                                              loadMap,
@@ -281,10 +284,6 @@ int fea_createMesh(void *aimInfo,
                 printf("\tElemental Rods  = %d\n", feaMeshes[body].meshQuickRef.numLine);
                 printf("\tElemental Tria3 = %d\n", feaMeshes[body].meshQuickRef.numTriangle);
                 printf("\tElemental Quad4 = %d\n", feaMeshes[body].meshQuickRef.numQuadrilateral);
-
-                // set the resulting tessellation
-                status = aim_newTess(aimInfo, feaMeshes[body].bodyTessMap.egadsTess);
-                AIM_STATUS(aimInfo, status);
             }
 
             if (numFEAMesh > 1) {
@@ -356,7 +355,7 @@ int fea_createMesh(void *aimInfo,
             for (i = 0; i < feaProblem->feaMesh.numReferenceMesh; i++) {
 
                 status = aim_newTess(aimInfo,
-                                     feaProblem->feaMesh.referenceMesh[i].bodyTessMap.egadsTess);
+                                     feaProblem->feaMesh.referenceMesh[i].egadsTess);
                 AIM_STATUS(aimInfo, status);
             }
 
@@ -365,7 +364,8 @@ int fea_createMesh(void *aimInfo,
             AIM_STATUS(aimInfo, status);
 
             // Get FEA Problem from EGADs body
-            status = fea_setAnalysisData(attrMap,
+            status = fea_setAnalysisData(aimInfo,
+                                         groupMap,
                                          &coordSystemMap,
                                          constraintMap,
                                          loadMap,
@@ -382,6 +382,12 @@ int fea_createMesh(void *aimInfo,
 
     // If we didn't inherit a FEA mesh we need to get one ourselves
     if (feaMeshInherited == (int) false) {
+
+        if (paramTess == NULL) {
+          AIM_ERROR(aimInfo, "Developer error paramTess == NULL");
+          status = CAPS_BADVALUE;
+          goto cleanup;
+        }
 
         if (edgePointMin < 2) {
             printf("The minimum number of allowable edge points is 2 not %d\n", edgePointMin);
@@ -412,12 +418,13 @@ int fea_createMesh(void *aimInfo,
 
 
             // Get FEA Problem from EGADs body
-            status = fea_bodyToBEM(bodies[body], // (in)  EGADS Body
+            status = fea_bodyToBEM(aimInfo,
+                                   bodies[body], // (in)  EGADS Body
                                    paramTess,    // (in)  Tessellation parameters
                                    edgePointMin, // (in)  minimum points along any Edge
                                    edgePointMax, // (in)  maximum points along any Edge
                                    quadMesh,
-                                   attrMap,
+                                   groupMap,
                                    &coordSystemMap,
                                    constraintMap,
                                    loadMap,
@@ -436,7 +443,7 @@ int fea_createMesh(void *aimInfo,
             printf("\tElemental Quad4 = %d\n", tempMesh[*numMesh-1].meshQuickRef.numQuadrilateral);
 
             // set the resulting tessellation
-            status = aim_newTess(aimInfo, tempMesh[*numMesh-1].bodyTessMap.egadsTess);
+            status = aim_newTess(aimInfo, tempMesh[*numMesh-1].egadsTess);
             AIM_STATUS(aimInfo, status);
         }
 
@@ -490,7 +497,8 @@ cleanup:
 // Convert an EGADS body to a boundary element model, modified by Ryan Durscher (AFRL)
 // from code originally written by John Dannenhoffer @ Syracuse University, patterned after code
 // written by Bob Haimes  @ MIT
-int fea_bodyToBEM(ego    ebody,                        // (in)  EGADS Body
+int fea_bodyToBEM(void *aimInfo,                       // (in)  AIM structure
+                  ego    ebody,                        // (in)  EGADS Body
                   double paramTess[3],                 // (in)  Tessellation parameters
                   int    edgePointMin,                 // (in)  minimum points along any Edge
                   int    edgePointMax,                 // (in)  maximum points along any Edge
@@ -524,7 +532,7 @@ int fea_bodyToBEM(ego    ebody,                        // (in)  EGADS Body
     const int  *triConn = NULL, *triNeighbor = NULL; // Triangle
 
     int numPatch = 0; // Patching
-    int n1, n2;
+    int n1, n2, *qints = NULL;
 
     int gID; // Global id
 
@@ -811,7 +819,7 @@ int fea_bodyToBEM(ego    ebody,                        // (in)  EGADS Body
     }
 
     // Make tessellation
-    status = EG_makeTessBody(ebody, params, &feaMesh->bodyTessMap.egadsTess);
+    status = EG_makeTessBody(ebody, params, &feaMesh->egadsTess);
     if (status != EGADS_SUCCESS) {
       printf("\tError in fea_bodyToBEM: EG_makeTessBody\n");
       goto cleanup;
@@ -824,25 +832,18 @@ int fea_bodyToBEM(ego    ebody,                        // (in)  EGADS Body
 
     // If making quads on faces lets setup an array to keep track of which faces have been quaded.
     if (quadMesh == (int)true) {
-        feaMesh->bodyTessMap.numTessFace = numFace;
-        if (feaMesh->bodyTessMap.tessFaceQuadMap != NULL) EG_free(feaMesh->bodyTessMap.tessFaceQuadMap);
-
         if( numFace > 0) {
-            feaMesh->bodyTessMap.tessFaceQuadMap = (int *) EG_alloc(numFace*sizeof(int));
-            if (feaMesh->bodyTessMap.tessFaceQuadMap == NULL) {
-                status = EGADS_MALLOC;
-                goto cleanup;
-            }
+            AIM_ALLOC(qints, numFace, int, aimInfo, status);
         }
         // Set default to 0
-        for (face = 0; face < numFace; face++) feaMesh->bodyTessMap.tessFaceQuadMap[face] = 0;
+        for (face = 0; face < numFace; face++) qints[face] = 0;
     }
 
     if (quadMesh == (int)true) {
         for (face = 1; face <= numFace; face++) {
             if (iwest[face] <= 0) continue;
 
-            status = EG_makeQuads(feaMesh->bodyTessMap.egadsTess, params, face);
+            status = EG_makeQuads(feaMesh->egadsTess, params, face);
             if (status < EGADS_SUCCESS) {
                 printf("Face = %d, failed to make quads\n", face);
                 printf("Edges = %d %d %d %d\n", inorth[face], ieast[face], isouth[face], iwest[face]);
@@ -857,7 +858,7 @@ int fea_bodyToBEM(ego    ebody,                        // (in)  EGADS Body
     feaMesh->analysisType = MeshStructure;
 
     // Get number of point in the tessellation
-    status = EG_statusTessBody(feaMesh->bodyTessMap.egadsTess, &tempBody, &i, &feaMesh->numNode);
+    status = EG_statusTessBody(feaMesh->egadsTess, &tempBody, &i, &feaMesh->numNode);
     if (status != EGADS_SUCCESS) goto cleanup;
 
     feaMesh->node = (meshNodeStruct *) EG_alloc(feaMesh->numNode*sizeof(meshNodeStruct));
@@ -875,7 +876,7 @@ int fea_bodyToBEM(ego    ebody,                        // (in)  EGADS Body
     // Fill up the Attributes for the nodes
     for (i = 0; i < feaMesh->numNode; i++) {
 
-        status = EG_getGlobal(feaMesh->bodyTessMap.egadsTess, i+1, &pointType, &pointTopoIndex, xyzPoint);
+        status = EG_getGlobal(feaMesh->egadsTess, i+1, &pointType, &pointTopoIndex, xyzPoint);
         if (status != EGADS_SUCCESS) goto cleanup;
 
         feaMesh->node[i].xyz[0] = xyzPoint[0];
@@ -925,9 +926,8 @@ int fea_bodyToBEM(ego    ebody,                        // (in)  EGADS Body
 
         status = retrieve_CAPSGroupAttr(enodes[i], &attrName);
         if (status != CAPS_SUCCESS) {
-            printf("\tError: no capsGroup attribute found for node - %d!!\n", i+1);
-            printf("Available attributes are:\n");
-            print_AllAttr( enodes[i] );
+            AIM_ERROR(aimInfo, "No capsGroup attribute found for node - %d!!", i+1);
+            print_AllAttr(aimInfo, enodes[i]);
             goto cleanup;
         }
 
@@ -1007,15 +1007,14 @@ int fea_bodyToBEM(ego    ebody,                        // (in)  EGADS Body
 
             status = retrieve_CAPSGroupAttr(eedges[i], &attrName);
             if (status != CAPS_SUCCESS) {
-                printf("\tError: no capsGroup attribute found for edge - %d!!\n", i+1);
-                printf("Available attributes are:\n");
-                print_AllAttr( eedges[i] );
+                AIM_ERROR(aimInfo, "No capsGroup attribute found for edge - %d!!", i+1);
+                print_AllAttr(aimInfo, eedges[i] );
                 goto cleanup;
             }
 
             status = get_mapAttrToIndexIndex(attrMap, attrName, &attrIndex);
             if (status != CAPS_SUCCESS) {
-                printf("\tError: capsGroup name %s not found in attribute to index map\n", attrName);
+                AIM_ERROR(aimInfo, "capsGroup name %s not found in attribute to index map\n", attrName);
                 goto cleanup;
             }
 
@@ -1028,15 +1027,15 @@ int fea_bodyToBEM(ego    ebody,                        // (in)  EGADS Body
 
             feaMesh->element[numElement-1].markerID = attrIndex;
 
-            status = EG_getTessEdge(feaMesh->bodyTessMap.egadsTess, i+1, &numPoint, &xyz, &uv);
+            status = EG_getTessEdge(feaMesh->egadsTess, i+1, &numPoint, &xyz, &uv);
             if (status < EGADS_SUCCESS) goto cleanup;
 
-            status = EG_localToGlobal(feaMesh->bodyTessMap.egadsTess, -(i+1), 1, &gID);
+            status = EG_localToGlobal(feaMesh->egadsTess, -(i+1), 1, &gID);
             if (status != EGADS_SUCCESS) goto cleanup;
 
             feaMesh->element[numElement-1].connectivity[0] = gID;
 
-            status = EG_localToGlobal(feaMesh->bodyTessMap.egadsTess, -(i+1), numPoint, &gID);
+            status = EG_localToGlobal(feaMesh->egadsTess, -(i+1), numPoint, &gID);
             if (status != EGADS_SUCCESS) goto cleanup;
 
             feaMesh->element[numElement-1].connectivity[1] = gID;
@@ -1103,15 +1102,14 @@ int fea_bodyToBEM(ego    ebody,                        // (in)  EGADS Body
 
         status = retrieve_CAPSGroupAttr(efaces[face], &attrName);
         if (status != CAPS_SUCCESS) {
-            printf("Error: no capsGroup attribute found for face - %d!!\n", face+1);
-            printf("Available attributes are:\n");
-            print_AllAttr( efaces[face] );
+            AIM_ERROR(aimInfo, "No capsGroup attribute found for face - %d!!", face+1);
+            print_AllAttr(aimInfo, efaces[face]);
             goto cleanup;
         }
 
         status = get_mapAttrToIndexIndex(attrMap, attrName, &attrIndex);
         if (status != CAPS_SUCCESS) {
-            printf("Error: capsGroup name %s not found in attribute to index map\n", attrName);
+            AIM_ERROR(aimInfo, "capsGroup name %s not found in attribute to index map", attrName);
             goto cleanup;
         }
 
@@ -1132,8 +1130,8 @@ int fea_bodyToBEM(ego    ebody,                        // (in)  EGADS Body
         }
 
         if (quadMesh == (int) true) {
-            status = EG_getQuads(feaMesh->bodyTessMap.egadsTess, face+1, &numPoint, &xyz, &uv, &ptype, &pindex, &numPatch);
-            if (status < EGADS_SUCCESS) goto cleanup;
+            status = EG_getQuads(feaMesh->egadsTess, face+1, &numPoint, &xyz, &uv, &ptype, &pindex, &numPatch);
+            AIM_STATUS(aimInfo, status);
 
         } else numPatch = -1;
 
@@ -1145,11 +1143,11 @@ int fea_bodyToBEM(ego    ebody,                        // (in)  EGADS Body
                 goto cleanup;
             }
 
-            feaMesh->bodyTessMap.tessFaceQuadMap[face] = 0;
+            qints[face] = 0;
             for (patch = 1; patch <= numPatch; patch++) {
 
-                status = EG_getPatch(feaMesh->bodyTessMap.egadsTess, face+1, patch, &n1, &n2, &pvindex, &pbounds);
-                if (status < EGADS_SUCCESS) goto cleanup;
+                status = EG_getPatch(feaMesh->egadsTess, face+1, patch, &n1, &n2, &pvindex, &pbounds);
+                AIM_STATUS(aimInfo, status);
 
                 for (j = 1; j < n2; j++) {
                     for (i = 1; i < n1; i++) {
@@ -1170,34 +1168,34 @@ int fea_bodyToBEM(ego    ebody,                        // (in)  EGADS Body
                         feaMesh->element = tempElement;
 
                         status = initiate_meshElementStruct(&feaMesh->element[numElement-1], feaMesh->analysisType);
-                        if (status != CAPS_SUCCESS) goto cleanup;
+                        AIM_STATUS(aimInfo, status);
 
-                        feaMesh->bodyTessMap.tessFaceQuadMap[face] += 1;
+                        qints[face] += 1;
 
                         feaMesh->element[numElement-1].elementType = Quadrilateral;
 
                         feaMesh->element[numElement-1].elementID = numElement;
 
                         status = mesh_allocMeshElementConnectivity(&feaMesh->element[numElement-1]);
-                        if (status != CAPS_SUCCESS) goto cleanup;
+                        AIM_STATUS(aimInfo, status);
 
-                        status = EG_localToGlobal(feaMesh->bodyTessMap.egadsTess, face+1, pvindex[(i-1)+n1*(j-1)], &gID);
-                        if (status != EGADS_SUCCESS) goto cleanup;
+                        status = EG_localToGlobal(feaMesh->egadsTess, face+1, pvindex[(i-1)+n1*(j-1)], &gID);
+                        AIM_STATUS(aimInfo, status);
 
                         feaMesh->element[numElement-1].connectivity[0] = gID;
 
-                        status = EG_localToGlobal(feaMesh->bodyTessMap.egadsTess, face+1, pvindex[(i  )+n1*(j-1)], &gID);
-                        if (status != EGADS_SUCCESS) goto cleanup;
+                        status = EG_localToGlobal(feaMesh->egadsTess, face+1, pvindex[(i  )+n1*(j-1)], &gID);
+                        AIM_STATUS(aimInfo, status);
 
                         feaMesh->element[numElement-1].connectivity[1] = gID;
 
-                        status = EG_localToGlobal(feaMesh->bodyTessMap.egadsTess, face+1, pvindex[(i  )+n1*(j  )], &gID);
-                        if (status != EGADS_SUCCESS) goto cleanup;
+                        status = EG_localToGlobal(feaMesh->egadsTess, face+1, pvindex[(i  )+n1*(j  )], &gID);
+                        AIM_STATUS(aimInfo, status);
 
                         feaMesh->element[numElement-1].connectivity[2] = gID;
 
-                        status = EG_localToGlobal(feaMesh->bodyTessMap.egadsTess, face+1, pvindex[(i-1)+n1*(j  )], &gID);
-                        if (status != EGADS_SUCCESS) goto cleanup;
+                        status = EG_localToGlobal(feaMesh->egadsTess, face+1, pvindex[(i-1)+n1*(j  )], &gID);
+                        AIM_STATUS(aimInfo, status);
 
                         feaMesh->element[numElement-1].connectivity[3] = gID;
 
@@ -1215,7 +1213,7 @@ int fea_bodyToBEM(ego    ebody,                        // (in)  EGADS Body
 
             }
         } else {
-            status = EG_getTessFace(feaMesh->bodyTessMap.egadsTess, face+1,
+            status = EG_getTessFace(feaMesh->egadsTess, face+1,
                                     &numPoint, &xyz, &uv, &ptype, &pindex,
                                     &numTri, &triConn, &triNeighbor);
             if (status < EGADS_SUCCESS) goto cleanup;
@@ -1247,20 +1245,20 @@ int fea_bodyToBEM(ego    ebody,                        // (in)  EGADS Body
                 feaMesh->element[numElement-1].elementID = numElement;
 
                 status = mesh_allocMeshElementConnectivity(&feaMesh->element[numElement-1]);
-                if (status != CAPS_SUCCESS) goto cleanup;
+                AIM_STATUS(aimInfo, status);
 
-                status = EG_localToGlobal(feaMesh->bodyTessMap.egadsTess, face+1, triConn[3*i + 0], &gID);
-                if (status != EGADS_SUCCESS) goto cleanup;
+                status = EG_localToGlobal(feaMesh->egadsTess, face+1, triConn[3*i + 0], &gID);
+                AIM_STATUS(aimInfo, status);
 
                 feaMesh->element[numElement-1].connectivity[0] = gID;
 
-                status = EG_localToGlobal(feaMesh->bodyTessMap.egadsTess, face+1, triConn[3*i + 1], &gID);
-                if (status != EGADS_SUCCESS) goto cleanup;
+                status = EG_localToGlobal(feaMesh->egadsTess, face+1, triConn[3*i + 1], &gID);
+                AIM_STATUS(aimInfo, status);
 
                 feaMesh->element[numElement-1].connectivity[1] = gID;
 
-                status = EG_localToGlobal(feaMesh->bodyTessMap.egadsTess, face+1, triConn[3*i + 2], &gID);
-                if (status != EGADS_SUCCESS) goto cleanup;
+                status = EG_localToGlobal(feaMesh->egadsTess, face+1, triConn[3*i + 2], &gID);
+                AIM_STATUS(aimInfo, status);
 
                 feaMesh->element[numElement-1].connectivity[2] = gID;
 
@@ -1277,6 +1275,11 @@ int fea_bodyToBEM(ego    ebody,                        // (in)  EGADS Body
         }
     }
 
+    if (qints != NULL) {
+        status = EG_attributeAdd(feaMesh->egadsTess, ".mixed", ATTRINT, numFace, qints, NULL, NULL);
+        AIM_STATUS(aimInfo, status);
+    }
+
     if (ignoreFound == (int) true) {
 
         // Look at the nodeID for each node and check to see if it is being used in the element connectivity; if not it is removed
@@ -1287,37 +1290,39 @@ int fea_bodyToBEM(ego    ebody,                        // (in)  EGADS Body
     }
 
     status = CAPS_SUCCESS;
-    goto cleanup;
 
-    cleanup:
-        if (status != CAPS_SUCCESS) printf("\tPremature exit in fea_bodyToBem, status = %d\n", status);
+cleanup:
+    if (status != CAPS_SUCCESS) printf("\tPremature exit in fea_bodyToBem, status = %d\n", status);
 
-        if (iwest  != NULL) EG_free(iwest );
-        if (inorth != NULL) EG_free(inorth);
-        if (ieast  != NULL) EG_free(ieast );
-        if (isouth != NULL) EG_free(isouth);
-        if (rpos   != NULL) EG_free(rpos  );
-        if (points  != NULL) EG_free(points );
+    AIM_FREE(iwest );
+    AIM_FREE(inorth);
+    AIM_FREE(ieast );
+    AIM_FREE(isouth);
+    AIM_FREE(rpos  );
+    AIM_FREE(points );
 
-        if (enodes != NULL) EG_free(enodes);
-        if (eedges != NULL) EG_free(eedges);
-        if (efaces != NULL) EG_free(efaces);
+    AIM_FREE(enodes);
+    AIM_FREE(eedges);
+    AIM_FREE(efaces);
 
-        enodes = NULL;
-        eedges =NULL;
-        efaces =NULL;
+    AIM_FREE(qints);
 
-        return status;
+    enodes = NULL;
+    eedges =NULL;
+    efaces =NULL;
+
+    return status;
 }
 
 // Set the fea analysis meta data in a mesh
-int fea_setAnalysisData( mapAttrToIndexStruct *attrMap,       // (in)  map from CAPSGroup names to indexes
+int fea_setAnalysisData( void *aimInfo,                       // (in)  AIM structure
+                         mapAttrToIndexStruct *attrMap,       // (in)  map from CAPSGroup names to indexes
                          mapAttrToIndexStruct *coordSystemMap,// (in)  map from CoordSystem names to indexes
                          mapAttrToIndexStruct *constraintMap, // (in)  map from CAPSConstraint names to indexes
                          mapAttrToIndexStruct *loadMap,       // (in)  map from CAPSLoad names to indexes
                          mapAttrToIndexStruct *transferMap,   // (in)  map from CAPSTransfer names to indexes
                          mapAttrToIndexStruct *connectMap,    // (in)  map from CAPSConnect names to indexes
-                         mapAttrToIndexStruct *responseMap,    // (in)  map from CAPSResponse names to indexes
+                         mapAttrToIndexStruct *responseMap,   // (in)  map from CAPSResponse names to indexes
                          meshStruct *feaMesh)                 // (in/out) FEA mesh structure
 {
     int status = 0; // Function return status
@@ -1360,18 +1365,18 @@ int fea_setAnalysisData( mapAttrToIndexStruct *attrMap,       // (in)  map from 
         printf("Setting FEA Data\n");
 
         // Get body from tessellation
-        status = EG_statusTessBody(feaMesh->bodyTessMap.egadsTess, &ebody, &dummy, &dummy);
-        if (status != CAPS_SUCCESS) goto cleanup;
+        status = EG_statusTessBody(feaMesh->egadsTess, &ebody, &dummy, &dummy);
+        AIM_STATUS(aimInfo, status);
 
         // Get number of Nodes, Edges, and Faces in ebody
         status = EG_getBodyTopos(ebody, NULL, NODE, &numNode, &enodes);
-        if (status < EGADS_SUCCESS) goto cleanup;
+        AIM_STATUS(aimInfo, status);
 
         status = EG_getBodyTopos(ebody, NULL, EDGE, &numEdge, &eedges);
-        if (status != EGADS_SUCCESS) goto cleanup;
+        AIM_STATUS(aimInfo, status);
 
         status = EG_getBodyTopos(ebody, NULL, FACE, &numFace, &efaces);
-        if (status < EGADS_SUCCESS) goto cleanup;
+        AIM_STATUS(aimInfo, status);
 
         // What type of BODY do we have?
         isNodeBody = aim_isNodeBody(ebody, xyzPoint);
@@ -1384,8 +1389,8 @@ int fea_setAnalysisData( mapAttrToIndexStruct *attrMap,       // (in)  map from 
         // Fill up the Attributes for the nodes
         for (i = 0; i < feaMesh->numNode; i++) {
 
-            status = EG_getGlobal(feaMesh->bodyTessMap.egadsTess, feaMesh->node[i].nodeID, &pointType, &pointTopoIndex, xyzPoint);
-            if (status != EGADS_SUCCESS) goto cleanup;
+            status = EG_getGlobal(feaMesh->egadsTess, feaMesh->node[i].nodeID, &pointType, &pointTopoIndex, xyzPoint);
+            AIM_STATUS(aimInfo, status);
 
             feaData = (feaMeshDataStruct *) feaMesh->node[i].analysisData;
 
@@ -1399,7 +1404,7 @@ int fea_setAnalysisData( mapAttrToIndexStruct *attrMap,       // (in)  map from 
                                          responseMap,
                                          pointType, pointTopoIndex,
                                          feaData); // Set the feaData structure
-            if (status != CAPS_SUCCESS) goto cleanup;
+            AIM_STATUS(aimInfo, status);
         }
 
         // Fill element information
@@ -1408,7 +1413,7 @@ int fea_setAnalysisData( mapAttrToIndexStruct *attrMap,       // (in)  map from 
         if (numNode == 1) {
 
             if (feaMesh->numNode != 1) {
-                printf("NodeBody found, but more than one node being reported!\n");
+                AIM_ERROR(aimInfo, "NodeBody found, but more than one node being reported!\n");
                 status = CAPS_BADVALUE;
                 goto cleanup;
             }
@@ -1416,15 +1421,14 @@ int fea_setAnalysisData( mapAttrToIndexStruct *attrMap,       // (in)  map from 
             i = 0;
             status = retrieve_CAPSGroupAttr(enodes[i], &attrName);
             if (status != CAPS_SUCCESS) {
-                printf("\tError: no capsGroup attribute found for node - %d!!\n", i+1);
-                printf("Available attributes are:\n");
-                print_AllAttr( enodes[i] );
+                AIM_ERROR(aimInfo, "No capsGroup attribute found for node - %d!!", i+1);
+                print_AllAttr(aimInfo, enodes[i] );
                 goto cleanup;
             }
 
             status = get_mapAttrToIndexIndex(attrMap, attrName, &attrIndex);
             if (status != CAPS_SUCCESS) {
-                printf("\tError: capsGroup name %s not found in attribute to index map\n", attrName);
+                AIM_ERROR(aimInfo, "capsGroup name %s not found in attribute to index map", attrName);
                 goto cleanup;
             }
 
@@ -1456,7 +1460,7 @@ int fea_setAnalysisData( mapAttrToIndexStruct *attrMap,       // (in)  map from 
             for (i = 0; i < feaMesh->meshQuickRef.numLine; i++) {
 
                 status = EG_getInfo(eedges[i], &oclass, &mtype, &topObj, &prev, &next);
-                if (status != CAPS_SUCCESS) goto cleanup;
+                AIM_STATUS(aimInfo, status);
                 if (mtype == DEGENERATE) continue;
 
                 if (feaMesh->meshQuickRef.useStartIndex == (int)true)
@@ -1581,8 +1585,8 @@ int fea_setAnalysisData( mapAttrToIndexStruct *attrMap,       // (in)  map from 
             printf("Setting FEA Data from reference mesh %d (of %d)\n", body+1, feaMesh->numReferenceMesh);
 
             // Get body from tessellation
-            status = EG_statusTessBody(feaMesh->referenceMesh[body].bodyTessMap.egadsTess, &ebody, &dummy, &dummy);
-            if (status != CAPS_SUCCESS) goto cleanup;
+            status = EG_statusTessBody(feaMesh->referenceMesh[body].egadsTess, &ebody, &dummy, &dummy);
+            AIM_STATUS(aimInfo, status);
 
             // Get number of Nodes, Edges, and Faces in ebody
             status = EG_getBodyTopos(ebody, NULL, NODE, &numNode, &enodes);
@@ -1610,7 +1614,7 @@ int fea_setAnalysisData( mapAttrToIndexStruct *attrMap,       // (in)  map from 
             // Fill up the Attributes for the nodes
             for (i = 0; i < feaMesh->referenceMesh[body].numNode; i++) {
 
-                status = EG_getGlobal(feaMesh->referenceMesh[body].bodyTessMap.egadsTess, feaMesh->referenceMesh[body].node[i].nodeID, &pointType, &pointTopoIndex, xyzPoint);
+                status = EG_getGlobal(feaMesh->referenceMesh[body].egadsTess, feaMesh->referenceMesh[body].node[i].nodeID, &pointType, &pointTopoIndex, xyzPoint);
                 if (status != EGADS_SUCCESS) goto cleanup;
 
                 feaData = (feaMeshDataStruct *) feaMesh->node[i+nodeOffset].analysisData;
@@ -1625,7 +1629,7 @@ int fea_setAnalysisData( mapAttrToIndexStruct *attrMap,       // (in)  map from 
                                              responseMap,
                                              pointType, pointTopoIndex,
                                              feaData); // Set the feaData structure
-                if (status != CAPS_SUCCESS) goto cleanup;
+                AIM_STATUS(aimInfo, status);
             }
 
             // Fill element information //
@@ -2075,6 +2079,34 @@ int destroy_feaMaterialStruct(feaMaterialStruct *feaMaterial) {
     feaMaterial->compressAllowLateral   = 0.0; // Compression allowable for the material
     feaMaterial->thermalExpCoeffLateral = 0.0; //Coefficient of thermal expansion
     feaMaterial->allowType = 0;
+
+    return CAPS_SUCCESS;
+}
+
+// Initiate (0 out all values and NULL all pointers) of feaUnits in the feaUnitsStruct structure format
+int initiate_feaUnitsStruct(feaUnitsStruct *feaUnits) {
+
+    feaUnits->densityVol = NULL;
+    feaUnits->densityArea = NULL;
+    feaUnits->mass = NULL;
+    feaUnits->length = NULL;
+    feaUnits->pressure = NULL;
+    feaUnits->temperature = NULL;
+    feaUnits->momentOfInertia = NULL;
+
+    return CAPS_SUCCESS;
+}
+
+// Destroy (0 out all values and NULL all pointers) of feaUnits in the feaUnitsStruct structure format
+int destroy_feaUnitsStruct(feaUnitsStruct *feaUnits) {
+
+    AIM_FREE(feaUnits->densityVol);
+    AIM_FREE(feaUnits->densityArea);
+    AIM_FREE(feaUnits->mass);
+    AIM_FREE(feaUnits->length);
+    AIM_FREE(feaUnits->pressure);
+    AIM_FREE(feaUnits->temperature);
+    AIM_FREE(feaUnits->momentOfInertia);
 
     return CAPS_SUCCESS;
 }
@@ -3026,8 +3058,10 @@ int destroy_feaDesignVariableRelationStruct(feaDesignVariableRelationStruct *rel
 }
 
 // Get the material properties from a capsTuple
-int fea_getMaterial(int numMaterialTuple,
+int fea_getMaterial(void *aimInfo,
+                    int numMaterialTuple,
                     capsTuple materialTuple[],
+                    feaUnitsStruct *feaUnits,
                     int *numMaterial,
                     feaMaterialStruct *feaMaterial[]) {
 
@@ -3131,11 +3165,7 @@ int fea_getMaterial(int numMaterialTuple,
                         materialTuple[i].name);
                 (*feaMaterial)[i].materialType = Isotropic;
             }
-
-            if (keyValue != NULL) {
-                EG_free(keyValue);
-                keyValue = NULL;
-            }
+            AIM_FREE(keyValue);
 
             //Fill up material properties
 
@@ -3153,13 +3183,13 @@ int fea_getMaterial(int numMaterialTuple,
             keyWord = "youngModulus";
             status = search_jsonDictionary( materialTuple[i].value, keyWord, &keyValue);
             if (status == CAPS_SUCCESS) {
-
-                status = string_toDouble(keyValue, &(*feaMaterial)[i].youngModulus);
-                if (keyValue != NULL) {
-                    EG_free(keyValue);
-                    keyValue = NULL;
+                if ( feaUnits->pressure != NULL ) {
+                    status = string_toDoubleUnits(aimInfo, keyValue, feaUnits->pressure, &(*feaMaterial)[i].youngModulus);
+                } else {
+                    status = string_toDouble(keyValue, &(*feaMaterial)[i].youngModulus);
                 }
-                if (status != CAPS_SUCCESS) return status;
+                AIM_STATUS(aimInfo, status, "While parsing \"%s\":\"%s\"", keyWord, keyValue);
+                AIM_FREE(keyValue);
             }
 
             /*! \page feaMaterial
@@ -3177,11 +3207,8 @@ int fea_getMaterial(int numMaterialTuple,
             if (status == CAPS_SUCCESS) {
 
                 status = string_toDouble(keyValue, &(*feaMaterial)[i].shearModulus);
-                if (keyValue != NULL) {
-                    EG_free(keyValue);
-                    keyValue = NULL;
-                }
-                if (status != CAPS_SUCCESS) return status;
+                AIM_STATUS(aimInfo, status, "While parsing \"%s\":\"%s\"", keyWord, keyValue);
+                AIM_FREE(keyValue);
             }
 
             /*! \page feaMaterial
@@ -3200,11 +3227,8 @@ int fea_getMaterial(int numMaterialTuple,
             if (status == CAPS_SUCCESS) {
 
                 status = string_toDouble(keyValue, &(*feaMaterial)[i].poissonRatio);
-                if (keyValue != NULL) {
-                    EG_free(keyValue);
-                    keyValue = NULL;
-                }
-                if (status != CAPS_SUCCESS) return status;
+                AIM_STATUS(aimInfo, status, "While parsing \"%s\":\"%s\"", keyWord, keyValue);
+                AIM_FREE(keyValue);
             }
 
             // Check Young's modulus, shear modulus, and Poisson's ratio
@@ -3234,13 +3258,13 @@ int fea_getMaterial(int numMaterialTuple,
             keyWord = "density";
             status = search_jsonDictionary( materialTuple[i].value, keyWord, &keyValue);
             if (status == CAPS_SUCCESS) {
-
-                status = string_toDouble(keyValue, &(*feaMaterial)[i].density);
-                if (keyValue != NULL) {
-                    EG_free(keyValue);
-                    keyValue = NULL;
+                if ( feaUnits->densityVol != NULL ) {
+                    status = string_toDoubleUnits(aimInfo, keyValue, feaUnits->densityVol, &(*feaMaterial)[i].density);
+                } else {
+                    status = string_toDouble(keyValue, &(*feaMaterial)[i].density);
                 }
-                if (status != CAPS_SUCCESS) return status;
+                AIM_STATUS(aimInfo, status, "While parsing \"%s\":\"%s\"", keyWord, keyValue);
+                AIM_FREE(keyValue);
             }
 
             /*! \page feaMaterial
@@ -3257,11 +3281,8 @@ int fea_getMaterial(int numMaterialTuple,
             if (status == CAPS_SUCCESS) {
 
                 status = string_toDouble(keyValue, &(*feaMaterial)[i].thermalExpCoeff);
-                if (keyValue != NULL) {
-                    EG_free(keyValue);
-                    keyValue = NULL;
-                }
-                if (status != CAPS_SUCCESS) return status;
+                AIM_STATUS(aimInfo, status, "While parsing \"%s\":\"%s\"", keyWord, keyValue);
+                AIM_FREE(keyValue);
             }
 
             /*! \page feaMaterial
@@ -3278,11 +3299,8 @@ int fea_getMaterial(int numMaterialTuple,
             if (status == CAPS_SUCCESS) {
 
                 status = string_toDouble(keyValue, &(*feaMaterial)[i].thermalExpCoeffLateral);
-                if (keyValue != NULL) {
-                    EG_free(keyValue);
-                    keyValue = NULL;
-                }
-                if (status != CAPS_SUCCESS) return status;
+                AIM_STATUS(aimInfo, status, "While parsing \"%s\":\"%s\"", keyWord, keyValue);
+                AIM_FREE(keyValue);
             }
 
             /*! \page feaMaterial
@@ -3300,11 +3318,8 @@ int fea_getMaterial(int numMaterialTuple,
             if (status == CAPS_SUCCESS) {
 
                 status = string_toDouble(keyValue, &(*feaMaterial)[i].temperatureRef);
-                if (keyValue != NULL) {
-                    EG_free(keyValue);
-                    keyValue = NULL;
-                }
-                if (status != CAPS_SUCCESS) return status;
+                AIM_STATUS(aimInfo, status, "While parsing \"%s\":\"%s\"", keyWord, keyValue);
+                AIM_FREE(keyValue);
             }
 
             /*! \page feaMaterial
@@ -3321,11 +3336,8 @@ int fea_getMaterial(int numMaterialTuple,
             if (status == CAPS_SUCCESS) {
 
                 status = string_toDouble(keyValue, &(*feaMaterial)[i].dampingCoeff);
-                if (keyValue != NULL) {
-                    EG_free(keyValue);
-                    keyValue = NULL;
-                }
-                if (status != CAPS_SUCCESS) return status;
+                AIM_STATUS(aimInfo, status, "While parsing \"%s\":\"%s\"", keyWord, keyValue);
+                AIM_FREE(keyValue);
             }
 
             /*! \page feaMaterial
@@ -3343,11 +3355,8 @@ int fea_getMaterial(int numMaterialTuple,
             if (status == CAPS_SUCCESS) {
 
                 status = string_toDouble(keyValue, &(*feaMaterial)[i].yieldAllow);
-                if (keyValue != NULL) {
-                    EG_free(keyValue);
-                    keyValue = NULL;
-                }
-                if (status != CAPS_SUCCESS) return status;
+                AIM_STATUS(aimInfo, status, "While parsing \"%s\":\"%s\"", keyWord, keyValue);
+                AIM_FREE(keyValue);
             }
 
             /*! \page feaMaterial
@@ -3365,11 +3374,8 @@ int fea_getMaterial(int numMaterialTuple,
             if (status == CAPS_SUCCESS) {
 
                 status = string_toDouble(keyValue, &(*feaMaterial)[i].tensionAllow);
-                if (keyValue != NULL) {
-                    EG_free(keyValue);
-                    keyValue = NULL;
-                }
-                if (status != CAPS_SUCCESS) return status;
+                AIM_STATUS(aimInfo, status, "While parsing \"%s\":\"%s\"", keyWord, keyValue);
+                AIM_FREE(keyValue);
             }
 
             /*! \page feaMaterial
@@ -3387,11 +3393,8 @@ int fea_getMaterial(int numMaterialTuple,
             if (status == CAPS_SUCCESS) {
 
                 status = string_toDouble(keyValue, &(*feaMaterial)[i].tensionAllowLateral);
-                if (keyValue != NULL) {
-                    EG_free(keyValue);
-                    keyValue = NULL;
-                }
-                if (status != CAPS_SUCCESS) return status;
+                AIM_STATUS(aimInfo, status, "While parsing \"%s\":\"%s\"", keyWord, keyValue);
+                AIM_FREE(keyValue);
             }
 
             /*! \page feaMaterial
@@ -3408,11 +3411,8 @@ int fea_getMaterial(int numMaterialTuple,
             if (status == CAPS_SUCCESS) {
 
                 status = string_toDouble(keyValue, &(*feaMaterial)[i].compressAllow);
-                if (keyValue != NULL) {
-                    EG_free(keyValue);
-                    keyValue = NULL;
-                }
-                if (status != CAPS_SUCCESS) return status;
+                AIM_STATUS(aimInfo, status, "While parsing \"%s\":\"%s\"", keyWord, keyValue);
+                AIM_FREE(keyValue);
             }
 
             /*! \page feaMaterial
@@ -3429,11 +3429,8 @@ int fea_getMaterial(int numMaterialTuple,
             if (status == CAPS_SUCCESS) {
 
                 status = string_toDouble(keyValue, &(*feaMaterial)[i].compressAllowLateral);
-                if (keyValue != NULL) {
-                    EG_free(keyValue);
-                    keyValue = NULL;
-                }
-                if (status != CAPS_SUCCESS) return status;
+                AIM_STATUS(aimInfo, status, "While parsing \"%s\":\"%s\"", keyWord, keyValue);
+                AIM_FREE(keyValue);
             }
 
             /*! \page feaMaterial
@@ -3450,11 +3447,8 @@ int fea_getMaterial(int numMaterialTuple,
             if (status == CAPS_SUCCESS) {
 
                 status = string_toDouble(keyValue, &(*feaMaterial)[i].shearAllow);
-                if (keyValue != NULL) {
-                    EG_free(keyValue);
-                    keyValue = NULL;
-                }
-                if (status != CAPS_SUCCESS) return status;
+                AIM_STATUS(aimInfo, status, "While parsing \"%s\":\"%s\"", keyWord, keyValue);
+                AIM_FREE(keyValue);
             }
 
             /*! \page feaMaterial
@@ -3470,11 +3464,8 @@ int fea_getMaterial(int numMaterialTuple,
             status = search_jsonDictionary( materialTuple[i].value, keyWord, &keyValue);
             if (status == CAPS_SUCCESS) {
                 status = string_toInteger(keyValue, &(*feaMaterial)[i].allowType);
-                if (keyValue != NULL) {
-                    EG_free(keyValue);
-                    keyValue = NULL;
-                }
-                if (status != CAPS_SUCCESS) return status;
+                AIM_STATUS(aimInfo, status, "While parsing \"%s\":\"%s\"", keyWord, keyValue);
+                AIM_FREE(keyValue);
             }
 
             /*! \page feaMaterial
@@ -3491,11 +3482,8 @@ int fea_getMaterial(int numMaterialTuple,
             if (status == CAPS_SUCCESS) {
 
                 status = string_toDouble(keyValue, &(*feaMaterial)[i].youngModulusLateral);
-                if (keyValue != NULL) {
-                    EG_free(keyValue);
-                    keyValue = NULL;
-                }
-                if (status != CAPS_SUCCESS) return status;
+                AIM_STATUS(aimInfo, status, "While parsing \"%s\":\"%s\"", keyWord, keyValue);
+                AIM_FREE(keyValue);
             }
 
             /*! \page feaMaterial
@@ -3512,11 +3500,8 @@ int fea_getMaterial(int numMaterialTuple,
             if (status == CAPS_SUCCESS) {
 
                 status = string_toDouble(keyValue, &(*feaMaterial)[i].shearModulusTrans1Z);
-                if (keyValue != NULL) {
-                    EG_free(keyValue);
-                    keyValue = NULL;
-                }
-                if (status != CAPS_SUCCESS) return status;
+                AIM_STATUS(aimInfo, status, "While parsing \"%s\":\"%s\"", keyWord, keyValue);
+                AIM_FREE(keyValue);
             }
 
             /*! \page feaMaterial
@@ -3533,11 +3518,8 @@ int fea_getMaterial(int numMaterialTuple,
             if (status == CAPS_SUCCESS) {
 
                 status = string_toDouble(keyValue, &(*feaMaterial)[i].shearModulusTrans2Z);
-                if (keyValue != NULL) {
-                    EG_free(keyValue);
-                    keyValue = NULL;
-                }
-                if (status != CAPS_SUCCESS) return status;
+                AIM_STATUS(aimInfo, status, "While parsing \"%s\":\"%s\"", keyWord, keyValue);
+                AIM_FREE(keyValue);
             }
 
         } else {
@@ -3550,24 +3532,27 @@ int fea_getMaterial(int numMaterialTuple,
              *
              */
             // CALL material look up
-            printf("\tError: Material tuple value is expected to be a JSON string\n");
-            return CAPS_BADVALUE;
+            AIM_ERROR(aimInfo, "Material tuple value ('%s') is expected to be a JSON string", materialTuple[i].value);
+            status = CAPS_BADVALUE;
+            goto cleanup;
         }
     }
 
-    if (keyValue != NULL) {
-        EG_free(keyValue);
-        keyValue = NULL;
-    }
-
     printf("\tDone getting FEA materials\n");
-    return CAPS_SUCCESS;
+    status = CAPS_SUCCESS;
+
+cleanup:
+    AIM_FREE(keyValue);
+
+    return status;
 }
 
 // Get the property properties from a capsTuple
-int fea_getProperty(int numPropertyTuple,
+int fea_getProperty(void *aimInfo,
+                    int numPropertyTuple,
                     capsTuple propertyTuple[],
                     mapAttrToIndexStruct *attrMap,
+                    feaUnitsStruct *feaUnits,
                     feaProblemStruct *feaProblem) {
 
     /*! \page feaProperty FEA Property
@@ -3597,11 +3582,10 @@ int fea_getProperty(int numPropertyTuple,
     if (feaProblem->feaProperty != NULL) {
         for (i = 0; i < feaProblem->numProperty; i++) {
             status = destroy_feaPropertyStruct(&feaProblem->feaProperty[i]);
-            if (status != CAPS_SUCCESS) return status;
+            AIM_STATUS(aimInfo, status);
         }
     }
-    if (feaProblem->feaProperty != NULL) EG_free(feaProblem->feaProperty);
-    feaProblem->feaProperty = NULL;
+    AIM_FREE(feaProblem->feaProperty);
     feaProblem->numProperty = 0;
 
     printf("\nGetting FEA properties.......\n");
@@ -3615,16 +3599,14 @@ int fea_getProperty(int numPropertyTuple,
         if (feaProblem->feaProperty == NULL) return EGADS_MALLOC;
 
     } else {
-        printf("\tNumber of property values in input tuple is 0\n");
-        return CAPS_NOTFOUND;
+        AIM_ERROR(aimInfo, "Number of property values in input tuple is 0\n");
+        status = CAPS_NOTFOUND;
+        goto cleanup;
     }
 
     for (i = 0; i < feaProblem->numProperty; i++) {
         status = initiate_feaPropertyStruct(&feaProblem->feaProperty[i]);
-        if (status != CAPS_SUCCESS) {
-            printf("\tUnable to initiate feaProperty structure (number = %d\n",i);
-            return status;
-        }
+        AIM_STATUS(aimInfo, status, "Unable to initiate feaProperty structure (number = %d)", i);
     }
 
     for (i = 0; i < feaProblem->numProperty; i++) {
@@ -3632,25 +3614,15 @@ int fea_getProperty(int numPropertyTuple,
         printf("\tProperty name - %s\n", propertyTuple[i].name);
 
         // Set property name from tuple name
-        feaProblem->feaProperty[i].name = EG_strdup(propertyTuple[i].name);
-        if (feaProblem->feaProperty[i].name == NULL) return EGADS_MALLOC;
+        AIM_STRDUP(feaProblem->feaProperty[i].name, propertyTuple[i].name, aimInfo, status);
 
         // Get to property ID number from the attribute map
         status = get_mapAttrToIndexIndex(attrMap, feaProblem->feaProperty[i].name, &pidIndex);
-
         if (status != CAPS_SUCCESS) {
-
-            printf("\tTuple name %s not found in attribute map of PIDS!!!!\n", feaProblem->feaProperty[i].name);
-
-            if (keyValue != NULL) {
-                EG_free(keyValue);
-                keyValue = NULL;
-            }
-
-            return status;
-
+            AIM_ERROR(aimInfo, "Tuple name '%s' not found in attribute map of PIDS!!!!\n", feaProblem->feaProperty[i].name);
+            AIM_FREE(keyValue);
+            goto cleanup;
         } else {
-
             feaProblem->feaProperty[i].propertyID = pidIndex;
         }
 
@@ -3704,35 +3676,27 @@ int fea_getProperty(int numPropertyTuple,
                 else if (strcasecmp(keyValue, "\"Solid\"")    == 0) feaProblem->feaProperty[i].propertyType = Solid;
                 else {
 
-                    printf("\tUnrecognized \"%s\" specified (%s) for Property tuple %s, current options are "
-                            "\"Rod, Bar, Shear, Shell, Composite, and Solid\"\n", keyWord,
-                            keyValue,
-                            propertyTuple[i].name);
-                    if (keyValue != NULL) {
-                        EG_free(keyValue);
-                        keyValue = NULL;
-                    }
+                    AIM_ERROR(aimInfo, "Unrecognized \"%s\" specified (%s) for Property tuple %s, current options are "
+                                       "\"Rod, Bar, Shear, Shell, Composite, and Solid\"\n", keyWord,
+                                       keyValue,
+                                       propertyTuple[i].name);
+                    AIM_FREE(keyValue);
 
-                    return CAPS_NOTFOUND;
+                    status = CAPS_NOTFOUND;
+                    goto cleanup;
                 }
 
             } else {
 
-                printf("\tNo \"%s\" specified for Property tuple %s, this mandatory! Current options are "
-                        "\"ConcentratedMass, Rod, Bar, Shear, Shell, Composite, and Solid\"\n", keyWord,
-                        propertyTuple[i].name);
-                if (keyValue != NULL) {
-                    EG_free(keyValue);
-                    keyValue = NULL;
-                }
+                AIM_ERROR(aimInfo, "\tNo \"%s\" specified for Property tuple %s, this mandatory! Current options are "
+                                   "\"ConcentratedMass, Rod, Bar, Shear, Shell, Composite, and Solid\"\n", keyWord,
+                                   propertyTuple[i].name);
+                AIM_FREE(keyValue);
 
-                return CAPS_NOTFOUND;
+                status = CAPS_NOTFOUND;
+                goto cleanup;
             }
-
-            if (keyValue != NULL) {
-                EG_free(keyValue);
-                keyValue = NULL;
-            }
+            AIM_FREE(keyValue);
 
             /*! \page feaProperty
              *
@@ -3761,22 +3725,13 @@ int fea_getProperty(int numPropertyTuple,
                 found = (int) false;
                 for (matIndex = 0; matIndex < feaProblem->numMaterial; matIndex++ ) {
 
-                    if (tempString != NULL) EG_free(tempString);
+                    AIM_FREE(tempString);
                     tempString = string_removeQuotation(keyValue);
 
                     if (strcasecmp(feaProblem->feaMaterial[matIndex].name, tempString) == 0) {
                         feaProblem->feaProperty[i].materialID = feaProblem->feaMaterial[matIndex].materialID;
 
-                        feaProblem->feaProperty[i].materialName = (char *) EG_alloc((strlen(feaProblem->feaMaterial[matIndex].name)+1) *sizeof(char));
-                        if (feaProblem->feaProperty[i].name == NULL) {
-                            EG_free(tempString);
-                            return EGADS_MALLOC;
-                        }
-
-                        memcpy(feaProblem->feaProperty[i].materialName,
-                               feaProblem->feaMaterial[matIndex].name,
-                               strlen(feaProblem->feaMaterial[matIndex].name)*sizeof(char));
-
+                        AIM_STRDUP(feaProblem->feaProperty[i].materialName, feaProblem->feaMaterial[matIndex].name, aimInfo, status);
                         feaProblem->feaProperty[i].materialName[strlen(feaProblem->feaMaterial[matIndex].name)] = '\0';
 
                         found = (int) true;
@@ -3784,18 +3739,15 @@ int fea_getProperty(int numPropertyTuple,
                     }
                 }
 
-                if (tempString != NULL) EG_free(tempString);
-                tempString = NULL;
+                AIM_FREE(tempString);
 
                 if (found == (int) false) {
-                    printf("\tUnrecognized \"%s\" specified (%s) for Property tuple %s. No match in Material tuple\n", keyWord,
+                    AIM_ERROR(aimInfo, "Unrecognized \"%s\" specified (%s) for Property tuple %s. No match in Material tuple\n", keyWord,
                                                                                                                        keyValue,
                                                                                                                        propertyTuple[i].name);
-                    if (keyValue != NULL) {
-                        EG_free(keyValue);
-                        keyValue = NULL;
-                    }
-                    return CAPS_NOTFOUND;
+                    AIM_FREE(keyValue);
+                    status = CAPS_NOTFOUND;
+                    goto cleanup;
                 }
 
             } else {
@@ -3808,25 +3760,11 @@ int fea_getProperty(int numPropertyTuple,
 
                 feaProblem->feaProperty[i].materialID = 1;
                 if (feaProblem->numMaterial > 0) {
-
-                    feaProblem->feaProperty[i].materialName = (char *) EG_alloc((strlen(feaProblem->feaMaterial[0].name)+1) *sizeof(char));
-                    if (feaProblem->feaProperty[i].name == NULL) {
-                        if (keyValue != NULL) EG_free(keyValue);
-                        return EGADS_MALLOC;
-                    }
-
-                    memcpy(feaProblem->feaProperty[i].materialName,
-                           feaProblem->feaMaterial[0].name,
-                           strlen(feaProblem->feaMaterial[0].name)*sizeof(char));
-
-                    feaProblem->feaProperty[i].materialName[strlen(feaProblem->feaMaterial[0].name)] = '\0';
+                    AIM_STRDUP(feaProblem->feaProperty[i].materialName, feaProblem->feaMaterial[0].name, aimInfo, status);
                 }
             }
 
-            if (keyValue != NULL) {
-                EG_free(keyValue);
-                keyValue = NULL;
-            }
+            AIM_FREE(keyValue);
 
             //  Fill up properties ///
 
@@ -3854,11 +3792,8 @@ int fea_getProperty(int numPropertyTuple,
             if (status == CAPS_SUCCESS) {
 
                 status = string_toDouble(keyValue, &feaProblem->feaProperty[i].crossSecArea);
-                if (keyValue != NULL) {
-                    EG_free(keyValue);
-                    keyValue = NULL;
-                }
-                if (status != CAPS_SUCCESS) return status;
+                AIM_STATUS(aimInfo, status, "While parsing \"%s\":\"%s\"", keyWord, keyValue);
+                AIM_FREE(keyValue);
             }
 
             /*! \page feaProperty
@@ -3884,11 +3819,8 @@ int fea_getProperty(int numPropertyTuple,
             if (status == CAPS_SUCCESS) {
 
                 status = string_toDouble(keyValue, &feaProblem->feaProperty[i].torsionalConst);
-                if (keyValue != NULL) {
-                    EG_free(keyValue);
-                    keyValue = NULL;
-                }
-                if (status != CAPS_SUCCESS) return status;
+                AIM_STATUS(aimInfo, status, "While parsing \"%s\":\"%s\"", keyWord, keyValue);
+                AIM_FREE(keyValue);
             }
 
             /*! \page feaProperty
@@ -3914,11 +3846,8 @@ int fea_getProperty(int numPropertyTuple,
             if (status == CAPS_SUCCESS) {
 
                 status = string_toDouble(keyValue, &feaProblem->feaProperty[i].torsionalStressReCoeff);
-                if (keyValue != NULL) {
-                    EG_free(keyValue);
-                    keyValue = NULL;
-                }
-                if (status != CAPS_SUCCESS) return status;
+                AIM_STATUS(aimInfo, status, "While parsing \"%s\":\"%s\"", keyWord, keyValue);
+                AIM_FREE(keyValue);
             }
 
             /*! \page feaProperty
@@ -3942,11 +3871,8 @@ int fea_getProperty(int numPropertyTuple,
             if (status == CAPS_SUCCESS) {
 
                 status = string_toDouble(keyValue, &feaProblem->feaProperty[i].massPerLength);
-                if (keyValue != NULL) {
-                    EG_free(keyValue);
-                    keyValue = NULL;
-                }
-                if (status != CAPS_SUCCESS) return status;
+                AIM_STATUS(aimInfo, status, "While parsing \"%s\":\"%s\"", keyWord, keyValue);
+                AIM_FREE(keyValue);
             }
 
             // Bar - see rod for additional variables
@@ -3974,11 +3900,8 @@ int fea_getProperty(int numPropertyTuple,
             if (status == CAPS_SUCCESS) {
 
                 status = string_toDouble(keyValue, &feaProblem->feaProperty[i].zAxisInertia);
-                if (keyValue != NULL) {
-                    EG_free(keyValue);
-                    keyValue = NULL;
-                }
-                if (status != CAPS_SUCCESS) return status;
+                AIM_STATUS(aimInfo, status, "While parsing \"%s\":\"%s\"", keyWord, keyValue);
+                AIM_FREE(keyValue);
             }
 
             /*! \page feaProperty
@@ -4004,11 +3927,8 @@ int fea_getProperty(int numPropertyTuple,
             if (status == CAPS_SUCCESS) {
 
                 status = string_toDouble(keyValue, &feaProblem->feaProperty[i].yAxisInertia);
-                if (keyValue != NULL) {
-                    EG_free(keyValue);
-                    keyValue = NULL;
-                }
-                if (status != CAPS_SUCCESS) return status;
+                AIM_STATUS(aimInfo, status, "While parsing \"%s\":\"%s\"", keyWord, keyValue);
+                AIM_FREE(keyValue);
             }
 
             /*! \page feaProperty
@@ -4033,13 +3953,10 @@ int fea_getProperty(int numPropertyTuple,
             status = search_jsonDictionary( propertyTuple[i].value, keyWord, &keyValue);
             if (status == CAPS_SUCCESS) {
                 status = string_toDoubleArray(keyValue,
-                        (int) sizeof(feaProblem->feaProperty[i].yCoords)/sizeof(double),
-                        feaProblem->feaProperty[i].yCoords);
-                if (keyValue != NULL) {
-                    EG_free(keyValue);
-                    keyValue = NULL;
-                }
-                if (status != CAPS_SUCCESS) return status;
+                                              (int) sizeof(feaProblem->feaProperty[i].yCoords)/sizeof(double),
+                                              feaProblem->feaProperty[i].yCoords);
+                AIM_STATUS(aimInfo, status, "While parsing \"%s\":\"%s\"", keyWord, keyValue);
+                AIM_FREE(keyValue);
             }
 
             /*! \page feaProperty
@@ -4064,14 +3981,10 @@ int fea_getProperty(int numPropertyTuple,
             status = search_jsonDictionary( propertyTuple[i].value, keyWord, &keyValue);
             if (status == CAPS_SUCCESS) {
                 status = string_toDoubleArray(keyValue,
-                        (int) sizeof(feaProblem->feaProperty[i].zCoords)/sizeof(double),
-                        feaProblem->feaProperty[i].zCoords);
-
-                if (keyValue != NULL) {
-                    EG_free(keyValue);
-                    keyValue = NULL;
-                }
-                if (status != CAPS_SUCCESS) return status;
+                                              (int) sizeof(feaProblem->feaProperty[i].zCoords)/sizeof(double),
+                                              feaProblem->feaProperty[i].zCoords);
+                AIM_STATUS(aimInfo, status, "While parsing \"%s\":\"%s\"", keyWord, keyValue);
+                AIM_FREE(keyValue);
             }
 
             /*! \page feaProperty
@@ -4096,13 +4009,10 @@ int fea_getProperty(int numPropertyTuple,
             status = search_jsonDictionary( propertyTuple[i].value, keyWord, &keyValue);
             if (status == CAPS_SUCCESS) {
                 status = string_toDoubleArray(keyValue,
-                        (int) sizeof(feaProblem->feaProperty[i].areaShearFactors)/sizeof(double),
-                        feaProblem->feaProperty[i].areaShearFactors);
-                if (keyValue != NULL) {
-                    EG_free(keyValue);
-                    keyValue = NULL;
-                }
-                if (status != CAPS_SUCCESS) return status;
+                                              (int) sizeof(feaProblem->feaProperty[i].areaShearFactors)/sizeof(double),
+                                              feaProblem->feaProperty[i].areaShearFactors);
+                AIM_STATUS(aimInfo, status, "While parsing \"%s\":\"%s\"", keyWord, keyValue);
+                AIM_FREE(keyValue);
             }
 
             /*! \page feaProperty
@@ -4127,11 +4037,8 @@ int fea_getProperty(int numPropertyTuple,
             status = search_jsonDictionary( propertyTuple[i].value, keyWord, &keyValue);
             if (status == CAPS_SUCCESS) {
                 status = string_toDouble(keyValue, &feaProblem->feaProperty[i].crossProductInertia);
-                if (keyValue != NULL) {
-                    EG_free(keyValue);
-                    keyValue = NULL;
-                }
-                if (status != CAPS_SUCCESS) return status;
+                AIM_STATUS(aimInfo, status, "While parsing \"%s\":\"%s\"", keyWord, keyValue);
+                AIM_FREE(keyValue);
             }
 
             /*! \page feaProperty
@@ -4148,10 +4055,7 @@ int fea_getProperty(int numPropertyTuple,
              status = search_jsonDictionary( propertyTuple[i].value, keyWord, &keyValue);
              if (status == CAPS_SUCCESS) {
                  feaProblem->feaProperty[i].crossSecType = string_removeQuotation(keyValue);
-                 if (keyValue != NULL) {
-                     EG_free(keyValue);
-                     keyValue = NULL;
-                 }
+                 AIM_FREE(keyValue);
              }
 
              /*! \page feaProperty
@@ -4170,11 +4074,8 @@ int fea_getProperty(int numPropertyTuple,
                  status = string_toDoubleArray(keyValue,
                                                (int) sizeof(feaProblem->feaProperty[i].crossSecDimension)/sizeof(double),
                                                feaProblem->feaProperty[i].crossSecDimension);
-                 if (keyValue != NULL) {
-                     EG_free(keyValue);
-                     keyValue = NULL;
-                 }
-                 if (status != CAPS_SUCCESS) return status;
+                 AIM_STATUS(aimInfo, status, "While parsing \"%s\":\"%s\"", keyWord, keyValue);
+                 AIM_FREE(keyValue);
              }
 
 
@@ -4184,13 +4085,10 @@ int fea_getProperty(int numPropertyTuple,
             status = search_jsonDictionary( propertyTuple[i].value, keyWord, &keyValue);
             if (status == CAPS_SUCCESS) {
                 status = string_toDoubleArray(keyValue,
-                                       (int) sizeof(feaProblem->feaProperty[i].orientationVec)/sizeof(double),
-                                       feaProblem->feaProperty[i].orientationVec);
-                if (keyValue != NULL) {
-                    EG_free(keyValue);
-                    keyValue = NULL;
-                }
-                if (status != CAPS_SUCCESS) return status;
+                                              (int) sizeof(feaProblem->feaProperty[i].orientationVec)/sizeof(double),
+                                              feaProblem->feaProperty[i].orientationVec);
+                AIM_STATUS(aimInfo, status, "While parsing \"%s\":\"%s\"", keyWord, keyValue);
+                AIM_FREE(keyValue);
             }
 
 
@@ -4219,12 +4117,14 @@ int fea_getProperty(int numPropertyTuple,
             keyWord = "membraneThickness";
             status = search_jsonDictionary( propertyTuple[i].value, keyWord, &keyValue);
             if (status == CAPS_SUCCESS) {
-                status = string_toDouble(keyValue, &feaProblem->feaProperty[i].membraneThickness);
-                if (keyValue != NULL) {
-                    EG_free(keyValue);
-                    keyValue = NULL;
-                }
-                if (status != CAPS_SUCCESS) return status;
+              if ( feaUnits->length != NULL ) {
+                  status = string_toDoubleUnits(aimInfo, keyValue, feaUnits->length, &feaProblem->feaProperty[i].membraneThickness);
+                  AIM_STATUS(aimInfo, status, "While parsing \"%s\":\"%s\"", keyWord, keyValue);
+              } else {
+                  status = string_toDouble(keyValue, &feaProblem->feaProperty[i].membraneThickness);
+                  AIM_STATUS(aimInfo, status, "While parsing \"%s\":\"%s\"", keyWord, keyValue);
+              }
+              AIM_FREE(keyValue);
             }
 
 
@@ -4250,11 +4150,8 @@ int fea_getProperty(int numPropertyTuple,
             status = search_jsonDictionary( propertyTuple[i].value, keyWord, &keyValue);
             if (status == CAPS_SUCCESS) {
                 status = string_toDouble(keyValue, &feaProblem->feaProperty[i].bendingInertiaRatio);
-                if (keyValue != NULL) {
-                    EG_free(keyValue);
-                    keyValue = NULL;
-                }
-                if (status != CAPS_SUCCESS) return status;
+                AIM_STATUS(aimInfo, status, "While parsing \"%s\":\"%s\"", keyWord, keyValue);
+                AIM_FREE(keyValue);
             }
 
 
@@ -4280,11 +4177,8 @@ int fea_getProperty(int numPropertyTuple,
             status = search_jsonDictionary( propertyTuple[i].value, keyWord, &keyValue);
             if (status == CAPS_SUCCESS) {
                 status = string_toDouble(keyValue, &feaProblem->feaProperty[i].shearMembraneRatio);
-                if (keyValue != NULL) {
-                    EG_free(keyValue);
-                    keyValue = NULL;
-                }
-                if (status != CAPS_SUCCESS) return status;
+                AIM_STATUS(aimInfo, status, "While parsing \"%s\":\"%s\"", keyWord, keyValue);
+                AIM_FREE(keyValue);
             }
 
             /*! \page feaProperty
@@ -4320,27 +4214,21 @@ int fea_getProperty(int numPropertyTuple,
                         feaProblem->feaProperty[i].materialBendingID = feaProblem->feaMaterial[matIndex].materialID;
                         found = (int) true;
 
-                        if (keyValue != NULL) {
-                            EG_free(keyValue);
-                            keyValue = NULL;
-                        }
+                        AIM_FREE(keyValue);
                         break;
                     }
 
                 }
 
-                if (tempString != NULL) EG_free(tempString);
-                tempString = NULL;
+                AIM_FREE(tempString);
 
                 if (found == (int) false) {
-                    printf("\tUnrecognized \"%s\" specified (%s) for Property tuple %s. No match in Material tuple\n", keyWord,
-                            keyValue,
-                            propertyTuple[i].name);
-                    if (keyValue != NULL) {
-                        EG_free(keyValue);
-                        keyValue = NULL;
-                    }
-                    return CAPS_NOTFOUND;
+                    AIM_ERROR(aimInfo, "\tUnrecognized \"%s\" specified (%s) for Property tuple %s. No match in Material tuple\n", keyWord,
+                              keyValue,
+                              propertyTuple[i].name);
+                    AIM_FREE(keyValue);
+                    status = CAPS_NOTFOUND;
+                    goto cleanup;
                 }
 
             } else { // Don't default to anything - yet
@@ -4392,34 +4280,28 @@ int fea_getProperty(int numPropertyTuple,
                         feaProblem->feaProperty[i].materialShearID = feaProblem->feaMaterial[matIndex].materialID;
                         found = (int) true;
 
-                        if (keyValue != NULL) {
-                            EG_free(keyValue);
-                            keyValue = NULL;
-                        }
+                        AIM_FREE(keyValue);
                         break;
                     }
 
                 }
 
-                if (tempString != NULL) EG_free(tempString);
-                tempString = NULL;
+                AIM_FREE(tempString);
 
                 if (found == (int) false) {
-                    printf("\tUnrecognized \"%s\" specified (%s) for Property tuple %s. No match in Material tuple\n", keyWord,
-                            keyValue,
-                            propertyTuple[i].name);
-                    if (keyValue != NULL) {
-                        EG_free(keyValue);
-                        keyValue = NULL;
-                    }
-                    return CAPS_NOTFOUND;
+                    AIM_ERROR(aimInfo, "Unrecognized \"%s\" specified (%s) for Property tuple %s. No match in Material tuple\n", keyWord,
+                              keyValue,
+                              propertyTuple[i].name);
+                    AIM_FREE(keyValue);
+                    status = CAPS_NOTFOUND;
+                    goto cleanup;
                 }
 
             } else {
                 /*
                 printf("No \"%s\" specified for Property tuple %s which is a shell element, "
                        " no shear material will be specified\n", keyWord,
-						    	        						 propertyTuple[i].name);
+                       propertyTuple[i].name);
 
                 feaProblem->feaProperty[i].materialShearID = 0;
                  */
@@ -4447,12 +4329,14 @@ int fea_getProperty(int numPropertyTuple,
             keyWord = "massPerArea";
             status = search_jsonDictionary( propertyTuple[i].value, keyWord, &keyValue);
             if (status == CAPS_SUCCESS) {
-                status = string_toDouble(keyValue, &feaProblem->feaProperty[i].massPerArea);
-                if (keyValue != NULL) {
-                    EG_free(keyValue);
-                    keyValue = NULL;
+                if ( feaUnits->densityArea != NULL ) {
+                    status = string_toDoubleUnits(aimInfo, keyValue, feaUnits->densityArea, &feaProblem->feaProperty[i].massPerArea);
+                    AIM_STATUS(aimInfo, status, "While parsing \"%s\":\"%s\"", keyWord, keyValue);
+                } else {
+                    status = string_toDouble(keyValue, &feaProblem->feaProperty[i].massPerArea);
+                    AIM_STATUS(aimInfo, status, "While parsing \"%s\":\"%s\"", keyWord, keyValue);
                 }
-                if (status != CAPS_SUCCESS) return status;
+                AIM_FREE(keyValue);
             }
 
             /*! \page feaProperty
@@ -4470,11 +4354,8 @@ int fea_getProperty(int numPropertyTuple,
             status = search_jsonDictionary( propertyTuple[i].value, keyWord, &keyValue);
             if (status == CAPS_SUCCESS) {
                 status = string_toDouble(keyValue, &feaProblem->feaProperty[i].zOffsetRel);
-                if (keyValue != NULL) {
-                    EG_free(keyValue);
-                    keyValue = NULL;
-                }
-                if (status != CAPS_SUCCESS) return status;
+                AIM_STATUS(aimInfo, status, "While parsing \"%s\":\"%s\"", keyWord, keyValue);
+                AIM_FREE(keyValue);
             }
 
             // Composite
@@ -4502,20 +4383,15 @@ int fea_getProperty(int numPropertyTuple,
             if (status == CAPS_SUCCESS) {
 
                 status = string_toStringDynamicArray(keyValue, &feaProblem->feaProperty[i].numPly, &tempStringArray);
-                if (status != CAPS_SUCCESS) return status;
+                AIM_STATUS(aimInfo, status, "While parsing \"%s\":\"%s\"", keyWord, keyValue);
 
-                feaProblem->feaProperty[i].compositeMaterialID = (int *) EG_alloc(feaProblem->feaProperty[i].numPly*sizeof(int));
-                if (feaProblem->feaProperty[i].compositeMaterialID == NULL) {
-                    (void) string_freeArray(feaProblem->feaProperty[i].numPly, &tempStringArray);
-                    if (keyValue != NULL) EG_free(keyValue);
-                    return EGADS_MALLOC;
-                }
+                AIM_ALLOC(feaProblem->feaProperty[i].compositeMaterialID, feaProblem->feaProperty[i].numPly, int, aimInfo, status);
 
                 for (j = 0; j < feaProblem->feaProperty[i].numPly; j++) {
                     found = (int) false;
                     for (matIndex = 0; matIndex < feaProblem->numMaterial; matIndex++ ) {
 
-                        if (tempString != NULL) EG_free(tempString);
+                        AIM_FREE(tempString);
                         tempString = string_removeQuotation(tempStringArray[j]);
 
                         if (strcasecmp(feaProblem->feaMaterial[matIndex].name, tempString) == 0) {
@@ -4527,31 +4403,25 @@ int fea_getProperty(int numPropertyTuple,
                     }
 
                     if (found == (int) false) {
-                        printf("\tUnrecognized \"%s\" specified (%s) for Property tuple %s. No match in Material tuple\n", keyValue,
-                                keyWord,
-                                propertyTuple[i].name);
+                        AIM_ERROR(aimInfo, "Unrecognized \"%s\" specified (%s) for Property tuple %s. No match in Material tuple\n", keyValue,
+                                           keyWord,
+                                           propertyTuple[i].name);
 
-                        if (keyValue != NULL) EG_free(keyValue);
-                        if (tempString != NULL) EG_free(tempString);
+                        AIM_FREE(keyValue);
+                        AIM_FREE(tempString);
 
                         (void) string_freeArray(feaProblem->feaProperty[i].numPly, &tempStringArray);
 
-                        return CAPS_NOTFOUND;
+                        status = CAPS_NOTFOUND;
+                        goto cleanup;
                     }
 
-                    if (tempString != NULL) EG_free(tempString);
-                    tempString = NULL;
+                    AIM_FREE(tempString);
                 }
+                AIM_FREE(keyValue);
+                status = string_freeArray(feaProblem->feaProperty[i].numPly, &tempStringArray);
+                AIM_STATUS(aimInfo, status);
             }
-
-
-            if (keyValue != NULL) {
-                EG_free(keyValue);
-                keyValue = NULL;
-            }
-
-            status = string_freeArray(feaProblem->feaProperty[i].numPly, &tempStringArray);
-            if (status != CAPS_SUCCESS) return status;
 
             /*! \page feaProperty
              *
@@ -4575,11 +4445,8 @@ int fea_getProperty(int numPropertyTuple,
             status = search_jsonDictionary( propertyTuple[i].value, keyWord, &keyValue);
             if (status == CAPS_SUCCESS) {
                 status = string_toDouble(keyValue, &feaProblem->feaProperty[i].compositeShearBondAllowable);
-                if (keyValue != NULL) {
-                    EG_free(keyValue);
-                    keyValue = NULL;
-                }
-                if (status != CAPS_SUCCESS) return status;
+                AIM_STATUS(aimInfo, status, "While parsing \"%s\":\"%s\"", keyWord, keyValue);
+                AIM_FREE(keyValue);
             }
 
             /*! \page feaProperty
@@ -4610,11 +4477,8 @@ int fea_getProperty(int numPropertyTuple,
             status = search_jsonDictionary( propertyTuple[i].value, keyWord, &keyValue);
             if (status == CAPS_SUCCESS) {
                 status = string_toBoolean(keyValue, &feaProblem->feaProperty[i].compositeSymmetricLaminate);
-                if (keyValue != NULL) {
-                    EG_free(keyValue);
-                    keyValue = NULL;
-                }
-                if (status != CAPS_SUCCESS) return status;
+                AIM_STATUS(aimInfo, status, "While parsing \"%s\":\"%s\"", keyWord, keyValue);
+                AIM_FREE(keyValue);
             }
 
             /*! \page feaProperty
@@ -4639,11 +4503,8 @@ int fea_getProperty(int numPropertyTuple,
             status = search_jsonDictionary( propertyTuple[i].value, keyWord, &keyValue);
             if (status == CAPS_SUCCESS) {
                 feaProblem->feaProperty[i].compositeFailureTheory = string_removeQuotation(keyValue);
-                if (keyValue != NULL) {
-                    EG_free(keyValue);
-                    keyValue = NULL;
-                }
-                if (status != CAPS_SUCCESS) return status;
+                AIM_STATUS(aimInfo, status, "While parsing \"%s\":\"%s\"", keyWord, keyValue);
+                AIM_FREE(keyValue);
             }
 
             /*! \page feaProperty
@@ -4672,22 +4533,17 @@ int fea_getProperty(int numPropertyTuple,
             status = search_jsonDictionary( propertyTuple[i].value, keyWord, &keyValue);
             if (status == CAPS_SUCCESS) {
                 status = string_toDoubleDynamicArray(keyValue, &tempInteger,
-                        &feaProblem->feaProperty[i].compositeThickness);
-                if (keyValue != NULL) {
-                    EG_free(keyValue);
-                    keyValue = NULL;
-                }
-                if (status != CAPS_SUCCESS) return status;
+                                                     &feaProblem->feaProperty[i].compositeThickness);
+                AIM_STATUS(aimInfo, status, "While parsing \"%s\":\"%s\"", keyWord, keyValue);
+                AIM_FREE(keyValue);
 
                 if (tempInteger < feaProblem->feaProperty[i].numPly) {
 
                     printf("\tThe number of thicknesses provided does not match the number of materials for the composite. "
                             "The last thickness will be repeated %d times\n", feaProblem->feaProperty[i].numPly - tempInteger);
 
-                    feaProblem->feaProperty[i].compositeThickness = (double *) EG_reall(feaProblem->feaProperty[i].compositeThickness,
-                                                                                        feaProblem->feaProperty[i].numPly*sizeof(double));
-
-                    if (feaProblem->feaProperty[i].compositeThickness == NULL ) return EGADS_MALLOC;
+                    AIM_REALL(feaProblem->feaProperty[i].compositeThickness,
+                              feaProblem->feaProperty[i].numPly, double, aimInfo, status);
 
                     for (j = 0; j < feaProblem->feaProperty[i].numPly - tempInteger; j++) {
 
@@ -4700,19 +4556,17 @@ int fea_getProperty(int numPropertyTuple,
                     printf("\tThe number of thicknesses provided does not match the number of materials for the composite. "
                             "The last %d thicknesses will be not be used\n", tempInteger -feaProblem->feaProperty[i].numPly);
 
-                    feaProblem->feaProperty[i].compositeThickness = (double *) EG_reall(feaProblem->feaProperty[i].compositeThickness,
-                                                                                        feaProblem->feaProperty[i].numPly*sizeof(double));
-
-                    if (feaProblem->feaProperty[i].compositeThickness == NULL ) return EGADS_MALLOC;
+                    AIM_REALL(feaProblem->feaProperty[i].compositeThickness,
+                              feaProblem->feaProperty[i].numPly, double, aimInfo, status);
                 }
             } else {
 
                 if (feaProblem->feaProperty[i].numPly != 0 &&
                         feaProblem->feaProperty[i].propertyType == Composite) {
 
-                    printf("\"compositeMaterial\" have been set but no thicknesses (\"compositeThickness\") provided!!!\n");
-                    return CAPS_BADVALUE;
-
+                    AIM_ERROR(aimInfo, "\"compositeMaterial\" have been set but no thicknesses (\"compositeThickness\") provided!!!");
+                    status = CAPS_BADVALUE;
+                    goto cleanup;
                 }
             }
 
@@ -4744,23 +4598,17 @@ int fea_getProperty(int numPropertyTuple,
             status = search_jsonDictionary( propertyTuple[i].value, keyWord, &keyValue);
             if (status == CAPS_SUCCESS) {
                 status = string_toDoubleDynamicArray(keyValue, &tempInteger,
-                        &feaProblem->feaProperty[i].compositeOrientation);
-                if (keyValue != NULL) {
-                    EG_free(keyValue);
-                    keyValue = NULL;
-                }
-                if (status != CAPS_SUCCESS) return status;
-
+                                                     &feaProblem->feaProperty[i].compositeOrientation);
+                AIM_STATUS(aimInfo, status, "While parsing \"%s\":\"%s\"", keyWord, keyValue);
+                AIM_FREE(keyValue);
 
                 if (tempInteger < feaProblem->feaProperty[i].numPly) {
 
                     printf("\tThe number of orientations provided does not match the number of materials for the composite. "
                             "The last orientation will be repeated %d times\n", feaProblem->feaProperty[i].numPly - tempInteger);
 
-                    feaProblem->feaProperty[i].compositeOrientation = (double *) EG_reall(feaProblem->feaProperty[i].compositeOrientation,
-                                                                                          feaProblem->feaProperty[i].numPly*sizeof(double));
-
-                    if (feaProblem->feaProperty[i].compositeOrientation == NULL ) return EGADS_MALLOC;
+                    AIM_REALL(feaProblem->feaProperty[i].compositeOrientation,
+                              feaProblem->feaProperty[i].numPly, double, aimInfo, status);
 
                     for (j = 0; j < feaProblem->feaProperty[i].numPly - tempInteger; j++) {
 
@@ -4773,10 +4621,8 @@ int fea_getProperty(int numPropertyTuple,
                     printf("\tThe number of orientations provided does not match the number of materials for the composite. "
                             "The last %d orientation will be not be used\n", tempInteger -feaProblem->feaProperty[i].numPly);
 
-                    feaProblem->feaProperty[i].compositeOrientation = (double *) EG_reall(feaProblem->feaProperty[i].compositeOrientation,
-                            feaProblem->feaProperty[i].numPly*sizeof(double));
-
-                    if (feaProblem->feaProperty[i].compositeOrientation == NULL ) return EGADS_MALLOC;
+                    AIM_REALL(feaProblem->feaProperty[i].compositeOrientation,
+                              feaProblem->feaProperty[i].numPly, double, aimInfo, status);
                 }
 
             } else {
@@ -4784,8 +4630,9 @@ int fea_getProperty(int numPropertyTuple,
                 if (feaProblem->feaProperty[i].numPly != 0 &&
                         feaProblem->feaProperty[i].propertyType == Composite) {
 
-                    printf("\t\"compositeMaterial\" have been set but no Orientation  (\"compositeOrientation\") provided!!!\n");
-                    return CAPS_BADVALUE;
+                    AIM_ERROR(aimInfo, "\"compositeMaterial\" have been set but no Orientation  (\"compositeOrientation\") provided!!!");
+                    status = CAPS_BADVALUE;
+                    goto cleanup;
                 }
             }
 
@@ -4813,11 +4660,8 @@ int fea_getProperty(int numPropertyTuple,
             status = search_jsonDictionary( propertyTuple[i].value, keyWord, &keyValue);
             if (status == CAPS_SUCCESS) {
                 status = string_toDouble(keyValue, &feaProblem->feaProperty[i].mass);
-                if (keyValue != NULL) {
-                    EG_free(keyValue);
-                    keyValue = NULL;
-                }
-                if (status != CAPS_SUCCESS) return status;
+                AIM_STATUS(aimInfo, status, "While parsing \"%s\":\"%s\"", keyWord, keyValue);
+                AIM_FREE(keyValue);
             }
 
             /*! \page feaProperty
@@ -4842,13 +4686,10 @@ int fea_getProperty(int numPropertyTuple,
             status = search_jsonDictionary( propertyTuple[i].value, keyWord, &keyValue);
             if (status == CAPS_SUCCESS) {
                 status = string_toDoubleArray(keyValue,
-                        (int) sizeof(feaProblem->feaProperty[i].massOffset)/sizeof(double),
-                        feaProblem->feaProperty[i].massOffset);
-                if (keyValue != NULL) {
-                    EG_free(keyValue);
-                    keyValue = NULL;
-                }
-                if (status != CAPS_SUCCESS) return status;
+                                              (int) sizeof(feaProblem->feaProperty[i].massOffset)/sizeof(double),
+                                              feaProblem->feaProperty[i].massOffset);
+                AIM_STATUS(aimInfo, status, "While parsing \"%s\":\"%s\"", keyWord, keyValue);
+                AIM_FREE(keyValue);
             }
 
             /*! \page feaProperty
@@ -4873,13 +4714,10 @@ int fea_getProperty(int numPropertyTuple,
             status = search_jsonDictionary( propertyTuple[i].value, keyWord, &keyValue);
             if (status == CAPS_SUCCESS) {
                 status = string_toDoubleArray(keyValue,
-                        (int) sizeof(feaProblem->feaProperty[i].massInertia)/sizeof(double),
-                        feaProblem->feaProperty[i].massInertia);
-                if (keyValue != NULL) {
-                    EG_free(keyValue);
-                    keyValue = NULL;
-                }
-                if (status != CAPS_SUCCESS) return status;
+                                              (int) sizeof(feaProblem->feaProperty[i].massInertia)/sizeof(double),
+                                              feaProblem->feaProperty[i].massInertia);
+                AIM_STATUS(aimInfo, status, "While parsing \"%s\":\"%s\"", keyWord, keyValue);
+                AIM_FREE(keyValue);
             }
 
         } else {
@@ -4893,20 +4731,20 @@ int fea_getProperty(int numPropertyTuple,
              */
 
             // CALL property look up
-            printf("\tError: Property tuple value is expected to be a JSON string\n");
-            return CAPS_BADVALUE;
+            AIM_ERROR(aimInfo, "Property tuple value ('s') is expected to be a JSON string", propertyTuple[i].value);
+            status = CAPS_BADVALUE;
+            goto cleanup;
         }
     }
 
     printf("\tDone getting FEA properties\n");
+    status = CAPS_SUCCESS;
 
-    if (keyValue != NULL) {
-        EG_free(keyValue);
-        keyValue = NULL;
-    }
+cleanup:
+    AIM_FREE(tempString);
+    AIM_FREE(keyValue);
 
-    return CAPS_SUCCESS;
-
+    return status;
 }
 
 // Get the constraint properties from a capsTuple
@@ -6696,8 +6534,7 @@ int fea_getLoad(int numLoadTuple,
             if (status != CAPS_SUCCESS) return status;
         }
     }
-    if (feaProblem->feaLoad != NULL) EG_free(feaProblem->feaLoad);
-    feaProblem->feaLoad = NULL;
+    AIM_FREE(feaProblem->feaLoad);
     feaProblem->numLoad = 0;
 
     printf("\nGetting FEA loads.......\n");
@@ -8049,10 +7886,7 @@ int fea_getAnalysis(int numAnalysisTuple,
             if (status == CAPS_SUCCESS) {
 
                 status = string_toDouble(keyValue, &feaProblem->feaAnalysis[i].density);
-                if (keyValue != NULL) {
-                    EG_free(keyValue);
-                    keyValue = NULL;
-                }
+                AIM_FREE(keyValue);
                 if (status != CAPS_SUCCESS) return status;
             }
 
@@ -8085,15 +7919,8 @@ int fea_getAnalysis(int numAnalysisTuple,
                 memcpy(feaProblem->feaAnalysis[i].aeroSymmetryXY, tempString, strlen(tempString)*sizeof(char));
                 feaProblem->feaAnalysis[i].aeroSymmetryXY[strlen(tempString)] = '\0';
 
-                if (keyValue != NULL) {
-                    EG_free(keyValue);
-                    keyValue = NULL;
-                }
-
-                if (tempString != NULL) {
-                    EG_free(tempString);
-                    tempString = NULL;
-                }
+                AIM_FREE(keyValue);
+                AIM_FREE(tempString);
             }
 
             // check for the old option trimSymmetry
@@ -8471,7 +8298,9 @@ int fea_getAnalysis(int numAnalysisTuple,
 } 
 
 // Get the design variables from a capsTuple
-int fea_getDesignVariable(int numDesignVariableTuple,
+int fea_getDesignVariable(void *aimInfo,
+                          int requireGroup,
+                          int numDesignVariableTuple,
                           capsTuple designVariableTuple[],
                           int numDesignVariableRelationTuple,
                           capsTuple designVariableRelationTuple[],
@@ -8504,8 +8333,6 @@ int fea_getDesignVariable(int numDesignVariableTuple,
     char **groupName = NULL;
     int  numGroupName = 0;
 
-    int relationIndex = 0;
-
     feaDesignVariableStruct *designVariable;
     feaDesignVariableRelationStruct *designVariableRelation;
     feaMeshDataStruct *feaData = NULL;
@@ -8523,10 +8350,10 @@ int fea_getDesignVariable(int numDesignVariableTuple,
     if (feaProblem->feaDesignVariable != NULL) {
         for (i = 0; i < feaProblem->numDesignVariable; i++) {
             status = destroy_feaDesignVariableStruct(&feaProblem->feaDesignVariable[i]);
-            if (status != CAPS_SUCCESS) return status;
+            AIM_STATUS(aimInfo, status);
         }
     }
-    if (feaProblem->feaDesignVariable != NULL) EG_free(feaProblem->feaDesignVariable);
+    AIM_FREE(feaProblem->feaDesignVariable);
     feaProblem->feaDesignVariable = NULL;
     feaProblem->numDesignVariable = 0;
 
@@ -8534,10 +8361,10 @@ int fea_getDesignVariable(int numDesignVariableTuple,
     if (feaProblem->feaDesignVariableRelation != NULL) {
         for (i = 0; i < feaProblem->numDesignVariableRelation; i++) {
             status = destroy_feaDesignVariableRelationStruct(&feaProblem->feaDesignVariableRelation[i]);
-            if (status != CAPS_SUCCESS) return status;
+            AIM_STATUS(aimInfo, status);
         }
     }
-    if (feaProblem->feaDesignVariableRelation != NULL) EG_free(feaProblem->feaDesignVariableRelation);
+    AIM_FREE(feaProblem->feaDesignVariableRelation);
     feaProblem->feaDesignVariableRelation = NULL;
     feaProblem->numDesignVariableRelation = 0;
 
@@ -8546,37 +8373,22 @@ int fea_getDesignVariable(int numDesignVariableTuple,
 
     feaProblem->numDesignVariable = numDesignVariableTuple;
 
-    // there is potentially one design variable relation per design variable,
-    // plus additional relations specified via Design_Variable_Relation
-    feaProblem->numDesignVariableRelation = numDesignVariableTuple;
-    if (designVariableRelationTuple != NULL) {
-        feaProblem->numDesignVariableRelation += numDesignVariableRelationTuple;
-    } 
-
     printf("\tNumber of design variables          - %d\n", feaProblem->numDesignVariable);
     // printf("\tNumber of design variable relations - %d\n", numDesignVariableRelationTuple);
 
     if (feaProblem->numDesignVariable > 0) {
 
-        feaProblem->feaDesignVariable = EG_alloc(
-            feaProblem->numDesignVariable * sizeof(feaDesignVariableStruct));
-        
-        feaProblem->feaDesignVariableRelation = EG_alloc(
-            feaProblem->numDesignVariableRelation * sizeof(feaDesignVariableRelationStruct));
+        AIM_ALLOC(feaProblem->feaDesignVariable,
+                  feaProblem->numDesignVariable, feaDesignVariableStruct, aimInfo, status);
 
     } else {
-        printf("\tNumber of design variable values in input tuple is 0\n");
+        AIM_ERROR(aimInfo, "Number of design variable values in input tuple is 0\n");
         return CAPS_NOTFOUND;
     }
 
     for (i = 0; i < feaProblem->numDesignVariable; i++) {
         status = initiate_feaDesignVariableStruct(&feaProblem->feaDesignVariable[i]);
-        if (status != CAPS_SUCCESS) return status;
-    }
-
-    for (i = 0; i < feaProblem->numDesignVariableRelation; i++) {
-        status = initiate_feaDesignVariableRelationStruct(&feaProblem->feaDesignVariableRelation[i]);
-        if (status != CAPS_SUCCESS) return status;
+        AIM_STATUS(aimInfo, status);
     }
 
     for (i = 0; i < feaProblem->numDesignVariable; i++) {
@@ -8585,8 +8397,7 @@ int fea_getDesignVariable(int numDesignVariableTuple,
 
         printf("\tDesign_Variable name - %s\n", designVariableTuple[i].name);
         
-        designVariable->name = EG_strdup(designVariableTuple[i].name);
-        if (designVariable->name == NULL) return EGADS_MALLOC;
+        AIM_STRDUP(designVariable->name, designVariableTuple[i].name, aimInfo, status);
 
         designVariable->designVariableID = i + 1;
 
@@ -8626,10 +8437,10 @@ int fea_getDesignVariable(int numDesignVariableTuple,
                 designVariableTuple[i].value, keyWord, 
                 &numGroupName, &groupName);
                 
-            if (status != CAPS_SUCCESS) {
+            if (status != CAPS_SUCCESS && requireGroup == (int)true) {
                 // required
-                PRINT_ERROR("No \"%s\" specified for Design_Variable_Relation tuple %s",
-                            keyWord, designVariableTuple[i].name);
+                AIM_ERROR(aimInfo, "No \"%s\" specified for Design_Variable tuple %s",
+                          keyWord, designVariableTuple[i].name);
                 goto cleanup;
             }
 
@@ -8639,16 +8450,9 @@ int fea_getDesignVariable(int numDesignVariableTuple,
 
             if (status == CAPS_SUCCESS) {
 
+                AIM_ALLOC(designVariable->materialSetID, numMaterial, int, aimInfo, status);
+                AIM_ALLOC(designVariable->materialSetType, numMaterial, int, aimInfo, status);
                 designVariable->numMaterialID = numMaterial;
-                designVariable->materialSetID   = EG_alloc(numMaterial * sizeof(int));
-                designVariable->materialSetType = EG_alloc(numMaterial * sizeof(int));
-                
-                if (designVariable->materialSetID   == NULL ||
-                    designVariable->materialSetType == NULL   ) {
-
-                    status = EGADS_MALLOC;
-                    goto cleanup;
-                }
 
                 for (j = 0; j < numMaterial; j++) {
 
@@ -8660,21 +8464,14 @@ int fea_getDesignVariable(int numDesignVariableTuple,
             }
 
             // collect properties associated with groupName
-            status = fea_findPropertiesByNames(
-                feaProblem, numGroupName, groupName, &numProperty, &propertySet);
+            status = fea_findPropertiesByNames(feaProblem, numGroupName, groupName,
+                                               &numProperty, &propertySet);
 
             if (status == CAPS_SUCCESS) {
 
+                AIM_ALLOC(designVariable->propertySetID, numProperty, int, aimInfo, status);
+                AIM_ALLOC(designVariable->propertySetType, numProperty, int, aimInfo, status);
                 designVariable->numPropertyID = numProperty;
-                designVariable->propertySetID   = EG_alloc(numProperty * sizeof(int));
-                designVariable->propertySetType = EG_alloc(numProperty * sizeof(int));
-                
-                if (designVariable->propertySetID   == NULL ||
-                    designVariable->propertySetType == NULL   ) {
-
-                    status = EGADS_MALLOC;
-                    goto cleanup;
-                }
 
                 for (j = 0; j < numProperty; j++) {
 
@@ -8691,18 +8488,10 @@ int fea_getDesignVariable(int numDesignVariableTuple,
             
             if (status == CAPS_SUCCESS) {
 
+                AIM_ALLOC(designVariable->elementSetID, numElement, int, aimInfo, status);
+                AIM_ALLOC(designVariable->elementSetType, numElement, int, aimInfo, status);
+                AIM_ALLOC(designVariable->elementSetSubType, numElement, int, aimInfo, status);
                 designVariable->numElementID = numElement;
-                designVariable->elementSetID   = EG_alloc(numElement * sizeof(int));
-                designVariable->elementSetType = EG_alloc(numElement * sizeof(int));
-                designVariable->elementSetSubType = EG_alloc(numElement * sizeof(int));
-                
-                if (designVariable->elementSetID   == NULL ||
-                    designVariable->elementSetType == NULL ||
-                    designVariable->elementSetSubType == NULL) {
-
-                    status = EGADS_MALLOC;
-                    goto cleanup;
-                }
 
                 for (j = 0; j < numElement; j++) {
 
@@ -8717,19 +8506,12 @@ int fea_getDesignVariable(int numDesignVariableTuple,
 
             if (groupName != NULL)
                 string_freeArray(numGroupName, &groupName);
+            numGroupName = 0;
             groupName = NULL;
 
-            if (materialSet != NULL)
-                EG_free(materialSet);
-            materialSet = NULL;
-
-            if (propertySet != NULL)
-                EG_free(propertySet);
-            propertySet = NULL;
-
-            if (elementSet != NULL)
-                EG_free(elementSet);
-            elementSet = NULL;
+            AIM_FREE(materialSet);
+            AIM_FREE(propertySet);
+            AIM_FREE(elementSet);
 
             /*! \page feaDesignVariable
              *
@@ -8840,13 +8622,10 @@ int fea_getDesignVariable(int numDesignVariableTuple,
             if (status == CAPS_SUCCESS) {
 
                 status = string_toStringDynamicArray(keyValue,
-                        &designVariable->numIndependVariable,
-                        &designVariable->independVariable);
-                if (keyValue != NULL) {
-                    EG_free(keyValue);
-                    keyValue = NULL;
-                }
-                if (status != CAPS_SUCCESS) goto cleanup;
+                                                     &designVariable->numIndependVariable,
+                                                     &designVariable->independVariable);
+                AIM_FREE(keyValue);
+                AIM_STATUS(aimInfo, status);
 
             }
 
@@ -8868,14 +8647,10 @@ int fea_getDesignVariable(int numDesignVariableTuple,
             if (status == CAPS_SUCCESS) {
 
                 status = string_toDoubleDynamicArray(keyValue,
-                        &tempInteger,
-                        &designVariable->independVariableWeight);
-                if (keyValue != NULL) {
-                    EG_free(keyValue);
-                    keyValue = NULL;
-                }
-
-                if (status != CAPS_SUCCESS) goto cleanup;
+                                                     &tempInteger,
+                                                     &designVariable->independVariableWeight);
+                AIM_FREE(keyValue);
+                AIM_STATUS(aimInfo, status);
 
                 // We have weights, but no variables
                 if (designVariable->numIndependVariable == 0) {
@@ -8888,10 +8663,8 @@ int fea_getDesignVariable(int numDesignVariableTuple,
                     printf("\tThe number of weighting constants provided does not match the number of independent design variables. "
                             "The last weight will be repeated %d times\n", designVariable->numIndependVariable - tempInteger);
 
-                    designVariable->independVariableWeight = (double *) EG_reall(designVariable->independVariableWeight,
-                            designVariable->numIndependVariable*sizeof(double));
-
-                    if (designVariable->independVariableWeight == NULL ) return EGADS_MALLOC;
+                    AIM_REALL(designVariable->independVariableWeight,
+                              designVariable->numIndependVariable, double, aimInfo, status);
 
                     for (j = 0; j < designVariable->numIndependVariable - tempInteger; j++) {
 
@@ -8904,18 +8677,14 @@ int fea_getDesignVariable(int numDesignVariableTuple,
                     printf("\tThe number of weighting constants provided does not match the number of independent design variables. "
                             "The last %d weights will be not be used\n", tempInteger -designVariable->numIndependVariable);
 
-                    designVariable->independVariableWeight = (double *) EG_reall(designVariable->independVariableWeight,
-                            designVariable->numIndependVariable*sizeof(double));
-
-                    if (designVariable->independVariableWeight == NULL ) return EGADS_MALLOC;
+                    AIM_REALL(designVariable->independVariableWeight,
+                              designVariable->numIndependVariable, double, aimInfo, status);
                 }
 
             } else { // No weights provided - set default value of 1.0
 
                 if (designVariable->numIndependVariable != 0) {
-                    designVariable->independVariableWeight = (double *) EG_alloc(designVariable->numIndependVariable*sizeof(double));
-
-                    if (designVariable->independVariableWeight == NULL) return EGADS_MALLOC;
+                    AIM_ALLOC(designVariable->independVariableWeight, designVariable->numIndependVariable, double, aimInfo, status);
 
                     for (j = 0; j < designVariable->numIndependVariable; j++) {
                         designVariable->independVariableWeight[j] = 1.0;
@@ -8937,15 +8706,12 @@ int fea_getDesignVariable(int numDesignVariableTuple,
             if (status == CAPS_SUCCESS) {
 
                 status = string_toDoubleArray(keyValue,
-                        2,
-                        designVariable->variableWeight);
-                if (keyValue != NULL) {
-                    EG_free(keyValue);
-                    keyValue = NULL;
-                }
+                                              2,
+                                              designVariable->variableWeight);
+                AIM_FREE(keyValue);
 
                 if (status != CAPS_SUCCESS) {
-                    printf("\tError during retrieving variableWeight - status %d\n", status);
+                    AIM_ERROR(aimInfo, "Retrieving variableWeight - status %d\n", status);
                     goto cleanup;
                 }
             } else {
@@ -8956,53 +8722,33 @@ int fea_getDesignVariable(int numDesignVariableTuple,
             // check if design variable relation info also included in input
             keyWord = "fieldName";
             status = search_jsonDictionary( designVariableTuple[i].value, keyWord, &keyValue);
-            
-            if (keyValue != NULL) {
-                EG_free(keyValue);
-                keyValue = NULL;
-            }
+            AIM_FREE(keyValue);
 
             if (status != CAPS_SUCCESS) {
-
                 keyWord = "fieldPosition";
                 status = search_jsonDictionary( designVariableTuple[i].value, keyWord, &keyValue);
-                
-                if (keyValue != NULL) {
-                    EG_free(keyValue);
-                    keyValue = NULL;
-                }
-
+                AIM_FREE(keyValue);
             }
 
             if (status == CAPS_SUCCESS) {
-
-                // The main relation associated with this design variable, if defined in input
-                designVariableRelation = &feaProblem->feaDesignVariableRelation[relationIndex++];
-                        
-                printf("\tWarning: the ability to provide design variable relation data "
-                    "within Design_Variable input is deprecated and "
-                    "will be removed in the future. Please use provide relation data "
-                    "via \"Design_Variable_Relation\" instead.\n");
-                status = fea_getDesignVariableRelationEntry(
-                    &designVariableTuple[i], designVariableRelation, attrMap, feaProblem, designVariable->name);
-                if (status != CAPS_SUCCESS) goto cleanup;
-
-                designVariableRelation->relationID = relationIndex;
+                AIM_ERROR(aimInfo, "The ability to provide design variable relation data "
+                                   "within Design_Variable input is deprecated. Please use provide relation data "
+                                   "via \"Design_Variable_Relation\" instead.\n");
+                status = CAPS_BADVALUE;
+                goto cleanup;
             }
 
 
         } else {
 
-            printf("\tError: Design_Variable tuple value is expected to be a JSON string\n");
-            return CAPS_BADVALUE;
+            AIM_ERROR(aimInfo, "Design_Variable tuple value is expected to be a JSON string\n");
+            status = CAPS_BADVALUE;
+            goto cleanup;
 
         }
     }
 
-    if (keyValue != NULL) {
-        EG_free(keyValue);
-        keyValue = NULL;
-    }
+    AIM_FREE(keyValue);
 
     // Now that we are done going through all the tuples we need to populate/create the independVaraiableID array
     // if independentVariable was set for any of them.
@@ -9012,8 +8758,7 @@ int fea_getDesignVariable(int numDesignVariableTuple,
 
         if (designVariable->numIndependVariable != 0) {
 
-            designVariable->independVariableID = (int *) EG_alloc(designVariable->numIndependVariable*sizeof(int));
-            if (designVariable->independVariableID == NULL) return EGADS_MALLOC;
+            AIM_ALLOC(designVariable->independVariableID, designVariable->numIndependVariable, int, aimInfo, status);
 
             // Loop through the independent variable names
             for (j = 0; j < designVariable->numIndependVariable; j++) {
@@ -9029,10 +8774,11 @@ int fea_getDesignVariable(int numDesignVariableTuple,
 
                 // If NOT found
                 if (found != (int) true) {
-                    printf("\tDesign variable name, \"%s\", not found when searching for independent design variables for "
-                            "variable %s!!!\n", designVariable->independVariable[j],
-                                                designVariable->name);
-                    return CAPS_NOTFOUND;
+                    AIM_ERROR(aimInfo, "\tDesign variable name, \"%s\", not found when searching for independent design variables for "
+                                       "variable %s!!!\n", designVariable->independVariable[j],
+                                                           designVariable->name);
+                    status = CAPS_NOTFOUND;
+                    goto cleanup;
                 }
 
                 designVariable->independVariableID[j] = feaProblem->feaDesignVariable[k].designVariableID;
@@ -9041,6 +8787,14 @@ int fea_getDesignVariable(int numDesignVariableTuple,
     }
 
     if (designVariableRelationTuple != NULL) {
+
+        AIM_REALL(feaProblem->feaDesignVariableRelation, numDesignVariableRelationTuple, feaDesignVariableRelationStruct, aimInfo, status);
+        feaProblem->numDesignVariableRelation = numDesignVariableRelationTuple;
+
+        for (i = 0; i < numDesignVariableRelationTuple; i++) {
+          status = initiate_feaDesignVariableRelationStruct(&feaProblem->feaDesignVariableRelation[i]);
+          AIM_STATUS(aimInfo, status);
+        }
 
         // Go through design variable relations defined via 'Design_Variable_Relation'
         for (i = 0; i < numDesignVariableRelationTuple; i++) {
@@ -9053,48 +8807,31 @@ int fea_getDesignVariable(int numDesignVariableTuple,
              *
              */
 
-            designVariableRelation = &feaProblem->feaDesignVariableRelation[relationIndex++];
+            designVariableRelation = &feaProblem->feaDesignVariableRelation[i];
 
-            designVariableRelation->relationID = relationIndex;
+            designVariableRelation->relationID = i+1;
 
             status = fea_getDesignVariableRelationEntry(
                 &designVariableRelationTuple[i], designVariableRelation, attrMap, feaProblem, NULL);
-            if (status != CAPS_SUCCESS) goto cleanup;
+            AIM_STATUS(aimInfo, status);
         }
 
-        feaProblem->numDesignVariableRelation = relationIndex;
-
-        feaProblem->feaDesignVariableRelation = EG_reall(
-                feaProblem->feaDesignVariableRelation,
-                feaProblem->numDesignVariableRelation * sizeof(feaDesignVariableRelationStruct));
-
-        if (feaProblem->feaDesignVariableRelation == NULL) {
-            status = EGADS_MALLOC;
-            goto cleanup;
-        }
     }
     printf("\tNumber of design variable relations - %d\n", feaProblem->numDesignVariableRelation);
     printf("\tDone getting FEA design variables\n");
     status = CAPS_SUCCESS;
 
-    cleanup:
+cleanup:
 
-        if (keyValue != NULL)
-            EG_free(keyValue);
+    AIM_FREE(keyValue);
+    AIM_FREE(materialSet);
+    AIM_FREE(propertySet);
+    AIM_FREE(elementSet);
 
-        if (groupName != NULL)
-            string_freeArray(numGroupName, &groupName);
+    if (groupName != NULL)
+        string_freeArray(numGroupName, &groupName);
 
-        if (materialSet != NULL)
-            EG_free(materialSet);
-
-        if (propertySet != NULL)
-            EG_free(propertySet);
-
-        if (elementSet != NULL)
-            EG_free(elementSet);
-
-        return status;
+    return status;
 }
 
 int fea_getDesignVariableRelationEntry(capsTuple *designVariableInput, 
@@ -9349,12 +9086,11 @@ int fea_getDesignVariableRelationEntry(capsTuple *designVariableInput,
 
     status = CAPS_SUCCESS;
 
-    cleanup:
+cleanup:
 
-        if (keyValue != NULL)
-            EG_free(keyValue);
+    AIM_FREE(keyValue);
 
-        return status;
+    return status;
 }
 
 // Get the design constraints from a capsTuple
@@ -11167,6 +10903,7 @@ int fea_transferExternalPressure(void *aimInfo, meshStruct *feaMesh, feaLoadStru
     int numDataTransferElement = 0, discElements;
     int dataTransferRank;
     double *dataTransferData;
+    char   *units;
 
     printf("Extracting external pressure loads from data transfer....\n");
 
@@ -11192,7 +10929,8 @@ int fea_transferExternalPressure(void *aimInfo, meshStruct *feaMesh, feaLoadStru
                                 &dataTransferMethod,
                                 &numDataTransferPoint,
                                 &dataTransferRank,
-                                &dataTransferData);
+                                &dataTransferData,
+                                &units);
 
         if (status == CAPS_SUCCESS) { // If we do have data ready, how many elements there are?
 

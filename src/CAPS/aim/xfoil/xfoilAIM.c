@@ -13,15 +13,15 @@
  * A module in the Computational Aircraft Prototype Syntheses (CAPS) has been developed to interact (through input
  * files) with the subsonic airfoil analysis tool xFoil \cite Drela1989. xFoil is an open-source tool and
  * may be freely downloaded from http://web.mit.edu/drela/Public/web/xfoil/ . At this time only a subsection
- * of xFoil's capabilities are exposed through the AIM. Furthermore, only versions 6.97 and 6.99 of xFoil
- * have been tested against (for Windows only 6.99).
+ * of xFoil's capabilities are exposed through the AIM. Furthermore, only version 6.99 of xFoil
+ * have been tested against.
  *
  * An outline of the AIM's inputs and outputs are provided in \ref aimInputsXFOIL and \ref aimOutputsXFOIL, respectively.
  *
- * The accepted and expected geometric representation and analysis intentions are detailed in \ref geomRepIntentXFOIL.
- *
  * Upon running preAnalysis the AIM generates two files: 1. "xfoilInput.txt" which contains instructions for
  * xFoil to execute and 2. "caps.xfoil" which contains the geometry to be analyzed.
+ *
+ * The xFoil AIM can automatically execute xfoil, with details provided in \ref aimExecuteXFOIL.
  *
  * \section assumptionsXFOIL Assumptions
  * xFoil inherently assumes the airfoil cross-section is in the x-y plane, if it isn't an attempt is made
@@ -64,7 +64,7 @@
 #define strtok_r   strtok_s
 #endif
 
-#define MAXPOINT  200
+#define NUMPOINT  200
 
 #define MXCHAR  255
 
@@ -98,10 +98,10 @@ enum aimOutputs
 
 
 /* ********************** Exposed AIM Functions ***************************** */
-int aimInitialize(int inst, /*@unused@*/ /*@null@*/ const char *unitSys,
-                  /*@unused@*/ void **aimStore, /*@unused@*/ int *major,
+int aimInitialize(int inst, /*@unused@*/ const char *unitSys, /*@unused@*/ void *aimInfo,
+                  /*@unused@*/ void **instStore, /*@unused@*/ int *major,
                   /*@unused@*/ int *minor, int *nIn, int *nOut,
-                  int *nFields, char ***fnames, int **ranks)
+                  int *nFields, char ***fnames, int **franks, int **fInOut)
 {
 
 #ifdef DEBUG
@@ -113,10 +113,11 @@ int aimInitialize(int inst, /*@unused@*/ /*@null@*/ const char *unitSys,
     *nOut    = NUMOUTPUT;
     if (inst == -1) return CAPS_SUCCESS;
 
-    /* specify the field variables this analysis can generate */
+    /* specify the field variables this analysis can generate and consume */
     *nFields = 0;
-    *ranks   = NULL;
     *fnames  = NULL;
+    *franks  = NULL;
+    *fInOut  = NULL;
 
     return CAPS_SUCCESS;
 }
@@ -125,6 +126,7 @@ int aimInitialize(int inst, /*@unused@*/ /*@null@*/ const char *unitSys,
 int aimInputs(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
               int index, char **ainame, capsValue *defval)
 {
+    int status = CAPS_SUCCESS;
     /*! \page aimInputsXFOIL AIM Inputs
      * The following list outlines the xFoil inputs along with their default values available
      * through the AIM interface.
@@ -138,7 +140,6 @@ int aimInputs(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
         *ainame           = EG_strdup("Mach");
         defval->type      = Double;
         defval->vals.real = 0.0;
-        defval->units     = NULL;
 
         /*! \page aimInputsXFOIL
          * - <B> Mach = 0.0 </B> <br>
@@ -149,7 +150,6 @@ int aimInputs(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
         *ainame              = EG_strdup("Re");
         defval->type      = Double;
         defval->vals.real = 0.0;
-        defval->units     = NULL;
 
         /*! \page aimInputsXFOIL
          * - <B> Re = 0.0 </B> <br>
@@ -159,35 +159,30 @@ int aimInputs(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
         *ainame           = EG_strdup("Alpha");
         defval->type      = Double;
         defval->dim       = Vector;
-        defval->length    = 1;
         defval->nrow      = 1;
         defval->ncol      = 1;
         defval->units     = NULL;
         defval->vals.real = 0.0;
         defval->nullVal   = IsNull;
         defval->lfixed    = Change;
-        defval->units     = EG_strdup("degree");
+        //defval->units     = EG_strdup("degree");
 
         /*! \page aimInputsXFOIL
          * - <B> Alpha = NULL </B> <br>
-         *  Angle of attack, either a single value or an array of values ( [0.0, 4.0, ...] ) may be provided [degree].
+         *  Angle of attack [degree], either a single value or an array of values ( [0.0, 4.0, ...] ) may be provided.
          */
     } else if (index == inAlpha_Increment) {
-        *ainame            = EG_strdup("Alpha_Increment");
-        defval->type       = Double;
-        defval->dim        = Vector;
-        defval->length     = 3;
-        defval->nrow       = 3;
-        defval->ncol       = 1;
-        defval->units      = NULL;
-        defval->vals.reals = (double *) EG_alloc(defval->length*sizeof(double));
-        if (defval->vals.reals == NULL) return EGADS_MALLOC;
+        *ainame               = EG_strdup("Alpha_Increment");
+        defval->type          = Double;
+        defval->dim           = Vector;
+        defval->nrow          = 3;
+        AIM_ALLOC(defval->vals.reals, defval->nrow, double, aimInfo, status);
         defval->vals.reals[0] = 0.0;
         defval->vals.reals[1] = 0.0;
         defval->vals.reals[2] = 0.0;
-        defval->nullVal    = IsNull;
-        defval->lfixed     = Fixed;
-        defval->units      = EG_strdup("degree");
+        defval->nullVal       = IsNull;
+        defval->lfixed        = Fixed;
+        //defval->units      = EG_strdup("degree");
 
         /*! \page aimInputsXFOIL
          * - <B> Alpha_Increment = NULL</B> <br>
@@ -197,33 +192,29 @@ int aimInputs(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
         *ainame           = EG_strdup("CL");
         defval->type      = Double;
         defval->dim       = Vector;
-        defval->length    = 1;
         defval->nrow      = 1;
         defval->ncol      = 1;
-        defval->units     = NULL;
         defval->vals.real = 0.0;
         defval->lfixed    = Change;
-        defval->nullVal    = IsNull;
+        defval->nullVal   = IsNull;
 
         /*! \page aimInputsXFOIL
          * - <B> CL =  NULL</B> <br>
          *  Prescribed coefficient of lift, either a single value or an array of values ( [0.1, 0.5, ...] ) may be provided.
          */
     } else if (index == inCL_Increment) {
-        *ainame            = EG_strdup("CL_Increment");
-        defval->type       = Double;
-        defval->dim        = Vector;
-        defval->length     = 3;
-        defval->nrow       = 3;
-        defval->ncol       = 1;
-        defval->units      = NULL;
-        defval->vals.reals = (double *) EG_alloc(defval->length*sizeof(double));
-        if (defval->vals.reals == NULL) return EGADS_MALLOC;
+        *ainame               = EG_strdup("CL_Increment");
+        defval->type          = Double;
+        defval->dim           = Vector;
+        defval->nrow          = 3;
+        defval->ncol          = 1;
+        defval->units         = NULL;
+        AIM_ALLOC(defval->vals.reals, defval->nrow, double, aimInfo, status);
         defval->vals.reals[0] = 0.0;
         defval->vals.reals[1] = 0.0;
         defval->vals.reals[2] = 0.0;
-        defval->nullVal    = IsNull;
-        defval->lfixed     = Fixed;
+        defval->nullVal       = IsNull;
+        defval->lfixed        = Fixed;
 
         /*! \page aimInputsXFOIL
          * - <B> CL_Increment = NULL</B> <br>
@@ -233,26 +224,19 @@ int aimInputs(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
         *ainame           = EG_strdup("CL_Inviscid");
         defval->type      = Double;
         defval->dim       = Vector;
-        defval->length    = 1;
         defval->nrow      = 1;
         defval->ncol      = 1;
-        defval->units     = NULL;
         defval->vals.real = 0.0;
         defval->lfixed    = Change;
-        defval->nullVal    = IsNull;
+        defval->nullVal   = IsNull;
 
         /*! \page aimInputsXFOIL
          * - <B> CL_Inviscid =  NULL</B> <br>
          *  Prescribed inviscid coefficient of lift, either a single value or an array of values ( [0.1, 0.5, ...] ) may be provided.
          */
     } else if (index == inAppend_PolarFile) {
-        *ainame           = EG_strdup("Append_PolarFile");
-        defval->type      = Boolean;
-        defval->dim       = Vector;
-        defval->length    = 1;
-        defval->nrow      = 1;
-        defval->ncol      = 1;
-        defval->units     = NULL;
+        *ainame              = EG_strdup("Append_PolarFile");
+        defval->type         = Boolean;
         defval->vals.integer = (int) false;
 
         /*! \page aimInputsXFOIL
@@ -260,28 +244,17 @@ int aimInputs(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
          *  Append the file (xfoilPolar.dat) that polar data is written to.
          */
     } else if (index == inViscous_Iteration) {
-        *ainame           = EG_strdup("Viscous_Iteration");
-        defval->type      = Integer;
-        defval->dim       = Vector;
-        defval->length    = 1;
-        defval->nrow      = 1;
-        defval->ncol      = 1;
-        defval->units     = NULL;
-        defval->lfixed    = Fixed;
+        *ainame              = EG_strdup("Viscous_Iteration");
+        defval->type         = Integer;
         defval->vals.integer = 20;
 
         /*! \page aimInputsXFOIL
-         * - <B> Viscous_Iteration =  20</B> <br>
+         * - <B> Viscous_Iteration = 20</B> <br>
          *  Viscous solution iteration limit. Only set if a Re isn't 0.0 .
          */
     } else if (index == inWrite_Cp) {
-        *ainame           = EG_strdup("Write_Cp");
-        defval->type      = Boolean;
-        defval->dim       = Vector;
-        defval->length    = 1;
-        defval->nrow      = 1;
-        defval->ncol      = 1;
-        defval->units     = NULL;
+        *ainame              = EG_strdup("Write_Cp");
+        defval->type         = Boolean;
         defval->vals.integer = (int) false;
 
         /*! \page aimInputsXFOIL
@@ -291,7 +264,9 @@ int aimInputs(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
 
     }
 
-    return CAPS_SUCCESS;
+    status = CAPS_SUCCESS;
+cleanup:
+    return status;
 }
 
 
@@ -310,7 +285,7 @@ int aimPreAnalysis(/*@unused@*/ void *instStore, void *aimInfo,
     vlmSectionStruct vlmSection;
 
     // File I/O
-    FILE *fp = NULL, *fpTemp = NULL;
+    FILE *fp = NULL;
     char inputFilename[] = "xfoilInput.txt";
     char xfoilFilename[] = "caps.xfoil";
     char polarFilename[] = "xfoilPolar.dat";
@@ -324,33 +299,28 @@ int aimPreAnalysis(/*@unused@*/ void *instStore, void *aimInfo,
     }
 
     status = aim_getBodies(aimInfo, &intents, &numBody, &bodies);
-    if (status != CAPS_SUCCESS) {
-#ifdef DEBUG
-        printf("\txfoilAIM/aimPreAnalysis getBodies = %d!\n", status);
-#endif
-        return status;
-    }
+    AIM_STATUS(aimInfo, status);
 
     if (numBody == 0 || bodies == NULL) {
-        printf("\tError: xfoilAIM/aimPreAnalysis No Bodies!\n");
+        AIM_ERROR(aimInfo, "No Bodies!");
         return CAPS_SOURCEERR;
     }
 
     if (numBody != 1) {
-        printf("\tError: Only one body should be provided to the xfoilAIM at this time!!");
+        AIM_ERROR(aimInfo, "Only one body should be provided to the xfoilAIM! numBody = %d", numBody);
         return CAPS_SOURCEERR;
     }
 
     status = initiate_vlmSectionStruct(&vlmSection);
-    if (status != CAPS_SUCCESS) goto cleanup;
+    AIM_STATUS(aimInfo, status);
 
     // Accumulate cross coordinates of airfoil and write out data file
     for (bodyIndex = 0; bodyIndex < numBody; bodyIndex++) {
 
         // Open and write the input to control the XFOIL session
-        fp = fopen(xfoilFilename, "w");
+        fp = aim_fopen(aimInfo, xfoilFilename, "w");
         if (fp == NULL) {
-            printf("\tUnable to open file %s\n!", xfoilFilename);
+            AIM_ERROR(aimInfo, "Unable to open file %s\n!", xfoilFilename);
             status = CAPS_IOERR;
             goto cleanup;
         }
@@ -358,20 +328,21 @@ int aimPreAnalysis(/*@unused@*/ void *instStore, void *aimInfo,
         fprintf(fp,"capsBody_%d\n",bodyIndex+1);
 
         status = EG_copyObject(bodies[bodyIndex], NULL, &vlmSection.ebody);
-        if (status != CAPS_SUCCESS) goto cleanup;
+        AIM_STATUS(aimInfo, status);
 
-        status = finalize_vlmSectionStruct(&vlmSection);
-        if (status != CAPS_SUCCESS) goto cleanup;
+        status = finalize_vlmSectionStruct(aimInfo, &vlmSection);
+        AIM_STATUS(aimInfo, status);
 
         // Write out the airfoil cross-section given an ego body
-        status = vlm_writeSection(fp,
+        status = vlm_writeSection(aimInfo,
+                                  fp,
                                   &vlmSection,
                                   (int) false, // Normalize by chord (true/false)
-                                  (int) MAXPOINT);
-        if (status != CAPS_SUCCESS) goto cleanup;
+                                  (int) NUMPOINT);
+        AIM_STATUS(aimInfo, status);
 
         status = destroy_vlmSectionStruct(&vlmSection);
-        if (status != CAPS_SUCCESS) goto cleanup;
+        AIM_STATUS(aimInfo, status);
 
         // Close file
         if (fp != NULL) {
@@ -382,7 +353,8 @@ int aimPreAnalysis(/*@unused@*/ void *instStore, void *aimInfo,
     } // End body loop
 
     // Open and write the input to control the XFOIL session
-    fp = fopen(inputFilename, "w");
+    if (fp != NULL) fclose(fp);
+    fp = aim_fopen(aimInfo, inputFilename, "w");
     if (fp == NULL) {
         printf("Unable to open file %s\n!", inputFilename);
         status = CAPS_IOERR;
@@ -418,19 +390,10 @@ int aimPreAnalysis(/*@unused@*/ void *instStore, void *aimInfo,
     fprintf(fp,"\n");
 
     // Check to see if polar file exist
-    fpTemp = fopen(polarFilename, "r");
-    if( fpTemp != NULL ) { // File does exists
-        fclose(fpTemp); fpTemp = NULL;
-
+    if (aim_isFile(aimInfo, polarFilename) == CAPS_SUCCESS){
         if (aimInputs[inAppend_PolarFile-1].vals.integer == (int) false) {
-            status = remove(polarFilename); // Remove the file
-
-            if(status != CAPS_SUCCESS) {
-                printf("\tError: unable to delete the file - %s\n",
-                       polarFilename);
-                status = CAPS_IOERR;
-                goto cleanup;
-            }
+            status = aim_rmFile(aimInfo, polarFilename);
+            AIM_STATUS(aimInfo, status);
         } else {
             fprintf(fp,"n\n");
         }
@@ -516,7 +479,61 @@ int aimPreAnalysis(/*@unused@*/ void *instStore, void *aimInfo,
 }
 
 
-int aimOutputs(/*@unused@*/ void *instStore, /*@unused@*/ void *aimStruc,
+int aimExecute(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
+               int *state)
+{
+  /*! \page aimExecuteXFOIL AIM Execution
+   *
+   * If auto execution is enabled when creating an xFoil AIM,
+   * the AIM will execute xFoil just-in-time with the command line:
+   *
+   * \code{.sh}
+   * xfoil < xfoilInput.txt > xfoilOutput.txt
+   * \endcode
+   *
+   * where preAnalysis generated the file "xFoilInput.txt" which contains the input information.
+   *
+   * The analysis can be also be explicitly executed with caps_execute in the C-API
+   * or via Analysis.runAnalysis in the pyCAPS API.
+   *
+   * Calling preAnalysis and postAnalysis is NOT allowed when auto execution is enabled.
+   *
+   * Auto execution can also be disabled when creating an xFoil AIM object.
+   * In this mode, caps_execute and Analysis.runAnalysis can be used to run the analysis,
+   * or xFoil can be executed by calling preAnalysis, system call, and posAnalysis as demonstrated
+   * below with a pyCAPS example:
+   *
+   * \code{.py}
+   * print ("\n\preAnalysis......")
+   * xfoil.preAnalysis()
+   *
+   * print ("\n\nRunning......")
+   * xfoil.system("xfoil < xfoilInput.txt > xfoilOutput.txt"); # Run via system call
+   *
+   * print ("\n\postAnalysis......")
+   * xfoil.postAnalysis()
+   * \endcode
+   */
+
+  *state = 0;
+  return aim_system(aimInfo, NULL, "xfoil < xfoilInput.txt > xfoilOutput.txt");
+}
+
+
+int aimPostAnalysis(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
+                    /*@unused@*/ int restart, /*@unused@*/ capsValue *inputs)
+{
+  // check the XFOIL output file
+  if (aim_isFile(aimInfo, "xfoilPolar.dat") != CAPS_SUCCESS) {
+    AIM_ERROR(aimInfo, "xfoil execution did not produce xfoilPolar.dat");
+    return CAPS_EXECERR;
+  }
+
+  return CAPS_SUCCESS;
+}
+
+
+int aimOutputs(/*@unused@*/ void *instStore, /*@unused@*/ void *aimInfo,
                int index, char **aoname, capsValue *form)
 {
 
@@ -584,26 +601,17 @@ int aimOutputs(/*@unused@*/ void *instStore, /*@unused@*/ void *aimStruc,
          */
     }
 
-    form->type   = Double;
-    form->dim    = Vector;
-    form->length = 1;
-    form->nrow   = 1;
-    form->ncol   = 1;
-    form->units  = NULL;
-    form->lfixed = Change;
+    form->type    = Double;
+    form->dim     = Vector;
+    form->nrow    = 1;
+    form->ncol    = 1;
+    form->units   = NULL;
+    form->lfixed  = Change;
+    form->nullVal = IsNull;
 
     form->vals.reals = NULL;
-    form->vals.real = 0;
 
     return CAPS_SUCCESS;
-}
-
-
-/* no longer optional and needed for restart */
-int aimPostAnalysis(/*@unused@*/ void *instStore, /*@unused@*/ void *aimStruc,
-                    /*@unused@*/ int restart, /*@unused@*/ capsValue *inputs)
-{
-  return CAPS_SUCCESS;
 }
 
 
@@ -628,25 +636,15 @@ int aimCalcOutput(/*@unused@*/ void *instStore, /*@unused@*/void *aimInfo,
     const char *valHeader;
     FILE       *fp;
 
-    if (val->length > 1) {
-        if (val->vals.reals != NULL) EG_free(val->vals.reals);
-        val->vals.reals = NULL;
-    } else {
-        val->vals.real = 0.0;
-    }
-
-    val->nrow = 1;
-    val->ncol = 1;
-    val->length = val->nrow*val->ncol;
-
     // Open the XFOIL output file
-    fp = fopen("xfoilPolar.dat", "r");
+    fp = aim_fopen(aimInfo, "xfoilPolar.dat", "r");
     if (fp == NULL) return CAPS_IOERR;
 
     // Move to beginning of data
     for (i = 0; i < 11; i++) {
         status = getline(&line, &linecap, fp);
         if (status < 0){
+            AIM_ERROR(aimInfo, "Could not parse xfoilPolar.dat");
             status = CAPS_IOERR;
             goto cleanup;
         }
@@ -665,8 +663,8 @@ int aimCalcOutput(/*@unused@*/ void *instStore, /*@unused@*/void *aimInfo,
         //printf("%s\n", headers[numDataEntry]);
         numDataEntry++;
         if (numDataEntry == MAX_DATA_ENTRY) {
-            printf("More than %d columns in xfoilPolar.dat is not expected!\n",
-                   numDataEntry);
+            AIM_ERROR(aimInfo, "More than %d columns in xfoilPolar.dat is not expected!",
+                      numDataEntry);
             status = CAPS_IOERR;
             goto cleanup;
         }
@@ -675,6 +673,7 @@ int aimCalcOutput(/*@unused@*/ void *instStore, /*@unused@*/void *aimInfo,
     // line skip the heading just above the data, i.e. ---- ---- ----...
     status = getline(&line, &linecap, fp);
     if (status < 0){
+        AIM_ERROR(aimInfo, "Could not parse xfoilPolar.dat");
         status = CAPS_IOERR;
         goto cleanup;
     }
@@ -698,7 +697,7 @@ int aimCalcOutput(/*@unused@*/ void *instStore, /*@unused@*/void *aimInfo,
     else if (index == outTransition_Bottom)
         valHeader = "Bot_Xtr";
     else {
-        printf("Developer error: Unkown variable index %d", index);
+        AIM_ERROR(aimInfo, "Developer error: Unkown variable index %d", index);
         status = CAPS_BADINDEX;
         goto cleanup;
     }
@@ -708,7 +707,7 @@ int aimCalcOutput(/*@unused@*/ void *instStore, /*@unused@*/void *aimInfo,
     while( valIndex < numDataEntry && strncmp(headers[valIndex], valHeader,
                                               strlen(valHeader)) != 0 ) valIndex++;
     if (valIndex == numDataEntry) {
-        printf("Could not find '%s' header in xfoilPolar.dat\n", valHeader);
+        AIM_ERROR(aimInfo, "Could not find '%s' header in xfoilPolar.dat", valHeader);
         status = CAPS_NOTFOUND;
         goto cleanup;
     }
@@ -721,16 +720,13 @@ int aimCalcOutput(/*@unused@*/ void *instStore, /*@unused@*/void *aimInfo,
     rewind(fp);
 
     if (valCount == 0) {
+        AIM_ERROR(aimInfo, "No data in xfoilPolar.dat");
         status = CAPS_NOTFOUND;
         goto cleanup;
     }
 
     if (valCount > 1) {
-        val->vals.reals = (double *) EG_alloc(valCount*sizeof(double));
-        if (val->vals.reals == NULL) {
-            status = EGADS_MALLOC;
-            goto cleanup;
-        }
+        AIM_ALLOC(val->vals.reals, valCount, double, aimInfo, status);
     }
 
     // Move back to the beginning of data
@@ -760,37 +756,29 @@ int aimCalcOutput(/*@unused@*/ void *instStore, /*@unused@*/void *aimInfo,
             val->vals.real = dataLine[valIndex];
         } else {
             //printf("k = %d, Val (%d) - %f\n", k, valIndex,dataLine[valIndex]);
-/*@-nullderef@*/
             val->vals.reals[k] = dataLine[valIndex];
-/*@+nullderef@*/
         }
         k += 1;
     }
 
     if (k != valCount) { // Realloc our array - shorten it
-        val->vals.reals = (double *) EG_reall(val->vals.reals,
-                k*sizeof(double));
-        if (val->vals.reals == NULL) {
-            status = EGADS_MALLOC;
-            goto cleanup;
-        }
+        AIM_REALL(val->vals.reals, valCount, double, aimInfo, status);
     }
 
     valCount = k;
-    val->dim    = Vector;
-    val->length = valCount;
-    val->nrow   = valCount;
-    val->ncol   = 1;
+    val->dim     = Vector;
+    val->nrow    = valCount;
+    val->ncol    = 1;
+    val->nullVal = NotNull;
 
     status = CAPS_SUCCESS;
-    goto cleanup;
 
-    cleanup:
-        if (fp != NULL) fclose(fp);
+cleanup:
+    if (fp != NULL) fclose(fp);
 
-        if (line != NULL) EG_free(line);
+    AIM_FREE(line);
 
-        return status;
+    return status;
 }
 
 

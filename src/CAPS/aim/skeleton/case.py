@@ -1,40 +1,25 @@
-from __future__ import print_function
+import pyCAPS
 
-from pyCAPS import capsProblem
+# Define length unit
+m = pyCAPS.Unit("m")
 
-# Instantiate our CAPS problem "myProblem" 
-print("Initiating capsProblem")
-myProblem = capsProblem()
+# Instantiate our CAPS problem "myProblem"
+print("Loading file into our Problem")
+myProblem = pyCAPS.Problem(problemName="skeletonExample",
+                           capsFile="case.csm")
 
-print("Loading file into our capsProblem")
-myGeometry = myProblem.loadCAPS("case.csm")
+# Load our skeletal aim
+skel = myProblem.analysis.create(aim = "skeletonAIM")
 
-# Load our skeletal aim 
-skel = myProblem.loadAIM(aim = "skeletonAIM", analysisDir = ".",   
-                         capsIntent = "CFD")
-
-##[analysisValueSetandGet]
 # Get current value of our first input
-value = skel.getAnalysisVal("skeletonAIMin")
-print("Default skeletonAIMin =", value)
-skel.setAnalysisVal("skeletonAIMin", 6.0)
-value = skel.getAnalysisVal("skeletonAIMin")
-print("Current skeletonAIMin =", value)
+value = skel.input.SkeletonAIMin
+print("Default SkeletonAIMin =", value)
+skel.input.SkeletonAIMin = 6.0*m
+value = skel.input.SkeletonAIMin
+print("Current SkeletonAIMin =", value)
 
-##[analysisPreAndPost]
-# Execute pre-Analysis
-skel.preAnalysis()
-
-# Run AIM - os.system call, python interface, etc.....
-
-# Execute post-Analysis (notify CAPS that analysis is done)
-skel.postAnalysis()
+# AIM autoExecutes
 
 # Get an output
-value = skel.getAnalysisOutVal("skeletonAIMout")
-print("Computed skeletonAIMout =", value)
-##[analysisPreAndPost]
-
-# Close our problems
-print("Closing our problem")
-myProblem.closeCAPS()
+value = skel.output.SkeletonAIMout
+print("Computed SkeletonAIMout =", value)

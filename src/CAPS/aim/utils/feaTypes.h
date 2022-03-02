@@ -60,7 +60,7 @@ typedef struct {
 
     vlmSurfaceStruct vlmSurface; // VLM surface structure
 
-}feaAeroStruct;
+} feaAeroStruct;
 
 // Structure to hold connection information
 typedef struct {
@@ -96,7 +96,7 @@ typedef struct {
     double *masterWeighting; // [numMaster]
     int *masterComponent; // [numMaster]
 
-}feaConnectionStruct;
+} feaConnectionStruct;
 
 // Structure to hold coordinate system information
 typedef struct {
@@ -115,7 +115,7 @@ typedef struct {
     double normal2[3]; // Second normal direction
     double normal3[3]; // Third normal direction - found from normal1 x normal2
 
-}feaCoordSystemStruct;
+} feaCoordSystemStruct;
 
 // Structure to hold design variable relation information
 typedef struct {
@@ -370,11 +370,11 @@ typedef struct {
 
     int materialID; // ID number of material
 
-    double youngModulus; // E - Young's Modulus [Longitudinal if distinction is made]
-    double shearModulus; // G - Shear Modulus
-    double poissonRatio; // Poisson's Ratio
-    double density;      // Rho - material mass density
-    double thermalExpCoeff; //Coefficient of thermal expansion
+    double youngModulus;    // E - Young's Modulus [Longitudinal if distinction is made]
+    double shearModulus;    // G - Shear Modulus
+    double poissonRatio;    // Poisson's Ratio
+    double density;         // Rho - material mass density
+    double thermalExpCoeff; // Coefficient of thermal expansion
     double temperatureRef;  // Reference temperature
     double dampingCoeff;    // Damping coefficient
     double yieldAllow;      // yield allowable for the isotropic material, populates tension
@@ -392,6 +392,22 @@ typedef struct {
     int allowType; // 0 for stress, 1 for strain
 
 } feaMaterialStruct;
+
+// Structure to hold FEA unit system
+typedef struct {
+
+    char *length;      // Length unit
+    char *mass;        // Mass unit
+
+    char *pressure;    // Pressure unit
+    char *densityVol;  // Density unit (mass/volume)
+    char *densityArea; // Density unit (mass/area)
+    char *temperature; // Temperature unit
+
+    char *momentOfInertia; // moment of inertia (mass*length^2)
+
+} feaUnitsStruct;
+
 
 // Structure to hold FEA constraints
 typedef struct {

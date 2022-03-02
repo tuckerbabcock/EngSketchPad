@@ -7,6 +7,7 @@
 #define MESHTYPES_H
 
 #include "egads.h"
+#include "miscTypes.h"
 
 typedef enum {UnknownDistribution, EvenDistribution, TanhDistribution } edgeDistributionEnum;
 
@@ -17,15 +18,6 @@ typedef enum {UnknownMeshSubElement, ConcentratedMassElement, BarElement, BeamEl
 typedef enum {UnknownMeshAnalysis, MeshCFD, MeshStructure, MeshOrigami} meshAnalysisTypeEnum;
 //typedef enum {UnknownMeshDimension, TwoDimensional, ThreeDimensional} meshDimensionalityEnum;
 typedef enum {UnknownMeshType, Surface2DMesh, SurfaceMesh, VolumeMesh} meshTypeEnum;
-
-typedef struct {
-    // EGADS body tessellation storage
-    ego egadsTess; // EGADS body tessellation
-    int numTessFace; // Number of faces in the tessellation
-    int *tessFaceQuadMap; // List to keep track of whether or not the tessObj has quads that have been split into tris
-                       // size = [numTessFace]. In general if the quads have been split they should be added to the end
-                       // of the tri list in the face tessellation
-} bodyTessMappingStruct;
 
 // Container for boundary conditions
 typedef struct {
@@ -75,30 +67,24 @@ typedef struct {
 
 // Container for hoTess specific inputs
 typedef struct {
-	meshElementTypeEnum meshElementType;
+    meshElementTypeEnum meshElementType;
 
-	// inputs to EG_tessHOverts
-	// number of vertices local to the elevated element
-	int numLocalElevatedVerts;
+    // inputs to EG_tessHOverts
+    // number of vertices local to the elevated element
+    int numLocalElevatedVerts;
 
-	// weights of local verts relative to ref element
-	// 2*numLocalElevatedVerts in length
-	double *weightsLocalElevatedVerts;
+    // weights of local verts relative to ref element
+    // 2*numLocalElevatedVerts in length
+    double *weightsLocalElevatedVerts;
 
-	// number of internal elevated tris created per source triangle
-	// negative number indicates quads (paired triangles)
-	int numLocalElevatedTris;
+    // number of internal elevated tris created per source triangle
+    // negative number indicates quads (paired triangles)
+    int numLocalElevatedTris;
 
-	// local elevated triangle indices (1-bias)
-	// 3*numLocalElevatedTris in length
-	int *orderLocalElevatedTris;
+    // local elevated triangle indices (1-bias)
+    // 3*numLocalElevatedTris in length
+    int *orderLocalElevatedTris;
 } hoTessInputStruct;
-
-// Container for PUMI specific inputs
-typedef struct {
-    // curved mesh element order 
-    int elementOrder;
-} pumiInputStruct;
 
 // Container for meshing inputs
 typedef struct {
@@ -125,7 +111,6 @@ typedef struct {
     aflr3InputStruct aflr3Input; // Structure of AFLR3 specific inputs
     aflr4InputStruct aflr4Input; // Structure of AFLR4 specific inputs
     hoTessInputStruct hoTessInput; // Structure of hoTess specific inputs
-    pumiInputStruct pumiInput; // Structure of PUMI specific inputs
 
 } meshInputStruct;
 
@@ -277,12 +262,15 @@ struct meshStruct {
     int numElement;
     meshElementStruct *element; // size[numElement]
 
-    bodyTessMappingStruct bodyTessMap;
+    ego egadsTess; // EGADS body tessellation
 
     int numReferenceMesh; // Number of reference meshes
     meshStruct *referenceMesh; // Pointers to other meshes, should be freed but not individual references, size[numReferenceMesh]
 
     meshQuickRefStruct meshQuickRef;
+
+    // Attribute to index map that maps CAPSGroup names to indexes
+    mapAttrToIndexStruct groupMap;
 };
 
 // Container for mesh data relevant for CFD analysis
