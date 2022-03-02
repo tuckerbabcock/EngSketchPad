@@ -1,9 +1,9 @@
 /*
  *      CAPS: Computational Aircraft Prototype Syntheses
  *
- *             Problem Object Functions
+ *             Units Utility Functions
  *
- *      Copyright 2014-2021, Massachusetts Institute of Technology
+ *      Copyright 2014-2022, Massachusetts Institute of Technology
  *      Licensed under The GNU Lesser General Public License, version 2.1
  *      See http://www.opensource.org/licenses/lgpl-2.1.php
  *
@@ -12,18 +12,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#ifndef WIN32
-#include <strings.h>
-#include <unistd.h>
-#else
-#define strcasecmp  stricmp
-#define snprintf   _snprintf
-#define unlink     _unlink
-#endif
+
+#include "capsBase.h"
 
 #include "udunits.h"
 
-#include "capsBase.h"
+/*@-incondefs@*/
+extern void ut_free(/*@only@*/ ut_unit* const unit);
+extern void cv_free(/*@only@*/ cv_converter* const converter);
+/*@+incondefs@*/
 
 #define UNIT_BUFFER_MAX 257
 
@@ -83,15 +80,17 @@ void *caps_initUnits()
 #ifdef WIN32
   _chdrive(oldrive);
 #endif
-  atexit (caps_free_utsystem);
+  atexit(caps_free_utsystem);
 
   return utsystem;
 }
 
 
-int caps_convert(/*@null@*/ const char  *inUnit, double   inVal,
-                 /*@null@*/ const char *outUnit, double *outVal)
+int
+caps_convert(const int count, /*@null@*/ const char  *inUnit, double  *inVal,
+                              /*@null@*/ const char *outUnit, double *outVal)
 {
+  int          i;
   ut_unit      *utunit1, *utunit2;
   cv_converter *converter;
 
@@ -99,17 +98,16 @@ int caps_convert(/*@null@*/ const char  *inUnit, double   inVal,
 
   /* check for simple equality */
   if ((inUnit == NULL) && (outUnit == NULL)) {
-    *outVal = inVal;
+    for (i = 0; i < count; i++) outVal[i] = inVal[i];
     return CAPS_SUCCESS;
   }
   if (inUnit  == NULL) return CAPS_UNITERR;
   if (outUnit == NULL) return CAPS_UNITERR;
   if (strcmp(outUnit, inUnit) == 0) {
-    *outVal = inVal;
+    for (i = 0; i < count; i++) outVal[i] = inVal[i];
     return CAPS_SUCCESS;
   }
 
-  *outVal = 0;
   if (utsystem == NULL) {
     (void) caps_initUnits();
     if (utsystem == NULL) return CAPS_UNITERR;
@@ -124,13 +122,12 @@ int caps_convert(/*@null@*/ const char  *inUnit, double   inVal,
     return CAPS_UNITERR;
   }
 
-  *outVal = cv_convert_double(converter, inVal);
+  (void)cv_convert_doubles(converter, inVal, count, outVal);
   cv_free(converter);
   ut_free(utunit2);
   ut_free(utunit1);
 
   if (ut_get_status() != UT_SUCCESS) {
-    *outVal = 0.0;
     return CAPS_UNITERR;
   }
 
@@ -138,8 +135,97 @@ int caps_convert(/*@null@*/ const char  *inUnit, double   inVal,
 }
 
 
-int caps_unitMultiply(const char *inUnits1, const char *inUnits2,
-                      char **outUnits)
+int
+caps_unitParse(/*@null@*/ const char *unit)
+{
+  ut_unit *utunit;
+
+  if (unit == NULL) return CAPS_SUCCESS;
+
+  if (utsystem == NULL) {
+    (void) caps_initUnits();
+    if (utsystem == NULL) return CAPS_UNITERR;
+  }
+
+  utunit = ut_parse(utsystem, unit, UT_ASCII);
+  if (utunit == NULL || ut_get_status() != UT_SUCCESS) {
+    return CAPS_UNITERR;
+  }
+  ut_free(utunit);
+
+  return CAPS_SUCCESS;
+}
+
+
+int
+caps_unitConvertible( const char *unit1, const char *unit2)
+{
+  int     status;
+  ut_unit *utunit1, *utunit2;
+
+  /* check for simple equality */
+  if        ((unit1 == NULL) && (unit2 == NULL)) {
+    return CAPS_SUCCESS;
+  } else if ((unit1 == NULL) || (unit2 == NULL)) {
+    return CAPS_UNITERR;
+  } else if (strcmp(unit1, unit2) == 0) {
+    return CAPS_SUCCESS;
+  }
+
+  if (utsystem == NULL) {
+    (void) caps_initUnits();
+    if (utsystem == NULL) return CAPS_UNITERR;
+  }
+
+  utunit1 = ut_parse(utsystem, unit1, UT_ASCII);
+  utunit2 = ut_parse(utsystem, unit2, UT_ASCII);
+  status  = ut_are_convertible(utunit1, utunit2);
+  ut_free(utunit1);
+  ut_free(utunit2);
+
+  if (status == UT_SUCCESS) { /* yeah... success means failure */
+    return CAPS_UNITERR;
+  }
+
+  return CAPS_SUCCESS;
+}
+
+
+int
+caps_unitCompare( const char *unit1, const char *unit2, int *compare)
+{
+  ut_unit *utunit1, *utunit2;
+
+  if (compare  == NULL) return CAPS_NULLVALUE;
+  *compare = 0;
+
+  /* check for simple equality */
+  if        ((unit1 == NULL) && (unit2 == NULL)) {
+    return CAPS_SUCCESS;
+  } else if ((unit1 == NULL) || (unit2 == NULL)) {
+    return CAPS_UNITERR;
+  } else if (strcmp(unit1, unit2) == 0) {
+    return CAPS_SUCCESS;
+  }
+
+  if (utsystem == NULL) {
+    (void) caps_initUnits();
+    if (utsystem == NULL) return CAPS_UNITERR;
+  }
+
+  utunit1  = ut_parse(utsystem, unit1, UT_ASCII);
+  utunit2  = ut_parse(utsystem, unit2, UT_ASCII);
+  *compare = ut_compare(utunit1, utunit2);
+  ut_free(utunit1);
+  ut_free(utunit2);
+
+  return CAPS_SUCCESS;
+}
+
+
+int
+caps_unitMultiply(const char *inUnits1, const char *inUnits2,
+                  char **outUnits)
 {
   int         status;
   ut_unit     *utunit1, *utunit2, *utunit;
@@ -181,7 +267,9 @@ int caps_unitMultiply(const char *inUnits1, const char *inUnits2,
 }
 
 
-int caps_unitDivide(const char *inUnits1, const char *inUnits2, char **outUnits)
+int
+caps_unitDivide(const char *inUnits1, const char *inUnits2,
+                char **outUnits)
 {
   int         status;
   ut_unit     *utunit1, *utunit2, *utunit;
@@ -223,7 +311,8 @@ int caps_unitDivide(const char *inUnits1, const char *inUnits2, char **outUnits)
 }
 
 
-int caps_unitInvert(const char *inUnit, char **outUnits)
+int
+caps_unitInvert(const char *inUnit, char **outUnits)
 {
   int         status;
   ut_unit     *utunit1, *utunit;
@@ -261,7 +350,8 @@ int caps_unitInvert(const char *inUnit, char **outUnits)
 }
 
 
-int caps_unitRaise(const char  *inUnit, const int power, char **outUnits)
+int
+caps_unitRaise(const char  *inUnit, const int power, char **outUnits)
 {
   int         status;
   ut_unit     *utunit1, *utunit;
@@ -278,6 +368,45 @@ int caps_unitRaise(const char  *inUnit, const int power, char **outUnits)
 
   utunit1 = ut_parse(utsystem, inUnit, UT_ASCII);
   utunit  = ut_raise(utunit1, power);
+  if (ut_get_status() != UT_SUCCESS) {
+    ut_free(utunit1);
+    ut_free(utunit);
+    return CAPS_UNITERR;
+  }
+
+  status = ut_format(utunit, buffer, UNIT_BUFFER_MAX, UT_ASCII);
+
+  ut_free(utunit1);
+  ut_free(utunit);
+
+  if (ut_get_status() != UT_SUCCESS || status >= UNIT_BUFFER_MAX) {
+    return CAPS_UNITERR;
+  } else {
+    *outUnits = EG_strdup(buffer);
+    if (*outUnits == NULL) return EGADS_MALLOC;
+    return CAPS_SUCCESS;
+  }
+}
+
+
+int
+caps_unitOffset(const char  *inUnit, const double offset, char **outUnits)
+{
+  int         status;
+  ut_unit     *utunit1, *utunit;
+  char        buffer[UNIT_BUFFER_MAX];
+
+  if ((inUnit == NULL) || (outUnits == NULL)) return CAPS_NULLVALUE;
+
+  *outUnits = NULL;
+
+  if (utsystem == NULL) {
+    (void) caps_initUnits();
+    if (utsystem == NULL) return CAPS_UNITERR;
+  }
+
+  utunit1 = ut_parse(utsystem, inUnit, UT_ASCII);
+  utunit  = ut_offset(utunit1, offset);
   if (ut_get_status() != UT_SUCCESS) {
     ut_free(utunit1);
     ut_free(utunit);

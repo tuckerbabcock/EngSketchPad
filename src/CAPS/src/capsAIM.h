@@ -3,7 +3,7 @@
  *
  *             AIM Function Interface Include
  *
- *      Copyright 2014-2021, Massachusetts Institute of Technology
+ *      Copyright 2014-2022, Massachusetts Institute of Technology
  *      Licensed under The GNU Lesser General Public License, version 2.1
  *      See http://www.opensource.org/licenses/lgpl-2.1.php
  *
@@ -17,13 +17,15 @@ aim_Initialize(aimContext *cntxt,
                const char *analysisName,
                int        *qeFlag,       /* query/execute flag (input/output) */
     /*@null@*/ const char *unitSys,      /* Unit System requested */
+    /*@null@*/ void       *aimStruc,     /* the AIM context */
                int        *major,        /* the returned major version */
                int        *minor,        /* the returned minor version */
                int        *nIn,          /* returned number of inputs */
                int        *nOut,         /* returned number of outputs */
                int        *nField,       /* returned number of DataSet fields */
                char       ***fnames,     /* returned pointer to field strings */
-               int        **ranks,       /* returned pointer to field ranks */
+               int        **franks,      /* returned pointer to field ranks */
+               int        **fInOut,      /* returned pointer to field in/out */
                void       **instStore);  /* returned AIM storage */
 
 /* get analysis index */
@@ -63,7 +65,7 @@ aim_LocateElIndex(aimContext cntxt,
                   int        *bIndex,   /* the returned body index */
                   int        *eIndex,   /* the returned element index */
                   double     *bary);    /* the barycentric coordinates */
-  
+
 /* input information for the AIM */
 extern int
 aim_Inputs(aimContext cntxt,
@@ -74,24 +76,13 @@ aim_Inputs(aimContext cntxt,
            char       **ainame,         /* pointer to the returned name */
            capsValue  *defaultVal);     /* pointer to default value (filled) */
 
-/* query if the DataSet is required by aimPreAnalysis */
-extern int
-aim_UsesDataSet(aimContext cntxt,
-                const char *analysisName,
-     /*@null@*/ void       *instStore,  /* instance storage */
-                void       *aimStruc,   /* the AIM context */
-                const char *bname,      /* the Bound name */
-                const char *dname,      /* the DataSet name */
-                enum capsdMethod method);
-
 /* parse input data & generate input file(s) */
 extern int
 aim_PreAnalysis(aimContext cntxt,
                 const char *analysisName,
      /*@null@*/ void       *instStore,  /* instance storage */
                 void       *aimStruc,   /* the AIM context */
-     /*@null@*/ capsValue  *inputs,     /* complete suite of analysis inputs */
-                capsErrs   **errors);   /* returned pointer to error info */
+     /*@null@*/ capsValue  *inputs);    /* complete suite of analysis inputs */
 
 /* execute the analysis */
 extern int
@@ -99,17 +90,17 @@ aim_Execute(aimContext cntxt,
             const char *analysisName,
  /*@null@*/ void       *instStore,      /* instance storage */
             void       *aimStruc,       /* the AIM context */
-            int        *state,          /* the state of the execution */
-            capsErrs   **errors);       /* returned pointer to error info */
+            int        *state);         /* the state of the execution */
 
+#ifdef ASYNCEXEC
 /* check the analysis execution */
 extern int
 aim_Check(aimContext cntxt,
           const char *analysisName,
 /*@null@*/void       *instStore,        /* instance storage */
           void       *aimStruc,         /* the AIM context */
-          int        *state,            /* the state of the execution */
-          capsErrs   **errors);         /* returned pointer to error info */
+          int        *state);           /* the state of the execution */
+#endif
 
 /* output information for the AIM */
 extern int
@@ -128,8 +119,7 @@ aim_PostAnalysis(aimContext cntxt,
       /*@null@*/ void       *instStore,  /* instance storage */
                  void       *aimStruc,   /* the AIM context */
                  int        restart,     /* 0 - normal, 1 - restart */
-      /*@null@*/ capsValue  *inputs,     /* complete suite of analysis inputs */
-                 capsErrs   **errors);   /* returned pointer to error info */
+      /*@null@*/ capsValue  *inputs);    /* complete suite of analysis inputs */
 
 /* calculate output information */
 extern int
@@ -138,8 +128,7 @@ aim_CalcOutput(aimContext cntxt,
     /*@null@*/ void       *instStore,   /* instance storage */
                void       *aimStruc,    /* the AIM context */
                int        index,        /* the output index [1-nOut] */
-               capsValue  *value,       /* pointer to value struct to fill */
-               capsErrs   **errors);    /* returned pointer to error info */
+               capsValue  *value);      /* pointer to value struct to fill */
 
 /* data transfer using the discrete structure */
 extern int
@@ -247,17 +236,6 @@ aim_IntegrIndBar(aimContext cntxt,
                  int        rank,       /* the rank of the data */
                  double     *r_bar,     /* input d(objective)/d(result) */
                  double     *d_bar);    /* returned d(objective)/d(data) */
-
-/* calculate geometric sensitivities */
-extern int
-aim_Sensitivity(aimContext cntxt,
-                const char *analysisName,
-     /*@null@*/ void       *instStore,  /* instance storage */
-                void       *aimStruc,   /* the AIM context */
-                const char *GIname,     /* Geometry In name */
-                int        irow,        /* the row */
-                int        icol,        /* the column */
-                capsErrs   **errors);   /* returned pointer to error info */
 
 /* backdoor communication */
 extern int
