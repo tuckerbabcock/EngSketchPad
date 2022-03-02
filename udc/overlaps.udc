@@ -1,6 +1,6 @@
 # overlaps.udc
 #
-# Body2 Body1 OVERLAPS -
+# Body2 Body1 OVERLAPS Body2 Body1
 #
 # returns in @@overlaps: 0 if Body1 and Body2 do not overlap
 #                        1 if Body1 and Body2 do     overlap
@@ -9,6 +9,12 @@
 
 INTERFACE overlaps  out  -1
 
+STORE     overlaps 1
+STORE     overlaps 2
+
+# try to perform INTERSECTion
+RESTORE   overlaps 1
+RESTORE   overlaps 2
 INTERSECT
 
 SET       status   0
@@ -24,5 +30,9 @@ ELSE
    STORE  .
    SET    overlaps  0
 ENDIF
+
+# restore the stack to its original condition
+RESTORE   overlaps 2
+RESTORE   overlaps 1
 
 END
