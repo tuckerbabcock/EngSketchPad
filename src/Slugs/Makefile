@@ -24,7 +24,7 @@ $(ODIR)/Slugs.o:	Slugs.c Fitter.h RedBlackTree.h Tessellate.h $(IDIR)/common.h \
 	$(CC) -c $(COPTS) $(DEFINE) -I$(IDIR) -I. Slugs.c -o $(ODIR)/Slugs.o
 
 $(BDIR)/TestFit:	$(ODIR)/TestFit.o $(ODIR)/Fitter.o 
-	$(CXX) -o $(BDIR)/TestFit $(ODIR)/TestFit.o $(ODIR)/Fitter.o -L$(LDIR) -legads \
+	$(CXX) -o $(BDIR)/TestFit $(ODIR)/TestFit.o $(ODIR)/Fitter.o $(RPATH) -L$(LDIR) -legads \
 		-lpthread -lz -lm
 
 $(ODIR)/TestFit.o:	TestFit.c Fitter.h $(IDIR)/common.h \
