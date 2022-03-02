@@ -3,7 +3,7 @@
 #
 #            Python Construction Example
 #
-#     Copyright 2011-2020, Massachusetts Institute of Technology
+#     Copyright 2011-2022, Massachusetts Institute of Technology
 #     Licensed under The GNU Lesser General Public License, version 2.1
 #     See http://www.opensource.org/licenses/lgpl-2.1.php
 #
@@ -426,10 +426,10 @@ if (thick > 0):
 
     emodel = ebody.generalBoolean(ecylbody, egads.FUSION)
 
-    eref, oclass, mtype, data, echilds, senses = emodel.getTopology()
+    oclass, mtype, eref, data, echilds, senses = emodel.getTopology()
 
     if (oclass != egads.MODEL or len(echilds) != 1):
-        print("You didn't input a model or are returning more than one body ochild = " + str(oclass) + " nchild = " + str(nchild))
+        print("You didn't input a model or are returning more than one body ochild = " + str(oclass) + " nchild = " + str(len(echilds)))
         sys.exit(-999)
 
     ebody = echilds[0].copyObject()
@@ -449,10 +449,10 @@ if (thick > 0):
 
         emodel = ebody.generalBoolean(ecylbody, egads.SUBTRACTION)
 
-        eref, oclass, mtype, data, echilds, senses = emodel.getTopology()
+        oclass, mtype, eref, data, echilds, senses = emodel.getTopology()
 
         if (oclass != egads.MODEL or len(echilds) != 1):
-            print("You didn't input a model or are returning more than one body ochild = " + str(oclass) + " nchild = " + str(nchild))
+            print("You didn't input a model or are returning more than one body ochild = " + str(oclass) + " nchild = " + str(len(echilds)))
             sys.exit(-999)
 
         ebody = echilds[0].copyObject()
