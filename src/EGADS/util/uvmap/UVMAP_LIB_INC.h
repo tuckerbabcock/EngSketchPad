@@ -10,10 +10,10 @@ extern "C" {
 
 #include "EG_uvmapFindUV.h"
 #include "EG_uvmapGen.h"
-#include "EG_uvmap_Read.h"
+#include "EG_uvmap_read.h"
 #include "EG_uvmapStructFree.h"
 #include "EG_uvmapTest.h"
-#include "EG_uvmap_Write.h"
+#include "EG_uvmap_write.h"
 #include "uvmap_add.h"
 #include "uvmap_bnd_adj.h"
 #include "uvmap_chk_area_uv.h"
