@@ -24,7 +24,7 @@ if [[ -n "$EGADS_DIR" ]]; then
           -DSCOREC_EXTRA_CXX_FLAGS="-Wextra -Wall" \
           -DCMAKE_INSTALL_PREFIX="../$PUMI_INSTALL" \
           -DENABLE_EGADS=ON \
-          -DEGADS_DIR="$ESP_ROOT" \
+          -DESP_ROOT="$ESP_ROOT" \
           -DPUMI_USE_EGADSLITE=OFF \
           -DIS_TESTING=ON
 

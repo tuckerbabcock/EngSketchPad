@@ -150,6 +150,7 @@ writeBinaryUgrid(void *aimInfo, const char *fileName, tetgenio *mesh)
   int    nTet, nPyramid, nPrism, nHex;
   char   aimFile[PATH_MAX];
   FILE *fp = NULL;
+  std::vector<int> tet_attributes;
 
   snprintf(aimFile, PATH_MAX, "%s.lb8.ugrid", fileName);
 
@@ -192,12 +193,26 @@ writeBinaryUgrid(void *aimInfo, const char *fileName, tetgenio *mesh)
   if (status != 3*nTri) { status = CAPS_IOERR; AIM_STATUS(aimInfo, status); }
 
   /* write the BC ID */
+  for (int i = 0; i < nTri; ++i)
+  {
+    if (mesh->trifacemarkerlist[i] != 1)
+      std::cout << "tri BC: " << mesh->trifacemarkerlist[i] << "\n";
+  }
   status = fwrite(mesh->trifacemarkerlist, sizeof(int), nTri, fp);
   if (status != nTri) { status = CAPS_IOERR; AIM_STATUS(aimInfo, status); }
 
   /* write the tetrahedral connectivity */
   status = fwrite(mesh->tetrahedronlist, sizeof(int), 4*nTet, fp);
   if (status != 4*nTet) { status = CAPS_IOERR; AIM_STATUS(aimInfo, status); }
+
+  /* write the tetrahedral attributes */
+  tet_attributes.resize(nTet);
+  for (int i = 0; i < nTet; ++i)
+  {
+    tet_attributes[i] = mesh->tetrahedronattributelist[i];
+  }
+  status = fwrite(&tet_attributes[0], sizeof(int), nTet, fp);
+  if (status != nTet) { status = CAPS_IOERR; AIM_STATUS(aimInfo, status); }
 
   status = CAPS_SUCCESS;
 

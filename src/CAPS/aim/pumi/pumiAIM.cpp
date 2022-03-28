@@ -60,10 +60,13 @@
 #include "egads.h"
 #include "capsTypes.h"
 #include "aimUtil.h"
+#include "aimMesh.h"
 #include "meshTypes.h"
 #include "miscTypes.h"
 #include "meshUtils.h"  // Collection of helper functions for meshing
 #include "miscUtils.h"  // Collection of helper functions for miscellaneous use
+
+#include "ugridWriter.h"
 
 /** \brief initialize a gmi_model with filestream and number of regions */
 extern "C"
@@ -85,7 +88,8 @@ enum aimInputs
 {
   Proj_Name = 1,                 /* index is 1-based */
   Mesh_Format,
-  Mesh,
+  Surface_Mesh,
+  Volume_Mesh,
   Mesh_Order,
   NUMINPUT = Mesh_Order    /* Total number of inputs */
 };
@@ -98,9 +102,7 @@ enum aimOutputs
 
 typedef struct {
 
-    int meshInherited;
-
-    // Container for inherited mesh (can be surface or volume)
+    // container for inherited mesh
     int numMesh;
     meshStruct *mesh;
 
@@ -112,6 +114,12 @@ typedef struct {
 
     // Attribute to index map
     mapAttrToIndexStruct attrMap;
+
+    // Mesh references for link
+    int numMeshRef;
+    aimMeshRef *meshRef;
+
+    aimMesh aimMesh;
 
 } aimStorage;
 
@@ -135,6 +143,74 @@ int countRegions(meshElementStruct *elems, int nTets)
             count++; 
     } 
     return count; 
+}
+
+int countRegions(const std::vector<int> &region_ids)
+{
+    std::set<int> unique_ids(region_ids.begin(), region_ids.end());
+    return unique_ids.size();
+}
+
+int getElementRegionIDs(void *aimInfo,
+                        aimMeshRef *mesh_ref,
+                        std::vector<int> &region_ids)
+{
+    int nvert = 0;
+    int ntri =0;
+    int nquad = 0;
+    int ntet = 0;
+    int npyr = 0;
+    int nprism = 0;
+    int nhex = 0;
+
+    int status = aim_readBinaryUgridHeader(aimInfo,
+                                           mesh_ref,
+                                           &nvert,
+                                           &ntri,
+                                           &nquad,
+                                           &ntet,
+                                           &npyr,
+                                           &nprism,
+                                           &nhex);
+
+    std::string ugrid_filename = mesh_ref->fileName;
+    ugrid_filename += ".lb8.ugrid";
+    auto *fp = fopen(ugrid_filename.c_str(), "rb");
+    if (fp == nullptr)
+    {
+        AIM_ERROR(aimInfo, "Cannot open file: %s\n", ugrid_filename.c_str());
+        throw std::runtime_error("failed to open file!\n");
+    }
+
+    // skip the header
+    status = fseek(fp, 7*sizeof(int), SEEK_CUR);
+    // skip the verts
+    status += fseek(fp, nvert*3*sizeof(double), SEEK_CUR);
+    // skip the surface elements
+    status += fseek(fp, (3*ntri+4*nquad)*sizeof(int), SEEK_CUR);
+    // skip face BC ID section of the file
+    status += fseek(fp, (ntri + nquad)*sizeof(int), SEEK_CUR);
+    // skip the volume elements
+    status += fseek(fp, (4*ntet)*sizeof(int), SEEK_CUR);
+    status += fseek(fp, (5*npyr)*sizeof(int), SEEK_CUR);
+    status += fseek(fp, (6*nprism)*sizeof(int), SEEK_CUR);
+    status += fseek(fp, (8*nhex)*sizeof(int), SEEK_CUR);
+    // // skip BL volume tets
+    // status += fseek(fp, sizeof(int), SEEK_CUR);
+    if (status != 0)
+    {
+        throw std::runtime_error("file error!\n");
+    }
+
+    int n_vol_elems = ntet+npyr+nprism+nquad;
+    region_ids.resize(n_vol_elems);
+    status = fread(&region_ids[0], sizeof(int), n_vol_elems, fp);
+    if (status != n_vol_elems)
+    {
+        throw std::runtime_error("file error!\n");
+    }
+
+    return countRegions(region_ids);
 }
 
 /// \brief constructs a mesh triangle from three vertices and a model entity
@@ -182,6 +258,341 @@ void createEdge(apf::Mesh2* m, apf::MeshEntity* a, apf::MeshEntity* b,
                       edgeVerts);
 }
 
+apf::Mesh2 *createPumiMeshFromMeshRef(void *aimInfo,
+                                      aimMeshRef *mesh_ref,
+                                      ego &model,
+                                      ego &tess,
+                                      std::vector<std::set<int>> *adj_graph)
+{
+    std::vector<int> region_ids;
+    auto n_model_regions = getElementRegionIDs(aimInfo, mesh_ref, region_ids);
+
+    /// initialize PUMI EGADS model
+    gmi_register_egads();
+    struct gmi_model *pumi_model = gmi_egads_init_model(model, n_model_regions);
+
+    aimMesh mesh{.meshData = nullptr, .meshRef = mesh_ref};
+    int status = aim_readBinaryUgrid(aimInfo, &mesh);
+    if (status != CAPS_SUCCESS) { return nullptr; }
+    auto *mesh_data = mesh.meshData;
+
+    /// create empty 3D PUMI mesh
+    auto *pumi_mesh = apf::makeEmptyMdsMesh(pumi_model, mesh_data->dim, false);
+
+
+    /// create all mesh vertices without model entities or parameters
+    int n_mesh_verts = mesh_data->nVertex;
+    std::vector<apf::MeshEntity *> verts(n_mesh_verts);
+    for (int i = 0; i < n_mesh_verts; i++) {
+
+        apf::Vector3 vtxCoords(mesh_data->verts[i]);
+        if (i == 30)
+        {
+            std::cout << "";
+        }
+        apf::Vector3 vtxParam(0.0, 0.0, 0.0);
+
+        verts[i] = pumi_mesh->createVertex(0, vtxCoords, vtxParam);
+        PCU_ALWAYS_ASSERT(verts[i]);
+    }
+
+    /// classify vertices onto model edges and build mesh edges
+    int n_model_edge = pumi_model->n[1];
+    for (int i = 0; i < n_model_edge; ++i)
+    {
+        int edgeID = i + 1;
+        int len;
+        const double *pxyz = nullptr;
+        const double *pt = nullptr;
+        status = EG_getTessEdge(tess, edgeID, &len, &pxyz, &pt);
+        if (status != EGADS_SUCCESS) { return nullptr; }
+        for (int j = 0; j < len; ++j)
+        {
+            int globalID;
+            status = EG_localToGlobal(tess, -edgeID, j+1, &globalID);
+            if (status == EGADS_DEGEN)
+            {
+                break; // skip degenerate edges
+            }
+            else if (status != EGADS_SUCCESS) 
+            {
+                return nullptr;
+            }
+   
+            // get the PUMI mesh vertex corresponding to the tess globalID
+            // auto *ment = verts[globalID-1];
+            auto *ment = verts[mesh_ref->maps->map[globalID-1]-1];
+            // {
+            //     apf::Vector3 coords;
+            //     pumi_mesh->getPoint(ment, 0, coords);
+            //     for (int j = 0; j < 3; ++j)
+            //     {
+            //         if (abs(coords[i] - pxyz[i]) > 1e-12)
+            //         {
+            //             gmi_fail("bad coordinates for mesh point!\n");
+            //         }
+            //     }
+            // }
+
+            // set the model entity and parametric values
+            auto *gent = pumi_mesh->findModelEntity(1, edgeID);
+            pumi_mesh->setModelEntity(ment, gent);
+            auto param = apf::Vector3(pt[j], 0.0, 0.0);
+            pumi_mesh->setParam(ment, param);
+        }
+    }
+
+    /// classify vertices onto model faces and build surface triangles
+    int n_model_face = pumi_model->n[2];
+    for (int i = 0; i < n_model_face; ++i)
+    {
+        int faceID = i + 1;
+        int len;
+        const double *pxyz = nullptr;
+        const double *puv = nullptr;
+        const int *ptype;
+        const int *pindex;
+        int ntri;
+        const int *ptris;
+        const int *ptric;
+        status = EG_getTessFace(tess, faceID, &len, &pxyz, &puv, &ptype,
+                                &pindex, &ntri, &ptris, &ptric);
+        if (status != EGADS_SUCCESS) { return nullptr; }
+        for (int j = 0; j < len; ++j)
+        {
+            if (ptype[j] > 0) // vertex is classified on a model edge
+            {
+                continue;
+            }
+
+            int globalID;
+            status = EG_localToGlobal(tess, faceID, j+1, &globalID);
+            if (status != EGADS_SUCCESS) { return nullptr; }
+
+            // get the PUMI mesh vertex corresponding to the tess globalID
+            auto *ment = verts[mesh_ref->maps->map[globalID-1]-1];
+            // {
+            //     apf::Vector3 coords;
+            //     pumi_mesh->getPoint(ment, 0, coords);
+            //     for (int j = 0; j < 3; ++j)
+            //     {
+            //         if (abs(coords[i] - pxyz[i]) > 1e-12)
+            //         {
+            //             gmi_fail("bad coordinates for mesh point!\n");
+            //         }
+            //     }
+            // }
+
+            // set the model entity and parametric values
+            apf::ModelEntity *gent;
+            apf::Vector3 param;
+            if (ptype[j] == 0) // entity should be classified on a vertex
+            {
+                gent = pumi_mesh->findModelEntity(0, pindex[j]);
+                param = apf::Vector3(0.0,0.0,0.0);
+            }
+            else
+            {
+                gent = pumi_mesh->findModelEntity(2, faceID);
+                param = apf::Vector3(puv[2*j], puv[2*j+1], 0.0);
+            }
+            pumi_mesh->setModelEntity(ment, gent);
+            pumi_mesh->setParam(ment, param);
+        }
+
+        // construct triangles
+        for (int j = 0; j < ntri; ++j)
+        {
+            int aGlobalID, bGlobalID, cGlobalID;
+            EG_localToGlobal(tess, faceID, ptris[3*j], &aGlobalID);
+            EG_localToGlobal(tess, faceID, ptris[3*j+1], &bGlobalID);
+            EG_localToGlobal(tess, faceID, ptris[3*j+2], &cGlobalID);
+
+            auto *a = verts[mesh_ref->maps->map[aGlobalID-1]-1];
+            auto *b = verts[mesh_ref->maps->map[bGlobalID-1]-1];
+            auto *c = verts[mesh_ref->maps->map[cGlobalID-1]-1];
+
+            auto *gent = pumi_mesh->findModelEntity(2, faceID);
+            createEdge(pumi_mesh, a, b, gent);
+            createEdge(pumi_mesh, b, c, gent);
+            createEdge(pumi_mesh, c, a, gent);
+
+            /// construct mesh triangle face
+            createFace(pumi_mesh, a, b, c, gent);
+        }
+
+    }
+
+    /// build tets
+    auto ngroups = mesh_data->nElemGroup;
+    auto [group_id, ntet] = [&]() -> std::pair<int, int>
+    {
+        for (int i = 0; i < ngroups; ++i)
+        {
+            auto element_topo = mesh_data->elemGroups[i].elementTopo;
+            if (element_topo == aimTet)
+            {
+                return {i, mesh_data->elemGroups[i].nElems};
+            }
+        }
+        throw std::runtime_error("pumiAIM failed!\n");
+    }();
+
+    for (int i = 0; i < ntet; ++i) {
+
+        auto *connectivity = mesh_data->elemGroups[group_id].elements;
+        auto *a = verts[connectivity[i * 4 + 0]-1];
+        auto *b = verts[connectivity[i * 4 + 1]-1];
+        auto *c = verts[connectivity[i * 4 + 2]-1];
+        auto *d = verts[connectivity[i * 4 + 3]-1];
+        apf::MeshEntity *tet_verts[] = {a, b, c, d};
+
+        auto *gent = pumi_mesh->findModelEntity(3, region_ids[i]);
+        for (int j = 0; j < 4; ++j) {
+            auto *g = pumi_mesh->toModel(tet_verts[j]);
+            if (g) // if vtx model ent was already set (boundary vtx), skip
+            {
+                continue;
+            }
+            else  // if not already set, set it to be the same as the element
+            {
+                pumi_mesh->setModelEntity(tet_verts[j], gent);
+            }
+        }             
+
+        auto *tet = apf::buildElement(pumi_mesh, gent,
+                                      apf::Mesh::TET,
+                                      tet_verts);
+        PCU_ALWAYS_ASSERT(tet);
+    }
+
+    pumi_mesh->acceptChanges();
+
+    /// calculate adjacency information and update PUMI gmi_edads model
+    int n_model_node = pumi_model->n[0];
+    // std::vector<std::set<int>> adj_graph[6];
+    int sizes[] = {n_model_regions,
+                   n_model_regions,
+                   n_model_regions,
+                   n_model_node,
+                   n_model_edge,
+                   n_model_face};
+
+    for (int i = 0; i < 6; ++i) {
+        for (int j = 0; j < sizes[i]; ++j) {
+            adj_graph[i].push_back(std::set<int>{});
+        }
+    }
+
+    /// iterate over mesh verts
+    {
+        auto *it = pumi_mesh->begin(0);
+        apf::MeshEntity *vtx;
+        while ((vtx = pumi_mesh->iterate(it)))
+        {
+            auto *vtx_model_ent = pumi_mesh->toModel(vtx);
+            int vtx_me_dim = pumi_mesh->getModelType(vtx_model_ent);
+            int vtx_me_tag = pumi_mesh->getModelTag(vtx_model_ent);
+            if (vtx_me_dim == 0)
+            {
+                apf::Adjacent tets;
+                pumi_mesh->getAdjacent(vtx, 3, tets);
+                for (int i = 0; i < tets.getSize(); ++i)
+                {
+                    auto *tet_model_ent = pumi_mesh->toModel(tets[i]);
+                    int tet_me_tag = pumi_mesh->getModelTag(tet_model_ent);
+                    adj_graph[0][tet_me_tag-1].insert(vtx_me_tag); // 0-3
+                    adj_graph[3][vtx_me_tag-1].insert(tet_me_tag); // 3-0
+                }
+            }
+        }
+    }
+
+    /// iterate over mesh edges
+    {
+        auto *it = pumi_mesh->begin(1);
+        apf::MeshEntity *edge;
+        while ((edge = pumi_mesh->iterate(it)))
+        {
+            auto *edge_model_ent = pumi_mesh->toModel(edge);
+            int edge_me_dim = pumi_mesh->getModelType(edge_model_ent);
+            int edge_me_tag = pumi_mesh->getModelTag(edge_model_ent);
+            if (edge_me_dim == 1)
+            {
+                apf::Adjacent tets;
+                pumi_mesh->getAdjacent(edge, 3, tets);
+                for (int i = 0; i < tets.getSize(); ++i)
+                {
+                    auto *tet_model_ent = pumi_mesh->toModel(tets[i]);
+                    int tet_me_tag = pumi_mesh->getModelTag(tet_model_ent);
+                    adj_graph[1][tet_me_tag-1].insert(edge_me_tag); // 1-3
+                    adj_graph[4][edge_me_tag-1].insert(tet_me_tag); // 3-1
+                }
+            }
+        }
+    }
+
+    /// iterate over mesh faces
+    {
+        auto *it = pumi_mesh->begin(2);
+        apf::MeshEntity *tri;
+        while ((tri = pumi_mesh->iterate(it)))
+        {
+            auto *tri_model_ent = pumi_mesh->toModel(tri);
+            int tri_me_dim = pumi_mesh->getModelType(tri_model_ent);
+            int tri_me_tag = pumi_mesh->getModelTag(tri_model_ent);
+            if (tri_me_dim < 3)
+            {
+                apf::Up tets;
+                pumi_mesh->getUp(tri, tets);
+                for (int i = 0; i < tets.n; ++i)
+                {
+                    auto *tet_model_ent = pumi_mesh->toModel(tets.e[i]);
+                    int tet_me_tag = pumi_mesh->getModelTag(tet_model_ent);
+                    adj_graph[2][tet_me_tag-1].insert(tri_me_tag); // 2-3
+                    adj_graph[5][tri_me_tag-1].insert(tet_me_tag); // 3-2
+                }
+            }
+        }
+    }
+
+    /// create C array adjacency graph
+    int **c_graph[6];
+
+    for (int i = 0; i < 6; ++i)
+    {
+        c_graph[i] = (int**)EG_alloc(sizeof(*c_graph[i]) * sizes[i]);
+        if (c_graph[i] == nullptr)
+        {
+            printf("failed to alloc memory for c_graph");
+            /// return bad here
+        }
+        for (int j = 0; j < sizes[i]; ++j)
+        {
+            c_graph[i][j] = (int*)EG_alloc(sizeof(*c_graph[i][j])
+                                           * (adj_graph[i][j].size()+1));
+            if (c_graph[i][j] == nullptr)
+            {
+                printf("failed to alloc memory for c_graph");
+                /// return bad here
+            }
+            c_graph[i][j][0] = adj_graph[i][j].size();
+            std::copy(adj_graph[i][j].begin(),
+                      adj_graph[i][j].end(),
+                      c_graph[i][j]+1);
+        }
+    }
+
+    gmi_egads_init_adjacency(pumi_model, c_graph);
+    printf("Done generating PUMI mesh!\n");
+
+    printf("\nVerifying PUMI mesh.....\n");
+    pumi_mesh->verify();
+    printf("PUMI mesh verified!\n");
+
+    return pumi_mesh;
+}
+
 static int destroy_aimStorage(aimStorage *pumiInstance) {
 
     int i; // Indexing
@@ -193,18 +604,6 @@ static int destroy_aimStorage(aimStorage *pumiInstance) {
     if (status != CAPS_SUCCESS)
         printf("Status = %d, pumiAIM meshInput cleanup!!!\n", status);
 
-    // Destroy mesh allocated arrays
-    if (pumiInstance->meshInherited == (int) false) { // Did the parent aim already destroy the meshes?
-        if (pumiInstance->mesh != NULL) {
-            for (i = 0; i < pumiInstance->numMesh; i++) {
-                status = destroy_meshStruct(&pumiInstance->mesh[i]);
-                if (status != CAPS_SUCCESS)
-                    printf("Error during destroy_meshStruct, status = %d, pumiAIM\n", status);
-            }
-            EG_free(pumiInstance->mesh);
-        }
-    }
-
     // Destroy PUMI mesh
     if (pumiInstance->pumiMesh != NULL) {
         for (i = 0; i < pumiInstance->numPUMIMesh; i++) {
@@ -213,14 +612,15 @@ static int destroy_aimStorage(aimStorage *pumiInstance) {
         }
     }
 
-    pumiInstance->numMesh = 0;
-    pumiInstance->meshInherited = (int) false;
-    pumiInstance->mesh = NULL;
-
     // Destroy attribute to index map
     status = destroy_mapAttrToIndexStruct(&pumiInstance->attrMap);
     if (status != CAPS_SUCCESS)
         printf("Status = %d, pumi4AIM, attributeMap cleanup!!!\n", status);
+
+    // Free the meshRef
+    for (i = 0; i < pumiInstance->numMeshRef; i++)
+      aim_freeMeshRef(&pumiInstance->meshRef[i]);
+    AIM_FREE(pumiInstance->meshRef);
 
     return CAPS_SUCCESS;
 }
@@ -242,36 +642,38 @@ aimInitialize(int inst, /*@null@*/ const char *unitSys, void *aimInfo,
 
     int status; // Function status return
 
-    aimStorage *pumiInstance;
-
 #ifdef DEBUG
     printf("\n pumiAIM/aimInitialize   ngIn = %d!\n", ngIn);
 #endif
 
     /* specify the number of analysis input and out "parameters" */
-    *nIn     = NUMINPUT;
-    *nOut    = NUMOUT;
+    *nIn = NUMINPUT;
+    *nOut = NUMOUT;
     if (inst == -1) return CAPS_SUCCESS;
 
     /* specify the field variables this analysis can generate */
     *nFields = 0;
-    *franks  = NULL;
-    *fnames  = NULL;
+    *franks = nullptr;
+    *fnames = nullptr;
+    *fInOut = nullptr;
 
     // Allocate pumiInstance
-    pumiInstance = (aimStorage *) EG_alloc(sizeof(aimStorage));
+    auto *pumiInstance = (aimStorage *) EG_alloc(sizeof(aimStorage));
     if (pumiInstance == NULL) return EGADS_MALLOC;
 
     // Set initial values for pumiInstance //
 
-    // Container for mesh
-    pumiInstance->meshInherited = (int) false;
-
+    // container for input mesh
     pumiInstance->numMesh = 0;
-    pumiInstance->mesh = NULL;
+    pumiInstance->mesh = nullptr;
 
+    // Mesh reference passed to solver
+    pumiInstance->numMeshRef = 0;
+    pumiInstance->meshRef = nullptr;
+
+    // Container for mesh
     pumiInstance->numPUMIMesh = 0;
-    pumiInstance->pumiMesh = NULL;
+    pumiInstance->pumiMesh = nullptr;
 
     // Container for attribute to index map
     status = initiate_mapAttrToIndexStruct(&pumiInstance->attrMap);
@@ -332,18 +734,34 @@ aimInputs(/*@unused@*/ void *instStore, void *aimInfo, int index, char **ainame,
          * Mesh output format. Available format names include: "PUMI", "VTK".
          */
 
-    } else if (index == Mesh) {
-        *ainame             = AIM_NAME(Mesh);
+    } else if (index == Surface_Mesh) {
+        *ainame             = AIM_NAME(Surface_Mesh);
         defval->type        = Pointer;
-        defval->nrow        = 1;
-        defval->lfixed      = Fixed;
+        defval->dim         = Vector;
+        defval->lfixed      = Change;
+        defval->sfixed      = Change;
         defval->vals.AIMptr = NULL;
         defval->nullVal     = IsNull;
         AIM_STRDUP(defval->units, "meshStruct", aimInfo, status);
 
         /*! \page aimInputsPUMI
-         * - <B>Mesh = NULL</B> <br>
-         * A Surface_Mesh or Volume_Mesh link for 2D and 3D geometries respectively.
+         * - <B>Surface_Mesh = NULL</B> <br>
+         * A Surface_Mesh link for 2D geometries.
+         */
+
+    } else if (index == Volume_Mesh) {
+        *ainame             = AIM_NAME(Volume_Mesh);
+        defval->type        = PointerMesh;
+        defval->dim         = Vector;
+        defval->lfixed      = Change;
+        defval->sfixed      = Fixed;
+        defval->vals.AIMptr = NULL;
+        defval->nullVal     = IsNull;
+        AIM_STRDUP(defval->meshWriter, MESHWRITER, aimInfo, status);
+
+        /*! \page aimInputsPUMI
+         * - <B>Volume_Mesh = NULL</B> <br>
+         * A Volume_Mesh link for 3D geometries.
          */
 
     } else if (index == Mesh_Order) {
@@ -358,6 +776,9 @@ aimInputs(/*@unused@*/ void *instStore, void *aimInfo, int index, char **ainame,
          * See SCOREC <a href="https://www.scorec.rpi.edu/pumi/doxygen/crv.html">documentation</a> for more information.
          */
 
+    } else {
+        status = CAPS_BADINDEX;
+        AIM_STATUS(aimInfo, status, "Unknown input index %d!", index);
     }
 
     AIM_NOTNULL(*ainame, aimInfo, status);
@@ -367,12 +788,13 @@ cleanup:
     return status;
 }
 
+//// Have to update PUMI AIM to new CAPS structure
+//// Modeling it based off of tetgen aim and aflr3 aims, shouldn't be too many changes to make
+
 extern "C" int
 aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
 {
     int status; // Return status
-
-    aimStorage *pumiInstance;
 
     // Incoming bodies
     const char *intents;
@@ -396,14 +818,19 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
         return CAPS_SOURCEERR;
     }
 
-    pumiInstance = (aimStorage *) instStore;
+    auto *pumiInstance = static_cast<aimStorage *>(instStore);
+
+    // remove previous meshes
+    for (int ibody = 0; ibody < pumiInstance->numMeshRef; ibody++) {
+        status = aim_deleteMeshes(aimInfo, &pumiInstance->meshRef[ibody]);
+        aim_status(aimInfo, status, __FILE__, __LINE__, __func__, GET_ARG_COUNT());
+        if (status != CAPS_SUCCESS) return status;
+    }
 
     // Cleanup previous aimStorage for the instance in case this is the second time through preAnalysis for the same instance
     status = destroy_aimStorage(pumiInstance);
-    if (status != CAPS_SUCCESS) {
-        printf("Status = %d, pumiAIM aimStorage cleanup!!!\n", status);
-        return status;
-    }
+    aim_status(aimInfo, status, __FILE__, __LINE__, __func__, GET_ARG_COUNT());
+    if (status != CAPS_SUCCESS) return status;
 
     // Get capsGroup name and index mapping
     status = create_CAPSGroupAttrToIndexMap(numBody,
@@ -412,385 +839,461 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
                                             &pumiInstance->attrMap);
     if (status != CAPS_SUCCESS) return status;
 
-    // Get mesh
+    // Get input mesh
+    bool surface_mesh = !(aimInputs[Surface_Mesh-1].nullVal == IsNull);
+    bool volume_mesh = !(aimInputs[Volume_Mesh-1].nullVal == IsNull);
+    if (!(surface_mesh || volume_mesh)) {
+        AIM_ANALYSISIN_ERROR(aimInfo, Surface_Mesh,
+        "'Surface_Mesh' input must be linked to an output 'Surface_Mesh' or "
+        "'Volume_Mesh' input must be linked to an output 'Volume_Mesh'");
+        return CAPS_BADVALUE;
+    }
+    if (surface_mesh && volume_mesh) {
+        AIM_ANALYSISIN_ERROR(aimInfo, Surface_Mesh,
+        "Can only link either 'Surface_Mesh OR Volume_Mesh, not both!\n");
+        return CAPS_BADVALUE;
+    }
+
+    auto Mesh = surface_mesh ? Surface_Mesh : Volume_Mesh;
+
     pumiInstance->numMesh = aimInputs[Mesh-1].length;
-    pumiInstance->mesh = (meshStruct *)aimInputs[Mesh-1].vals.AIMptr;
-    pumiInstance->meshInherited = (int) true;
-    if (pumiInstance->mesh == NULL) {
-        status = CAPS_NULLVALUE;
-        return status;
+
+    if (surface_mesh)
+    {
+        pumiInstance->mesh = static_cast<meshStruct *>(aimInputs[Mesh-1].vals.AIMptr);
+    }
+    else
+    {
+        pumiInstance->meshRef = static_cast<aimMeshRef *>(aimInputs[Mesh-1].vals.AIMptr);
+    }
+
+    if (pumiInstance->numMesh != numBody) {
+        AIM_ANALYSISIN_ERROR(aimInfo, Mesh, "Number of linked meshes (%d) does not match the number of bodies (%d)!",
+                             pumiInstance->numMesh, numBody);
+        return CAPS_SOURCEERR;
     }
 
     // Mesh Format
     pumiInstance->meshInput.outputFormat = EG_strdup(aimInputs[Mesh_Format-1].vals.string);
-    if (pumiInstance->meshInput.outputFormat == NULL) return EGADS_MALLOC;
+    if (pumiInstance->meshInput.outputFormat == nullptr) return EGADS_MALLOC;
 
     // Project Name
-    if (aimInputs[Proj_Name-1].nullVal != IsNull) {
-
+    if (aimInputs[Proj_Name-1].nullVal != IsNull)
+    {
         pumiInstance->meshInput.outputFileName = EG_strdup(aimInputs[Proj_Name-1].vals.string);
-        if (pumiInstance->meshInput.outputFileName == NULL) return EGADS_MALLOC;
+        if (pumiInstance->meshInput.outputFileName == nullptr) return EGADS_MALLOC;
     }
 
-    // Set PUMI specific mesh inputs -1 because aim_getIndex is 1 bias
+    // Set PUMI specific mesh inputs
     if (aimInputs[Mesh_Order-1].nullVal != IsNull) {
         pumiInstance->meshInput.pumiInput.elementOrder = aimInputs[Mesh_Order-1].vals.integer;
     }
 
-    // useful shorthands
-    meshStruct *mesh = pumiInstance->mesh;
-    apf::Mesh2 *pumiMesh = pumiInstance->pumiMesh;
-    
-    ego tess;
-    if (mesh->meshType == SurfaceMesh)
-        tess = pumiInstance->mesh[0].egadsTess;
-    else if (mesh->meshType == VolumeMesh)
-        tess = pumiInstance->mesh[0].referenceMesh[0].egadsTess;
-    else {
-        printf(" Unknown mesh dimension, error!\n");
-        return EGADS_WRITERR;
-    }
+    /// Get EGADS Model
+    auto tess = pumiInstance->meshRef->maps->tess;
 
     ego tessBody;
     int state, npts;
     // get the body from tessellation
     status = EG_statusTessBody(tess, &tessBody, &state, &npts);
-    if (status != EGADS_SUCCESS) {
-#ifdef DEBUG
-        printf(" EGADS Warning: Tessellation is Open (EG_saveTess)!\n");
-#endif
-        return EGADS_TESSTATE;
-    }
-
-    int nregions = 1;
-    if (mesh->meshType == VolumeMesh) {
-        
-        int tetStartIndex;
-        if (mesh->meshQuickRef.startIndexTetrahedral >= 0) {
-            tetStartIndex = mesh->meshQuickRef.startIndexTetrahedral;
-        } else {
-            tetStartIndex = mesh->meshQuickRef.listIndexTetrahedral[0];
-        }
-        int numTets = mesh->meshQuickRef.numTetrahedral;
-
-        /// find the number of regions
-        nregions = countRegions(&(mesh->element[tetStartIndex]), numTets);
-    }
+    if (status != EGADS_SUCCESS) { return status; }
 
     /// Copy body from tesselation and create a model to import into PUMI
     ego model;
     ego context;
     status = EG_getContext(tessBody, &context);
-    if (status != EGADS_SUCCESS)
-    {
-        printf(" PUMI AIM Warning: EG_getContext failed with status: %d!\n", status);
-        return status;
-    }
+    if (status != EGADS_SUCCESS) { return status; }
 
     ego *body = (ego *) EG_alloc(sizeof(ego));
-    if (body == NULL) {
-        status = EGADS_MALLOC;
-        if (status != EGADS_SUCCESS)
-        {
-            printf(" PUMI AIM Warning: EG_alloc failed with status: %d!\n", status);
-            return status;
-        }
-    }
+    if (body == nullptr) { return EGADS_MALLOC; }
 
-    *body = NULL;
-    status = EG_copyObject(tessBody, NULL, body);
-    if (status != EGADS_SUCCESS)
+    *body = nullptr;
+    status = EG_copyObject(tessBody, nullptr, body);
+    if (status != EGADS_SUCCESS) { return status; }
+
+    status = EG_makeTopology(context, nullptr, MODEL, 0, nullptr, 
+                             numBody, body, nullptr, &model);
+    if (status != EGADS_SUCCESS) { return status; }
+
+    if (surface_mesh)
     {
-        printf(" EG_copyObject failed with status: %d!\n", status);
-        return status;
+        throw std::runtime_error("pumiAIM doesn't support surface mesh!\n");
     }
 
-    status = EG_makeTopology(context, NULL, MODEL, 0, NULL, 
-                                numBody, body, NULL, &model);
-    if (status != EGADS_SUCCESS)
-    {
-        printf(" PUMI AIM Warning: EG_makeTopology failed with status: %d!\n", status);
-        return status;
-    }
-
-    /// initialize PUMI EGADS model
-    gmi_register_egads();
-    struct gmi_model *pumiModel = gmi_egads_init_model(model, nregions);
-
-    int nnode = pumiModel->n[0];
-    int nedge = pumiModel->n[1];
-    int nface = pumiModel->n[2];
-
-    /// create empty PUMI mesh
-    pumiMesh = apf::makeEmptyMdsMesh(pumiModel, 0, false);
-
-    // set PUMI mesh dimension based on mesh type
-    if (mesh->meshType == Surface2DMesh ||
-            mesh->meshType == SurfaceMesh) {
-        apf::changeMdsDimension(pumiMesh, 2);
-    } else if (mesh->meshType == VolumeMesh) {
-        apf::changeMdsDimension(pumiMesh, 3);
-    } else {
-        printf(" Unknown mesh dimension, error!\n");
-        return EGADS_WRITERR;
-    }
-
-    int nMeshVert = mesh->numNode;
-    apf::MeshEntity *verts[nMeshVert];
-
-    /// create all mesh vertices without model entities or parameters
-    for (int i = 0; i < mesh->numNode; i++) {
-
-        apf::Vector3 vtxCoords(mesh->node[i].xyz);
-        apf::Vector3 vtxParam(0.0, 0.0, 0.0);
-
-        verts[i] = pumiMesh->createVertex(0, vtxCoords, vtxParam);
-        PCU_ALWAYS_ASSERT(verts[i]);
-    }
-
-    int len, globalID, ntri;
-    const int *ptype=NULL, *pindex=NULL, *ptris=NULL, *ptric=NULL;
-    const double *pxyz = NULL, *puv = NULL, *pt = NULL;
-
-    apf::ModelEntity *gent;
-    apf::Vector3 param;
-
-    /// classify vertices onto model edges and build mesh edges
-    for (int i = 0; i < nedge; ++i) {
-        apf::MeshEntity *ment;
-        int edgeID = i + 1;
-        status = EG_getTessEdge(tess, edgeID, &len, &pxyz, &pt);
-        if (status != EGADS_SUCCESS) return status;
-        for (int j = 0; j < len; ++j) {
-            status = EG_localToGlobal(tess, -edgeID, j+1, &globalID);
-            if (status == EGADS_DEGEN)
-                break; // skip degenerate edges
-            else if (status != EGADS_SUCCESS) 
-                return status;
-   
-            // get the PUMI mesh vertex corresponding to the globalID
-            ment = verts[globalID-1];
-            
-            // set the model entity and parametric values
-            gent = pumiMesh->findModelEntity(1, edgeID);
-            pumiMesh->setModelEntity(ment, gent);
-            param = apf::Vector3(pt[j], 0.0, 0.0);
-            pumiMesh->setParam(ment, param);
-        }
-    }
-
-    /// classify vertices onto model faces and build surface triangles
-    for (int i = 0; i < nface; ++i) {
-        int faceID = i + 1;
-        status = EG_getTessFace(tess, faceID, &len, &pxyz, &puv, &ptype,
-                                &pindex, &ntri, &ptris, &ptric);
-        if (status != EGADS_SUCCESS) return status;
-        for (int j = 0; j < len; ++j) {
-            if (ptype[j] > 0) // vertex is classified on a model edge
-                continue;
-
-            EG_localToGlobal(tess, faceID, j+1, &globalID);
-            // get the PUMI mesh vertex corresponding to the globalID
-            // apf::MeshEntity *ment = apf::getMdsEntity(pumiMesh, 0, globalID);
-            apf::MeshEntity *ment = verts[globalID-1];
-
-            // set the model entity and parametric values
-            if (ptype[j] == 0) { // entity should be classified on a vertex
-                gent = pumiMesh->findModelEntity(0, pindex[j]);
-                param = apf::Vector3(0.0,0.0,0.0);
-            }
-            else {
-                gent = pumiMesh->findModelEntity(2, faceID);
-                param = apf::Vector3(puv[2*j], puv[2*j+1], 0.0);
-            }
-            pumiMesh->setModelEntity(ment, gent);
-            pumiMesh->setParam(ment, param);
-        }
-
-        apf::MeshEntity *a, *b, *c;
-        int aGlobalID, bGlobalID, cGlobalID;
-        gent = pumiMesh->findModelEntity(2, faceID);
-        // construct triangles
-        for (int j = 0; j < ntri; ++j) {
-            EG_localToGlobal(tess, faceID, ptris[3*j], &aGlobalID);
-            EG_localToGlobal(tess, faceID, ptris[3*j+1], &bGlobalID);
-            EG_localToGlobal(tess, faceID, ptris[3*j+2], &cGlobalID);
-
-            a = verts[aGlobalID-1];
-            b = verts[bGlobalID-1];
-            c = verts[cGlobalID-1];
-
-            createEdge(pumiMesh, a, b, gent);
-            createEdge(pumiMesh, b, c, gent);
-            createEdge(pumiMesh, c, a, gent);
-
-            /// construct mesh triangle face
-            createFace(pumiMesh, a, b, c, gent);
-        }
-
-    }
-    
-    /// if volume mesh, build tets
-    if (mesh->meshType == VolumeMesh) {
-        int elementIndex;
-        apf::MeshEntity *a, *b, *c, *d;
-        // apf::ModelEntity *gent;
-        meshElementStruct ment;
-        const int ntets = mesh->meshQuickRef.numTetrahedral;
-        for (int i = 0; i < ntets; ++i) {
-            if (mesh->meshQuickRef.startIndexTetrahedral >= 0) {
-                elementIndex = mesh->meshQuickRef.startIndexTetrahedral + i;
-            } else {
-                elementIndex = mesh->meshQuickRef.listIndexTetrahedral[i];
-            }
-            ment = mesh->element[elementIndex];
-
-            gent = pumiMesh->findModelEntity(3, ment.markerID);
-
-            // a = apf::getMdsEntity(pumiMesh, 0, ment.connectivity[0]);
-            // b = apf::getMdsEntity(pumiMesh, 0, ment.connectivity[1]);
-            // c = apf::getMdsEntity(pumiMesh, 0, ment.connectivity[2]);
-            // d = apf::getMdsEntity(pumiMesh, 0, ment.connectivity[3]);     
-
-            a = verts[ment.connectivity[0]-1];
-            b = verts[ment.connectivity[1]-1];
-            c = verts[ment.connectivity[2]-1];
-            d = verts[ment.connectivity[3]-1];
-            apf::MeshEntity *tet_verts[4] = {a, b, c, d};
-
-            apf::ModelEntity *g = NULL;
-            for (int j = 0; j < 4; ++j) {
-                g = pumiMesh->toModel(tet_verts[j]);
-                if (g) { // if vtx model ent was already set (boundary vtx), skip
-                    continue;
-                }
-                else { // if not already set, set it to be the same as the element
-                    pumiMesh->setModelEntity(tet_verts[j], gent);
-                }
-            }             
-
-            apf::MeshEntity *tet = apf::buildElement(pumiMesh, gent,
-                                                     apf::Mesh::TET,
-                                                     tet_verts);
-            PCU_ALWAYS_ASSERT(tet);
-            
-        }
-    }
-
-    pumiMesh->acceptChanges();
-
-    /// calculate adjacency information and update PUMI gmi_edads model
     std::vector<std::set<int>> adj_graph[6];
-    int sizes[] = {nregions, nregions, nregions, nnode, nedge, nface};
-
-    for (int i = 0; i < 6; ++i) {
-        for (int j = 0; j < sizes[i]; ++j) {
-            adj_graph[i].push_back(std::set<int>{});
-        }
-    }
-
-    /// iterate over mesh verts
+    auto *pumi_mesh = createPumiMeshFromMeshRef(aimInfo,
+                                                pumiInstance->meshRef,
+                                                model,
+                                                tess,
+                                                adj_graph);
+    
+    int sizes[6];
+    for (int i = 0; i < 6; ++i)
     {
-        apf::MeshIterator *it = pumiMesh->begin(0);
-        apf::MeshEntity *vtx;
-        while ((vtx = pumiMesh->iterate(it)))
-        {
-            apf::ModelEntity *vtx_me = pumiMesh->toModel(vtx);
-            int vtx_me_dim = pumiMesh->getModelType(vtx_me);
-            int vtx_me_tag = pumiMesh->getModelTag(vtx_me);
-            if (vtx_me_dim == 0) { // vtx_me_dim == 0?
-                apf::Adjacent tets;
-                pumiMesh->getAdjacent(vtx, 3, tets);
-                for (int i = 0; i < tets.getSize(); ++i)
-                {
-                    apf::ModelEntity *tet_me = pumiMesh->toModel(tets[i]);
-                    int tet_me_tag = pumiMesh->getModelTag(tet_me);
-                    adj_graph[0][tet_me_tag-1].insert(vtx_me_tag); // 0-3
-                    adj_graph[3][vtx_me_tag-1].insert(tet_me_tag); // 3-0
-                }
-            }
-        }
+        sizes[i] = adj_graph[i].size();
     }
 
-    {
-        apf::MeshIterator *it = pumiMesh->begin(1);
-        apf::MeshEntity *edge;
-        while ((edge = pumiMesh->iterate(it)))
-        {
-            apf::ModelEntity *edge_me = pumiMesh->toModel(edge);
-            int edge_me_dim = pumiMesh->getModelType(edge_me);
-            int edge_me_tag = pumiMesh->getModelTag(edge_me);
-            if (edge_me_dim == 1) { // edge_me_dim == 1?
-                apf::Adjacent tets;
-                pumiMesh->getAdjacent(edge, 3, tets);
-                for (int i = 0; i < tets.getSize(); ++i)
-                {
-                    apf::ModelEntity *tet_me = pumiMesh->toModel(tets[i]);
-                    int tet_me_tag = pumiMesh->getModelTag(tet_me);
-                    adj_graph[1][tet_me_tag-1].insert(edge_me_tag); // 1-3
-                    adj_graph[4][edge_me_tag-1].insert(tet_me_tag); // 3-1
-                }
-            }
-        }
-    }
 
-    {
-        apf::MeshIterator *it = pumiMesh->begin(2);
-        apf::MeshEntity *tri;
-        while ((tri = pumiMesh->iterate(it)))
-        {
-            apf::ModelEntity *tri_me = pumiMesh->toModel(tri);
-            int tri_me_dim = pumiMesh->getModelType(tri_me);
-            int tri_me_tag = pumiMesh->getModelTag(tri_me);
-            if (tri_me_dim < 3) { // edge_me_dim == 1?
-                apf::Up tets;
-                pumiMesh->getUp(tri, tets);
-                for (int i = 0; i < tets.n; ++i)
-                {
-                    apf::ModelEntity *tet_me = pumiMesh->toModel(tets.e[i]);
-                    int tet_me_tag = pumiMesh->getModelTag(tet_me);
-                    adj_graph[2][tet_me_tag-1].insert(tri_me_tag); // 2-3
-                    adj_graph[5][tri_me_tag-1].insert(tet_me_tag); // 3-2
-                }
-            }
-        }
-    }
 
-    /// create C array adjacency graph
-    int **c_graph[6];
+//     // auto mesh = pumiInstance->mesh[0];
+//     auto tess = [&]() -> ego {
+//         if (surface_mesh)
+//             return pumiInstance->mesh[0].egadsTess;
+//         else if (volume_mesh)
+//             return pumiInstance->meshRef->maps->tess;
+//         else {
+//             return nullptr;
+//         }
+//     }();
+//     if (tess == nullptr)
+//     {
+//         printf(" Unknown mesh dimension, error!\n");
+//         return EGADS_WRITERR;
+//     }
 
-    for (int i = 0; i < 6; ++i) {
-        c_graph[i] = (int**)EG_alloc(sizeof(*c_graph[i]) * sizes[i]);
-        if (c_graph[i] == NULL) {
-            printf("failed to alloc memory for c_graph");
-            /// return bad here
-        }
-        for (int j = 0; j < sizes[i]; ++j) {
-            c_graph[i][j] = (int*)EG_alloc(sizeof(*c_graph[i][j])
-                                           * (adj_graph[i][j].size()+1));
-            if (c_graph[i][j] == NULL) {
-                printf("failed to alloc memory for c_graph");
-                /// return bad here
-            }
-            c_graph[i][j][0] = adj_graph[i][j].size();
-            std::copy(adj_graph[i][j].begin(),
-                      adj_graph[i][j].end(),
-                      c_graph[i][j]+1);
-        }
-    }
+//     ego tessBody;
+//     int state, npts;
+//     // get the body from tessellation
+//     status = EG_statusTessBody(tess, &tessBody, &state, &npts);
+//     if (status != EGADS_SUCCESS) {
+// #ifdef DEBUG
+//         printf(" EGADS Warning: Tessellation is Open (EG_saveTess)!\n");
+// #endif
+//         return EGADS_TESSTATE;
+//     }
 
-    gmi_egads_init_adjacency(pumiModel, c_graph);
-    printf("Done generating PUMI mesh!\n");
+    // int nregions = 1;
+    // if (volume_mesh) {
+        
+    //     int tetStartIndex;
+    //     if (mesh.meshQuickRef.startIndexTetrahedral >= 0) {
+    //         tetStartIndex = mesh.meshQuickRef.startIndexTetrahedral;
+    //     } else {
+    //         tetStartIndex = mesh.meshQuickRef.listIndexTetrahedral[0];
+    //     }
+    //     int numTets = mesh.meshQuickRef.numTetrahedral;
 
-    printf("\nVerifying PUMI mesh.....\n");
-    pumiMesh->verify();
-    printf("PUMI mesh verified!\n");
+    //     /// find the number of regions
+    //     nregions = countRegions(&(mesh.element[tetStartIndex]), numTets);
+    // }
 
-    int elementOrder = pumiInstance->meshInput.pumiInput.elementOrder;
-    if (elementOrder > 1) {
-        crv::BezierCurver bc(pumiMesh, elementOrder, 2);
-        bc.run();
-    }
+    // /// Copy body from tesselation and create a model to import into PUMI
+    // ego model;
+    // ego context;
+    // status = EG_getContext(tessBody, &context);
+    // if (status != EGADS_SUCCESS)
+    // {
+    //     printf(" PUMI AIM Warning: EG_getContext failed with status: %d!\n", status);
+    //     return status;
+    // }
+
+    // ego *body = (ego *) EG_alloc(sizeof(ego));
+    // if (body == NULL) {
+    //     status = EGADS_MALLOC;
+    //     if (status != EGADS_SUCCESS)
+    //     {
+    //         printf(" PUMI AIM Warning: EG_alloc failed with status: %d!\n", status);
+    //         return status;
+    //     }
+    // }
+
+    // *body = NULL;
+    // status = EG_copyObject(tessBody, NULL, body);
+    // if (status != EGADS_SUCCESS)
+    // {
+    //     printf(" EG_copyObject failed with status: %d!\n", status);
+    //     return status;
+    // }
+
+    // status = EG_makeTopology(context, NULL, MODEL, 0, NULL, 
+    //                             numBody, body, NULL, &model);
+    // if (status != EGADS_SUCCESS)
+    // {
+    //     printf(" PUMI AIM Warning: EG_makeTopology failed with status: %d!\n", status);
+    //     return status;
+    // }
+
+    // /// initialize PUMI EGADS model
+    // gmi_register_egads();
+    // struct gmi_model *pumiModel = gmi_egads_init_model(model, nregions);
+
+    // int nnode = pumiModel->n[0];
+    // int nedge = pumiModel->n[1];
+    // int nface = pumiModel->n[2];
+
+    // /// create empty PUMI mesh
+    // pumiInstance->pumiMesh = apf::makeEmptyMdsMesh(pumiModel, 0, false);
+
+    // // useful shorthand
+    // auto *pumiMesh = pumiInstance->pumiMesh;
+
+    // // set PUMI mesh dimension based on mesh type
+    // if (mesh.meshType == Surface2DMesh ||
+    //         mesh.meshType == SurfaceMesh) {
+    //     apf::changeMdsDimension(pumiMesh, 2);
+    // } else if (mesh.meshType == VolumeMesh) {
+    //     apf::changeMdsDimension(pumiMesh, 3);
+    // } else {
+    //     printf(" Unknown mesh dimension, error!\n");
+    //     return EGADS_WRITERR;
+    // }
+
+    // int nMeshVert = mesh.numNode;
+    // apf::MeshEntity *verts[nMeshVert];
+
+    // /// create all mesh vertices without model entities or parameters
+    // for (int i = 0; i < mesh.numNode; i++) {
+
+    //     apf::Vector3 vtxCoords(mesh.node[i].xyz);
+    //     apf::Vector3 vtxParam(0.0, 0.0, 0.0);
+
+    //     verts[i] = pumiMesh->createVertex(0, vtxCoords, vtxParam);
+    //     PCU_ALWAYS_ASSERT(verts[i]);
+    // }
+
+    // int len, globalID, ntri;
+    // const int *ptype=NULL, *pindex=NULL, *ptris=NULL, *ptric=NULL;
+    // const double *pxyz = NULL, *puv = NULL, *pt = NULL;
+
+    // apf::ModelEntity *gent;
+    // apf::Vector3 param;
+
+    // /// classify vertices onto model edges and build mesh edges
+    // for (int i = 0; i < nedge; ++i) {
+    //     apf::MeshEntity *ment;
+    //     int edgeID = i + 1;
+    //     status = EG_getTessEdge(tess, edgeID, &len, &pxyz, &pt);
+    //     if (status != EGADS_SUCCESS) return status;
+    //     for (int j = 0; j < len; ++j) {
+    //         status = EG_localToGlobal(tess, -edgeID, j+1, &globalID);
+    //         if (status == EGADS_DEGEN)
+    //             break; // skip degenerate edges
+    //         else if (status != EGADS_SUCCESS) 
+    //             return status;
+   
+    //         // get the PUMI mesh vertex corresponding to the globalID
+    //         ment = verts[globalID-1];
+            
+    //         // set the model entity and parametric values
+    //         gent = pumiMesh->findModelEntity(1, edgeID);
+    //         pumiMesh->setModelEntity(ment, gent);
+    //         param = apf::Vector3(pt[j], 0.0, 0.0);
+    //         pumiMesh->setParam(ment, param);
+    //     }
+    // }
+
+    // /// classify vertices onto model faces and build surface triangles
+    // for (int i = 0; i < nface; ++i) {
+    //     int faceID = i + 1;
+    //     status = EG_getTessFace(tess, faceID, &len, &pxyz, &puv, &ptype,
+    //                             &pindex, &ntri, &ptris, &ptric);
+    //     if (status != EGADS_SUCCESS) return status;
+    //     for (int j = 0; j < len; ++j) {
+    //         if (ptype[j] > 0) // vertex is classified on a model edge
+    //             continue;
+
+    //         EG_localToGlobal(tess, faceID, j+1, &globalID);
+    //         // get the PUMI mesh vertex corresponding to the globalID
+    //         // apf::MeshEntity *ment = apf::getMdsEntity(pumiMesh, 0, globalID);
+    //         apf::MeshEntity *ment = verts[globalID-1];
+
+    //         // set the model entity and parametric values
+    //         if (ptype[j] == 0) { // entity should be classified on a vertex
+    //             gent = pumiMesh->findModelEntity(0, pindex[j]);
+    //             param = apf::Vector3(0.0,0.0,0.0);
+    //         }
+    //         else {
+    //             gent = pumiMesh->findModelEntity(2, faceID);
+    //             param = apf::Vector3(puv[2*j], puv[2*j+1], 0.0);
+    //         }
+    //         pumiMesh->setModelEntity(ment, gent);
+    //         pumiMesh->setParam(ment, param);
+    //     }
+
+    //     apf::MeshEntity *a, *b, *c;
+    //     int aGlobalID, bGlobalID, cGlobalID;
+    //     gent = pumiMesh->findModelEntity(2, faceID);
+    //     // construct triangles
+    //     for (int j = 0; j < ntri; ++j) {
+    //         EG_localToGlobal(tess, faceID, ptris[3*j], &aGlobalID);
+    //         EG_localToGlobal(tess, faceID, ptris[3*j+1], &bGlobalID);
+    //         EG_localToGlobal(tess, faceID, ptris[3*j+2], &cGlobalID);
+
+    //         a = verts[aGlobalID-1];
+    //         b = verts[bGlobalID-1];
+    //         c = verts[cGlobalID-1];
+
+    //         createEdge(pumiMesh, a, b, gent);
+    //         createEdge(pumiMesh, b, c, gent);
+    //         createEdge(pumiMesh, c, a, gent);
+
+    //         /// construct mesh triangle face
+    //         createFace(pumiMesh, a, b, c, gent);
+    //     }
+
+    // }
+    
+    // /// if volume mesh, build tets
+    // if (mesh.meshType == VolumeMesh) {
+    //     int elementIndex;
+    //     apf::MeshEntity *a, *b, *c, *d;
+    //     // apf::ModelEntity *gent;
+    //     meshElementStruct ment;
+    //     const int ntets = mesh.meshQuickRef.numTetrahedral;
+    //     for (int i = 0; i < ntets; ++i) {
+    //         if (mesh.meshQuickRef.startIndexTetrahedral >= 0) {
+    //             elementIndex = mesh.meshQuickRef.startIndexTetrahedral + i;
+    //         } else {
+    //             elementIndex = mesh.meshQuickRef.listIndexTetrahedral[i];
+    //         }
+    //         ment = mesh.element[elementIndex];
+
+    //         gent = pumiMesh->findModelEntity(3, ment.markerID);
+
+    //         // a = apf::getMdsEntity(pumiMesh, 0, ment.connectivity[0]);
+    //         // b = apf::getMdsEntity(pumiMesh, 0, ment.connectivity[1]);
+    //         // c = apf::getMdsEntity(pumiMesh, 0, ment.connectivity[2]);
+    //         // d = apf::getMdsEntity(pumiMesh, 0, ment.connectivity[3]);     
+
+    //         a = verts[ment.connectivity[0]-1];
+    //         b = verts[ment.connectivity[1]-1];
+    //         c = verts[ment.connectivity[2]-1];
+    //         d = verts[ment.connectivity[3]-1];
+    //         apf::MeshEntity *tet_verts[4] = {a, b, c, d};
+
+    //         apf::ModelEntity *g = NULL;
+    //         for (int j = 0; j < 4; ++j) {
+    //             g = pumiMesh->toModel(tet_verts[j]);
+    //             if (g) { // if vtx model ent was already set (boundary vtx), skip
+    //                 continue;
+    //             }
+    //             else { // if not already set, set it to be the same as the element
+    //                 pumiMesh->setModelEntity(tet_verts[j], gent);
+    //             }
+    //         }             
+
+    //         apf::MeshEntity *tet = apf::buildElement(pumiMesh, gent,
+    //                                                  apf::Mesh::TET,
+    //                                                  tet_verts);
+    //         PCU_ALWAYS_ASSERT(tet);
+            
+    //     }
+    // }
+
+    // pumiMesh->acceptChanges();
+
+    // /// calculate adjacency information and update PUMI gmi_edads model
+    // std::vector<std::set<int>> adj_graph[6];
+    // int sizes[] = {nregions, nregions, nregions, nnode, nedge, nface};
+
+    // for (int i = 0; i < 6; ++i) {
+    //     for (int j = 0; j < sizes[i]; ++j) {
+    //         adj_graph[i].push_back(std::set<int>{});
+    //     }
+    // }
+
+    // /// iterate over mesh verts
+    // {
+    //     apf::MeshIterator *it = pumiMesh->begin(0);
+    //     apf::MeshEntity *vtx;
+    //     while ((vtx = pumiMesh->iterate(it)))
+    //     {
+    //         apf::ModelEntity *vtx_me = pumiMesh->toModel(vtx);
+    //         int vtx_me_dim = pumiMesh->getModelType(vtx_me);
+    //         int vtx_me_tag = pumiMesh->getModelTag(vtx_me);
+    //         if (vtx_me_dim == 0) { // vtx_me_dim == 0?
+    //             apf::Adjacent tets;
+    //             pumiMesh->getAdjacent(vtx, 3, tets);
+    //             for (int i = 0; i < tets.getSize(); ++i)
+    //             {
+    //                 apf::ModelEntity *tet_me = pumiMesh->toModel(tets[i]);
+    //                 int tet_me_tag = pumiMesh->getModelTag(tet_me);
+    //                 adj_graph[0][tet_me_tag-1].insert(vtx_me_tag); // 0-3
+    //                 adj_graph[3][vtx_me_tag-1].insert(tet_me_tag); // 3-0
+    //             }
+    //         }
+    //     }
+    // }
+
+    // {
+    //     apf::MeshIterator *it = pumiMesh->begin(1);
+    //     apf::MeshEntity *edge;
+    //     while ((edge = pumiMesh->iterate(it)))
+    //     {
+    //         apf::ModelEntity *edge_me = pumiMesh->toModel(edge);
+    //         int edge_me_dim = pumiMesh->getModelType(edge_me);
+    //         int edge_me_tag = pumiMesh->getModelTag(edge_me);
+    //         if (edge_me_dim == 1) { // edge_me_dim == 1?
+    //             apf::Adjacent tets;
+    //             pumiMesh->getAdjacent(edge, 3, tets);
+    //             for (int i = 0; i < tets.getSize(); ++i)
+    //             {
+    //                 apf::ModelEntity *tet_me = pumiMesh->toModel(tets[i]);
+    //                 int tet_me_tag = pumiMesh->getModelTag(tet_me);
+    //                 adj_graph[1][tet_me_tag-1].insert(edge_me_tag); // 1-3
+    //                 adj_graph[4][edge_me_tag-1].insert(tet_me_tag); // 3-1
+    //             }
+    //         }
+    //     }
+    // }
+
+    // {
+    //     apf::MeshIterator *it = pumiMesh->begin(2);
+    //     apf::MeshEntity *tri;
+    //     while ((tri = pumiMesh->iterate(it)))
+    //     {
+    //         apf::ModelEntity *tri_me = pumiMesh->toModel(tri);
+    //         int tri_me_dim = pumiMesh->getModelType(tri_me);
+    //         int tri_me_tag = pumiMesh->getModelTag(tri_me);
+    //         if (tri_me_dim < 3) { // edge_me_dim == 1?
+    //             apf::Up tets;
+    //             pumiMesh->getUp(tri, tets);
+    //             for (int i = 0; i < tets.n; ++i)
+    //             {
+    //                 apf::ModelEntity *tet_me = pumiMesh->toModel(tets.e[i]);
+    //                 int tet_me_tag = pumiMesh->getModelTag(tet_me);
+    //                 adj_graph[2][tet_me_tag-1].insert(tri_me_tag); // 2-3
+    //                 adj_graph[5][tri_me_tag-1].insert(tet_me_tag); // 3-2
+    //             }
+    //         }
+    //     }
+    // }
+
+    // /// create C array adjacency graph
+    // int **c_graph[6];
+
+    // for (int i = 0; i < 6; ++i) {
+    //     c_graph[i] = (int**)EG_alloc(sizeof(*c_graph[i]) * sizes[i]);
+    //     if (c_graph[i] == NULL) {
+    //         printf("failed to alloc memory for c_graph");
+    //         /// return bad here
+    //     }
+    //     for (int j = 0; j < sizes[i]; ++j) {
+    //         c_graph[i][j] = (int*)EG_alloc(sizeof(*c_graph[i][j])
+    //                                        * (adj_graph[i][j].size()+1));
+    //         if (c_graph[i][j] == NULL) {
+    //             printf("failed to alloc memory for c_graph");
+    //             /// return bad here
+    //         }
+    //         c_graph[i][j][0] = adj_graph[i][j].size();
+    //         std::copy(adj_graph[i][j].begin(),
+    //                   adj_graph[i][j].end(),
+    //                   c_graph[i][j]+1);
+    //     }
+    // }
+
+    // gmi_egads_init_adjacency(pumiModel, c_graph);
+    // printf("Done generating PUMI mesh!\n");
+
+    // printf("\nVerifying PUMI mesh.....\n");
+    // pumiMesh->verify();
+    // printf("PUMI mesh verified!\n");
+
+    // int elementOrder = pumiInstance->meshInput.pumiInput.elementOrder;
+    // if (elementOrder > 1) {
+    //     crv::BezierCurver bc(pumiMesh, elementOrder, 2);
+    //     bc.run();
+    // }
 
     if (pumiInstance->meshInput.outputFileName != NULL) {
 
@@ -799,12 +1302,13 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
 
         strcpy(filename, pumiInstance->meshInput.outputFileName);
 
-        if (strcasecmp(pumiInstance->meshInput.outputFormat, "PUMI") == 0) {
+        if (strcasecmp(pumiInstance->meshInput.outputFormat, "PUMI") == 0)
+        {
             /// write .smb mesh file
             std::string smb_filename(filename);
             smb_filename += ".smb";
             printf("\nWriting native PUMI mesh: %s....\n", smb_filename.c_str());
-            pumiMesh->writeNative(smb_filename.c_str());
+            pumi_mesh->writeNative(smb_filename.c_str());
             printf("Finished writing native PUMI mesh\n");
 
             /// write native tesselation
@@ -825,7 +1329,9 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
 
             /// create copy of body in new model for saving
             ego model;
-            ego *body;
+            ego model_children[2];
+            ego *body = &model_children[0];
+            ego *new_tess = &model_children[1];
             size_t nbytes;
             char *stream;
             {
@@ -837,17 +1343,17 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
                     return status;
                 }
 
-                body = (ego *) EG_alloc(sizeof(ego));
-                if (body == NULL) {
-                    status = EGADS_MALLOC;
-                    if (status != EGADS_SUCCESS)
-                    {
-                        printf(" PUMI AIM Warning: EG_alloc failed with status: %d!\n", status);
-                        return status;
-                    }
-                }
+                // body = (ego *) EG_alloc(sizeof(ego));
+                // if (body == nullptr) {
+                //     status = EGADS_MALLOC;
+                //     if (status != EGADS_SUCCESS)
+                //     {
+                //         printf(" PUMI AIM Warning: EG_alloc failed with status: %d!\n", status);
+                //         return status;
+                //     }
+                // }
 
-                *body = NULL;
+                *body = nullptr;
                 status = EG_copyObject(tessBody, NULL, body);
                 if (status != EGADS_SUCCESS)
                 {
@@ -855,9 +1361,25 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
                     return status;
                 }
 
+                *new_tess = nullptr;
+                status = EG_mapTessBody(tess, *body, new_tess);
+                if (status != EGADS_SUCCESS)
+                {
+                    printf(" EG_mapTessBody failed with status: %d!\n", status);
+                    return status;
+                }
+
+                {
+                    ego tess_body = nullptr;
+                    int state = 0;
+                    int npt = 0;
+                    EG_statusTessBody(*new_tess, &tess_body, &state, &npt);
+                    std::cout << "saved tess npt: " << npt << "\n";
+                }
+
                 // Create a model
-                status = EG_makeTopology(context, NULL, MODEL, 0, NULL, 
-                                         numBody, body, NULL, &model);
+                status = EG_makeTopology(context, nullptr, MODEL, 2, nullptr, 
+                                         numBody, model_children, nullptr, &model);
                 if (status != EGADS_SUCCESS)
                 {
                     printf(" PUMI AIM Warning: EG_makeTopology failed with status: %d!\n", status);
@@ -917,7 +1439,7 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
                     }
                 }
             }
-            EG_free(body);
+            // EG_free(body);
             printf("Finished writing EGADSlite model\n");
 
             /// write adjacency table (lite)
@@ -1012,23 +1534,23 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
                adj_file.close();
             }
             printf("Finished writing supplementary EGADS model\n\n");
-
-        } else if (strcasecmp(pumiInstance->meshInput.outputFormat, "VTK") == 0) {
+        }
+        else if (strcasecmp(pumiInstance->meshInput.outputFormat, "VTK") == 0)
+        {
             printf("\nWriting VTK file: %s....\n", filename);
-            if (elementOrder > 1) {
-                if (mesh->meshType == VolumeMesh)
-                    crv::writeCurvedVtuFiles(pumiMesh, apf::Mesh::TET, 10, filename);
-                else
-                    crv::writeCurvedVtuFiles(pumiMesh, apf::Mesh::TRIANGLE, 10, filename);
-                crv::writeCurvedWireFrame(pumiMesh, 10, filename);
-            } else {
-                apf::writeVtkFiles(filename, pumiMesh);
-            }
+            // if (elementOrder > 1) {
+            //     // if (mesh.meshType == VolumeMesh)
+            //         crv::writeCurvedVtuFiles(pumi_mesh, apf::Mesh::TET, 10, filename);
+            //     else
+            //         crv::writeCurvedVtuFiles(pumi_mesh, apf::Mesh::TRIANGLE, 10, filename);
+            //     crv::writeCurvedWireFrame(pumi_mesh, 10, filename);
+            // } else {
+                apf::writeVtkFiles(filename, pumi_mesh);
+            // }
             printf("Finished writing VTK file\n\n");
         }
         if (filename != NULL) EG_free(filename);
     }
-
 
     return status;
 }
@@ -1084,12 +1606,11 @@ extern "C" int
 aimCalcOutput(void *instStore, void *aimInfo, int index, capsValue *val)
 {
     int status = CAPS_SUCCESS;
-    aimStorage *pumiInstance;
 
 #ifdef DEBUG
     printf(" pumiAIM/aimCalcOutput index = %d!\n", index);
 #endif
-    pumiInstance = (aimStorage *) instStore;
+    auto *pumiInstance = static_cast<aimStorage *>(instStore);
 
     if (Done == index) {
         val->vals.integer = (int) false;
