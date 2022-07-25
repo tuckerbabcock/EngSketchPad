@@ -21,13 +21,13 @@ endif
 
 DEFINE = -DREVISION=$(CASREV)
 CXX    = clang++ -m64 -g -target arm64-apple-darwin $(ESPFLAGS)
-CPPOPT = -O0 -fPIC -DOCC_CONVERT_SIGNALS -DNDEBUG -DNo_Exception -D_OCC64 -Wall -Wno-write-strings -Wno-dangling-else -Wno-unused-result $(CPDS)
+CPPOPT = -O2 -fPIC -DOCC_CONVERT_SIGNALS -DNDEBUG -DNo_Exception -D_OCC64 -Wall -Wno-write-strings -Wno-dangling-else -Wno-unused-result $(CPDS)
 CC     = clang -m64 -g -target arm64-apple-darwin $(ESPFLAGS)
-COPTS  = -O0 -Wall -Wno-dangling-else -Wno-unused-result
-OCOPT  = -O0 -Wall -Wno-dangling-else -Wno-unused-result
+COPTS  = -O2 -Wall -Wno-dangling-else -Wno-unused-result
+OCOPT  = -O2 -Wall -Wno-dangling-else -Wno-unused-result
 ifeq ($(EFCOMP),gfortran)
 FCOMP     = gfortran -m64 -g $(ESPFFLAGS)
-FOPTS     = -O0 -frecursive -fcray-pointer
+FOPTS     = -O2 -frecursive -fcray-pointer
 FSOFLG    = -bundle -undefined error
 ESPFLIBS += -static-libgfortran -static-libgcc
 endif

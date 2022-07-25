@@ -258,6 +258,309 @@ void createEdge(apf::Mesh2* m, apf::MeshEntity* a, apf::MeshEntity* b,
                       edgeVerts);
 }
 
+apf::Mesh2 *createPumiMeshFromMeshStruct(void *aimInfo,
+                                         meshStruct *mesh,
+                                         ego &model,
+                                         ego &tess,
+                                         std::vector<std::set<int>> *adj_graph)
+{
+    int status = EGADS_SUCCESS;
+
+    /// initialize PUMI EGADS model with 1 region
+    gmi_register_egads();
+    struct gmi_model *pumi_model = gmi_egads_init_model(model, 1);
+
+    /// create empty 2D PUMI mesh
+    auto *pumi_mesh = apf::makeEmptyMdsMesh(pumi_model, 2, false);
+
+    /// create all mesh vertices without model entities or parameters
+    // ego tess_body;
+    // int tess_status;
+    int n_mesh_verts = mesh->numNode;
+    // status = EG_statusTessBody(tess, &tess_body, &tess_status, &n_mesh_verts);
+    std::vector<apf::MeshEntity *> verts(n_mesh_verts);
+    for (int i = 0; i < n_mesh_verts; i++) {
+
+        // int ptype;
+        // int pindex;
+        // double pxyz[3];
+        // EG_getGlobal(tess, i+1, &ptype, &pindex, pxyz);
+
+        // std::cout << "tess global vtx: " << i << " ptype: " << ptype << " pindex: " << pindex << " xyz: " << pxyz[0] << ", " << pxyz[1] << "\n";
+
+
+        apf::Vector3 vtxCoords(mesh->node[i].xyz);
+        // apf::Vector3 vtxCoords(pxyz);
+        apf::Vector3 vtxParam(0.0, 0.0, 0.0);
+
+        verts[i] = pumi_mesh->createVertex(0, vtxCoords, vtxParam);
+        PCU_ALWAYS_ASSERT(verts[i]);
+    }
+
+    /// classify vertices onto model edges and build mesh edges
+    int n_model_edge = pumi_model->n[1];
+    for (int i = 0; i < n_model_edge; ++i)
+    {
+        int edgeID = i + 1;
+        int len;
+        const double *pxyz = nullptr;
+        const double *pt = nullptr;
+        status = EG_getTessEdge(tess, edgeID, &len, &pxyz, &pt);
+        if (status != EGADS_SUCCESS) { return nullptr; }
+        for (int j = 0; j < len; ++j)
+        {
+            int globalID;
+            status = EG_localToGlobal(tess, -edgeID, j+1, &globalID);
+            if (status == EGADS_DEGEN)
+            {
+                break; // skip degenerate edges
+            }
+            else if (status != EGADS_SUCCESS) 
+            {
+                return nullptr;
+            }
+   
+            // get the PUMI mesh vertex corresponding to the tess globalID
+            auto *ment = verts[globalID-1];
+            {
+                apf::Vector3 coords;
+                pumi_mesh->getPoint(ment, 0, coords);
+                // std::cout << "vert " << globalID << " xyz: ";
+                // for (int k = 0; k < 3; ++k)
+                // {
+                //     std::cout << coords[k] << ", ";
+                // }
+                // std::cout << "\npxyz: ";
+                // for (int k = 0; k < 3; ++k)
+                // {
+                //     std::cout << pxyz[3*j+k] << ", ";
+                // }
+                // std::cout << "\n";
+
+                for (int k = 0; k < 3; ++k)
+                {
+                    if (abs(coords[k] - pxyz[3*j+k]) > 1e-12)
+                    {
+                        gmi_fail("bad coordinates for mesh point!\n");
+                    }
+                }
+            }
+
+            // set the model entity and parametric values
+            auto *gent = pumi_mesh->findModelEntity(1, edgeID);
+            pumi_mesh->setModelEntity(ment, gent);
+            auto param = apf::Vector3(pt[j], 0.0, 0.0);
+            pumi_mesh->setParam(ment, param);
+        }
+    }
+
+    /// classify vertices onto model faces and build surface triangles
+    int n_model_face = pumi_model->n[2];
+    for (int i = 0; i < n_model_face; ++i)
+    {
+        int faceID = i + 1;
+        int len;
+        const double *pxyz = nullptr;
+        const double *puv = nullptr;
+        const int *ptype;
+        const int *pindex;
+        int ntri;
+        const int *ptris;
+        const int *ptric;
+        status = EG_getTessFace(tess, faceID, &len, &pxyz, &puv, &ptype,
+                                &pindex, &ntri, &ptris, &ptric);
+        if (status != EGADS_SUCCESS) { return nullptr; }
+        for (int j = 0; j < len; ++j)
+        {
+            if (ptype[j] > 0) // vertex is classified on a model edge
+            {
+                continue;
+            }
+
+            int globalID;
+            status = EG_localToGlobal(tess, faceID, j+1, &globalID);
+            if (status != EGADS_SUCCESS) { return nullptr; }
+
+            // get the PUMI mesh vertex corresponding to the tess globalID
+            auto *ment = verts[globalID-1];
+            {
+                apf::Vector3 coords;
+                pumi_mesh->getPoint(ment, 0, coords);
+                for (int k = 0; k < 3; ++k)
+                {
+                    if (abs(coords[k] - pxyz[3*j+k]) > 1e-12)
+                    {
+                        gmi_fail("bad coordinates for mesh point!\n");
+                    }
+                }
+            }
+
+            // set the model entity and parametric values
+            apf::ModelEntity *gent;
+            apf::Vector3 param;
+            if (ptype[j] == 0) // entity should be classified on a vertex
+            {
+                gent = pumi_mesh->findModelEntity(0, pindex[j]);
+                param = apf::Vector3(0.0,0.0,0.0);
+            }
+            else
+            {
+                gent = pumi_mesh->findModelEntity(2, faceID);
+                param = apf::Vector3(puv[2*j], puv[2*j+1], 0.0);
+            }
+            pumi_mesh->setModelEntity(ment, gent);
+            pumi_mesh->setParam(ment, param);
+        }
+
+        // construct triangles
+        for (int j = 0; j < ntri; ++j)
+        {
+            int aGlobalID, bGlobalID, cGlobalID;
+            EG_localToGlobal(tess, faceID, ptris[3*j], &aGlobalID);
+            EG_localToGlobal(tess, faceID, ptris[3*j+1], &bGlobalID);
+            EG_localToGlobal(tess, faceID, ptris[3*j+2], &cGlobalID);
+
+            auto *a = verts[aGlobalID-1];
+            auto *b = verts[bGlobalID-1];
+            auto *c = verts[cGlobalID-1];
+
+            auto *gent = pumi_mesh->findModelEntity(2, faceID);
+            createEdge(pumi_mesh, a, b, gent);
+            createEdge(pumi_mesh, b, c, gent);
+            createEdge(pumi_mesh, c, a, gent);
+
+            /// construct mesh triangle face
+            createFace(pumi_mesh, a, b, c, gent);
+        }
+    }
+
+    pumi_mesh->acceptChanges();
+
+    /// calculate adjacency information and update PUMI gmi_edads model
+    int n_model_node = pumi_model->n[0];
+    // std::vector<std::set<int>> adj_graph[6];
+    int sizes[] = {1,
+                   1,
+                   1,
+                   n_model_node,
+                   n_model_edge,
+                   n_model_face};
+
+    for (int i = 0; i < 6; ++i) {
+        for (int j = 0; j < sizes[i]; ++j) {
+            adj_graph[i].push_back(std::set<int>{});
+        }
+    }
+
+    /// iterate over mesh verts
+    {
+        auto *it = pumi_mesh->begin(0);
+        apf::MeshEntity *vtx;
+        while ((vtx = pumi_mesh->iterate(it)))
+        {
+            auto *vtx_model_ent = pumi_mesh->toModel(vtx);
+            int vtx_me_dim = pumi_mesh->getModelType(vtx_model_ent);
+            int vtx_me_tag = pumi_mesh->getModelTag(vtx_model_ent);
+            if (vtx_me_dim == 0)
+            {
+                apf::Adjacent tets;
+                pumi_mesh->getAdjacent(vtx, 3, tets);
+                for (int i = 0; i < tets.getSize(); ++i)
+                {
+                    auto *tet_model_ent = pumi_mesh->toModel(tets[i]);
+                    int tet_me_tag = pumi_mesh->getModelTag(tet_model_ent);
+                    adj_graph[0][tet_me_tag-1].insert(vtx_me_tag); // 0-3
+                    adj_graph[3][vtx_me_tag-1].insert(tet_me_tag); // 3-0
+                }
+            }
+        }
+    }
+
+    /// iterate over mesh edges
+    {
+        auto *it = pumi_mesh->begin(1);
+        apf::MeshEntity *edge;
+        while ((edge = pumi_mesh->iterate(it)))
+        {
+            auto *edge_model_ent = pumi_mesh->toModel(edge);
+            int edge_me_dim = pumi_mesh->getModelType(edge_model_ent);
+            int edge_me_tag = pumi_mesh->getModelTag(edge_model_ent);
+            if (edge_me_dim == 1)
+            {
+                apf::Adjacent tets;
+                pumi_mesh->getAdjacent(edge, 3, tets);
+                for (int i = 0; i < tets.getSize(); ++i)
+                {
+                    auto *tet_model_ent = pumi_mesh->toModel(tets[i]);
+                    int tet_me_tag = pumi_mesh->getModelTag(tet_model_ent);
+                    adj_graph[1][tet_me_tag-1].insert(edge_me_tag); // 1-3
+                    adj_graph[4][edge_me_tag-1].insert(tet_me_tag); // 3-1
+                }
+            }
+        }
+    }
+
+    /// iterate over mesh faces
+    {
+        auto *it = pumi_mesh->begin(2);
+        apf::MeshEntity *tri;
+        while ((tri = pumi_mesh->iterate(it)))
+        {
+            auto *tri_model_ent = pumi_mesh->toModel(tri);
+            int tri_me_dim = pumi_mesh->getModelType(tri_model_ent);
+            int tri_me_tag = pumi_mesh->getModelTag(tri_model_ent);
+            if (tri_me_dim < 3)
+            {
+                apf::Up tets;
+                pumi_mesh->getUp(tri, tets);
+                for (int i = 0; i < tets.n; ++i)
+                {
+                    auto *tet_model_ent = pumi_mesh->toModel(tets.e[i]);
+                    int tet_me_tag = pumi_mesh->getModelTag(tet_model_ent);
+                    adj_graph[2][tet_me_tag-1].insert(tri_me_tag); // 2-3
+                    adj_graph[5][tri_me_tag-1].insert(tet_me_tag); // 3-2
+                }
+            }
+        }
+    }
+
+    /// create C array adjacency graph
+    int **c_graph[6];
+
+    for (int i = 0; i < 6; ++i)
+    {
+        c_graph[i] = (int**)EG_alloc(sizeof(*c_graph[i]) * sizes[i]);
+        if (c_graph[i] == nullptr)
+        {
+            printf("failed to alloc memory for c_graph");
+            /// return bad here
+        }
+        for (int j = 0; j < sizes[i]; ++j)
+        {
+            c_graph[i][j] = (int*)EG_alloc(sizeof(*c_graph[i][j])
+                                           * (adj_graph[i][j].size()+1));
+            if (c_graph[i][j] == nullptr)
+            {
+                printf("failed to alloc memory for c_graph");
+                /// return bad here
+            }
+            c_graph[i][j][0] = adj_graph[i][j].size();
+            std::copy(adj_graph[i][j].begin(),
+                      adj_graph[i][j].end(),
+                      c_graph[i][j]+1);
+        }
+    }
+
+    gmi_egads_init_adjacency(pumi_model, c_graph);
+    printf("Done generating PUMI mesh!\n");
+
+    printf("\nVerifying PUMI mesh.....\n");
+    pumi_mesh->verify();
+    printf("PUMI mesh verified!\n");
+
+    return pumi_mesh;
+}
+
 apf::Mesh2 *createPumiMeshFromMeshRef(void *aimInfo,
                                       aimMeshRef *mesh_ref,
                                       ego &model,
@@ -890,7 +1193,16 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
     }
 
     /// Get EGADS Model
-    auto tess = pumiInstance->meshRef->maps->tess;
+    ego tess;
+    if (surface_mesh)
+    {
+        tess = pumiInstance->mesh->egadsTess;
+    }
+    else
+    {
+        tess = pumiInstance->meshRef->maps->tess;
+    }
+
 
     ego tessBody;
     int state, npts;
@@ -915,24 +1227,33 @@ aimPreAnalysis(void *instStore, void *aimInfo, capsValue *aimInputs)
                              numBody, body, nullptr, &model);
     if (status != EGADS_SUCCESS) { return status; }
 
+
+    apf::Mesh2 *pumi_mesh;
+    std::vector<std::set<int>> adj_graph[6];
+    int sizes[6];
     if (surface_mesh)
     {
-        throw std::runtime_error("pumiAIM doesn't support surface mesh!\n");
+        // throw std::runtime_error("pumiAIM doesn't support surface mesh!\n");
+        pumi_mesh = createPumiMeshFromMeshStruct(aimInfo,
+                                                 pumiInstance->mesh,
+                                                 model,
+                                                 tess,
+                                                 adj_graph);
     }
+    else
+    {
 
-    std::vector<std::set<int>> adj_graph[6];
-    auto *pumi_mesh = createPumiMeshFromMeshRef(aimInfo,
-                                                pumiInstance->meshRef,
-                                                model,
-                                                tess,
-                                                adj_graph);
-    
-    int sizes[6];
+        pumi_mesh = createPumiMeshFromMeshRef(aimInfo,
+                                              pumiInstance->meshRef,
+                                              model,
+                                              tess,
+                                              adj_graph);
+        
+    }
     for (int i = 0; i < 6; ++i)
     {
         sizes[i] = adj_graph[i].size();
     }
-
 
 
 //     // auto mesh = pumiInstance->mesh[0];
