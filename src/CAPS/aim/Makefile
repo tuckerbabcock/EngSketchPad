@@ -12,7 +12,7 @@ all:
 	(cd delaundo; make)
 	(cd egadsTess; make)
 	(cd friction; make)
-	(cd fun3d; make)
+	#(cd fun3d; make)
 	(cd mystran; make)
 	(cd masstran; make)
 	(cd nastran; make)

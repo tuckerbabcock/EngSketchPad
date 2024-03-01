@@ -20,14 +20,14 @@ $(error Unsupported CASREV=$(CASREV) -- Must be one of: 7.3 7.4 7.6)
 endif
 
 DEFINE = -DREVISION=$(CASREV)
-CXX    = clang++ -m64 -g -target arm64-apple-darwin $(ESPFLAGS)
-CPPOPT = -O2 -fPIC -DOCC_CONVERT_SIGNALS -DNDEBUG -DNo_Exception -D_OCC64 -Wall -Wno-write-strings -Wno-dangling-else -Wno-unused-result $(CPDS)
-CC     = clang -m64 -g -target arm64-apple-darwin $(ESPFLAGS)
-COPTS  = -O2 -Wall -Wno-dangling-else -Wno-unused-result
-OCOPT  = -O2 -Wall -Wno-dangling-else -Wno-unused-result
+CXX    = /opt/homebrew/Cellar/llvm/17.0.2/bin/clang++ -m64 -g -target arm64-apple-darwin -mcpu=apple-m1 $(ESPFLAGS)
+CPPOPT = -O3 -fPIC -DOCC_CONVERT_SIGNALS -DNDEBUG -DNo_Exception -D_OCC64 -Wall -Wno-write-strings -Wno-dangling-else -Wno-unused-result -fvectorize -fslp-vectorize -ffp-contract=fast $(CPDS)
+CC     = /opt/homebrew/Cellar/llvm/17.0.2/bin/clang -m64 -g -target arm64-apple-darwin -mcpu=apple-m1 $(ESPFLAGS)
+COPTS  = -O3 -Wall -Wno-dangling-else -Wno-unused-result -fvectorize -fslp-vectorize -ffp-contract=fast
+OCOPT  = -O3 -Wall -Wno-dangling-else -Wno-unused-result
 ifeq ($(EFCOMP),gfortran)
 FCOMP     = gfortran -m64 -g $(ESPFFLAGS)
-FOPTS     = -O2 -frecursive -fcray-pointer
+FOPTS     = -O3 -frecursive -fcray-pointer
 FSOFLG    = -bundle -undefined error
 ESPFLIBS += -static-libgfortran -static-libgcc
 endif
