@@ -119,7 +119,7 @@ typedef struct {
     int numMeshRef;
     aimMeshRef *meshRef;
 
-    aimMesh aimMesh;
+    // aimMesh aimMesh;
 
 } aimStorage;
 
